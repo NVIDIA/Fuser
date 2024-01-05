@@ -790,7 +790,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
   // take advantage of unswizzling during the grid reduction
   auto smem_epilogue = (params.use_smem_epilogue && params.splitk_factor == 1)
-    ? mma_result->cacheAfter() : mma_result;
+      ? mma_result->cacheAfter()
+      : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
@@ -925,36 +926,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
   //   smem_epilogue   (unscheduled, same as original mma_result)
   //   splitk_sum      (nullptr)
-  //     mma_result T6_l[ iS27{( ceilDiv(i0, 128) )}, iS29{( ceilDiv(i4, 128) )}, rS31{( ceilDiv(i2, 32) )}, iS28{128}, iS30{128}, rS32{32} ]
-  //     smem_epilogue T6_l[ iS27{( ceilDiv(i0, 128) )}, iS29{( ceilDiv(i4, 128) )}, rS31{( ceilDiv(i2, 32) )}, iS28{128}, iS30{128}, rS32{32} ]
   //
   // No split-K, smem_epilogue = true
   //   mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
   //   smem_epilogue   (unscheduled, same as original mma_result)
   //   splitk_sum      (nullptr)
-  //     mma_result T6_l[ iS29{( ceilDiv(i0, 128) )}, iS31{( ceilDiv(i4, 128) )}, rS33{( ceilDiv(i2, 32) )}, iS30{128}, iS32{128}, rS34{32} ]
-  //     smem_epilogue T7_l[ iS17{i0}, iS18{i4} ]
   //
   // With split-K & no smem epilogue
   //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
   //   smem_epilogue   (mma_result)
   //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-  //     mma_result T12_l[ iS38{( ceilDiv(i0, 128) )}, iS40{( ceilDiv(i4, 128) )}, iS44{2}rf, rS45{( ceilDiv(( ceilDiv(i2, 32) ), 2) )}rf, iS39{128}, iS41{128}, rS43{32}rf ]
-  //     smem_epilogue T6_l[ iS49{( ceilDiv(i0, 128) )}, iS51{( ceilDiv(i4, 128) )}, rS48{2}, iS50{128}, iS52{128} ]
-  //     splitk_sum T6_l[ iS49{( ceilDiv(i0, 128) )}, iS51{( ceilDiv(i4, 128) )}, rS48{2}, iS50{128}, iS52{128} ]
 
   // With split-K & smem epilogue
   //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
   //   smem_epilogue   [..., iMo, iNo, iKf, iMi, iNi]
   //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-  //     mma_result T12_l[ iS38{( ceilDiv(i0, 128) )}, iS40{( ceilDiv(i4, 128) )}, iS44{2}rf, rS45{( ceilDiv(( ceilDiv(i2, 32) ), 2) )}rf, iS39{128}, iS41{128}, rS43{32}rf ]
-  //     smem_epilogue T13_l[ iS56{( ceilDiv(i0, 128) )}, iS58{( ceilDiv(i4, 128) )}, iS55{2}, iS57{128}, iS59{128} ]
-  //     splitk_sum T6_l[ iS49{( ceilDiv(i0, 128) )}, iS51{( ceilDiv(i4, 128) )}, rS48{2}, iS50{128}, iS52{128} ]
-
-  std::cout << "  After split-K split:\n";
-  std::cout << "    mma_result " << mma_result->toString() << std::endl;
-  std::cout << "    smem_epilogue " << smem_epilogue->toString() << std::endl;
-  std::cout << "    splitk_sum " << (splitk_sum != nullptr ? splitk_sum->toString() : "nullptr") << std::endl;
 
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
@@ -975,25 +961,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //           -8  -7  -6  -5  -4  -3  -2  -1
   //   [... iMNwo rKo iMw iNw rKw iMi iNi rKi]
   // Note the positions of the reduction dimensions has changed
-  std::cout << "  mma_result after schedulWarpTileWithReduction:\n    " << mma_result->toString() << std::endl;
 
   // Propagate warp tile to main loop and epilog/output tvs
+  std::vector<TensorView*> warp_tile_prop_tvs;
+  if (splitk_sum != nullptr) {
+    warp_tile_prop_tvs.push_back(splitk_sum);
+  } else if (smem_epilogue != nullptr) {
+    warp_tile_prop_tvs.push_back(smem_epilogue);
+  }
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-      mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
-
-  std::cout << "  After bothWays:\n";
-  std::cout << "    mma_result " << mma_result->toString() << std::endl;
-  std::cout << "    smem_epilogue " << smem_epilogue->toString() << std::endl;
-  std::cout << "    splitk_sum " << (splitk_sum != nullptr ? splitk_sum->toString() : "nullptr") << std::endl;
+      mma_result, -1, {acw_smem, bcw_smem}, warp_tile_prop_tvs);
 
   // No (cross-CTA) split-K
   //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMi iNi rKi]
-  //   smem_epilogue   (unscheduled, same as original mma_result)
+  //   smem_epilogue   (unscheduled, same as original or current mma_result)
   //   splitk_sum      (nullptr)
   //
   // With split-K & no smem epilogue
   //   mma_result      [..., iMo iNo iKf rKg rKwo iMwo iNwo iMw iNw iMi iNi rKi]
-  //   smem_epilogue   (mma_result)
   //   splitk_sum      [..., iMo iNo rKf iMwo iNwo iMw iNw iMi iNi]
   //
   // With split-K & smem epilogue
@@ -1144,7 +1129,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
             .propagateToBoundary());
-    smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
+    if (num_splitk_dims == 0) {
+      // TODO: Remove this once we are able to vectorize the splitk reduction
+      smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
+    } else {
+      splitk_sum->axis(-3)->parallelize(ParallelType::BIDz);
+    }
 
     for (auto [dc, d] : cached_and_forked_outputs) {
       // Schedule output tensor differently for better global memory access
@@ -1175,7 +1165,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  if (num_splitk_dims) {
+  if (num_splitk_dims && !params.use_smem_epilogue) {
     // Here we reorder splitk_sum so that the grid reduction in the z dimension
     // is placed last, ensuring that we can inline it with downstream tensors.
     //
