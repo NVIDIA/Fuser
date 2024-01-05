@@ -87,6 +87,10 @@ void FusionDefinition::finalizeDefinition() {
     }
 
     buildFusionIr(preschedFusion());
+
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
+      printIr();
+    }
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       debug() << "\nFusionDefinition: Terminal Node found!\n";
