@@ -34,7 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-      (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -141,10 +141,13 @@ void ExpressionEvaluator::bind_(
             i);
         bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (rfactor_domain[i]->isDeviceDim() && rfactor_domain[i]->getMaybeExpandedExtent()->isConst()) {
-        // Device dimensions extents will always be 1. 
-	// Ignore concrete extents because they hold the unsharded extents.	      
-        NVF_CHECK(1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+      } else if (
+          rfactor_domain[i]->isDeviceDim() &&
+          rfactor_domain[i]->getMaybeExpandedExtent()->isConst()) {
+        // Device dimensions extents will always be 1.
+        // Ignore concrete extents because they hold the unsharded extents.
+        NVF_CHECK(
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }

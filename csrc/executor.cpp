@@ -521,9 +521,10 @@ std::vector<int64_t> getContiguousStrides(
 
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
-  //interesting. I think it can be used as-is.
-// What to do with the strides ? Maybe we should assert (or Warn) that the strides are 0
-// From the implementation of how to get the strides, I think it's not a problem
+    // interesting. I think it can be used as-is.
+    // What to do with the strides ? Maybe we should assert (or Warn) that the
+    // strides are 0 From the implementation of how to get the strides, I think
+    // it's not a problem
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
@@ -843,11 +844,15 @@ class BackwardTraverseFromAllocToRFactor {
 // into a format whose dimensions are consistent with the rFactor domain of tv.
 // For example, if the rFactor domain is [I1, I2], and the allocation domain is
 // [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
-// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1]. interesting
-// Another example, if the rFactor domain is [I1*I2] and the allocation domain
-// is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
-// get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToRFactor( //maybe it is brutal to completely discard a Did axis. In case of a reduction?
+// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
+// interesting Another example, if the rFactor domain is [I1*I2] and the
+// allocation domain is [I1, I2], then we will allocate as [I1, I2] and do a
+// tensor.view(I1*I2) to get a tensor whose semantics is [I1*I2] but memory is
+// [I1,I2]
+at::Tensor transformOutputFromAllocationToRFactor( // maybe it is brutal to
+                                                   // completely discard a Did
+                                                   // axis. In case of a
+                                                   // reduction?
     at::Tensor tensor,
     TensorView* tv,
     ExpressionEvaluator& ee) {
@@ -1540,7 +1545,8 @@ void FusionExecutor::initializeExecutorEntry(
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
-  executor_entry.intermediates = intermediates; // this where is initialized what we want
+  executor_entry.intermediates =
+      intermediates; // this where is initialized what we want
   executor_entry.init = true;
 }
 
@@ -1660,7 +1666,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     dumpFusionArgs(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
-  
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();

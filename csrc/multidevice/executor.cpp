@@ -227,13 +227,15 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == staged_fusion_->inputs().size(), "Wrong number of inputs");
+      inputs.size() == staged_fusion_->inputs().size(),
+      "Wrong number of inputs");
 
   val_to_IValue_ = allocateRecvBuffers(inputs);
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] = inputs.at(input_idx);
+    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
+        inputs.at(input_idx);
   }
 
   // Run through the groups to launch kernels and comms

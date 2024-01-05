@@ -6,16 +6,15 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
-#include <gtest/gtest.h>
 #include <disjoint_set.h>
-#include <test/multidevice.h>
-#include <test/validator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <ops/all_ops.h>
+#include <gtest/gtest.h>
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
-#include <index_compute.h>
+#include <ops/all_ops.h>
+#include <test/multidevice.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
@@ -49,11 +48,12 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
 
   auto x = at::randn({num_devices, 3}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
-  auto ref_outputs = at::sum(x*4, {0});
-  
+  auto ref_outputs = at::sum(x * 4, {0});
+
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
 TEST_F(MultiDeviceTest, ShardOuterAxis) {
   int sharded_dim = 0;
@@ -86,59 +86,18 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
 
   auto x = at::randn({num_devices, 3}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
-  auto ref_outputs = at::sum(x*4, {0});
-  
+  auto ref_outputs = at::sum(x * 4, {0});
+
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
-
-/*TEST_F(MultiDeviceTest, ShardReplicateOp) {
-  int sharded_dim = 0;
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
-  std::vector<int64_t> ranks(num_devices);
-  std::iota(ranks.begin(), ranks.end(), 0);
-  DeviceMesh mesh(ranks);
-
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = makeContigTensor(2);
-  TensorView* tv2 = add(tv0, tv1);
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  // tv0 sharded, tv1 replicated, tv2 sharded
-  tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-  tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-
-  if (communicator->deviceId() == 0) {
-    fusion->printKernel();
-  }
-
-  std::vector<TensorView*> tvs = {tv0, tv1};
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(mesh);
-  }
-
-  auto x = at::randn({num_devices, 3}, tensor_options);
-  std::cout << "Whole input tensor " << x << std::endl;
-  std::cout << "Input tensor " << communicator->deviceId() << " " << x.index({communicator->deviceId(), "..."}) << std::endl;
-  // std::vector<c10::IValue> inputs = {x.index({communicator->deviceId(), "..."})};
-  std::vector<c10::IValue> inputs = {x};
-  auto ref_outputs = x + x;
-  
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
-  auto outputs = runtime.runWithInput(inputs);
-  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
-}
-*/
 
 inline at::Tensor shardInputTensor(at::Tensor tensor, int deviceId) {
   return tensor.index({deviceId, "..."}).unsqueeze(0);
 }
 
-// AllReduce
 TEST_F(MultiDeviceTest, ShardGlobalInput) {
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -163,13 +122,15 @@ TEST_F(MultiDeviceTest, ShardGlobalInput) {
 
   auto x = at::randn({num_devices, 3, 2}, tensor_options);
   // Sharded input shape [1, 3, 2]
-  std::vector<c10::IValue> inputs = {shardInputTensor(x, communicator->deviceId())};
+  std::vector<c10::IValue> inputs = {
+      shardInputTensor(x, communicator->deviceId())};
   auto ref_outputs = at::sum(x, {0}) * 2;
-  
+
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
 
-}
+} // namespace nvfuser
 #endif

@@ -113,15 +113,17 @@ CommParams createParamsForGatherScatter(
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      auto sliced_buf = root_buf.index({static_cast<int>(i), "..."}).unsqueeze(0);
-      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
+      auto sliced_buf =
+          root_buf.index({static_cast<int>(i), "..."}).unsqueeze(0);
+      ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
     // The scatter/gather semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
     // have to artificially make it send and receive a dummy buffer
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
-      at::Tensor dummy = createDummyTensor(root_buf.index({0, "..."}).unsqueeze(0));
+      at::Tensor dummy =
+          createDummyTensor(root_buf.index({0, "..."}).unsqueeze(0));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -185,8 +187,8 @@ void lowerToAllgather(
   CommParams params;
   params.team = mesh.vector();
   for (auto i : c10::irange(mesh.vector().size())) {
-    params.dst_bufs.push_back(
-        output_tensor.index({static_cast<int>(i), "..."}).view(input_tensor.sizes()));
+    params.dst_bufs.push_back(output_tensor.index({static_cast<int>(i), "..."})
+                                  .view(input_tensor.sizes()));
   }
   params.src_bufs = {input_tensor};
 
@@ -376,7 +378,8 @@ void lowerToReduceScatter(
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
   for (auto i : c10::irange(mesh.vector().size())) {
-    auto sliced_buf = input_tensor.index({0, static_cast<int>(i), "..."}).view(output_tensor.sizes());
+    auto sliced_buf = input_tensor.index({0, static_cast<int>(i), "..."})
+                          .view(output_tensor.sizes());
     params.src_bufs.push_back(sliced_buf);
   }
 

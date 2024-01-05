@@ -131,7 +131,8 @@ TEST_F(PipelineTest, Pipeline) {
   executeAndValidate();
 }
 
-//(backend type, first stage's mesh, second stage's mesh (if not null), is first stage sharded?, is second
+//(backend type, first stage's mesh, second stage's mesh (if not null), is first
+//stage sharded?, is second
 // stage sharded?, do_reduction?)
 using PipelineTestTwoStagesParams =
     std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
@@ -167,7 +168,8 @@ TEST_P(PipelineTestTwoStages, Communication) {
     GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
     second_axis_extent = mesh1.vector().size();
   }
-  std::vector<int64_t> input_sizes = {first_axis_extent, second_axis_extent, 3, 5};
+  std::vector<int64_t> input_sizes = {
+      first_axis_extent, second_axis_extent, 3, 5};
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(input_sizes);
@@ -188,8 +190,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
     input_sizes[0] = 1;
   }
   if (is_stage1_sharded) {
-    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0; 
+    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
+    // was initially of size 1, in which case it is simply removed.
+    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0;
     tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }

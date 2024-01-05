@@ -50,7 +50,8 @@ void MultiDeviceTest::SetUp() {
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
   debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test = multidevice_env->doBarrierAtTest() && communicator->is_available();
+  do_barrier_at_test =
+      multidevice_env->doBarrierAtTest() && communicator->is_available();
   time_print = multidevice_env->timePrint() && communicator->is_available();
   recordEvent("init");
 }
@@ -68,19 +69,24 @@ void MultiDeviceTest::TearDown() {
 }
 
 void MultiDeviceTest::recordEvent(const std::string name) {
-  times.push_back(std::make_pair(name, std::chrono::high_resolution_clock::now()));
+  times.push_back(
+      std::make_pair(name, std::chrono::high_resolution_clock::now()));
 }
 
 void MultiDeviceTest::printTimes() {
   std::stringstream ss;
   auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-  ss << "Rank " << communicator->deviceId()
-     << " -- test " << test_info->test_suite_name() << "." << test_info->name()
+  ss << "Rank " << communicator->deviceId() << " -- test "
+     << test_info->test_suite_name() << "." << test_info->name()
      << " -- Timestamps: {\n";
-  for (auto i: c10::irange(times.size() - 1)) {
+  for (auto i : c10::irange(times.size() - 1)) {
     auto [event_name, time] = times[i];
-    auto [_, next_time] = times[i+1];
-    ss << "  " << event_name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(next_time - time).count() << " ms\n";
+    auto [_, next_time] = times[i + 1];
+    ss << "  " << event_name << ": "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(
+              next_time - time)
+              .count()
+       << " ms\n";
   }
   ss << "}";
   std::cout << ss.str() << std::endl;
@@ -179,7 +185,10 @@ void SendToTester(
   }
 }
 
-c10::IValue allocate_unsharded_input(DeviceIdxType tester, TensorView* tv, at::Tensor sharded_input) {
+c10::IValue allocate_unsharded_input(
+    DeviceIdxType tester,
+    TensorView* tv,
+    at::Tensor sharded_input) {
   // TODO: Extend to multi-dimension mesh
   std::vector<int64_t> unsharded_sizes;
   for (size_t i = 0; i < tv->nDims(); i++) {
@@ -189,7 +198,8 @@ c10::IValue allocate_unsharded_input(DeviceIdxType tester, TensorView* tv, at::T
       unsharded_sizes.push_back(sharded_input.size(i));
     }
   }
-  at::Tensor unsharded_input = at::rand(unsharded_sizes, sharded_input.options());
+  at::Tensor unsharded_input =
+      at::rand(unsharded_sizes, sharded_input.options());
   unsharded_input.index_put_({tester, "..."}, sharded_input.index({0, "..."}));
   return unsharded_input;
 }
@@ -204,9 +214,9 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
   std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
     TensorView* tv = runtime->fusion()->inputs().at(i)->as<TensorView>();
-    c10::IValue unsharded_input = isSharded(tv) ? 
-        allocate_unsharded_input(tester, tv, inputs.at(i).toTensor()) : 
-        inputs.at(i).deepcopy();
+    c10::IValue unsharded_input = isSharded(tv)
+        ? allocate_unsharded_input(tester, tv, inputs.at(i).toTensor())
+        : inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
 
     SendToTester(
@@ -226,7 +236,8 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
     recordEvent("compile unsharded fusion and alloc output");
     fusion_copy = std::make_unique<Fusion>(*runtime->fusion());
     unshard(fusion_copy.get());
-    unsharded_fec = std::make_unique<FusionExecutorCache>(std::move(fusion_copy));
+    unsharded_fec =
+        std::make_unique<FusionExecutorCache>(std::move(fusion_copy));
     unsharded_outputs = unsharded_fec->allocOutputSpace(unsharded_inputs);
   } else {
     // On non-tester devices, these tensors won't be used.
@@ -306,7 +317,8 @@ void PipelineTest::execute() {
   }
 
   recordEvent("runtime instantiation");
-  runtime = std::make_unique<MultiDeviceExecutor>(std::move(fusion), *communicator);
+  runtime =
+      std::make_unique<MultiDeviceExecutor>(std::move(fusion), *communicator);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
