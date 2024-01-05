@@ -419,11 +419,11 @@ void AliasAnalysisResult::add(
       inserted,
       "The current implementation of alias analysis shouldn't find two "
       "sources for an alias. However, it's trying to make ",
-      alias->toString(),
+      alias,
       " an alias of ",
-      source->toString(),
+      source,
       " while it's already an alias of ",
-      i->second.first->toString());
+      i->second.first);
 }
 
 TensorView* AliasAnalysisResult::findNearestAliasedIo(
@@ -477,10 +477,7 @@ void AliasAnalysisResult::finalize(
 
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_ERROR(
-      tv != nullptr,
-      "`v` is expected to be a TensorView. Found: ",
-      v == nullptr ? "<null>" : v->toString());
+  NVF_ERROR(tv != nullptr, "`v` is expected to be a TensorView. Found: ", v);
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
