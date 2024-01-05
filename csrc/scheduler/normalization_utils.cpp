@@ -1010,16 +1010,19 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
   }
   // check if there is any fused op before reduction, except cast and set
-  for (auto expr : all_exprs) {
-    if (expr->isA<UnaryOp>() &&
-        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
-      continue;
-    }    
-    if(expr->isA<LoadStoreOp>()){
-      continue;
+  // skip check if there is only one tensor input, e.g. softmax
+  if(n_tensor_inputs > 1){
+    for (auto expr : all_exprs) {
+      if (expr->isA<UnaryOp>() &&
+          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
+        continue;
+      }    
+      if(expr->isA<LoadStoreOp>()){
+        continue;
+      }
+      has_fused_op_before_reduction = true;
+      break;
     }
-    has_fused_op_before_reduction = true;
-    break;
   }
   std::cout << "has_exp_op: " << has_exp_op << std::endl;
   std::cout << "has_fused_op_before_reduction: " << has_fused_op_before_reduction << std::endl;
