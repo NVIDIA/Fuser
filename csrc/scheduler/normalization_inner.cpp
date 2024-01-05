@@ -232,7 +232,7 @@ class HeuristicCalculator {
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     threads_per_warp_ = (int64_t)dev_prop->warpSize;
     has_multiple_inputs_ =
-        max_persistent_buffer_size / total_reduction_numel > 2l && max_vectorize_factor == 8;
+        max_persistent_buffer_size / total_reduction_numel > 2l && max_vectorize_factor == 8 && !has_exp_ops;
     has_rng_ops_ = has_rng_ops;
     has_exp_ops_ = has_exp_ops;
     max_warps_per_sm_ =
