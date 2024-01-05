@@ -226,8 +226,7 @@ void AliasFinder::handle(const ViewOp* view) {
       }
       allocation_to_contiguity.insert(merge_i, merge->out(), contiguity);
     } else {
-      NVF_ERROR(
-          false, "Expect Split or Merge, but found: ", transform->toString());
+      NVF_ERROR(false, "Expect Split or Merge, but found: ", transform);
     }
   }
 
@@ -501,7 +500,7 @@ AliasAnalysisResult findAliases(
 
 int64_t Layout::size() const {
   NVF_ERROR(allocation_domain.size() == contiguity.size());
-  return allocation_domain.size();
+  return static_cast<int64_t>(allocation_domain.size());
 }
 
 std::string Layout::toString(const int indent_size) const {
