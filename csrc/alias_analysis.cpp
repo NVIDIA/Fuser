@@ -296,17 +296,16 @@ void AliasFinder::handle(const SliceOp* slice) {
   }
 
   // Inherit the allocation order from the input. However, refine the
-  // contiguity flags.
-  // Scan through the allocation domain in minor-to-major order. If an
-  // IterDomain is sliced, the next non-broadcast IterDomain has to be marked
-  // non-contiguous. For example,
+  // contiguity flags. This is done by scanning through the allocation domain in
+  // minor-to-major order. If an IterDomain is sliced, the next non-broadcast
+  // IterDomain has to be marked non-contiguous. For example,
   //
-  // in = makeContigConcreteTensor({16, 128, 3072});
-  // out = slice(in, {0, 0, 0}, {16, 128, 1024});
+  //   in = makeContigConcreteTensor({16, 128, 3072});
+  //   out = slice(in, {0, 0, 0}, {16, 128, 1024});
   //
   // For `out` to alias `in`, its contiguity has to be updated to [t, f, t].
   bool next_non_broadcast_is_non_contiguous = false;
-  for (auto i = static_cast<int64_t>(out_layout->size()) - 1; i >= 0; i--) {
+  for (int64_t i = out_layout->size() - 1; i >= 0; i--) {
     IterDomain*& alloc_id = out_layout->allocation_domain[i];
     std::optional<bool>& contiguity = out_layout->contiguity[i];
 

@@ -18,6 +18,7 @@ struct Layout {
   std::vector<IterDomain*> allocation_domain;
   std::vector<std::optional<bool>> contiguity;
 
+  // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
 
   std::string toString(int indent_size = 0) const;
