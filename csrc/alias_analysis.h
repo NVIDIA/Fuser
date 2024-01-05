@@ -18,6 +18,8 @@ struct Layout {
   std::vector<IterDomain*> allocation_domain;
   std::vector<std::optional<bool>> contiguity;
 
+  int64_t size() const;
+
   std::string toString(int indent_size = 0) const;
 
   // Returns whether this layout is compliant with `required`. This is
