@@ -306,14 +306,14 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 //!  TODO: 4th domain must be added for batch gemm support.
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 ProblemIterDomainsOpt getProblemIterDomains(
-    mma_utils::MulSumProperties::InputsOutputs props);
+    const mma_utils::MulSumProperties::InputsOutputs& props);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
-    mma_utils::MulSumProperties::InputsOutputs props);
+    const mma_utils::MulSumProperties::InputsOutputs& props);
 RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 //! Return pair of whether use shared memory epilogue or not and whether to

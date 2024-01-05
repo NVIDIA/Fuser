@@ -37,7 +37,24 @@
 
 namespace nvfuser {
 
-class CombineMulSumAsMmaTest : public NVFuserTest {};
+class CombineMulSumAsMmaTest : public NVFuserTest {
+  void SetUp() override {
+    // These test are enable for Turing and newer. Temporarily
+    // we are skipping Hopper since the matmul for it is under development.
+    auto lower_major = 8;
+    auto lower_minor = 0;
+    auto upper_major = 9;
+    auto upper_minor = 0;
+    if (cudaArchGuardShouldSkip(
+            lower_major, lower_minor, upper_major, upper_minor)) {
+      GTEST_SKIP() << "CombineMulSumAsMmaTest skipped "
+                   << "Requires GPU capability between  " << lower_major << "."
+                   << lower_minor << "and " << upper_major << "." << upper_minor
+                   << " to run.\n";
+    }
+    NVFuserTest::SetUp();
+  }
+};
 
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
@@ -171,14 +188,8 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        8,
-        0,
-        fe.compileFusion(
-            &fusion,
-            {inputs.first, inputs.second},
-            LaunchParams(),
-            matmul_cparams));
+    fe.compileFusion(
+        &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(

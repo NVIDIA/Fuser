@@ -402,7 +402,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
   ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
   ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
   ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
@@ -470,6 +469,7 @@ if(BUILD_TEST)
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/test/test_mma.cpp
+    ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp

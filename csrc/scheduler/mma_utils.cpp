@@ -1007,7 +1007,7 @@ inline void resolveTvToMatmulDomainsMapping(
 } // anonymous namespace
 
 ProblemIterDomainsOpt getProblemIterDomains(
-    mma_utils::MulSumProperties::InputsOutputs props) {
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   // NOTE: the iter domains of MMA output should be [...,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
@@ -1152,7 +1152,7 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
 
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
-    mma_utils::MulSumProperties::InputsOutputs props) {
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
