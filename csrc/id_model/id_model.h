@@ -201,6 +201,17 @@ class IdModel : public PolymorphicBase {
       const StatefulInliningInfo& info,
       const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
 
+  // Find a promoted iter domain of a given loop group that covers all
+  // the exact groups representative of the resolved transformations
+  // within the loop group. It doesn't have to be in the loop
+  // group. Specifically, we examine each IEL group of the loop graph,
+  // and if an IEL group has a promotion, we consider it as a
+  // candidate of the promotion of this loop group. If not, we include a
+  // domain of the IEL group as a candidate too. We also look at the
+  // inline promotion map since that may also contain the promotion the
+  // loop should be associated with. Once all candidates are obtained,
+  // we pick one that covers all the exact domains (cf. concrete domains
+  // in ComputeAtMap)
   IterDomain* findPromotionOfLoopGroup(
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
