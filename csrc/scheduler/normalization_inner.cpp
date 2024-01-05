@@ -226,13 +226,14 @@ class HeuristicCalculator {
       const int64_t max_input_dtype_size,
       const int64_t max_persistent_buffer_size,
       const size_t max_vectorize_factor,
+      const bool project_to_input,
       const bool has_rng_ops,
-      const bool has_exp_ops) {
+      const bool has_exp_ops,
+      const bool has_fused_op_before_reduction) {
     // Some facts:
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     threads_per_warp_ = (int64_t)dev_prop->warpSize;
-    has_multiple_inputs_ =
-        max_persistent_buffer_size / total_reduction_numel > 2l && max_vectorize_factor == 8 && !has_exp_ops;
+    has_multiple_inputs_ = has_fused_op_before_reduction;
     has_rng_ops_ = has_rng_ops;
     has_exp_ops_ = has_exp_ops;
     max_warps_per_sm_ =
@@ -662,7 +663,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const bool project_to_input,
     const PrimDataType index_type,
     const bool has_rng_ops,
-    const bool has_exp_ops) {
+    const bool has_exp_ops,
+    const bool has_fused_op_before_reduction) {
   // Some checks:
   NVF_ERROR(
       max_vectorize_factor > 1,
@@ -676,8 +678,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       (int64_t)max_input_dtype_size,
       max_persistent_buffer_size,
       max_vectorize_factor,
+      project_to_input,
       has_rng_ops,
-      has_exp_ops);
+      has_exp_ops,
+      has_fused_op_before_reduction);
 
   auto h_params = hc.getBestPara();
 
@@ -823,7 +827,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const bool project_to_input,
     const PrimDataType index_type,
     const bool has_rng_op,
-    const bool has_exp_op) {
+    const bool has_exp_op,
+    const bool has_fused_op_before_reduction) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -851,7 +856,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           project_to_input,
           index_type,
           has_rng_op,
-          has_exp_op);
+          has_exp_op,
+          has_fused_op_before_reduction);
     }
   }
   // Set some targets for parallelization
@@ -1401,7 +1407,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.project_persistent_buffers,
       prop.index_type,
       prop.has_rng_op,
-      prop.has_exp_op);
+      prop.has_exp_op,
+      prop.has_fused_op_before_reduction);
   return rparams;
 }
 
