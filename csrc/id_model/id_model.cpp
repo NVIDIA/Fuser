@@ -910,7 +910,7 @@ void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
 
   VERBOSE() << "Initial loop graph:\n";
   for (const auto& group :
-           idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
     VERBOSE() << nvfuser::toString(group) << std::endl;
   }
 
@@ -1664,12 +1664,11 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   // Need to use the intersection of exact and loop map again, it needs to be
   // recomputed.
-  auto intersection_exact_loop_graph = buildIntersection(
+  auto iel_graph = buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
   // Update the promotion map
-  auto iel_promotion_map =
-      updateMap(stale_promotion_map, intersection_exact_loop_graph);
+  auto iel_promotion_map = updateMap(stale_promotion_map, iel_graph);
 
   // Loop promotion map is to prepare for IterDomain replays to resolve
   // non-inlined loop groups. Since these replays will modify the loop map as
@@ -1690,7 +1689,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
        loop_graph_copy.disjointValSets().disjointSets()) {
     IterDomain* promotion_id = findPromotionOfLoopGroup(
         loop_group,
-        intersection_exact_loop_graph,
+        iel_graph,
         iel_promotion_map,
         {},
         exact_covered_ids,
@@ -1720,15 +1719,12 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // Need to run a replay for the loop groups that are dependent on inlined loop
   // groups, but themselves are not inlined loop groups.
 
-  for (const ExprGroup& iel_expr :
-       IdGraphStmtSort(intersection_exact_loop_graph).exprs()) {
+  for (const ExprGroup& iel_expr : IdGraphStmtSort(iel_graph).exprs()) {
     NVF_ERROR(!iel_expr->empty());
 
-    std::vector<ValGroup> iel_inp_groups =
-        intersection_exact_loop_graph.inputGroups(iel_expr);
+    const std::vector<ValGroup> iel_inp_groups = iel_graph.inputGroups(iel_expr);
 
-    std::vector<ValGroup> iel_out_groups =
-        intersection_exact_loop_graph.outputGroups(iel_expr);
+    const std::vector<ValGroup> iel_out_groups = iel_graph.outputGroups(iel_expr);
 
     // When replaying the transformations we can't blindly apply loop promotion
     // to all iter domains within a loop group as it would replay the
@@ -1764,7 +1760,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
     }
 
     // The inputs should be promoted based on the loop promotion map.
-    bool loop_promote_inputs =
+    // TODO-NM: Revisit why
+    const bool loop_promote_inputs =
         !inp_loop_groups.computeSubtract(out_loop_groups).empty();
 
     std::vector<IterDomain*> promoted_inputs;
@@ -1826,14 +1823,12 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       // inp_id may have been just replayed, in which case it should
       // not exist in the IEL graph. It should be just ignored as it
       // should not have any use yet.
-      if (!intersection_exact_loop_graph.hasGroup(inp_id)) {
+      if (!iel_graph.hasGroup(inp_id)) {
         continue;
       }
-      const auto& inp_exact_group =
-          intersection_exact_loop_graph.toGroup(inp_id);
+      const auto& inp_exact_group = iel_graph.toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
-      promoted_input_uses.pushBack(
-          *intersection_exact_loop_graph.getUses(inp_exact_group));
+      promoted_input_uses.pushBack(*iel_graph.getUses(inp_exact_group));
     }
 
     // Check every use to see if it matches
@@ -1845,10 +1840,11 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
         continue;
       }
       // Check if inputs all match
-      if (promoted_input_groups !=
-          intersection_exact_loop_graph.inputGroups(iel_use_group)) {
+      if (promoted_input_groups != iel_graph.inputGroups(iel_use_group)) {
         continue;
       }
+      // TODO-NM: Looks like I added this but don't remember why.
+#if 0
       // Input mapping doesn't always mean expr and output
       // mappings. Make sure the exprs are mapped, which automatically
       // means the outputs are mapped in the case of the LOOP map
@@ -1858,6 +1854,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
                    iel_expr->front(), iel_use_group->front())) {
         continue;
       }
+#endif
       // This is just an extra sanity check. Make sure all exprs in
       // the use group are mapped
       NVF_ERROR(
@@ -1883,7 +1880,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       replay = addReplayAs(promoted_inputs, iel_expr->front());
     }
 
-    auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
+    auto output_groups = iel_graph.outputGroups(iel_expr);
 
     // Match or replay, mark promotion for output groups.
     auto replay_out_ids =
@@ -1925,7 +1922,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
        loop_graph_copy.disjointValSets().disjointSets()) {
     IterDomain* promotion_id = findPromotionOfLoopGroup(
         loop_group,
-        intersection_exact_loop_graph,
+        iel_graph,
         iel_promotion_map,
         loop_graph_copy_promotion_map,
         exact_covered_ids,
