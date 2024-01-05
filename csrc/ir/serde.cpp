@@ -58,11 +58,6 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Expr*>& exprs,
     bool deterministic_order) {
   std::vector<Statement*> sorted;
-  if (deterministic_order) {
-    std::copy(values.begin(), values.end(), std::back_inserter(sorted));
-    std::copy(exprs.begin(), exprs.end(), std::back_inserter(sorted));
-    return sorted;
-  }
 
   // During segmentation, intermediate TensorViews can become new global
   // TensorViews. A new TensorDomain is created for the new global TensorView
@@ -161,7 +156,8 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
           if (top_stmt->isVal()) {
             // 1) Create Val without definition expression.
             // It is only valid for expressions.
-            if (top_stmt->asVal()->definition() == nullptr) {
+            if (deterministic_order ||
+                top_stmt->asVal()->definition() == nullptr) {
               valid_value_dependencies.insert(top_stmt);
             }
           } else {

@@ -44,7 +44,6 @@ class PolymorphicValueFactory
   std::vector<T> makeArray(const serde::Array* data);
 
   nvfuser::PolymorphicValue makeArray(const serde::Array* data);
-  nvfuser::PolymorphicValue makeScope(const Scope* data);
 
   nvfuser::IrContainer* container_;
 };

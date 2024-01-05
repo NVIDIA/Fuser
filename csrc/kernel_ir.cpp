@@ -814,9 +814,23 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
+flatbuffers::Offset<serde::Scope> Scope::serialize(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  std::vector<int64_t> fb_exprs;
+  fb_exprs.reserve(size());
+  std::transform(
+      exprs().begin(),
+      exprs().end(),
+      std::back_inserter(fb_exprs),
+      [&container](Expr* e) { return container.map(e); });
+  return serde::CreateScopeDirect(builder, &fb_exprs, container.map(owner()));
+}
+
 std::vector<Expr*>::iterator Scope::insert(
     std::vector<Expr*>::const_iterator pos,
     Expr* expr) {
+  expr->setScope(this);
   return exprs_.insert(pos, expr);
 }
 
@@ -854,6 +868,7 @@ std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
 void Scope::erase(std::vector<Expr*>::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
   C10_UNUSED auto expr = *pos;
+  expr->setScope(nullptr);
   exprs_.erase(pos);
 }
 
@@ -926,6 +941,7 @@ ForLoop::ForLoop(
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
+  kernel()->addScope(&(body()));
 }
 
 ForLoop::ForLoop(
@@ -1165,6 +1181,8 @@ IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
   addDataAttribute(Scope(this));
+  kernel()->addScope(&(thenBody()));
+  kernel()->addScope(&(elseBody()));
 }
 
 std::string IfThenElse::toString(int indent_size) const {

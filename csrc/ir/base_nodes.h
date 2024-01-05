@@ -69,6 +69,7 @@ class ExpressionEvaluator;
 namespace kir {
 class Kernel;
 class Predicate;
+class Scope;
 } // namespace kir
 
 // Passkey for container to register names with statements
@@ -568,13 +569,7 @@ class Expr : public Statement {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  std::vector<const Statement*> serdeDependencies() const override {
-    std::vector<const Statement*> deps;
-    std::copy(inputs_.begin(), inputs_.end(), std::back_inserter(deps));
-    std::copy(outputs_.begin(), outputs_.end(), std::back_inserter(deps));
-    std::copy(attributes_.begin(), attributes_.end(), std::back_inserter(deps));
-    return deps;
-  }
+  std::vector<const Statement*> serdeDependencies() const override;
 
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -632,6 +627,10 @@ class Expr : public Statement {
 
   // TODO: Protect based on being in kernel container
   kir::Predicate* writePredicate() const;
+
+  kir::Scope* scope() const;
+
+  void setScope(kir::Scope* scope);
 
   // Creates a shallow copy the expression with the given write-predicate
   // attached.
@@ -700,6 +699,8 @@ class Expr : public Statement {
 
   // Only used for reduction-related expressions
   kir::Predicate* write_predicate_ = nullptr;
+
+  kir::Scope* scope_ = nullptr;
 };
 
 template <typename T>

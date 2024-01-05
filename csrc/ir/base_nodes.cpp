@@ -491,13 +491,26 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
         serde::CreateStatementIndex(builder, container.map(stmt), is_val));
   }
 
+  int64_t scope_index = (ir_container_->isA<kir::Kernel>() && scope_ != nullptr)
+      ? kernel()->mapScope(scope_)
+      : -1;
+
   return serde::CreateExpressionDirect(
       builder,
       name(),
       serde_expr_type_,
       &fb_inputs,
       &fb_outputs,
-      &fb_attributes);
+      &fb_attributes,
+      scope_index);
+}
+
+std::vector<const Statement*> Expr::serdeDependencies() const {
+  std::vector<const Statement*> deps;
+  std::copy(inputs_.begin(), inputs_.end(), std::back_inserter(deps));
+  std::copy(outputs_.begin(), outputs_.end(), std::back_inserter(deps));
+  std::copy(attributes_.begin(), attributes_.end(), std::back_inserter(deps));
+  return deps;
 }
 
 kir::Predicate* Expr::predicate() const {
@@ -524,6 +537,16 @@ kir::Predicate* Expr::writePredicate() const {
 void Expr::setWritePredicate(kir::Predicate* write_predicate) {
   NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   write_predicate_ = write_predicate;
+}
+
+kir::Scope* Expr::scope() const {
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  return scope_;
+}
+
+void Expr::setScope(kir::Scope* scope) {
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  scope_ = scope;
 }
 
 Expr* Expr::withWritePredicate(kir::Predicate* predicate) {

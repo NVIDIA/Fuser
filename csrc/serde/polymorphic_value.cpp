@@ -239,6 +239,15 @@ nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
       c10::nullopt);
 }
 
+nvf::PolymorphicValue deserializeScope(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const Scope* data = buffer->data_as_Scope();
+  NVF_ERROR(data != nullptr, "serde::Scope is nullptr.");
+  // Expressions for the scope are added upon their creation because they do not
+  // exist yet in the IrContainer.
+  return nvf::PolymorphicValue(nvf::Opaque(nvf::kir::Scope()));
+}
+
 } // namespace
 
 nvf::PolymorphicValue deserializeBool(const PolymorphicValue* buffer) {
@@ -346,18 +355,6 @@ nvf::PolymorphicValue PolymorphicValueFactory::makeArray(
   }
 }
 
-nvf::PolymorphicValue PolymorphicValueFactory::makeScope(const Scope* data) {
-  NVF_ERROR(data != nullptr, "serde::Scope is nullptr.");
-  NVF_ERROR(
-      container_ != nullptr,
-      "IrContainer is required for deserializing nvf::kir::Scope.");
-  nvf::kir::Scope scope(container_->getExpr<nvf::Expr>(data->owner_expr()));
-  for (int64_t fb_expr : *data->exprs()) {
-    scope.push_back(container_->getExpr<nvf::Expr>(fb_expr));
-  }
-  return nvf::PolymorphicValue(nvf::Opaque(std::move(scope)));
-}
-
 void PolymorphicValueFactory::registerAllParsers() {
   auto deserialize_unsupported =
       [](const serde::PolymorphicValue* buffer) -> nvf::PolymorphicValue {
@@ -390,11 +387,7 @@ void PolymorphicValueFactory::registerAllParsers() {
       PolymorphicValueData::ParallelTypeBitmap, deserializeParallelTypeBitmap);
   registerParser(PolymorphicValueData::RNGAttributes, deserializeRNGAttributes);
   registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
-  auto deserialize_scope = [this](const PolymorphicValue* buffer) {
-    NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
-    return makeScope(buffer->data_as_Scope());
-  };
-  registerParser(PolymorphicValueData::Scope, deserialize_scope);
+  registerParser(PolymorphicValueData::Scope, deserializeScope);
   registerParser(PolymorphicValueData::String, deserializeString);
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
@@ -496,16 +489,7 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
         builder, PolymorphicValueData::RNGAttributes, data);
   } else if (v.any().type() == typeid(nvf::kir::Scope)) {
     const auto& kir_scope = v.as<nvf::kir::Scope>();
-    std::vector<int64_t> fb_exprs;
-    fb_exprs.reserve(kir_scope.size());
-    std::transform(
-        kir_scope.exprs().begin(),
-        kir_scope.exprs().end(),
-        std::back_inserter(fb_exprs),
-        [&container](nvf::Expr* e) { return container.map(e); });
-    auto data = serde::CreateScopeDirect(
-                    builder, &fb_exprs, container.map(kir_scope.owner()))
-                    .Union();
+    auto data = kir_scope.serialize(container, builder).Union();
     return CreatePolymorphicValue(builder, PolymorphicValueData::Scope, data);
   } else if (v.any().type() == typeid(nvf::AsyncOpType)) {
     auto data = CreateOpaqueEnum(

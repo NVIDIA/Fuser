@@ -129,6 +129,10 @@ class Fusion : public IrContainer {
       flatbuffers::FlatBufferBuilder& builder,
       bool deterministic_order) const;
 
+  flatbuffers::Offset<serde::Fusion> serialize(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
+
   void deserialize(const serde::Fusion* buffer);
 
   friend void swap(Fusion& a, Fusion& b) noexcept;

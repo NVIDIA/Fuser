@@ -717,6 +717,7 @@ class UpdateMagicZero final : public Expr {
 // TODO(kir): promote to IR node
 class Scope {
  public:
+  explicit Scope() = default;
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
@@ -759,6 +760,7 @@ class Scope {
   std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
 
   void push_back(Expr* e) {
+    e->setScope(this);
     exprs_.push_back(e);
   }
 
@@ -776,6 +778,10 @@ class Scope {
     return owner_;
   }
 
+  void setOwner(Expr* owner) {
+    owner_ = owner;
+  }
+
   bool operator==(const Scope&) const {
     NVF_ERROR(false, "Should not reach here");
   }
@@ -784,6 +790,10 @@ class Scope {
   std::vector<Expr*>::iterator insert(
       std::vector<Expr*>::const_iterator pos,
       Expr* expr);
+
+  flatbuffers::Offset<serde::Scope> serialize(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
 
  private:
   // Erase expr at pos
