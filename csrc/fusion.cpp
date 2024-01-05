@@ -155,7 +155,12 @@ flatbuffers::Offset<serde::Fusion> Fusion::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     bool deterministic_order) const {
   IrSerde container(this, deterministic_order);
+  return serialize(container, builder);
+}
 
+flatbuffers::Offset<serde::Fusion> Fusion::serialize(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
   std::vector<int64_t> fb_inputs_vals;
   fb_inputs_vals.reserve(inputs_.size());
   for (auto inp : inputs_) {

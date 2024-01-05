@@ -69,6 +69,7 @@ class IrBuilder {
     ExprType* node = IrBuilder::create<ExprType>(
         buffer->type(), inputs, outputs, attributes);
     container->registerStmt(IrBuilderPasskey(container), node);
+
     // We do deserialize according to toposort order instead of original order.
     // The statement name will be differnet so we set it according to the value
     // stored in serde buffer.

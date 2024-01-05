@@ -2052,7 +2052,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   return serde::CreateFusionExecutorDirect(
       builder,
-      fusion_->serialize(builder, /*deterministic_order=*/true),
+      lowered_->kernel()->serialize(builder),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
@@ -2222,8 +2222,7 @@ void FusionExecutor::deserialize(
   compile_params.maxrregcount = maxrregcount_high_water_mark_;
 
   // Get lowered fusion
-  lowered_ =
-      std::make_unique<GpuLower>(buffer->lowered_fusion(), compile_params);
+  lowered_ = std::make_unique<GpuLower>(buffer->kernel(), compile_params);
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"

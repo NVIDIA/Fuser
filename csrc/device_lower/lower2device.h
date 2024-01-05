@@ -65,7 +65,7 @@ class GpuLower : public NonCopyable {
       const CompileParams& cparams = CompileParams());
 
   explicit GpuLower(
-      const serde::Fusion* fusion,
+      const serde::Kernel* kernel,
       const CompileParams& cparams = CompileParams());
 
   kir::Kernel* kernel() const;
@@ -236,7 +236,7 @@ class GpuLower : public NonCopyable {
 
  private:
   void create(Fusion* fusion);
-  void create(const serde::Fusion* fusion);
+  void create(const serde::Kernel* kernel);
 
   void analysis();
 

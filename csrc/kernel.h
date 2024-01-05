@@ -182,6 +182,11 @@ class Kernel final : public Fusion {
   Kernel(const Kernel&) = delete;
   Kernel& operator=(const Kernel&) = delete;
 
+  flatbuffers::Offset<serde::Kernel> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  void deserialize(const serde::Kernel* buffer);
+
   //! Finalize a kernel definition
   //!
   //! At this point we have a complete kernel definition and we can
@@ -221,6 +226,22 @@ class Kernel final : public Fusion {
     return parameters_;
   }
 
+  kir::Scope* getScope(int64_t index) {
+    NVF_ERROR(index < ((int64_t)scopes_.size()), "Missing scope from Kernel.");
+    return scopes_.at(index);
+  }
+
+  int64_t mapScope(Scope* scope) {
+    NVF_ERROR(scope != nullptr, "kir::Scope is nullptr.");
+    auto scope_iter = std::find(scopes_.cbegin(), scopes_.cend(), scope);
+    NVF_ERROR(scope_iter != scopes_.cend(), "Missing scope from kernel.");
+    return std::distance(scopes_.cbegin(), scope_iter);
+  }
+
+  void addScope(kir::Scope* scope) {
+    scopes_.push_back(scope);
+  }
+
  protected:
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -257,6 +278,10 @@ class Kernel final : public Fusion {
   // definition. If a parameter has a definition, its definition will be
   // evaluated before the kernel is executed.
   std::vector<Val*> parameters_;
+
+  // The scopes of the kernel. Each scope contains the expressions found in the
+  // kir::ForLoop or kir::IfThenElse.
+  std::vector<kir::Scope*> scopes_;
 };
 
 //! A special debugging proxy for Kernel.

@@ -287,9 +287,9 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
   analysis();
 }
 
-GpuLower::GpuLower(const serde::Fusion* fusion, const CompileParams& cparams)
+GpuLower::GpuLower(const serde::Kernel* kernel, const CompileParams& cparams)
     : cparams_(cparams) {
-  create(fusion);
+  create(kernel);
   analysis();
 }
 
@@ -358,9 +358,9 @@ void GpuLower::create(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 }
 
-void GpuLower::create(const serde::Fusion* fusion) {
+void GpuLower::create(const serde::Kernel* kernel) {
   FUSER_PERF_SCOPE("GpuLower::serde::create");
-  NVF_ERROR(fusion != nullptr);
+  NVF_ERROR(kernel != nullptr);
   NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
   LowerGuard lower_guard(this);
@@ -372,10 +372,11 @@ void GpuLower::create(const serde::Fusion* fusion) {
 
   std::unique_ptr<Fusion> lowered_fusion = std::make_unique<Fusion>();
   FusionGuard fg(lowered_fusion.get());
-  lowered_fusion->deserialize(fusion);
+  lowered_fusion->deserialize(kernel->fusion());
 
   // Copy fusion into a new kernel for processing
   kernel_ = std::make_unique<kir::Kernel>(lowered_fusion.get(), indexType());
+  kernel_->deserialize(kernel);
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 }

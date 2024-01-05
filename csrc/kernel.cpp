@@ -305,6 +305,36 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
       index_type_);
 }
 
+flatbuffers::Offset<serde::Kernel> Kernel::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  IrSerde container(this, /*deterministic_order=*/true);
+  std::vector<flatbuffers::Offset<serde::Scope>> fb_scopes;
+  fb_scopes.reserve(scopes_.size());
+  std::transform(
+      scopes_.begin(),
+      scopes_.end(),
+      std::back_inserter(fb_scopes),
+      [&container, &builder](kir::Scope* scope) {
+        return scope->serialize(container, builder);
+      });
+  return serde::CreateKernelDirect(
+      builder, Fusion::serialize(container, builder), &fb_scopes);
+}
+
+void Kernel::deserialize(const serde::Kernel* buffer) {
+  NVF_ERROR(scopes_.size() == buffer->scopes()->size());
+  int64_t scope_index = 0;
+  for (auto fb_scope : *buffer->scopes()) {
+    NVF_ERROR(fb_scope != nullptr, "serde::Scope is nullptr.");
+    kir::Scope* scope = scopes_.at(scope_index);
+    scope->setOwner(getExpr<Expr>(fb_scope->owner_expr()));
+    for (auto expr_index : *fb_scope->exprs()) {
+      Expr* expr = getExpr<Expr>(expr_index);
+      scope->push_back(expr);
+    }
+  }
+}
+
 // TODO(kir): Kernel IR validation
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   NVF_ERROR(top_level_exprs_.empty());
