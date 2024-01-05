@@ -1338,4 +1338,51 @@ TEST_F(NVFuserTest, SymbolicExpand) {
           ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
 }
 
+// Test that constant zero extents are not overwritten during concretization
+// with non-constant extents.
+// See https://github.com/NVIDIA/Fuser/issues/1572
+TEST_F(NVFuserTest, ConcretizeConstantExtents) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  auto tv2 = permute(tv1, {1, 2, 0, 3});
+  auto tv3 = slice(tv2, {0, 0, 0, 0}, {32, 1, 4096, 128});
+  auto tv4 = reshape(
+      tv3,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  // Note this slice has zero extent in last dimension. RemoveEmptyPass should
+  // recognize this and replace with full()
+  auto tv5 = slice(tv4, {0, 0, 0}, {32, 4096, 0});
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4096, 12288}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

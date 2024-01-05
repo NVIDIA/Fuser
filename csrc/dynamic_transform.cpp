@@ -648,7 +648,12 @@ void DynamicTransformConcretizer::concretizeReshape() {
       // If the old extent did not have a definition, we don't need to replace
       // it, since it will get bound whenever this tensor is a segmentation
       // edge.
-      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
+      //
+      // Also, if the old extent is already a constant, don't replace it with a
+      // non-constant, since this could cause downstream extents to become
+      // non-constant. See https://github.com/NVIDIA/Fuser/issues/1572
+      if (old_extent->definition() && !new_extent->sameAs(old_extent) &&
+          (!old_extent->isConstScalar() || new_extent->isConstScalar())) {
         registerConcretization(old_extent, new_extent);
       }
     }
