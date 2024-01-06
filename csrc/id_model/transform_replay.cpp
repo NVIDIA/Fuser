@@ -65,6 +65,16 @@ void ReplayTransform::handle(const Swizzle2D* swizzle_2d) {
                        .first->definition();
 }
 
+void ReplayTransform::handle(const Swizzle* swizzle) {
+  NVF_ERROR(
+      input_ids_.size() == 2,
+      "Expected two inputs to match swizzle: ",
+      swizzle->toString());
+  replayed_expr_ =
+      IterDomain::swizzle(swizzle->swizzleType(), input_ids_[0], input_ids_[1])
+          .first->definition();
+}
+
 void ReplayTransform::handle(const Resize* resize) {
   NVF_ERROR(
       input_ids_.size() == 1,

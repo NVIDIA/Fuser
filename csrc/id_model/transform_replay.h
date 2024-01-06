@@ -42,6 +42,8 @@ class ReplayTransform : OptInConstDispatch {
   //  if replaying swizzle is enabled.
   void handle(const Swizzle2D* swizzle_2d) final;
 
+  void handle(const Swizzle* swizzle) final;
+
   // We're going to replay this resize operation on the corresponding IDs
   //  if replaying resize is enabled.
   void handle(const Resize* resize) final;

@@ -26,7 +26,8 @@ struct StatefulInliningInfo {
   // used for deterministic order
   VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
 
-  // Broadcast resolution map for root domains
+  // Broadcast resolution map for root domains, including non-inlined
+  // root domains
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
 
@@ -173,16 +174,31 @@ class IdModel : public PolymorphicBase {
   // Start loop map by grouping inlined iter domains
   void initializeLoopMap(const StatefulInliningInfo& info);
 
-  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotions(
-      const ValGraph& iel_graph,
-      const StatefulInliningInfo& info);
-
-  // Returns map of ValGroups in the loop map to a representative IterDomain
+  // Returns map of ValGroups in the IEL graph to a representative IterDomain
   // that contains all resolved transformations that the terminal IterDomains
   // should be promoted to. The returned promotions are valid only for inlined
   // iter domains.
   std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
       const StatefulInliningInfo& info);
+
+  // Helper function for buildInlinePromotions. Only build mappings of
+  // root broadcast domains
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotions(
+      const ValGraph& iel_graph,
+      const StatefulInliningInfo& info);
+
+  // Helper function for buildInlinePromotions. Propagate root
+  // promotions to intermediate and leaf domains
+  void propagatePromotions(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
+
+  void propagatePromotions(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
+      bool require_loop_mapped_promotion);
 
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
@@ -190,6 +206,25 @@ class IdModel : public PolymorphicBase {
       const std::vector<Expr*>& exprs,
       const StatefulInliningInfo& info,
       const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
+
+  // Find a promoted iter domain of a given loop group that covers all
+  // the exact groups representative of the resolved transformations
+  // within the loop group. It doesn't have to be in the loop
+  // group. Specifically, we examine each IEL group of the loop graph,
+  // and if an IEL group has a promotion, we consider it as a
+  // candidate of the promotion of this loop group. If not, we include a
+  // domain of the IEL group as a candidate too. We also look at the
+  // inline promotion map since that may also contain the promotion the
+  // loop should be associated with. Once all candidates are obtained,
+  // we pick one that covers all the exact domains (cf. concrete domains
+  // in ComputeAtMap)
+  IterDomain* findPromotionOfLoopGroup(
+      const ValGroup& loop_group,
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
+      const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+      const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
 
   // Make sure only leaf nodes of tensor views are parallelized
   void validatePTypes(const std::vector<TensorView*>& all_tvs) const;
@@ -207,7 +242,7 @@ class IdModel : public PolymorphicBase {
   //    is also in the same loop group
   // 2) Don't have a direct IterDomain consumer within the group
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
-      const StatefulInliningInfo info);
+      const StatefulInliningInfo& info);
 
   // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
   // graph1.
