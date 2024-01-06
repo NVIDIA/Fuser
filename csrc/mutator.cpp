@@ -222,15 +222,15 @@ Expr* OptOutMutator::mutateExpr(
     return op;
   }
 
+  // Create copy of serde::ExprType enum because it is lost when the expression
+  // is removed from the container.
+  auto serde_expr = op->expressionType();
+
   auto container = op->container();
   auto newObjectFunc = op->newObjectFunc();
   removeExpr(container, op);
   auto new_expr = newObjectFunc(
-      container,
-      op->expressionType(),
-      mutated_inputs,
-      mutated_outputs,
-      mutated_attrs);
+      container, serde_expr, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
 
   return new_expr;

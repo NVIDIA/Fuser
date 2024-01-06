@@ -589,6 +589,10 @@ class Expr : public Statement {
   }
 
   serde::ExprType expressionType() const {
+    NVF_ERROR(
+        toUnderlying(serde_expr_type_) > toUnderlying(serde::ExprType::MIN));
+    NVF_ERROR(
+        toUnderlying(serde_expr_type_) <= toUnderlying(serde::ExprType::MAX));
     return serde_expr_type_;
   }
 
@@ -694,7 +698,7 @@ class Expr : public Statement {
  private:
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
-  serde::ExprType serde_expr_type_;
+  serde::ExprType serde_expr_type_ = serde::ExprType::None;
   kir::Predicate* predicate_ = nullptr;
 
   // Only used for reduction-related expressions
