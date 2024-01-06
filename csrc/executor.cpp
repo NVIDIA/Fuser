@@ -253,8 +253,6 @@ void FusionExecutor::compileFusion(
     int64_t group_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
-  scheduled_fusion_ = std::make_unique<Fusion>(*fusion);
-
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
@@ -2052,7 +2050,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   return serde::CreateFusionExecutorDirect(
       builder,
-      lowered_->kernel()->serialize(builder),
+      lowered_->serialize(builder),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
@@ -2222,7 +2220,7 @@ void FusionExecutor::deserialize(
   compile_params.maxrregcount = maxrregcount_high_water_mark_;
 
   // Get lowered fusion
-  lowered_ = std::make_unique<GpuLower>(buffer->kernel(), compile_params);
+  lowered_ = std::make_unique<GpuLower>(buffer->gpulower(), compile_params);
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"

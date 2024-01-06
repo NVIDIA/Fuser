@@ -287,9 +287,37 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
   analysis();
 }
 
-GpuLower::GpuLower(const serde::Kernel* kernel, const CompileParams& cparams)
-    : cparams_(cparams) {
-  create(kernel);
+// TODO Remove passes
+GpuLower::GpuLower(
+    const serde::GpuLower* gpulower,
+    const CompileParams& cparams)
+    : passes_(
+          // Passes will be executed in the order they are added here
+          // Each pass is a pair of (name, function), where the name will be
+          // printed in verbose mode of lowering. The function must take a
+          // const std::vector<Expr*>& and return a std::vector<Expr*>.
+          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+           {"loadStoreOpInserter", loadStoreOpInserter},
+           {"insertAllocations", insertAllocations},
+           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+           {"reuseMemoryAllocations", reuseMemoryAllocations},
+           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
+           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"rotateLoops", rotateLoops},
+           {"UnrollPass", UnrollPass::runPass},
+           {"processMisalignedVectorization", processMisalignedVectorization},
+           {"IndexLowering", IndexLowering::getIndexedExprs},
+           {"fuseWarpReduce", fuseWarpReduce},
+           {"generateConditionalFromPredicate",
+            generateConditionalFromPredicate},
+           {"vectorizeWelford", vectorizeWelford},
+           {"allocateCommonScalars", allocateCommonScalars},
+           {"insertMagicZero", insertMagicZero},
+           {"KIRCleaner", KIRCleaner::cleanUp},
+           {"instrumentKernel", instrumentKernel},
+           {"lowerToInlinePtx", lowerToInlinePtx}}),
+      cparams_(cparams) {
+  create(gpulower);
   analysis();
 }
 
@@ -335,6 +363,14 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
+flatbuffers::Offset<serde::GpuLower> GpuLower::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // TODO Add kir::Kernel serialization to serde::GpuLower
+  // Currently there is an invalid flatbuffer validation error with
+  // test_matmuls.
+  return serde::CreateGpuLower(builder, scheduled_fusion_->serialize(builder));
+}
+
 void GpuLower::create(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::create");
   NVF_ERROR(fusion != nullptr);
@@ -342,13 +378,15 @@ void GpuLower::create(Fusion* fusion) {
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
   LowerGuard lower_guard(this);
 
+  scheduled_fusion_ = std::make_unique<Fusion>(*fusion);
+
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
     cparams_.index_type = PrimDataType::Int;
   }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
+  kernel_ = std::make_unique<kir::Kernel>(scheduled_fusion_.get(), indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
   FusionGuard fg(fusion_);
@@ -358,12 +396,18 @@ void GpuLower::create(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 }
 
-void GpuLower::create(const serde::Kernel* kernel) {
+void GpuLower::create(const serde::GpuLower* gpulower) {
   FUSER_PERF_SCOPE("GpuLower::serde::create");
-  NVF_ERROR(kernel != nullptr);
+  NVF_ERROR(gpulower != nullptr);
   NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
   LowerGuard lower_guard(this);
+
+  scheduled_fusion_ = std::make_unique<Fusion>();
+  {
+    FusionGuard fg(scheduled_fusion_.get());
+    scheduled_fusion_->deserialize(gpulower->scheduled_fusion());
+  }
 
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
@@ -371,11 +415,18 @@ void GpuLower::create(const serde::Kernel* kernel) {
   }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(indexType());
+  kernel_ = std::make_unique<kir::Kernel>(scheduled_fusion_.get(), indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
-  FusionGuard fg(fusion_);
-  kernel_->deserialize(kernel);
+
+  {
+    FusionGuard fg(fusion_);
+    // TODO Replaces with kernel_->deserialize(kernel) to rematerialize saved
+    // kir::Kernel. Replaces integers that are tensor sizes by named scalars as
+    // "T0.size[0]"
+    replaceSymbolicSizes(fusion_);
+    dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+  }
 }
 
 void GpuLower::analysis() {

@@ -65,8 +65,11 @@ class GpuLower : public NonCopyable {
       const CompileParams& cparams = CompileParams());
 
   explicit GpuLower(
-      const serde::Kernel* kernel,
+      const serde::GpuLower* gpulower,
       const CompileParams& cparams = CompileParams());
+
+  flatbuffers::Offset<serde::GpuLower> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
 
   kir::Kernel* kernel() const;
 
@@ -236,7 +239,7 @@ class GpuLower : public NonCopyable {
 
  private:
   void create(Fusion* fusion);
-  void create(const serde::Kernel* kernel);
+  void create(const serde::GpuLower* gpulower);
 
   void analysis();
 
@@ -293,6 +296,9 @@ class GpuLower : public NonCopyable {
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
   Fusion* fusion_ = nullptr;
+
+  //! The scheduled fusion stored for serialization
+  std::unique_ptr<Fusion> scheduled_fusion_;
 };
 
 } // namespace nvfuser

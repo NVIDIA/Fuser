@@ -531,9 +531,6 @@ class FusionExecutor : public NonCopyable {
   // Kernel name for fusion executor
   std::string kernel_id_;
 
-  //! The scheduled fusion stored for serialization
-  std::unique_ptr<Fusion> scheduled_fusion_;
-
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
   Fusion* fusion_ = nullptr;
