@@ -255,7 +255,7 @@ class HeuristicCalculator {
     // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
     target_warps_per_sm_ = [&]() {
       int64_t res = 32l;
-      res = max_persistent_buffer_size >= 25l * 1024l * 2l ? 22l : res;
+      res = max_persistent_buffer_size >= 24l * 1024l * 2l ? 22l : res;
       return res;
     }();
 
@@ -331,6 +331,15 @@ class HeuristicCalculator {
           int64_t factor = 8l / vectorization_unroll_val_;
           experiment_min *= factor;
           experiment_max *= factor;
+          if(total_reduction_numel <= 22l*1024l){
+            // don't use more than 512 threads per block
+            experiment_min = std::max(experiment_min, ceilDiv(after_vect_, 512l));
+          }else{
+            // don't use less than 736 threads per block
+            experiment_max = 8l;
+          }
+          experiment_max = std::max(std::min(experiment_max, 12l), experiment_min);
+
         }
       } else {
         if (may_use_mrpb_) {
