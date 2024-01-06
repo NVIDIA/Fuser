@@ -43,7 +43,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
     // is compliant with `tv`'s existing layout before adding `tv` to
-    // `out_to_root_`. So the existing layout can remain unchanged.
+    // `alias_to_root_`. So the existing layout can remain unchanged.
     if (tv->hasAllocation()) {
       continue;
     }

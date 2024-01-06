@@ -395,20 +395,10 @@ void AliasAnalysisResult::add(
       i->second.first);
 }
 
-TensorView* AliasAnalysisResult::findNearestAliasedIo(TensorView* alias) const {
-  TensorView* root = alias;
-  do {
-    const auto i = alias_to_source_.find(root);
-    root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-  } while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput());
-  return root;
-}
-
 TensorView* AliasAnalysisResult::getNearestAliasedIo(
     const TensorView* alias) const {
-  const auto i = out_to_root_.find(alias);
-  return i == out_to_root_.end() ? nullptr : i->second;
+  const auto i = alias_to_root_.find(alias);
+  return i == alias_to_root_.end() ? nullptr : i->second;
 }
 
 namespace {
@@ -424,21 +414,25 @@ bool okToRelayout(
 } // namespace
 
 void AliasAnalysisResult::finalize(
-    Fusion* fusion,
     const bool can_override_empty_allocation_domain) {
-  for (TensorView* tv : ir_utils::allTvs(fusion)) {
-    TensorView* root = findNearestAliasedIo(tv);
+  for (auto [alias, root_and_layout] : alias_to_source_) {
+    auto [root, preferred_layout] = root_and_layout;
+    // Walks up the `alias_to_source_` chain.
+    while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput()) {
+      const auto i = alias_to_source_.find(root);
+      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+    }
     if (root == nullptr) {
       continue;
     }
 
-    const Layout preferred_layout = preferredLayout(tv);
     if (!okToRelayout(
-            tv, preferred_layout, can_override_empty_allocation_domain)) {
+            alias, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
     }
 
-    out_to_root_[tv] = root;
+    alias_to_root_[alias] = root;
   }
 }
 
@@ -465,12 +459,12 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
         << layout.toString() << std::endl;
   }
   indent(ss, indent_size) << "Finalized aliases:" << std::endl;
-  for (const auto& [tv, root] : out_to_root_) {
+  for (const auto& [alias, root] : alias_to_root_) {
     indent(ss, indent_size + 1)
-        << ir_utils::varName(tv) << " of allocation domain ["
-        << toDelimitedString(tv->getAllocationDomain())
+        << ir_utils::varName(alias) << " of allocation domain ["
+        << toDelimitedString(alias->getAllocationDomain())
         << "] and rfactor domain ["
-        << toDelimitedString(tv->getMaybeRFactorDomain())
+        << toDelimitedString(alias->getMaybeRFactorDomain())
         << "] is a transitive alias of " << ir_utils::varName(root)
         << std::endl;
   }
@@ -491,7 +485,7 @@ AliasAnalysisResult findAliases(
     // results).
     finder.dispatch(expr);
   }
-  analysis.finalize(fusion, can_override_empty_allocation_domain);
+  analysis.finalize(can_override_empty_allocation_domain);
   return analysis;
 }
 
