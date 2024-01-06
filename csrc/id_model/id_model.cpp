@@ -898,10 +898,13 @@ StatefulInliningInfo buildStatefulInliningInfo(
 } // namespace
 
 void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
+  if (exprs.empty()) {
+    return;
+  }
+
   const StatefulInliningInfo info = buildStatefulInliningInfo(
       exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
 
-  std::cout << std::endl;
   std::stringstream ss;
   exprs.at(0)->fusion()->print(ss);
   VERBOSE() << ss.str();
