@@ -326,6 +326,12 @@ class HeuristicCalculator {
           experiment_min = 1l;
           experiment_max = 1l;
         }
+        // for fp32, tested on H100
+        if(vectorization_unroll_val_ < 8l){
+          int64_t factor = 8l / vectorization_unroll_val_;
+          experiment_min *= factor;
+          experiment_max *= factor;
+        }
       } else {
         if (may_use_mrpb_) {
           experiment_min = 1l;
@@ -388,13 +394,14 @@ class HeuristicCalculator {
           return h_params.warps_per_sm >= target_warps_per_sm_;
         });
     if (n_items > 1) {
+      bool prioritize_divisible_split = this->has_rng_ops_ || (this->has_multiple_inputs_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l);
       std::stable_sort(
           all_h_params.begin(),
           all_h_params.begin() + n_items,
-          [this](const HeuristicParas& a, const HeuristicParas& b) {
+          [this, &prioritize_divisible_split](const HeuristicParas& a, const HeuristicParas& b) {
             // prioritize divisible split may lead to a persistent val of 1, which is not good if hidden size is large, cut off at 5K.
             return isBetterThan(
-                this->has_rng_ops_ || (this->has_multiple_inputs_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l), this->threads_per_warp_, a, b);
+                prioritize_divisible_split, this->threads_per_warp_, a, b);
           });
     }
 
@@ -492,8 +499,8 @@ class HeuristicCalculator {
     if (prioritize_divisible_split) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
-      third_priority = 0;
-      forth_priority = 0;
+      third_priority = distance_to_pow2_score;
+      forth_priority = occupancy_score;
     }
     if (first_priority > 0) {
       return true;
@@ -505,19 +512,19 @@ class HeuristicCalculator {
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (prioritize_divisible_split) {
-          if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
-            // at 1536, prioritize pow2.
-            // at 1600, prioritize higher occupancy.
-            // at 6K, prefer 3 not 1 or 2.
-            // at 21K, prefer 6 not 7.
-            third_priority = distance_to_pow2_score;
-            forth_priority = occupancy_score;
-          } else {
-            third_priority = occupancy_score;
-            forth_priority = distance_to_pow2_score;
-          }
-        }
+        // if (prioritize_divisible_split) {
+        //   if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
+        //     // at 1536, prioritize pow2.
+        //     // at 1600, prioritize higher occupancy.
+        //     // at 6K, prefer 3 not 1 or 2.
+        //     // at 21K, prefer 6 not 7.
+        //     third_priority = distance_to_pow2_score;
+        //     forth_priority = occupancy_score;
+        //   } else {
+        //     third_priority = occupancy_score;
+        //     forth_priority = distance_to_pow2_score;
+        //   }
+        // }
         if (third_priority > 0) {
           return true;
         } else if (third_priority < 0) {
