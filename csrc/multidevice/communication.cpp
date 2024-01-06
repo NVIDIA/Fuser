@@ -235,9 +235,8 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
 #ifdef USE_C10D_NCCL
-  if (backend == CommunicatorBackend::nccl) {
-    auto nccl_backend =
-        dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
+  auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
+  if (nccl_backend) {
     return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
   }
 #endif

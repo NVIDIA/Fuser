@@ -10,11 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <scheduler/utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <utils.h>
@@ -413,6 +415,277 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     // High water mark has C stacked on top of B
     EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
   }
+}
+
+// Test that intervals with "skipped" positions in alias analysis are not
+// ignored This can happen when we require a sync immediately between two
+// https://github.com/NVIDIA/Fuser/pull/1381
+TEST_F(SmemReuseTest, SkippedSyncInterval) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t D = 5;
+  int64_t H = 6;
+  int64_t W = 7;
+
+  auto tv0 = full(
+      {
+          IrBuilder::create<Val>(D),
+          IrBuilder::create<Val>(H),
+          IrBuilder::create<Val>(W),
+      },
+      fusion->oneVal(),
+      DataType::Float);
+  tv0->setMemoryType(MemoryType::Shared);
+
+  auto tv1 = neg(tv0); // generate a loop nest, which is the last use of tv0
+
+  // Write to tv2 in adjacent loop nest. Pad so we can't do inner aliasing.
+  auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
+  tv2->setMemoryType(MemoryType::Shared);
+
+  auto tv3 = set(tv2); // third loop nest writes to global output
+
+  fusion->addOutput(tv3);
+
+  // By parallelizing the first loop, we remove its appearance in the kernel.
+  //
+  //   6   FOR threadIdx.x in ithreadIdx.x3{5}:
+  //   7     FOR i85 in iS4{6}:
+  //   8       FOR i86 in iS5{7}:
+  //   9         T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 )
+  //               = full({5, 6, 7}, ( (float)(1) ));
+  //   10        T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 )
+  //               = -T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 );
+  //   11      ENDFOR i86
+  //   12    ENDFOR i85
+  //   13  ENDFOR threadIdx.x
+  //   14  FOR threadIdx.x in ithreadIdx.x6{5}:
+  //   15    FOR i81 in iS7{6}:
+  //   16      FOR i82 in iS9{8}rf:
+  //   17        T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ]
+  //      = pad( T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 ), {0,
+  //      0, 0, 0, 0, 1} )
+  //   18      ENDFOR i82
+  //   19    ENDFOR i81
+  //   20  ENDFOR threadIdx.x
+  //   21  FOR threadIdx.x in ithreadIdx.x10{5}:
+  //   22    FOR i83 in iS11{6}:
+  //   23      FOR i84 in iS12{8}:
+  //   24        T3_g[ ithreadIdx.x10{5}, iS11{6}, iS12{8} ]
+  //      = Set( T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ], cache_op=Streaming)
+  //   25      ENDFOR i84
+  //   26    ENDFOR i83
+  //   27  ENDFOR threadIdx.x
+  //
+  // Parallelized loops still occupy a "position" in the expression list; i.e.
+  // the ENDFOR of the ithreadIdx.x3{5} loop is at position 13.
+  // Lifetimes are computed with respect to for loops that appear in the
+  // kernel, so we will wind up with a gap between the end of outer lifetime of
+  // tv0, which now ends at the end of the H loop, and the beginning of the H
+  // loop for tv2, since there are separate parallelized D loops for the two.
+  // That is, the outer lifetimes of smem allocations here are
+  //
+  //   T0_s:  [7, 12]
+  //   T2_s:  [15, 26]
+  //
+  // Promoting reuse means we will insert a sync in (12, 15) which is partially
+  // hidden since 12 is an inner ENDFOR position.
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  std::vector<TensorView*> inlinedtvs = {tv0};
+  inlineMost(inlinedtvs);
+
+  tv0->promoteReuse();
+
+  GpuLower gpulw(fusion.get());
+
+  ExpressionEvaluator ee;
+  for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
+    EXPECT_NE(alloc->address(), nullptr);
+    auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+    // Both smem allocs should be placed at 0, indicating successful reuse
+    EXPECT_EQ(addr, 0);
+  }
+}
+
+TEST_F(SmemReuseTest, SmemReuseWithDifferentVectorizationFactor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int n_element = 16;
+  auto tv0 = makeContigConcreteTensor({n_element});
+  fusion->addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion->addOutput(tv4);
+
+  tv1->split(-1, 2);
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv2->split(-1, 4);
+
+  tv3->split(-1, 4);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  inlineMost();
+
+  // T1 and T3 are vectorized by 2 and 4, respectively.
+  // However, T3 is still able to reuse T1's memory since the shared memory is
+  // aligned to 16 bytes which is the largest vectorization width.
+  // check T3 alias T1.
+  {
+    bool t3_alias_t1 = false;
+    GpuLower gpulw(fusion.get());
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->buffer(), nullptr);
+      if (alloc->buffer()->name() == 3) {
+        EXPECT_NE(alloc->alias(), nullptr);
+        EXPECT_EQ(alloc->alias()->buffer()->name(), 1);
+        t3_alias_t1 = true;
+      }
+    }
+    EXPECT_TRUE(t3_alias_t1);
+  }
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({n_element}, options);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
+  auto testRegisterReuse = [](int vect_factor_1, int vect_factor_2) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    constexpr int n_element = 16;
+    auto tv0 = makeContigConcreteTensor({n_element});
+    fusion->addInput(tv0);
+
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    auto tv3 = set(tv2);
+    auto tv4 = set(tv3);
+    fusion->addOutput(tv4);
+
+    tv1->split(-1, vect_factor_1);
+    if (vect_factor_1 > 1) {
+      tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    tv2->split(-1, vect_factor_2);
+
+    tv3->split(-1, vect_factor_2);
+    if (vect_factor_2 > 1) {
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    // T1 and T3 are vectorized by factor_1 and factor_2, respectively.
+    // T3 alias T1 when vect_factor_2 <= vect_factor_1.
+    {
+      bool t3_alias_t1 = false;
+      GpuLower gpulw(fusion.get());
+      for (auto expr : gpulw.run()->topLevelExprs()) {
+        if (expr->isA<kir::Allocate>()) {
+          auto alloc = expr->as<kir::Allocate>();
+          if (alloc->buffer()->name() == 3) {
+            if (alloc->alias() && alloc->alias()->buffer()->name() == 1) {
+              t3_alias_t1 = true;
+            } else {
+              t3_alias_t1 = false;
+            }
+          }
+        }
+      }
+      if (vect_factor_2 <= vect_factor_1) {
+        EXPECT_TRUE(t3_alias_t1);
+      } else {
+        EXPECT_FALSE(t3_alias_t1);
+      }
+    }
+
+    // run the fusion
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn({n_element}, options);
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get());
+    auto cg_outputs = fe.runFusion({t0});
+    testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+  };
+
+  // test different vectorization factors, max is 4 since float is used.
+  for (int vect_factor_1 : {1, 2, 4}) {
+    for (int vect_factor_2 : {1, 2, 4}) {
+      testRegisterReuse(vect_factor_1, vect_factor_2);
+    }
+  }
+}
+
+TEST_F(SmemReuseTest, ExpandInterferes) {
+  auto testExpand = [](bool is_concrete) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto x = 3L;
+    auto y = 4L;
+    auto tv0 =
+        is_concrete ? makeContigConcreteTensor({y}) : makeSymbolicTensor(1);
+    fusion->addInput(tv0);
+
+    auto tv1 = set(tv0);
+    auto tv2 = broadcast(tv1, {true, false});
+    auto tv3 =
+        expand(tv2, {IrBuilder::create<Val>(x), IrBuilder::create<Val>(y)});
+    auto tv4 = set(tv3);
+    fusion->addOutput(tv4);
+
+    for (auto tv : {tv1, tv2, tv3}) {
+      tv->setMemoryType(MemoryType::Shared);
+    }
+
+    // tv3 is trying to reuse tv1's memory. however it has a concrete size.
+    // The reuse only happens when tv1 is also concrete.
+    {
+      bool t3_alias_t1 = false;
+      GpuLower gpulw(fusion.get());
+      for (auto expr : gpulw.run()->topLevelExprs()) {
+        if (expr->isA<kir::Allocate>()) {
+          auto alloc = expr->as<kir::Allocate>();
+          if (alloc->buffer()->name() == 3) {
+            if (alloc->alias() && alloc->alias()->buffer()->name() == 1) {
+              t3_alias_t1 = true;
+            } else {
+              t3_alias_t1 = false;
+            }
+          }
+        }
+      }
+      if (is_concrete) {
+        EXPECT_TRUE(t3_alias_t1);
+      } else {
+        EXPECT_FALSE(t3_alias_t1);
+      }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({y}, options);
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get());
+    auto cg_outputs = fe.runFusion({t0});
+    testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+  };
+
+  testExpand(true);
+  testExpand(false);
 }
 
 } // namespace nvfuser

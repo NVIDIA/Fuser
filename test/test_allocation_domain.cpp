@@ -1312,4 +1312,25 @@ TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
   EXPECT_TRUE(!tv0->hasAllocation());
 }
 
+TEST_F(AllocationDomainTest, Issue1524) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* permute_out = permute(in, {1, 0});
+  permute_out = segment_set(permute_out);
+  TensorView* add_out = add(permute_out, permute_out);
+
+  fusion->addInput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(add_out);
+
+  permute_out->setAllocationDomain(
+      {permute_out->axis(1), permute_out->axis(0)}, true);
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({in_tensor});
+}
+
 } // namespace nvfuser

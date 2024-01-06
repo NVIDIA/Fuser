@@ -177,8 +177,8 @@ Val* encodeTensorMapTiled(
     MmaInputSmemSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
-  auto output = IrBuilder::create<Val>(
-      OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
+  auto output =
+      IrBuilder::create<Val>(OpaqueType::make<TensorMap>("TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
       output,
       data_type,

@@ -23,6 +23,7 @@
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
 
 //! IR header hierarchy
@@ -64,8 +65,12 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 bool useFallback();
 
 //! Ceil integer division
-constexpr int64_t ceilDiv(int64_t a, int64_t b) {
-  return (a + b - 1) / b;
+constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
+  return (dividend + divisor - 1) / divisor;
+}
+
+constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
+  return ceilDiv(dividend, divisor) * divisor;
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -446,5 +451,12 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
 char* getNvFuserEnv(const char* env_name);
+
+// Returns the mapped value or the default.
+template <typename K, typename V>
+V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
+  const auto i = map.find(key);
+  return i == map.end() ? V() : i->second;
+}
 
 } // namespace nvfuser

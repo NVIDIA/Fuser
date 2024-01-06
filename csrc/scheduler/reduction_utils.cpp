@@ -766,11 +766,14 @@ class PersistentBufferProjector {
       // reduciton and broadcast from input t0 to t3. The broadcast here is not
       // just a local register copy but involves an inter-thread communication.
       std::vector<Val*> vals_project_to = fusion_->inputs();
-      const auto& dep_vals = DependencyCheck::getAllValsBetween(
-          {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
-      const auto& broadcast_tvs = scheduler_utils::getBroadcastTvs(dep_vals);
-      vals_project_to.insert(
-          vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      const auto& [can_project, broadcast_tvs] =
+          scheduler_utils::canProjectToInputsWithoutReduction(
+              reduction_tvs, buffer);
+      if (can_project) {
+        vals_project_to.insert(
+            vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      }
+
       projectToInputOrImmediatePersistentProducer(
           (int)buffer_i, vals_project_to);
     }
@@ -896,9 +899,13 @@ class PersistentBufferProjector {
       // domain. But adding `T7 = T1 + T6` creates a new propagation path
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
-      dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
-      ir_utils::replaceValInExprInputs(
-          use->definition(), buffer, buffer_replicate);
+      // avoid replacing the use with itself, see
+      // https://github.com/NVIDIA/Fuser/issues/1533
+      if (buffer != buffer_replicate) {
+        dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
+        ir_utils::replaceValInExprInputs(
+            use->definition(), buffer, buffer_replicate);
+      }
     }
   }
 };

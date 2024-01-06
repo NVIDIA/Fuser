@@ -9,9 +9,11 @@
 
 namespace nvfuser::optimization {
 
-// Marks aliases between fusion inputs and outputs.
-class MarkAliasPass : public OptimizationPass<MarkAliasPass> {
-  friend class OptimizationPass<MarkAliasPass>;
+// Prepares the input fusion for marking aliases. It currently updates layouts
+// to enable aliases, and inserts `SegmenterSet`s so segmentation will separate
+// out alias-only regions.
+class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
+  friend class OptimizationPass<MarkAliasesPreparePass>;
 
  protected:
   static void runPass(Fusion* fusion);

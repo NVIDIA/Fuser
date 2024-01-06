@@ -172,65 +172,32 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
+  // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
-      cta_tile.k % warp_tile.k == 0,
-      "Number of warp on k dimension need to be integer");
-
-  int num_warp_k = cta_tile.k / warp_tile.k;
+      cta_tile.k == warp_tile.k,
+      "CTA tile and warp tile must have same K dimension");
 
   mma_utils::checkDimSize(
       tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
 
-  if (num_warp_k == 1) {
-    // Non split K over warp case:
+  //       -3   -2  -1
+  //[...    M,   N,  K]
+  // Distribute warp tile:
+  tv->split(-3, warp_tile.m);
+  tv->split(-2, warp_tile.n);
 
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
+  //  -5   -4   -3   -2   -1
+  // [Mwo  Mw  Nwo   Nw   K]
+  tv->split(-4, instruction_tile.m);
+  tv->split(-2, instruction_tile.n);
+  tv->split(-1, instruction_tile.k);
 
-    //  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   K]
-    tv->split(-4, instruction_tile.m);
-    tv->split(-2, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
+  //   -8  -7 -6 -5 -4 -3  -2 -1
+  // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
 
-    //   -8  -7 -6 -5 -4 -3  -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
-
-    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
-    //   -8  -7 -6  -5 -4 -3 -2 -1
-    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  } else {
-    // Split K over warp case:
-    // Main difference is that an additional
-    //  thread dimension needs to be reserved
-    //  for cross warp reduction:
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
-    tv->split(-1, warp_tile.k);
-
-    //   -6  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   Kwo  Kw]
-    tv->split(-5, instruction_tile.m);
-    tv->split(-3, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
-
-    //  -9  -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Kw Ki]
-
-    tv->reorder({{-8, -6}, {-7, -3}, {-6, -8}, {-4, -2}, {-3, -7}, {-2, -4}});
-    //  -9   -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo  Nwo Ko Mw Nw Kw, Mi Ni Ki]
-
-    tv->merge(-9);
-    //  -8  -7 -6 -5 -4   -3 -2 -1
-    // [MNwo Ko Mw Nw Kw, Mi Ni Ki]
-  }
+  tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
+  //   -8  -7 -6  -5 -4 -3 -2 -1
+  // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
 void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
@@ -826,14 +793,12 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
-    bool transpose) {
+    bool transpose,
+    bool transpose2) {
+  if (transpose) {
+    tv->reorder({{-2, -1}});
+  }
   if (swizzle == MmaInputSmemSwizzle::None) {
-    if (transpose) {
-      // Note: for the no-swizzle case, imm-trans-a and imm-trans-b are ignored
-      // by the wgmma instruction. So we have to make sure the allocation domain
-      // has the same order as expected by the hardware.
-      tv->reorder({{-2, -1}});
-    }
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
     // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
     // memory. [K, M]
@@ -842,16 +807,45 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    tv->setAllocationDomain(tv->getLeafDomain(), true);
-  } else if (swizzle == MmaInputSmemSwizzle::B128) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B64) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B32) {
-    NVF_ERROR(false, "Not implemented yet");
+    if (transpose2) {
+      tv->reorder({{-2, -1}});
+    }
   } else {
-    NVF_ERROR(false, "Unsupported smem swizzle");
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    if (transpose2) {
+      // For example, [K, M]
+      tv->reorder({{-2, -1}});
+      // [M, K]
+      tv->split(-2, 8);
+      tv->split(-1, 8);
+      // [Mo, M8, Ko, K8]
+      tv->split(-3, 8 / swizzle_size);
+      // For example swizzle_size = 2
+      // [Mo, M2, M4, Ko, K8]
+      tv->split(-2, swizzle_size);
+      // [Mo, M2, M4, Koo, K2, K8]
+      tv->swizzle(SwizzleType::XOR, -5, -2);
+    } else {
+      // For example, [K, M]
+      tv->split(-2, 8);
+      tv->split(-1, 8);
+      // [Ko, K8, Mo, M8]
+      tv->reorder({{-2, -3}});
+      // [Ko, Mo, K8, M8]
+      // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+      // still split swizzle_size. If this is the case, effectively we are
+      // padding it to a multiple of swizzle_size.
+      tv->split(-3, swizzle_size);
+      // For example, swizzle_size = 2
+      // [Ko, Moo, Mo2, K8, M8]
+      tv->reorder({{-2, -3}});
+      // [Ko, Moo, K8, Mo2, M8]
+      tv->split(-3, 8 / swizzle_size);
+      // [Ko, Moo, K2, K4, Mo2, M8]
+      tv->swizzle(SwizzleType::XOR, -4, -2);
+    }
   }
+  tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {

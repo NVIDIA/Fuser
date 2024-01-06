@@ -167,10 +167,12 @@ class WarpMmaSwizzler {
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
+  // TODO: what is transpose2? Why do we need it?
   static void scheduleOperandRead(
       TensorView* tv,
       MmaInputSmemSwizzle swizzle,
-      bool transpose);
+      bool transpose,
+      bool transpose2);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:

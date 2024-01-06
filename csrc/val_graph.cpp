@@ -256,27 +256,8 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
   // Special handling for backprop of merge
   if (first->isA<Merge>() && !forward) {
-    // Can't back prop through merge without making sure one input actually
-    // matches. This can be done on a map or extent basis.
-    auto merge0 = first->as<Merge>();
-    auto merge1 = second->as<Merge>();
-
-    auto extent_0o = merge0->outer()->extent();
-    auto extent_0i = merge0->inner()->extent();
-    auto extent_1o = merge1->outer()->extent();
-    auto extent_1i = merge1->inner()->extent();
-
-    auto extent_o_match = extent_0o->sameAs(extent_1o) ||
-        (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluate() == extent_1o->evaluate()) ||
-        disjointValSets().permissiveAreMapped(merge0->outer(), merge1->outer());
-
-    auto extent_i_match = extent_0i->sameAs(extent_1i) ||
-        (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluate() == extent_1i->evaluate()) ||
-        disjointValSets().permissiveAreMapped(merge0->inner(), merge1->inner());
-
-    if (!(extent_o_match || extent_i_match)) {
+    if (!shouldMapMergeBackward<Val>(
+            first->as<Merge>(), second->as<Merge>(), this->disjointValSets())) {
       return false;
     }
   }
@@ -411,8 +392,10 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  const ExprGroup& expr0_orig_group = toGroup(expr0);
-  const ExprGroup& expr1_orig_group = toGroup(expr1);
+  // Note that non-reference copies are required here as they may be
+  // removed by mapEntries
+  const ExprGroup expr0_orig_group = toGroup(expr0);
+  const ExprGroup expr1_orig_group = toGroup(expr1);
 
   disjoint_exprs_.mapEntries(expr0, expr1);
 

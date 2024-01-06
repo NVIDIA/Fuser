@@ -85,7 +85,7 @@ class ArgumentManager {
   const PolymorphicValue* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
-  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
+  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
   // (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
@@ -196,8 +196,9 @@ class ArgumentManager {
       Val* output = group_outputs[group_out_i];
       const PolymorphicValue*& runtime_output = tensor_map_[output];
       if (runtime_output != nullptr) {
-        // A trivial forwarding output shares the same `Val*` as an input, so we
-        // simply map it to the same runtime output.
+        // A trivial forwarding output or a dupliated output shares the same
+        // `Val*` as another fusion input/output. In those cases, we keep
+        // mapping it to the same runtime output.
         continue;
       }
 
@@ -1328,6 +1329,9 @@ void FusionKernelRuntime::compileKernel(
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
+    fusion_to_run->printMath();
+  }
   FusionGuard fg(fusion_to_run.get());
   scheduler_entry->schedule(fusion_to_run.get());
   NVF_ERROR(

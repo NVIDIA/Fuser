@@ -337,30 +337,8 @@ std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
 
-namespace {
-
-bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  for (Val* out : fusion->outputs()) {
-    const auto& [in, info] = fusion->getOutputAlias(out);
-    if (in == nullptr) {
-      return false;
-    }
-    NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerArithmetic) {
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
-    return true;
-  }
-
-  if (allOutputsArePointerArithmetics(this)) {
     return true;
   }
 
@@ -788,23 +766,25 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
 }
 
 void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
-  // `input` can be a cast of a fusion input.
-  if (!input->isFusionInput()) {
-    auto input_expr = input->definition();
+  if (type == AliasType::InplaceUpdate) {
+    // `input` can be a cast of a fusion input.
+    if (!input->isFusionInput()) {
+      auto input_expr = input->definition();
+      NVF_ERROR(
+          input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
+      auto input_uop = input_expr->as<UnaryOp>();
+      NVF_ERROR(
+          input_uop->getUnaryOpType() == UnaryOpType::Cast,
+          "expected aliased input to be output of cast op");
+      input = input_uop->in();
+    }
     NVF_ERROR(
-        input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
-    auto input_uop = input_expr->as<UnaryOp>();
-    NVF_ERROR(
-        input_uop->getUnaryOpType() == UnaryOpType::Cast,
-        "expected aliased input to be output of cast op");
-    input = input_uop->in();
-  }
-  NVF_ERROR(
-      input->getDataType().has_value() && output->getDataType().has_value(),
-      "requires DataType to be available for aliased output to input");
+        input->getDataType().has_value() && output->getDataType().has_value(),
+        "requires DataType to be available for aliased output to input");
 
-  if (input->getDataType().value() != output->getDataType().value()) {
-    output = castOp(input->getDataType().value(), output);
+    if (input->getDataType().value() != output->getDataType().value()) {
+      output = castOp(input->getDataType().value(), output);
+    }
   }
 
   NVF_ERROR(

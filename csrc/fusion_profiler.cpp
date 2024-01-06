@@ -694,11 +694,16 @@ void FusionProfiler::stop() {
           "All Segment profiles must be on the same device!");
     }
     fprof.kernel_time_ms = kernel_time_ms;
-    fprof.effective_bandwidth_gbs =
-        (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
-        mb_divider;
-    fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-        fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs * 100.0;
+    if (!fp->kernel_profiles_.empty()) {
+      fprof.effective_bandwidth_gbs =
+          (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
+          mb_divider;
+    }
+    if (!fp->segments_.empty()) {
+      fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
+          fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs *
+          100.0;
+    }
   }
   fprof.compile_time_ms = fp->compile_timer_.time();
 

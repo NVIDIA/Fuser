@@ -88,7 +88,7 @@ void FusionDefinition::finalizeDefinition() {
 
     buildFusionIr(preschedFusion());
 
-    if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
     }
   } else {
