@@ -305,14 +305,6 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
       index_type_);
 }
 
-Kernel::Kernel(PrimDataType index_type) : index_type_(index_type) {
-  // Index type must be resolved to either int32 or int64
-  NVF_ERROR(
-      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
-          "Invalid index type: ",
-      index_type_);
-}
-
 flatbuffers::Offset<serde::Kernel> Kernel::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   IrSerde container(this, /*deterministic_order=*/true);
@@ -326,12 +318,12 @@ flatbuffers::Offset<serde::Kernel> Kernel::serialize(
         return scope->serialize(container, builder);
       });
   return serde::CreateKernelDirect(
-      builder, Fusion::serialize(container, builder), &fb_scopes);
+      builder, IrContainer::serialize(container, builder), &fb_scopes);
 }
 
 void Kernel::deserialize(const serde::Kernel* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::Kernel is nullptr.");
-  Fusion::deserialize(buffer->fusion());
+  NVF_ERROR(false, "Appending to existing kir::Kernel is not supported yet.");
 
   // Refactor: Manually add scopes for kir::ForLoop and kir::IfThenElse
   for (auto& e : exprs_up_) {

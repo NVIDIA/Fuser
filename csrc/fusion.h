@@ -126,8 +126,7 @@ class Fusion : public IrContainer {
   ~Fusion() override;
 
   flatbuffers::Offset<serde::Fusion> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      bool deterministic_order) const;
+      flatbuffers::FlatBufferBuilder& builder) const;
 
   flatbuffers::Offset<serde::Fusion> serialize(
       const IrSerde& container,
