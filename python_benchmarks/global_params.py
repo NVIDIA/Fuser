@@ -3,6 +3,7 @@ from typing import Union, List, Tuple
 from nvfuser import DataType
 from .core import DEVICE_PROPERTIES
 import numpy as np
+import itertools
 
 # Model Parameters from LLMs (GPT2/3, PaLM, LLama)
 
@@ -52,14 +53,12 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 D_MODEL_MIN, 2 * D_MODEL_MAX + 1, step_size
             )  # (768, 2*18432)
             input_ranges.append(([16384], hidden_range))
-
             for batch_range, hidden_range in input_ranges:
-                inputs.extend([(i, j) for i in batch_range for j in hidden_range])
+                inputs.extend(list(itertools.product(batch_range, hidden_range)))
+
         elif dim == 3:
             dim_range = [2**i for i in range(1, 10)]
-            inputs.extend(
-                [(i, j, k) for i in dim_range for j in dim_range for k in dim_range]
-            )
+            inputs.extend(list(itertools.product(dim_range, repeat=3)))
         elif dim == 4:
             # TODO: Add spatial_dim = 2.
             input_ranges = []
@@ -84,24 +83,26 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 inputs.extend(
                     [
                         (n, c, hw, hw)
-                        for n in batch_range
-                        for c in channel_range
-                        for hw in spatial_range
+                        for (n, c, hw) in itertools.product(
+                            batch_range, channel_range, spatial_range
+                        )
                     ]
                 )
 
             inputs.extend(
                 [
                     (n, c, hw, hw)
-                    for n in [128, 256]
-                    for (c, hw) in [
-                        (512, 7),
-                        (512, 14),
-                        (512, 28),
-                        (1024, 7),
-                        (1024, 14),
-                        (2048, 7),
-                    ]
+                    for (n, (c, hw)) in itertools.product(
+                        [128, 256],
+                        [
+                            (512, 7),
+                            (512, 14),
+                            (512, 28),
+                            (1024, 7),
+                            (1024, 14),
+                            (2048, 7),
+                        ],
+                    )
                 ]
             )
 
