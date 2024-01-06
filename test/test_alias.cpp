@@ -903,4 +903,23 @@ TEST_F(AliasTest, Squeeze) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
+TEST_F(AliasTest, SourceIsBothInputAndOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = permute(in, {1, 0});
+  fusion->addInput(in);
+  fusion->addOutput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[0].data_ptr());
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[1].data_ptr());
+}
+
 } // namespace nvfuser
