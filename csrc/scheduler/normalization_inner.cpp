@@ -229,11 +229,11 @@ class HeuristicCalculator {
       const bool project_to_input,
       const bool has_rng_ops,
       const bool has_exp_ops,
-      const bool has_fused_op_before_reduction) {
+      const bool has_fused_ops_before_reduction) {
     // Some facts:
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     threads_per_warp_ = (int64_t)dev_prop->warpSize;
-    has_multiple_inputs_ = has_fused_op_before_reduction;
+    has_pro_fused_ops_ = has_fused_ops_before_reduction;
     has_rng_ops_ = has_rng_ops;
     has_exp_ops_ = has_exp_ops;
     max_warps_per_sm_ =
@@ -254,7 +254,8 @@ class HeuristicCalculator {
     // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
     // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
     target_warps_per_sm_ = [&]() {
-      int64_t res = 32l;
+      // based on bias_add_ln fp32, at 4K and 10K
+      int64_t res = vectorization_unroll_val_ == 8l ? 32l : 24l;
       res = max_persistent_buffer_size >= 24l * 1024l * 2l ? 22l : res;
       return res;
     }();
@@ -264,11 +265,15 @@ class HeuristicCalculator {
     // Otherwise, will cause regression, e.g. layer norm at 21K, reducing from
     // 48 to 40 regs per thread.
     max_adjust_count_ = [this]() {
-      if (!has_multiple_inputs_) {
+      if (!has_pro_fused_ops_) {
         return 0l;
       }
       // avoids low perf of softmax dropout at 24K on H100
       if (has_exp_ops_ && max_persistent_buffer_size_ >= 24l * 1024l * 4l) {
+        return 0l;
+      }
+      // only tested vectorization_unroll_val_ = 8
+      if(vectorization_unroll_val_ < 8l){
         return 0l;
       }
       return 8l;
@@ -287,7 +292,7 @@ class HeuristicCalculator {
     // threshold to do multi reductions per block (mrpb)
     const int64_t mrpb_reduction_numel_threshold = [&]() {
       int64_t threshold = 0;
-      if (has_multiple_inputs_) {
+      if (has_pro_fused_ops_) {
         threshold = 1024l;
       } else {
         threshold = 1024l;
@@ -306,7 +311,7 @@ class HeuristicCalculator {
     const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
       int64_t experiment_min = -1l;
       int64_t experiment_max = -1l;
-      if (has_multiple_inputs_) {
+      if (has_pro_fused_ops_) {
         if (total_reduction_numel_ >= 20480) {
           experiment_min = 4l;
           experiment_max = 7l;
@@ -328,21 +333,26 @@ class HeuristicCalculator {
         }
         // for fp32, tested on H100
         if(vectorization_unroll_val_ < 8l){
-          int64_t factor = 8l / vectorization_unroll_val_;
-          experiment_min *= factor;
-          experiment_max *= factor;
-          if(total_reduction_numel >=2048l && total_reduction_numel <= 4096l){
-            // deal with low perf at 2,3,4K, try to use 512 threads per block
-            experiment_max = 2l;
-          }
-          if(total_reduction_numel <= 22l*1024l){
-            // don't use more than 512 threads per block
-            experiment_min = std::max(experiment_min, ceilDiv(after_vect_, 512l));
-          }else{
-            // don't use less than 736 threads per block
-            experiment_max = 8l;
-          }
-          experiment_max = std::max(std::min(experiment_max, 12l), experiment_min);
+          experiment_min = 1l;
+          experiment_max = 10l;
+          // if(total_reduction_numel <= 4096l){
+          //   // deal with low perf at 2,3,4K, try to use 512 threads per block
+          //   experiment_max = 2l;
+          // }else if(total_reduction_numel <= 10240l){
+          //   experiment_max = 9l;
+          // }
+          // if(total_reduction_numel >=2048l && total_reduction_numel <= 4096l){
+          //   // deal with low perf at 2,3,4K, try to use 512 threads per block
+          //   experiment_max = 2l;
+          // }
+          // if(total_reduction_numel <= 22l*1024l){
+          //   // don't use more than 512 threads per block
+          //   experiment_min = std::max(experiment_min, ceilDiv(after_vect_, 512l));
+          // }else{
+          //   // don't use less than 736 threads per block
+          //   experiment_max = 8l;
+          // }
+          // experiment_max = std::max(std::min(experiment_max, 12l), experiment_min);
 
         }
       } else {
@@ -407,7 +417,8 @@ class HeuristicCalculator {
           return h_params.warps_per_sm >= target_warps_per_sm_;
         });
     if (n_items > 1) {
-      bool prioritize_divisible_split = this->has_rng_ops_ || (this->has_multiple_inputs_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l);
+      // bool prioritize_divisible_split = this->has_rng_ops_ || (this->has_pro_fused_ops_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l);
+      bool prioritize_divisible_split = this->has_rng_ops_ || (this->has_pro_fused_ops_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l);
       std::stable_sort(
           all_h_params.begin(),
           all_h_params.begin() + n_items,
@@ -567,7 +578,7 @@ class HeuristicCalculator {
 
  private:
   // facts of hardward and fusion
-  bool has_multiple_inputs_;
+  bool has_pro_fused_ops_;
   bool has_exp_ops_;
   bool has_rng_ops_;
   int64_t n_waves_max_;
@@ -642,7 +653,7 @@ class HeuristicCalculator {
 
     // softmax is considered as expensive ops, so prefer to use more registers
     // and don't require very high occupancy.
-    if (!has_multiple_inputs_ && !has_exp_ops_) {
+    if (!has_pro_fused_ops_ && !has_exp_ops_) {
       // Try to maximize occupancy.
       // calc blocks_per_sm using estimated register usage, if lower than
       // target, try to increase occupancy by reducing register usage.

@@ -9441,6 +9441,7 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
       }
     }
   }
+}
 // Test projection to inputs when the persistent buffer is a broadcast tv.
 TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs2) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
