@@ -331,6 +331,10 @@ class HeuristicCalculator {
           int64_t factor = 8l / vectorization_unroll_val_;
           experiment_min *= factor;
           experiment_max *= factor;
+          if(total_reduction_numel >=2048l && total_reduction_numel <= 4096l){
+            // deal with low perf at 2,3,4K, try to use 512 threads per block
+            experiment_max = 2l;
+          }
           if(total_reduction_numel <= 22l*1024l){
             // don't use more than 512 threads per block
             experiment_min = std::max(experiment_min, ceilDiv(after_vect_, 512l));
