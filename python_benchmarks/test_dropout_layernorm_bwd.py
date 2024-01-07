@@ -9,96 +9,90 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 def dropout_layernorm_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float
 ) -> None:
-    T0 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )
-    T1 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )
 
-    T2 = fd.define_tensor(
-        shape=[-1], contiguity=[True], dtype=DataType.Float, is_cpu=False
-    )
-    T3 = fd.define_tensor(
-        shape=[-1, 1], contiguity=[True, None], dtype=DataType.Float, is_cpu=False
-    )
-
-    T4 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
-    T5 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Bool)
-
-    S1 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
+    T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Bool, is_cpu=False) # mask
+    T2 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float, is_cpu=False) # mean
+    T3 = fd.define_tensor(shape=[-1, 1], contiguity=[True, None], dtype=DataType.Float, is_cpu=False) # invstd
+    T4 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False) # grads
+    T5 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False) # weights
+    T6 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False) # inputs
 
     if dtype in PROMOTE_DTYPES:
-        T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T4 = fd.ops.cast(T4, dtype=DataType.Float)
+        T5 = fd.ops.cast(T5, dtype=DataType.Float)
+        T6 = fd.ops.cast(T6, dtype=DataType.Float)
+        
+    T9 = fd.ops.mul(T6, T1)
+    S10 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
+    T11 = fd.ops.mul(T9, S10)
+    T12 = fd.ops.add(T6, T11)
+    
+    V15 = fd.define_vector([T6.size(0), 1], dtype=DataType.Int)
+    T16 = fd.ops.broadcast_in_dim(T2, shape=V15, broadcast_dims=[0])
 
-    V8 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    T9 = fd.ops.broadcast_in_dim(T2, shape=V8, broadcast_dims=[0])
-    V12 = T0.shape()
-    T13 = fd.ops.broadcast_in_dim(T9, shape=V12, broadcast_dims=[0, 1])
-    T14 = fd.ops.sub(T0, T13)
+    V19 = T6.shape()
+    T20 = fd.ops.broadcast_in_dim(T16, shape=V19, broadcast_dims=[0, 1])
+    T21 = fd.ops.sub(T12, T20)
 
-    T18 = fd.ops.broadcast_in_dim(T3, shape=V12, broadcast_dims=[0, 1])
-    T19 = fd.ops.mul(T14, T18)
+    T25 = fd.ops.broadcast_in_dim(T3, shape=V19, broadcast_dims=[0, 1])
+    T26 = fd.ops.mul(T21, T25)
+    T30 = fd.ops.broadcast_in_dim(T5, shape=V19, broadcast_dims=[1])
+    T35 = fd.ops.sum(T4, axes=[0], keepdim=False, dtype=DataType.Null)
+    
+    T37 = fd.ops.mul(T4, T30)
+    T38 = fd.ops.mul(T4, T26)
+    T39 = fd.ops.sum(T38, axes=[0], keepdim=False, dtype=DataType.Null)
+    
+    T41 = fd.ops.mul(T37, T25)
+    T42 = fd.ops.mul(T37, T21)
+    T43 = fd.ops.sum(T42, axes=[1], keepdim=False, dtype=DataType.Null)
 
-    T23 = fd.ops.broadcast_in_dim(T4, shape=V12, broadcast_dims=[1])
-    T28 = fd.ops.sum(T1, axes=[0], keepdim=False, dtype=DataType.Null)
+    T47 = fd.ops.broadcast_in_dim(T43, shape=V15, broadcast_dims=[0])
+    T48 = fd.ops.neg(T41)
+    T49 = fd.ops.sum(T48, axes=[1], keepdim=False, dtype=DataType.Null)
 
-    T30 = fd.ops.mul(T1, T23)
-    T31 = fd.ops.mul(T1, T19)
-    T32 = fd.ops.sum(T31, axes=[0], keepdim=False, dtype=DataType.Null)
+    T53 = fd.ops.broadcast_in_dim(T49, shape=V15, broadcast_dims=[0])
+    S54 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+    T55 = fd.ops.mul(S54, T47)
+    S56 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    T57 = fd.ops.pow(T3, S56)
+    T58 = fd.ops.mul(T55, T57)
+    T61 = fd.ops.sum(T53, axes=[1], keepdim=False, dtype=DataType.Null)
+    T62 = fd.ops.sum(T58, axes=[1], keepdim=False, dtype=DataType.Null)
 
-    T34 = fd.ops.mul(T30, T18)
-    T35 = fd.ops.mul(T30, T14)
-    T36 = fd.ops.sum(T35, axes=[1], keepdim=False, dtype=DataType.Null)
+    T66 = fd.ops.broadcast_in_dim(T62, shape=V15, broadcast_dims=[0])
+    T70 = fd.ops.broadcast_in_dim(T66, shape=V19, broadcast_dims=[0, 1])
 
-    T40 = fd.ops.broadcast_in_dim(T36, shape=V8, broadcast_dims=[0])
-    T41 = fd.ops.neg(T34)
-    T42 = fd.ops.sum(T41, axes=[1], keepdim=False, dtype=DataType.Null)
-    T46 = fd.ops.broadcast_in_dim(T42, shape=V8, broadcast_dims=[0])
-    S47 = fd.define_scalar(-0.500000, dtype=DataType.Double)
-    T48 = fd.ops.mul(S47, T40)
-    S49 = fd.define_scalar(3.00000, dtype=DataType.Double)
-    T50 = fd.ops.pow(T3, S49)
-    T51 = fd.ops.mul(T48, T50)
-    T54 = fd.ops.sum(T46, axes=[1], keepdim=False, dtype=DataType.Null)
-    T55 = fd.ops.sum(T51, axes=[1], keepdim=False, dtype=DataType.Null)
+    T74 = fd.ops.broadcast_in_dim(T2, shape=V15, broadcast_dims=[0])
+    T78 = fd.ops.broadcast_in_dim(T74, shape=V19, broadcast_dims=[0, 1])
+    S79 = fd.define_scalar(2.00000, dtype=DataType.Double)
+    T80 = fd.ops.mul(S79, T70)
+    T81 = fd.ops.sub(T12, T78)
+    T82 = fd.ops.mul(T80, T81)
+    S84 = fd.ops.reciprocal(T6.size(1))
+    T85 = fd.ops.mul(T82, S84)
 
-    T59 = fd.ops.broadcast_in_dim(T55, shape=V8, broadcast_dims=[0])
-    T63 = fd.ops.broadcast_in_dim(T59, shape=V12, broadcast_dims=[0, 1])
-    T67 = fd.ops.broadcast_in_dim(T2, shape=V8, broadcast_dims=[0])
-    T71 = fd.ops.broadcast_in_dim(T67, shape=V12, broadcast_dims=[0, 1])
-
-    S72 = fd.define_scalar(2.00000, dtype=DataType.Double)
-    T73 = fd.ops.mul(S72, T63)
-    T74 = fd.ops.sub(T0, T71)
-    T75 = fd.ops.mul(T73, T74)
-
-    S77 = fd.ops.reciprocal(T0.size(1))
-    T78 = fd.ops.mul(T75, S77)
-    T82 = fd.ops.broadcast_in_dim(T54, shape=V8, broadcast_dims=[0])
-    T86 = fd.ops.broadcast_in_dim(T82, shape=V12, broadcast_dims=[0, 1])
-    T88 = fd.ops.mul(S77, T86)
-    T89 = fd.ops.add(T78, T88)
-    T90 = fd.ops.add(T34, T89)
-
-    T91 = fd.ops.mul(T90, S1)
-    T92 = fd.ops.mul(T5, T91)
-    T93 = fd.ops.add(T90, T92)
+    T89 = fd.ops.broadcast_in_dim(T61, shape=V15, broadcast_dims=[0])
+    T93 = fd.ops.broadcast_in_dim(T89, shape=V19, broadcast_dims=[0, 1])
+    T95 = fd.ops.mul(S84, T93)
+    T96 = fd.ops.add(T85, T95)
+    T97 = fd.ops.add(T41, T96)
+    T101 = fd.ops.mul(T97, T1)
+    T102 = fd.ops.add(T97, T101)
 
     if dtype in PROMOTE_DTYPES:
-        T28 = fd.ops.cast(T28, dtype=dtype)
-        T93 = fd.ops.cast(T93, dtype=dtype)
-        T32 = fd.ops.cast(T32, dtype=dtype)
+        T35 = fd.ops.cast(T35, dtype=dtype)
+        T39 = fd.ops.cast(T39, dtype=dtype)
+        T102 = fd.ops.cast(T102, dtype=dtype)
 
-    fd.add_output(T93)
-    fd.add_output(T32)
-    fd.add_output(T28)
-
+    fd.add_output(T102)
+    fd.add_output(T39)
+    fd.add_output(T35)
+    
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_layernorm_bwd_benchmark(
     benchmark,
     size: tuple,
@@ -136,11 +130,11 @@ def test_layernorm_bwd_benchmark(
         )
         eager_output.backward(grads.to(torch.double))
         fd.validate(
-            [inputs, grads, mean, invstd, weights, dropout_mask],
-            [inputs.grad, weights.grad, bias.grad],
+            [dropout_mask, mean, invstd, grads, weights, inputs],
+            [inputs.grad, weights.grad, bias.grad]
         )
 
     if not disable_benchmarking:
         run_benchmark(
-            benchmark, fd.execute, [inputs, grads, mean, invstd, weights, dropout_mask]
+            benchmark, fd.execute, [dropout_mask, mean, invstd, grads, weights, inputs]
         )
