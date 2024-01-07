@@ -176,25 +176,28 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 }
 
 namespace {
-// get heuristics for pattern [I,R], here 2D means we only need to process one
-// iter dim and on reduction dim.
+// Get heuristics for pattern [I,R].
 // The reduction dim is parallelized by:
 // [vectorization_unroll_val], [bimdx_val], and [persistent_val].
-// The iter dim is parallelized by:
-// [bdimy_val], [gdimx_val] and [gdimy_val].
-// we need to set [vectorization_unroll_val], [persistent_val], and [bdimy_val].
-// other paras are calculated at runtime to support dynamic shape.
-// Apart from the above paras, we also need to set [nvrtc_register_per_thread],
-// it controls occupancy.
+// The iter dim is parallelized by: [bdimy_val] and [gdimx_val]
+// We need to set [vectorization_unroll_val], [persistent_val], and [bdimy_val].
+// [bimdx_val] and [gdimx_val] are calculated at runtime for dynamic shape
+// support. Apart from the above paras, we also need to set
+// [nvrtc_register_per_thread], which controls occupancy.
 
 // How it works?
 // The core paras are set in HeuristicCalculator.
-// (1) set [vectorization_unroll_val] to max_vectorize_factor
+// (1) Set [vectorization_unroll_val] to max_vectorize_factor
 // (2) Loop over all possible [persistent_val]
-//     calculate a heuristic para for each [persistent_val]
-//     save all the heuristic paras to [all_h_params]
-// (3) Find the best heuristic para in [all_h_params]
-// Struct to store heuristic parameters
+//     calculate a heuristic para for each [persistent_val], see
+//     genHeuristicGivenPersistentVal(), save all the heuristic paras to
+//     [all_h_params].
+// (3) Find the best heuristic para in [all_h_params] based on:
+//     (a) [warps_per_sm], (b) [n_threads_tails], (c) [n_persistent_tails], and
+//     (d) [bdimx_val]. See isBetterThan() where the comparison logic is
+//     implemented.
+
+// Stores core parameters of a heuristic.
 struct HeuristicParas {
   // free parameter
   int64_t persistent_val = -1l;
@@ -209,7 +212,6 @@ struct HeuristicParas {
   int64_t warps_per_sm = -1l;
   int64_t n_persistent_tails = -1l;
   int64_t n_threads_tails = -1l;
-  // print to string
   std::string toString() const {
     std::stringstream ss;
     ss << "persistent_val= " << persistent_val << ", bdimx_val= " << bdimx_val
@@ -222,6 +224,9 @@ struct HeuristicParas {
   }
 };
 
+// TODO: directly use this HeuristicCalculator in
+// getInnerPersistentHeuristics(). This will eliminate the need for cascading
+// function calls, thereby enhancing code readability.
 class HeuristicCalculator {
  public:
   // Constructor to accept parameters
@@ -238,19 +243,27 @@ class HeuristicCalculator {
       const bool has_fused_ops_before_reduction);
 
   // Interface to get the best heuristic.
-  // Implements the main logic of this class.
-  HeuristicParas getBestPara();
+  HeuristicParas getBestHeuristic();
+
+  // Get threads_per_warp
+  int64_t getThreadsPerWarp() const {
+    return threads_per_warp_;
+  }
+
+  // Get vectorization_unroll_val
+  int64_t getVectorizationUnrollVal() const {
+    return vectorization_unroll_val_;
+  }
 
  private:
   // Returns true if HeuristicParas [ha] is better than [hb]
-  static bool isBetterThan(
-      bool prioritize_divisible_split,
-      int64_t threads_per_warp_s,
-      const HeuristicParas& ha,
-      const HeuristicParas& hb);
+  bool isBetterThan(const HeuristicParas& ha, const HeuristicParas& hb);
+
+  // set the range of [persistent_val] to loop over.
+  void setRangeOfPersistentVal();
 
   // Returns a heuristic given a persistent_val
-  HeuristicParas getHeuristicParas(int64_t persistent_val);
+  HeuristicParas genHeuristicGivenPersistentVal(int64_t persistent_val);
 
   // Given [persistent_val], calculate [bdimx_val]
   int64_t calculateBdimx(int64_t persistent_val);
@@ -260,46 +273,44 @@ class HeuristicCalculator {
 
   // Given [persistent_val], [bdimx_val], and [bdimy_val]
   // calculate [nvrtc_register_per_thread], [warps_per_sm]
-  std::tuple<int64_t, int64_t> calculateRegWaveOccupancy(
+  std::tuple<int64_t, int64_t> calculateRegOccupancy(
       int64_t persistent_val_x,
       int64_t bdimx_val,
       int64_t bdimy_val);
 
- public:
-  int64_t vectorization_unroll_val_;
-  int64_t threads_per_warp_;
-
  private:
-  // facts of hardward and fusion
-  bool has_pro_fused_ops_;
-  bool has_exp_ops_;
+  // facts we can't change.
   bool has_rng_ops_;
+  bool has_exp_ops_;
+  bool has_pro_fused_ops_;
   int64_t n_waves_max_;
   int64_t total_reduction_numel_;
   int64_t max_persistent_buffer_size_;
   int64_t max_warps_per_sm_;
+  int64_t threads_per_warp_;
 
-  // assumptions and derived from facts and assumptions
+  // parameters of free choice but we don't want to change.
   int64_t after_vect_;
-  int64_t max_adjust_count_;
-  int64_t min_threads_per_block_;
-  int64_t max_threads_per_block_;
-  int64_t target_warps_per_sm_;
-  bool may_use_mrpb_;
+  int64_t vectorization_unroll_val_;
 
-  // reasonalbe range of [persistent_val]
+  // parameters of free choice and needs tuning.
+  bool multi_redu_per_block_;
+  int64_t max_adjust_count_;
+  int64_t target_warps_per_sm_;
   int64_t persistent_min_ = -1l;
   int64_t persistent_max_ = -1l;
 };
 
 bool HeuristicCalculator::isBetterThan(
-    bool prioritize_divisible_split,
-    int64_t threads_per_warp_s,
     const HeuristicParas& ha,
     const HeuristicParas& hb) {
   auto compare = [](int a, int b) -> int { return (a < b) ? -1 : (a > b); };
   // For fusions with high computation cost, prioritize divisible split to
   // minimize the influence of unused threads.
+  // prioritize divisible split may lead to a persistent val of 1,
+  // which is not good if hidden size is large, cut off at 5K.
+  bool prioritize_divisible_split = has_rng_ops_ ||
+      (has_pro_fused_ops_ && max_persistent_buffer_size_ <= 5l * 4l * 1024l);
   int score = 0;
   if (prioritize_divisible_split) {
     // prefer 0 to avoid warp divergence in each persistent batch.
@@ -332,7 +343,7 @@ bool HeuristicCalculator::isBetterThan(
     // used when doing multiple reductions per block for cases with small
     // hidden sizes.
     score = compare(
-        ha.bdimx_val == threads_per_warp_s, hb.bdimx_val == threads_per_warp_s);
+        ha.bdimx_val == threads_per_warp_, hb.bdimx_val == threads_per_warp_);
     if (score != 0) {
       return score > 0;
     }
@@ -377,34 +388,34 @@ HeuristicCalculator::HeuristicCalculator(
     const bool project_to_input,
     const bool has_rng_ops,
     const bool has_exp_ops,
-    const bool has_fused_ops_before_reduction) {
+    const bool has_fused_ops_before_reduction)
+    : has_rng_ops_(has_rng_ops),
+      has_exp_ops_(has_exp_ops),
+      has_pro_fused_ops_(has_fused_ops_before_reduction),
+      total_reduction_numel_(total_reduction_numel),
+      max_persistent_buffer_size_(max_persistent_buffer_size),
+      vectorization_unroll_val_(max_vectorize_factor) {
   // Some facts:
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   threads_per_warp_ = (int64_t)dev_prop->warpSize;
-  has_pro_fused_ops_ = has_fused_ops_before_reduction;
-  has_rng_ops_ = has_rng_ops;
-  has_exp_ops_ = has_exp_ops;
   max_warps_per_sm_ = dev_prop->maxThreadsPerMultiProcessor / threads_per_warp_;
   n_waves_max_ =
       ceilDiv(total_iteration_numel, (int64_t)dev_prop->multiProcessorCount);
-  total_reduction_numel_ = total_reduction_numel;
-  max_persistent_buffer_size_ = max_persistent_buffer_size;
 
   // Some assumptions:
   // maximize vectorization even if it leads to less than 1 warp.
-  vectorization_unroll_val_ = max_vectorize_factor;
   after_vect_ = scheduler_utils::safeDiv(
       total_reduction_numel, vectorization_unroll_val_);
 
-  // target 50% occupancy based on experiments
-  // at 14K, prefer persistent_val= 4, bdimx_val= 448, warp_per_sm= 28
-  // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
-  // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
+  // target occupancy based on experiments
   target_warps_per_sm_ = [&]() {
-    // based on bias_add_ln fp32, at 4K and 10K
-    int64_t res = vectorization_unroll_val_ == 8l ? 32l : 24l;
-    res = max_persistent_buffer_size >= 24l * 1024l * 2l ? 22l : res;
-    return res;
+    if (max_persistent_buffer_size >= 24l * 1024l * 2l) {
+      return 22l;
+    }
+    if (vectorization_unroll_val_ < 8l) {
+      return 24l;
+    }
+    return 32l;
   }();
 
   // allows to reduce estimated register usage for higher occupancy.
@@ -425,119 +436,105 @@ HeuristicCalculator::HeuristicCalculator(
     }
     return 8l;
   }();
-  // If [n_waves_max > 1] use at least four warps per warp as recommended by
-  // the cuda-c-best-practices-guide. Otherwise, one SM only has 1 block to
-  // process, so use as many threads as possible to increase occupancy.
-  min_threads_per_block_ =
-      n_waves_max_ > 1l ? 128l : (int64_t)dev_prop->maxThreadsPerBlock;
-  max_threads_per_block_ = (int64_t)dev_prop->maxThreadsPerBlock;
 
-  // when do multi reductions per block (mrpb), try to use 1 warp in the
-  // reduction dim and doing 4 reductions per block. This allows the use of
-  // warp reduction without using shared memory and also saves block
-  // broadcast. 4 reductions per block fully utilize the warp schedulers.
-  // threshold to do multi reductions per block (mrpb)
-  const int64_t mrpb_reduction_numel_threshold = [&]() {
-    int64_t threshold = 0;
-    if (has_pro_fused_ops_) {
-      threshold = 1024l;
-    } else {
-      threshold = 1024l;
-    }
-    return threshold;
-  }();
-  const int64_t mrpb_wave_threshold = 4l;
-  may_use_mrpb_ = total_reduction_numel < mrpb_reduction_numel_threshold &&
-      n_waves_max_ > mrpb_wave_threshold;
+  // do multi reductions per block if reduction dim is small and iteration dim
+  // is large.
+  multi_redu_per_block_ = total_reduction_numel < 1024l && n_waves_max_ > 4l;
 
-  // set a reasonable range of [persistent_val]
+  // set [persistent_min_] and [persistent_max_]
+  setRangeOfPersistentVal();
+}
+
+// set [persistent_min_] and [persistent_max_] based on experiment hints.
+void HeuristicCalculator::setRangeOfPersistentVal() {
   // hint for max persistent size based on experiments.
   // needs this to help the search. e.g. at 4K, we can use persistent_val of
   // 1, 2, 4. All values are divisible and lead to same occupancy and fully
   // used all registers. However, test shows persistent_val = 2 is the best.
-  const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
-    int64_t experiment_min = -1l;
-    int64_t experiment_max = -1l;
-    if (has_pro_fused_ops_) {
-      if (total_reduction_numel_ >= 20480) {
-        experiment_min = 4l;
-        experiment_max = 7l;
-      } else if (total_reduction_numel_ >= 16 * 1024l) {
-        experiment_min = 4l;
-        experiment_max = 4l;
-      } else if (total_reduction_numel_ >= 6144l) {
+  int64_t experiment_min = -1l;
+  int64_t experiment_max = -1l;
+  if (has_pro_fused_ops_) {
+    if (total_reduction_numel_ >= 20480) {
+      experiment_min = 4l;
+      experiment_max = 7l;
+    } else if (total_reduction_numel_ >= 16 * 1024l) {
+      experiment_min = 4l;
+      experiment_max = 4l;
+    } else if (total_reduction_numel_ >= 6144l) {
+      experiment_min = 2l;
+      experiment_max = 4l;
+    } else if (total_reduction_numel_ >= 3072l) {
+      experiment_min = 1l;
+      experiment_max = 3l;
+    } else if (total_reduction_numel_ >= 1024l) {
+      experiment_min = 1l;
+      experiment_max = 2l;
+    } else {
+      experiment_min = 1l;
+      experiment_max = 1l;
+    }
+    // for fp32, tested on H100
+    if (vectorization_unroll_val_ < 8l) {
+      experiment_min = 1l;
+      experiment_max = 10l;
+      // improve scale_mask_softmax_dropout with fp32 at 2,3,4K about 10%
+      if (has_exp_ops_ && has_rng_ops_ && total_reduction_numel_ >= 2048l &&
+          total_reduction_numel_ <= 4096l) {
         experiment_min = 2l;
         experiment_max = 4l;
-      } else if (total_reduction_numel_ >= 3072l) {
-        experiment_min = 1l;
-        experiment_max = 3l;
-      } else if (total_reduction_numel_ >= 1024l) {
-        experiment_min = 1l;
-        experiment_max = 2l;
-      } else {
-        experiment_min = 1l;
-        experiment_max = 1l;
       }
-      // for fp32, tested on H100
-      if (vectorization_unroll_val_ < 8l) {
-        experiment_min = 1l;
-        experiment_max = 10l;
-        // improve scale_mask_softmax_dropout with fp32 at 2,3,4K about 10%
-        if (has_exp_ops && has_rng_ops && total_reduction_numel >= 2048l &&
-            total_reduction_numel <= 4096l) {
-          experiment_min = 2l;
-          experiment_max = 4l;
-        }
-      }
+    }
+  } else {
+    if (multi_redu_per_block_) {
+      experiment_min = 1l;
+      experiment_max = 4l;
+
     } else {
-      if (may_use_mrpb_) {
-        experiment_min = 1l;
-        experiment_max = 4l;
-
-      } else {
-        experiment_min = 1l;
-        experiment_max = 10l;
-      }
+      experiment_min = 1l;
+      experiment_max = 10l;
     }
-    return std::make_pair(experiment_min, experiment_max);
-  }();
+  }
+  // increase [persistent_min] based on max threads per block.
+  const int64_t hard_max_threads_per_block =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
+  persistent_min_ = std::max(
+      experiment_min, ceilDiv(after_vect_, hard_max_threads_per_block));
 
-  // set [bdimx_min] and [bdimx_max]
-  const int64_t bdimx_min = [=]() {
-    int64_t tmp = std::min((int64_t)after_vect_, min_threads_per_block_);
-    if (may_use_mrpb_) {
-      tmp = std::min(tmp, (int64_t)threads_per_warp_);
-    }
-    return tmp;
-  }();
-  const int64_t bdimx_max = max_threads_per_block_;
-
-  const int64_t persistent_min_hardware = ceilDiv(after_vect_, bdimx_max);
-  persistent_min_ =
-      std::max(persistent_experiment_min, persistent_min_hardware);
+  // decrease [persistent_max] based on [bdimx_min].
+  // If [n_waves_max > 1] use at least four warps per block, otherwise,
+  // maximize threads for single-block .
+  // when do multi reductions per block (mrpb), try to use 1 warp in the
+  // reduction dim and doing 4 reductions per block. This allows the use of
+  // warp reduction without using shared memory and also saves block
+  // broadcast.
+  int64_t bdimx_min = std::min(
+      (int64_t)after_vect_,
+      n_waves_max_ > 1l ? 128l : hard_max_threads_per_block);
+  if (multi_redu_per_block_) {
+    bdimx_min = std::min(bdimx_min, (int64_t)threads_per_warp_);
+  }
   persistent_max_ = std::max(
       persistent_min_,
-      std::min(persistent_experiment_max, ceilDiv(after_vect_, bdimx_min)));
+      std::min(experiment_max, ceilDiv(after_vect_, bdimx_min)));
+
+  // Determining hardware-based persistent minimum
   std::cout << "persistent_min: " << persistent_min_
             << ", persistent_max: " << persistent_max_
-            << ", persistent_experiment_min: " << persistent_experiment_min
-            << ", persistent_min_hardware: " << persistent_min_hardware
+            << ", persistent_experiment_min: " << experiment_min
             << ", bdimx_min: " << bdimx_min << std::endl;
 }
 
-// Implements the main logic to get the best heuristics.
-HeuristicParas HeuristicCalculator::getBestPara() {
-  // Loop over all possible [persistent_val] and save all possible heuristics.
-  // allow extra search space for cases don't have divisible split, e.g. 20736
-  // needs a persistent batch of 3.
+// Implements the main logic to get the best heuristic.
+HeuristicParas HeuristicCalculator::getBestHeuristic() {
+  // (1) Loop over all possible [persistent_val] and save all generated
+  // heuristics.
   std::vector<HeuristicParas> all_h_params;
   all_h_params.reserve(persistent_max_ - persistent_min_ + 1);
   for (auto pb = persistent_min_; pb <= persistent_max_; pb++) {
-    all_h_params.emplace_back(getHeuristicParas(pb));
+    all_h_params.emplace_back(genHeuristicGivenPersistentVal(pb));
   }
 
-  // Find the best heuristic.
-  // sort by occupancy and only further process those higher than
+  // (2) Sort by occupancy and only further process those higher than
   // [target_warps_per_sm]. e.g. at 22K, want to use [persistent_val= 5] which
   // is the only size leading to occupancy >= 50%. But it is not a divisible
   // split.
@@ -551,22 +548,15 @@ HeuristicParas HeuristicCalculator::getBestPara() {
       all_h_params.begin(), all_h_params.end(), [this](const auto& h_params) {
         return h_params.warps_per_sm >= target_warps_per_sm_;
       });
+
+  // (3) If has multiple candidates, further sort using isBetterThan().
+  // sort criteria is based on info of fusion.
   if (n_items > 1) {
-    // bool prioritize_divisible_split = this->has_rng_ops_ ||
-    // (this->has_pro_fused_ops_ && this->max_persistent_buffer_size_ <=
-    // 5l*4l*1024l);
-    bool prioritize_divisible_split = this->has_rng_ops_ ||
-        (this->has_pro_fused_ops_ &&
-         this->max_persistent_buffer_size_ <= 5l * 4l * 1024l);
     std::stable_sort(
         all_h_params.begin(),
         all_h_params.begin() + n_items,
-        [this, &prioritize_divisible_split](
-            const HeuristicParas& a, const HeuristicParas& b) {
-          // prioritize divisible split may lead to a persistent val of 1,
-          // which is not good if hidden size is large, cut off at 5K.
-          return isBetterThan(
-              prioritize_divisible_split, this->threads_per_warp_, a, b);
+        [this](const HeuristicParas& a, const HeuristicParas& b) {
+          return isBetterThan(a, b);
         });
   }
 
@@ -575,32 +565,38 @@ HeuristicParas HeuristicCalculator::getBestPara() {
     std::cout << it->toString() << std::endl;
   }
 
+  // (4) Return the best heuristic.
   return all_h_params.front();
 }
 
-// Main method to calculate heuristic parameters based on given persistent_val
-HeuristicParas HeuristicCalculator::getHeuristicParas(int64_t persistent_val) {
-  // (1) Given [persistent_val], calculate [bdimx_val]
+// Main method to calculate heuristic parameters based on given [persistent_val]
+HeuristicParas HeuristicCalculator::genHeuristicGivenPersistentVal(
+    int64_t persistent_val) {
+  // (1) Calculate [bdimx_val]
   int64_t bdimx_val = calculateBdimx(persistent_val);
 
-  // (2) Given [bdimx_val], calculate [bdimy_val]
+  // (2) Calculate [bdimy_val]
   int64_t bdimy_val = calculateBdimy(bdimx_val);
 
+  // (3) Calculate register usage and occupancy.
   auto [nvrtc_register_per_thread, warps_per_sm] =
-      calculateRegWaveOccupancy(persistent_val, bdimx_val, bdimy_val);
+      calculateRegOccupancy(persistent_val, bdimx_val, bdimy_val);
 
-  // after_vect is split into multiple persistent batches, the last batch may
+  // (4) Calculate other quantities reflecting the quality of the heuristic.
+  // Reduction elements after vectorization are split into multiple persistent
+  // batches.
+  // (4.1) For each persistent batch, [bdimx_val] is usually padded to full
+  // warps. The number of padded threads are quantified as [n_threads_tails].
+  // Prefer 0 to avoid divergence of the last warp.
+  auto n_threads_tails = bdimx_val - ceilDiv(after_vect_, persistent_val);
+
+  // (4.2) [after_vect_] is not divisible by [persistent_val], the last batch is
   // not be fully utilized, the wasted threads in the last batch is quantified
-  // as [n_persistent_tails]. Prefer 0 to avoid warp divergence and unused
-  // warps.
+  // as [n_persistent_tails].
   auto n_persistent_tails =
       ceilDiv(after_vect_, persistent_val) * persistent_val - after_vect_;
 
-  // For each persistent batch, [bdimx_val] is usually padded to full warps
-  // The padded threads are quantified as [n_threads_tails]. Prefer 0 to avoid
-  // warp divergence.
-  auto n_threads_tails = bdimx_val - ceilDiv(after_vect_, persistent_val);
-
+  // (5) Return the heuristic generated from the given [persistent_val].
   return HeuristicParas{
       .persistent_val = persistent_val,
       .bdimx_val = bdimx_val,
@@ -624,7 +620,7 @@ int64_t HeuristicCalculator::calculateBdimx(int64_t persistent_val) {
 // Given [bdimx_val], calculate [bdimy_val]
 int64_t HeuristicCalculator::calculateBdimy(int64_t bdimx_val) {
   int64_t bdimy_val = 1l;
-  if (may_use_mrpb_) {
+  if (multi_redu_per_block_) {
     const int64_t optimal_mrpb_threads_per_block = 128l;
     // Compute maximum number of reductions we could
     // do in the same kernel based on persistent buffer size. Bounded by the
@@ -642,7 +638,7 @@ int64_t HeuristicCalculator::calculateBdimy(int64_t bdimx_val) {
 
 // Given [persistent_val], [bdimx_val], and [bdimy_val]
 // calculate [nvrtc_register_per_thread], [warps_per_sm]
-std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegWaveOccupancy(
+std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegOccupancy(
     int64_t persistent_val_x,
     int64_t bdimx_val,
     int64_t bdimy_val) {
@@ -657,17 +653,24 @@ std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegWaveOccupancy(
   int64_t threads_per_block = bdimx_val * bdimy_val;
   int64_t warps_per_block = ceilDiv(threads_per_block, threads_per_warp_);
   int64_t target_blocks_per_sm = ceilDiv(target_warps_per_sm_, warps_per_block);
+  int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
+      target_blocks_per_sm * threads_per_block);
+
+  // calculate [estimated_reg_per_thread] and [min_reg_per_thread]
   int64_t buffer_per_thread = max_persistent_buffer_size_ /
       total_reduction_numel_ * vectorization_unroll_val_ * persistent_val_x;
   int64_t estimated_reg_per_thread =
       estimateRegisterPerThread(buffer_per_thread);
   int64_t min_reg_per_thread = estimated_reg_per_thread - max_adjust_count_;
-  int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
-      target_blocks_per_sm * threads_per_block);
 
-  // softmax is considered as expensive ops, so prefer to use more registers
-  // and don't require very high occupancy.
-  if (!has_pro_fused_ops_ && !has_exp_ops_) {
+  // The target occupancy is only the minimum occupancy to achieve a good
+  // performance. For simple fusions, e.g. rms norm and layer norm, further
+  // increase occupancy can lead to better performance. For expensive fusions,
+  // e.g. softmax, rms_norm or layer norm fused with dropout, further increase
+  // occupancy don't lead to better performance. So we should just set occupancy
+  // to target and then maximize register usage.
+  bool is_simple_fusion = !has_pro_fused_ops_ && !has_exp_ops_ && !has_rng_ops_;
+  if (is_simple_fusion) {
     // Try to maximize occupancy.
     // calc blocks_per_sm using estimated register usage, if lower than
     // target, try to increase occupancy by reducing register usage.
@@ -708,11 +711,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const bool has_rng_ops,
     const bool has_exp_ops,
     const bool has_fused_op_before_reduction) {
-  // Some checks:
-  // NVF_ERROR(
-  //     max_vectorize_factor > 1,
-  //     "innerPersistentHeuristic2D is only tuned for vectorized case!");
-
   // wrap input parameters into a class and derive some other parameters
   HeuristicCalculator hc(
       total_reduction_numel,
@@ -726,7 +724,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       has_exp_ops,
       has_fused_op_before_reduction);
 
-  auto h_params = hc.getBestPara();
+  auto h_params = hc.getBestHeuristic();
 
   // iteration dim, set [gdimx] and maybe also [gdimy]
   int64_t gdimx_val = ceilDiv(total_iteration_numel, h_params.bdimy_val);
@@ -747,12 +745,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp =
-      (h_params.bdimx_val % hc.threads_per_warp_ == 0);
+      (h_params.bdimx_val % hc.getThreadsPerWarp() == 0);
   rparams->batches_per_block_inner_reduction = h_params.persistent_val;
   // For persistent schedules always have to mark the reduction unrolled
   // hbwise rfactor can fail
-  rparams->vectorize_inner_reduction = hc.vectorization_unroll_val_ > 1;
-  rparams->unroll_factor_inner_reduction = hc.vectorization_unroll_val_;
+  rparams->vectorize_inner_reduction = hc.getVectorizationUnrollVal() > 1;
+  rparams->unroll_factor_inner_reduction = hc.getVectorizationUnrollVal();
 
   // Iter domain
   rparams->multiple_reds_per_blk = h_params.bdimy_val > 1l;
@@ -777,7 +775,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     debug() << "\n===== Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << hc.vectorization_unroll_val_ << "\n"
+            << "vectorize_factor: " << hc.getVectorizationUnrollVal() << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "\n"
@@ -887,6 +885,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   }
   if (std::getenv("TEST_NEW")) {
     std::cout << "TEST_NEW n_tensor_inputs= " << n_tensor_inputs << std::endl;
+    // All except batch norm go through this path
     if (total_reduction_numel == inner_most_dimension_numel) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
