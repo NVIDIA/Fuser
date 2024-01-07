@@ -242,7 +242,7 @@ class HeuristicCalculator {
   HeuristicParas getBestPara();
 
  private:
-  // Returs true if HeuristicParas [ha] is better than [hb]
+  // Returns true if HeuristicParas [ha] is better than [hb]
   static bool isBetterThan(
       bool prioritize_divisible_split,
       int64_t threads_per_warp_s,
@@ -709,9 +709,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const bool has_exp_ops,
     const bool has_fused_op_before_reduction) {
   // Some checks:
-  NVF_ERROR(
-      max_vectorize_factor > 1,
-      "innerPersistentHeuristic2D is only tuned for vectorized case!");
+  // NVF_ERROR(
+  //     max_vectorize_factor > 1,
+  //     "innerPersistentHeuristic2D is only tuned for vectorized case!");
 
   // wrap input parameters into a class and derive some other parameters
   HeuristicCalculator hc(
@@ -887,8 +887,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   }
   if (std::getenv("TEST_NEW")) {
     std::cout << "TEST_NEW n_tensor_inputs= " << n_tensor_inputs << std::endl;
-    if (total_reduction_numel == inner_most_dimension_numel &&
-        vectorize_factor > 1) {
+    if (total_reduction_numel == inner_most_dimension_numel) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
           total_iteration_numel,
