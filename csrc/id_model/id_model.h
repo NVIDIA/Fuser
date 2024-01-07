@@ -174,38 +174,43 @@ class IdModel : public PolymorphicBase {
   // Start loop map by grouping inlined iter domains
   void initializeLoopMap(const StatefulInliningInfo& info);
 
-  // Returns map of ValGroups in the IEL graph to a representative IterDomain
-  // that contains all resolved transformations that the terminal IterDomains
-  // should be promoted to. The returned promotions are valid only for inlined
-  // iter domains.
-  std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
+  // Build a map of loop groups to IterDomains that represent actual
+  // loops. The map is built based on the broadcast resolution with
+  // root domains between inlined producer and consumer tensors.
+  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
       const StatefulInliningInfo& info);
 
-  // Helper function for buildInlinePromotions. Only build mappings of
-  // root broadcast domains
-  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotions(
+  // Helper function for buildLoopPromotionMap. Returns a map of
+  // root broadcast ValGroups in the IEL graph to a representative IterDomain.
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotionMap(
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
-  // Helper function for buildInlinePromotions. Propagate root
-  // promotions to intermediate and leaf domains
-  void propagatePromotions(
+  // Helper function for building loop promotion map. Propagate
+  // promotions of root IEL groups to leaf IEL groups
+  void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
 
-  void propagatePromotions(
+  // Same as the other version but also propagates promotoins of loop
+  // groups as well
+  void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& loop_graph,
-      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
       bool require_loop_mapped_promotion);
 
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
-  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
-      const std::vector<Expr*>& exprs,
-      const StatefulInliningInfo& info,
-      const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
+  std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const StatefulInliningInfo& inlining_info);
+
+  void sanityCheckLoopPromotionMap(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
 
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations

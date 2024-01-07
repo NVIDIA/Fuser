@@ -895,21 +895,45 @@ StatefulInliningInfo buildStatefulInliningInfo(
   return info;
 }
 
+// Update a map of ValGroups to ID from an old Valgraph to a new
+// ValGraph. The new graph must be a superset of the old graph.
+std::unordered_map<ValGroup, IterDomain*> updateMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph) {
+  std::unordered_map<ValGroup, IterDomain*> new_map;
+
+  for (const auto& [stale_group, mapped_id] : stale_map) {
+    const ValGroups& new_groups = new_graph.toGroups(*stale_group);
+    NVF_ERROR(
+        new_groups.size() == 1,
+        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
+        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
+        "old:",
+        nvfuser::toString(stale_group),
+        "new: ",
+        nvfuser::toString(new_groups));
+    NVF_ERROR(
+        new_map.emplace(new_groups.front(), mapped_id).second,
+        "Expected only a single mapping but multiple entries detected for ",
+        nvfuser::toString(new_groups.front()));
+  }
+  return new_map;
+}
+
 } // namespace
 
 void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
-  if (exprs.empty()) {
-    return;
+  if (!exprs.empty()) {
+    std::stringstream ss;
+    exprs.at(0)->fusion()->print(ss);
+    VERBOSE() << ss.str();
   }
 
-  const StatefulInliningInfo info = buildStatefulInliningInfo(
+  // Gather broadcast resolution and inlining information
+  const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
       exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
 
-  std::stringstream ss;
-  exprs.at(0)->fusion()->print(ss);
-  VERBOSE() << ss.str();
-
-  initializeLoopMap(info);
+  initializeLoopMap(inlining_info);
 
   VERBOSE() << "Initial loop graph:\n";
   for (const auto& group :
@@ -917,33 +941,116 @@ void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
     VERBOSE() << nvfuser::toString(group) << std::endl;
   }
 
-  // Initial propagation of parallel types for inlined iter domains. Each time
-  // new expressions are replayed this needs to be run. The disjoint sets in
-  // the loop graph can only be joined after this point.
-  // propagateLoopPTypes();
+  loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+}
 
-  auto iel_promotion_map = buildInlinePromotions(info);
-  // propagateLoopPTypes();
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
+    const StatefulInliningInfo& inlining_info) {
+  // Make an intersection of the exact and loop map. This will group together
+  // entries in each loop group that are exact with each other. This provides a
+  // better graph to do promotion and replays.
+  //
+  // It's tempting to use the intersection of the almost exact and loop, but we
+  // need to model broadcast promotion, and if we have two tensors like:
+  //
+  // T1[i0, b1] = T0[i0]
+  // T2[i0, b2] = T0[i0]
+  // Then resolution of:
+  // T4 = T1[i0, b1] + T3[i0, i1]
+  // T6 = T2[i0, b2] + T5[i0, i2]
+  //
+  // Then merge(0, 1) with all tensors except for T0
+  //
+  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
+  // are being resolved to i1 and i2 respectively. So we want to have separate
+  // entries so we can have an easy to process promotion map.
+  //
+  // Loop is a permissive like map, it could have many entries, use the exact
+  // map as the one we iterate on to reduce complexity as it hopefully has
+  // smaller groups and this algorithm scales with the number of groups *
+  // (number of entries in groups ^ 2)
+  //
+  // iel stands for Intersection of the Exact and Loop graphs.
+  ValGraph iel_graph = buildIntersection(
+      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
-  // Find loops that need to be promoted because of broadcast resolution,
-  // figure out what that resolution should look like, compute IDs for it if
-  // necessary.
-  iel_promotion_map = buildLoopPromotionMap(exprs, info, iel_promotion_map);
-  // Loop map potentialy changed changed, as we could have replayed
-  // expressions. Re-propagate parallel types.
-  // propagateLoopPTypes();
+  // Loop promotion map is to prepare for IterDomain replays to resolve
+  // non-inlined loop groups. Since these replays will modify the loop map as
+  // we're iterating over the loop map, operate on a copy of the loop map, not
+  // the original one.
+  auto loop_graph_copy = idGraph(IdMappingMode::LOOP);
 
-  // This pass still doesn't work, disable for now in case it's disruptive to
-  // tests.
-  /*
-  // Find loops that need to be promoted because of broadcast resolution,
-  // figure out what that resolution should look like, compute IDs for it if
-  // necessary.
-  auto leaf_id_promo_map =
-  buildIndexGraph(tv_exprs, all_tvs, info, iel_promotion_map);
-  // Make sure we update ptypes onto the index leaf iter domains
-  propagateLoopPTypes();
-  */
+  // Step 1: Build a map of the IEL groups of root broadcast domains
+  // to resolving domains.
+  std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
+      buildInlineRootPromotionMap(iel_graph, inlining_info);
+
+  // Step 2: Propagate the root promotions to intermediate and leaf groups.
+  // At this point, the promotion may not be final as the analysis is
+  // localized to IEL groups. The map is used in the next step to
+  // build mappings of the loop groups.
+  propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
+
+  std::stringstream ss;
+  ss << "Inline promotion map\n";
+  for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
+    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name()
+       << std::endl;
+  }
+  VERBOSE() << ss.str();
+
+  // Step 3: Determine the promotion of each loop graph based on the
+  // IEL promotion map. For each loop group, examine all the IEL
+  // promotions and find the most representative one that captures all
+  // the dependent input domains of the loop group
+  std::unordered_map<ValGroup, IterDomain*> loop_graph_copy_promotion_map =
+      projectIELPromotionToLoopGraph(
+          iel_graph, iel_promotion_map, loop_graph_copy, inlining_info);
+
+  // At this point, most of loop groups should have correct promoted
+  // IDs. However, non-inlined loop groups may miss promotion that
+  // should be propagated from parent ID groups, e.g., iS50 of T2 in
+  // Indexing19. Its parent ID loop group is promoted, but the loop
+  // group of iS50 is not found yet.
+
+  // Update the IEL graph as new domains may have been added
+  iel_graph = buildIntersection(
+      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
+
+  loop_graph_copy = idGraph(IdMappingMode::LOOP);
+  loop_graph_copy_promotion_map =
+      updateMap(loop_graph_copy_promotion_map, loop_graph_copy);
+
+  // Step 4: In order to fully propagate the loop graph promotions, first
+  // propagate them to the IEL groups, which are then used to
+  // propagate back to the loop groups in Step 5
+  std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
+  propagatePromotionsInIELGraph(
+      iel_graph,
+      final_iel_promotion_map,
+      loop_graph_copy,
+      loop_graph_copy_promotion_map,
+      true);
+
+  // Step 5: Find the final promotion of each loop group based on the
+  // final IEL promotion map
+  auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
+      iel_graph, final_iel_promotion_map, loop_graph_copy, inlining_info);
+
+  // The loop map is built for loop_graph_copy. Update the map to the
+  // latest loop graph
+  final_loop_promotion_map =
+      updateMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+
+  sanityCheckLoopPromotionMap(final_loop_promotion_map);
+
+  VERBOSE() << "Final loop promotion map:" << std::endl;
+  for (const auto& [loop_group, id] : final_loop_promotion_map) {
+    VERBOSE() << nvfuser::toString(loop_group) << " -> " << id->name()
+              << std::endl;
+  }
+
+  return final_loop_promotion_map;
 }
 
 // TODO: Reenable after reenabling parallel propagation.
@@ -1151,39 +1258,9 @@ void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
   }
 }
 
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotions(
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotionMap(
     const ValGraph& iel_graph,
     const StatefulInliningInfo& info) {
-  // Make an intersection of the exact and loop map. This will group together
-  // entries in each loop group that are exact with each other. This provides a
-  // better graph to do promotion and replays.
-
-  // It's tempting to use the intersection of the almost exact and loop, but we
-  // need to model broadcast promotion, and if we have two tensors like:
-  //
-  // T1[i0, b1] = T0[i0]
-  // T2[i0, b2] = T0[i0]
-  // Then resolution of:
-  // T4 = T1[i0, b1] + T3[i0, i1]
-  // T6 = T2[i0, b2] + T5[i0, i2]
-  //
-  // Then merge(0, 1) with all tensors except for T0
-  //
-  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
-  // are being resolved to i1 and i2 respectively. So we want to have separate
-  // entries so we can have an easy to process promotion map.
-  //
-  // Loop is a permissive like map, it could have many entries, use the exact
-  // map as the one we iterate on to reduce complexity as it hopefully has
-  // smaller groups and this algorithm scales with the number of groups *
-  // (number of entries in groups ^ 2)
-
-  // Promotion logic is going to be on the intersection of the exact and loop
-  // graph. We will generate a map on the entries of this graph so it's
-  // important to not modify this graph moving forward, as that would invalidate
-  // the map.
-  //
-  // iel stands for Intersection of the Exact and Loop graphs.
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
 
   // This should probably work just on terminating inputs, as we shouldn't be
@@ -1191,7 +1268,6 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotions(
   // required to resolve a non input broadcast domain. But for now leaving it as
   // traversal on all broadcast groups.
   //
-  // TODO-NM: The ordering appears to be non-deterministic
 
   // We first visit all broadcast root domains. If a broadcast is
   // resovled, see if it's promoted. Note that a domain be resolved to
@@ -1238,6 +1314,11 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotions(
       // No resolution
       continue;
     }
+
+    // resolved_exact_groups is a list of IDs that resolves the
+    // broadcast. We only care those that are also in the same loop
+    // group, and there must be just one or none. Otherwise, the
+    // resolution is ambiguous.
 
     // Collect all the exact groups in the loop set containing this iel_group
     const ValGroup& loop_group =
@@ -1367,7 +1448,9 @@ bool hasUniqueOutputLoopGroups(
 // it is used there's no loop graph promotion yet, so only the IEL
 // promotions are propagated. In that case, loop_graph_promotion_map
 // should be just empty.
-void IdModel::propagatePromotions(
+//
+// The loop_graph pamameter may not be up-to-date.
+void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
@@ -1575,86 +1658,14 @@ void IdModel::propagatePromotions(
   }
 }
 
-void IdModel::propagatePromotions(
+void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
-  propagatePromotions(
+  propagatePromotionsInIELGraph(
       iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {}, false);
 }
 
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
-    const StatefulInliningInfo& info) {
-  // Make an intersection of the exact and loop map. This will group together
-  // entries in each loop group that are exact with each other. This provides a
-  // better graph to do promotion and replays.
-
-  // It's tempting to use the intersection of the almost exact and loop, but we
-  // need to model broadcast promotion, and if we have two tensors like:
-  //
-  // T1[i0, b1] = T0[i0]
-  // T2[i0, b2] = T0[i0]
-  // Then resolution of:
-  // T4 = T1[i0, b1] + T3[i0, i1]
-  // T6 = T2[i0, b2] + T5[i0, i2]
-  //
-  // Then merge(0, 1) with all tensors except for T0
-  //
-  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
-  // are being resolved to i1 and i2 respectively. So we want to have separate
-  // entries so we can have an easy to process promotion map.
-  //
-  // Loop is a permissive like map, it could have many entries, use the exact
-  // map as the one we iterate on to reduce complexity as it hopefully has
-  // smaller groups and this algorithm scales with the number of groups *
-  // (number of entries in groups ^ 2)
-
-  // Promotion logic is going to be on the intersection of the exact and loop
-  // graph. We will generate a map on the entries of this graph so it's
-  // important to not modify this graph moving forward, as that would invalidate
-  // the map.
-  //
-  // iel stands for Intersection of the Exact and Loop graphs.
-  ValGraph iel_graph = buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
-
-  // First, identify promotions of root broadcast domains only
-  std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
-      buildInlineRootPromotions(iel_graph, info);
-
-  propagatePromotions(iel_graph, iel_promotion_map);
-
-  std::stringstream ss;
-  ss << "Inline promotion map\n";
-  for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
-    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name()
-       << std::endl;
-  }
-  VERBOSE() << ss.str();
-
-  return iel_promotion_map;
-}
-
 namespace {
-
-std::unordered_map<ValGroup, IterDomain*> updateMap(
-    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
-    ValGraph& new_graph) {
-  std::unordered_map<ValGroup, IterDomain*> new_map;
-
-  for (const auto& [stale_key, mapped_id] : stale_map) {
-    const ValGroups& new_groups = new_graph.toGroups(*stale_key);
-    NVF_ERROR(
-        new_groups.size() == 1,
-        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
-        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
-        "old:",
-        nvfuser::toString(stale_key),
-        "new: ",
-        nvfuser::toString(new_groups));
-    new_map[new_groups.front()] = mapped_id;
-  }
-  return new_map;
-}
 
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
@@ -1786,28 +1797,13 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
   return nullptr;
 }
 
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
-    const std::vector<Expr*>& exprs,
-    const StatefulInliningInfo& inlining_info,
-    const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map) {
-  // Non-ca domains may also need to be promoted if parent domains are
-  // promoted.
-
-  // Need to use the intersection of exact and loop map again, it needs to be
-  // recomputed.
-  auto iel_graph = buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
-
-  // Update the promotion map
-  auto iel_promotion_map = updateMap(stale_promotion_map, iel_graph);
-
-  // Loop promotion map is to prepare for IterDomain replays to resolve
-  // non-inlined loop groups. Since these replays will modify the loop map as
-  // we're iterating over the loop map, operate on a copy of the loop map, not
-  // the original one.
-  auto loop_graph_copy = idGraph(IdMappingMode::LOOP);
-
-  std::unordered_map<ValGroup, IterDomain*> loop_graph_copy_promotion_map;
+std::unordered_map<ValGroup, IterDomain*> IdModel::
+    projectIELPromotionToLoopGraph(
+        const ValGraph& iel_graph,
+        const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+        const ValGraph& loop_graph,
+        const StatefulInliningInfo& inlining_info) {
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map;
 
   std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
       computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
@@ -1817,7 +1813,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       computeTerminalLoopIds(inlining_info);
 
   for (const ValGroup& loop_group :
-       loop_graph_copy.disjointValSets().disjointSets()) {
+       loop_graph.disjointValSets().disjointSets()) {
+    // Error happens here. Likely iel_graph is stale
     IterDomain* promotion_id = findPromotionOfLoopGroup(
         loop_group,
         iel_graph,
@@ -1826,59 +1823,21 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
         exact_covered_ids,
         terminal_loop_ids);
     if (promotion_id) {
-      loop_graph_copy_promotion_map[loop_group] = promotion_id;
+      loop_promotion_map[loop_group] = promotion_id;
     }
   }
 
-  // At this point, most of loop groups should have correct promoted
-  // IDs. However, non-inlined loop groups may miss promotion that
-  // should be propagated from parent ID groups, e.g., iS50 of T2 in
-  // Indexing19. Its parent ID loop group is promoted, but the loop
-  // group of iS50 is not found yet.
-
   VERBOSE() << "Promotion projected to loop groups:\n";
-  for (const auto& [loop_group, id] : loop_graph_copy_promotion_map) {
+  for (const auto& [loop_group, id] : loop_promotion_map) {
     VERBOSE() << nvfuser::toString(loop_group) << " -> " << id->name()
               << std::endl;
   }
 
-  // Reset the promotion map for the second pass.
-  // TODO: Unclear if we could simply update the iel_promotion_map from
-  // buildInlinePromotions, instead of manually building it.
-  iel_promotion_map.clear();
+  return loop_promotion_map;
+}
 
-  // Need to run a replay for the loop groups that are dependent on inlined loop
-  // groups, but themselves are not inlined loop groups.
-  propagatePromotions(
-      iel_graph,
-      iel_promotion_map,
-      loop_graph_copy,
-      loop_graph_copy_promotion_map,
-      true);
-
-  // Update the coverage map as new IDs were added to the exact graph
-  exact_covered_ids =
-      computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
-
-  // Set up the loop promotion map of loop groups to promotion
-  // IDs.
-  for (const ValGroup& loop_group :
-       loop_graph_copy.disjointValSets().disjointSets()) {
-    IterDomain* promotion_id = findPromotionOfLoopGroup(
-        loop_group,
-        iel_graph,
-        iel_promotion_map,
-        loop_graph_copy_promotion_map,
-        exact_covered_ids,
-        terminal_loop_ids);
-    if (promotion_id) {
-      const ValGroup& current_loop_group =
-          idGraph(IdMappingMode::LOOP).toGroup(loop_group->front());
-      loop_promotion_map_.emplace(current_loop_group, promotion_id);
-    }
-  }
-
-  // Sanity check of the loop promotion map
+void IdModel::sanityCheckLoopPromotionMap(
+    const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {
   for (const ValGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
     // Non-leaf loop groups are not guaranteed to have valid
@@ -1887,9 +1846,9 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
     if (idGraph(IdMappingMode::LOOP).hasUses(loop_group)) {
       continue;
     }
-    auto promotion_it = loop_promotion_map_.find(loop_group);
+    auto promotion_it = loop_promotion_map.find(loop_group);
     NVF_ERROR(
-        promotion_it != loop_promotion_map_.end(),
+        promotion_it != loop_promotion_map.end(),
         "Loop promotion not found for ",
         nvfuser::toString(loop_group));
     IterDomain* promotion = promotion_it->second;
@@ -1901,14 +1860,6 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
         ". Promotion domain: ",
         promotion->name());
   }
-
-  VERBOSE() << "Loop promotion map:" << std::endl;
-  for (const auto& [iel_group, id] : iel_promotion_map) {
-    VERBOSE() << nvfuser::toString(iel_group) << " -> " << id->name()
-              << std::endl;
-  }
-
-  return iel_promotion_map;
 }
 
 std::unordered_map<IterDomain*, IterDomain*> IdModel::buildIndexGraph(
