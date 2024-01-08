@@ -1118,10 +1118,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
             .propagateToBoundary());
-    if (num_splitk_dims == 0) {
-      // TODO: Remove this once we are able to vectorize the splitk reduction
-      smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
-    } else {
+    smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
+    if (num_splitk_dims != 0) {
       splitk_sum->axis(-3)->parallelize(ParallelType::BIDz);
     }
 

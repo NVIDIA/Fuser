@@ -373,6 +373,16 @@ class VectorizeValidator : public OptInDispatch {
       if (r_id->isReduction() || r_id->isBroadcast()) {
         continue;
       }
+      if ((tv->getMemoryType() == MemoryType::Shared ||
+           tv->getMemoryType() == MemoryType::Local) &&
+          r_id->isBlockDim()) {
+        // Inner-most parallelized dimensions don't count in allocation of
+        // shared and local tensors.
+        continue;
+      }
+      if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
+        continue;
+      }
       last_alloc_dim = r_id;
       last_alloc_dim_pos = i - 1;
       break;
