@@ -49,7 +49,7 @@ def test_pointwise_ops_benchmark(
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, inputs)
+        run_benchmark(benchmark, fd.execute, inputs, device="cpu")
 
     torch.cuda.empty_cache()
 

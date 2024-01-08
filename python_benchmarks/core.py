@@ -143,7 +143,7 @@ class NVFBenchmark:
     torchprofiler-based timer and metric computation.
     """
 
-    def __init__(self, benchmark_fixture, precision: float = 1e-6):
+    def __init__(self, benchmark_fixture, device: str = "cuda", precision: float = 1e-6):
         """
         Arguments:
             benchmark_fixture: pytest-benchmark fixture passed to every
@@ -156,6 +156,7 @@ class NVFBenchmark:
             self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
+        self.device = device
         # Initialize a Torch Profiler object
         self.prof = profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU])
 
@@ -191,8 +192,8 @@ class NVFBenchmark:
         try:
             self.prof.stop()
             prof_averages = self.prof.key_averages()
-            elapsed_cuda_time = self._get_kernel_time(prof_averages)
-            self._increment_global_time(elapsed_cuda_time)
+            elapsed_time = self._get_kernel_time(prof_averages)
+            self._increment_global_time(elapsed_time)
             self.prof.start()
         except AssertionError:
             self.prof.start()
@@ -207,17 +208,30 @@ class NVFBenchmark:
         Returns:
             time_value: Elapsed CUDA time in seconds.
         """
-        elapsed_cuda_time = (
-            sum(
-                [
-                    event.self_cuda_time_total
-                    for event in prof_averages
-                    if event.device_type == DeviceType.CUDA
-                ]
+        elapsed_time = 0.0
+        if self.device == "cuda":
+            elapsed_time = (
+                sum(
+                    [
+                        event.self_cuda_time_total
+                        for event in prof_averages
+                        if event.device_type == DeviceType.CUDA
+                    ]
+                )
+                / 1e6
             )
-            / 1e6
-        )
-        return elapsed_cuda_time
+        else:
+            elapsed_time = (
+                sum(
+                    [
+                        event.self_cpu_time_total
+                        for event in prof_averages
+                        if event.device_type == DeviceType.CPU
+                    ]
+                )
+                / 1e6
+            )
+        return elapsed_time
 
     def _increment_global_time(self, elapsed_time: float) -> None:
         self.current_time += elapsed_time
@@ -272,6 +286,7 @@ def run_benchmark(
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,
     warmup_rounds: int = 1,
+    device: str = "cuda"
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
@@ -289,7 +304,7 @@ def run_benchmark(
         clear_l2_cache()
         return [inputs], {}
 
-    nvf_benchmark = NVFBenchmark(benchmark)
+    nvf_benchmark = NVFBenchmark(benchmark, device=device)
     outputs = nvf_benchmark.pedantic(
         benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
     )
