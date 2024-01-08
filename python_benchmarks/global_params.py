@@ -11,21 +11,23 @@ import itertools
 D_MODEL_MIN = 768
 D_MODEL_MAX = 18432
 
-# Actual d_model sizes seen in models.
-D_MODEL_SIZES = [
-    768,  # GPT-2 (124M), GPT-3 (125M)
-    1024,  # GPT-2 (350M), GPT-3 (350M)
-    1280,  # GPT-2 (774M)
-    1536,  # GPT-3 (760M), GPT-3 (760M)
-    1600,  # GPT-2 (1558M)
-    2048,  # GPT-3 (1.3B)
-    2560,  # GPT-3 (2.7B)
-    4096,  # LLaMA (7B), PaLM (8B), GPT-3 (6.7B)
-    5120,  # LLaMA (13B), GPT-3 (13B)
-    6656,  # LLaMA (30B)
-    8192,  # LLaMA (65B), PaLM (63B)
-    12288,  # GPT-3 (175B)
-    18432,  # PaLM (540B)
+# (num_heads, n_embd) configurations seen in models.
+LLM_CONFIGS = [
+    (12, 768),  # GPT-2 (124M), GPT-3 (125M)
+    (16, 1024),  # GPT-2 (350M), GPT-3 (350M)
+    (20, 1280),  # GPT-2 (774M)
+    (16, 1536),  # GPT-3 (760M)
+    (25, 1600),  # GPT-2 (1558M)
+    (24, 2048),  # GPT-3 (1.3B)
+    (32, 2560),  # GPT-3 (2.7B)
+    (16, 4096),  # PaLM (8B)
+    (32, 4096),  # LLaMA (7B), GPT-3 (6.7B)
+    (40, 5120),  # LLaMA (13B), GPT-3 (13B)
+    (52, 6656),  # LLaMA (30B)
+    (32, 8192),  # PaLM (63B)
+    (64, 8192),  # LLaMA (65B)
+    (96, 12288),  # GPT-3 (175B)
+    (48, 18432),  # PaLM (540B)
 ]
 
 
