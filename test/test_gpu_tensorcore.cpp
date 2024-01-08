@@ -2419,9 +2419,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
         params.use_smem_epilogue = use_smem_epilogue;
         params.promote_prologue_smem_reuse = true;
 
-        std::cout << "\n\n#####    layout=" << toString(layout)
-                  << " use_smem_epilogue=" << use_smem_epilogue
-                  << " splitk_factor=" << splitk_factor << std::endl;
         scheduleMatmul(&fusion, params);
 
         auto inputs = matmulAtInput(M, N, K, layout);
@@ -2430,12 +2427,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
             7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
         EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-        std::cout << "BankConflictInfo:" << std::endl;
-        for (auto [expr, conflictways] : getBankConflictInfo(fe.kernel())) {
-          std::cout << "  " << expr->toString();
-          std::cout << "    " << conflictways.first << "  "
-                    << conflictways.second << std::endl;
-        }
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
