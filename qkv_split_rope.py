@@ -1,5 +1,6 @@
 import torch
 from nvfuser import FusionDefinition, DataType
+from python_benchmarks.core import run_benchmark, clear_cuda_cache
 
 
 def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
@@ -171,7 +172,9 @@ def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
     fd.add_output(T31)
 
 
-if __name__ == "__main__":
+def test_qkv_split_rope(benchmark):
+    clear_cuda_cache()
+
     with FusionDefinition() as fd:
         nvfuser_fusion_id0(fd)
 
@@ -186,4 +189,5 @@ if __name__ == "__main__":
             (4096, 128), (128, 1)
         ),
     ]
-    fd.execute(inputs)
+
+    run_benchmark(benchmark, fd.execute, inputs)
