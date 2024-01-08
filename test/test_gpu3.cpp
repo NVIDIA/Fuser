@@ -8925,6 +8925,8 @@ TEST_F(NVFuserTest, BFLayerNorm) {
   // return;
   for (int64_t batch_size : {2048, 1024 * 32}) {
     for (auto feature : features) {
+      std::cout << "batch_size= " << batch_size << ", feature= " << feature
+                << std::endl;
       std::vector<kernelInfo> results;
       ASSERT_TRUE(feature % vect_factor == 0);
       results.emplace_back(test(batch_size, feature, 0, 0));

@@ -233,7 +233,7 @@ struct PersistentKernelProperties {
   PrimDataType index_type;
   bool has_rng_op;
   bool has_exp_op;
-  bool has_fused_op_before_reduction;
+  bool has_pro_fused_ops;
 };
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,

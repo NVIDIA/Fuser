@@ -991,12 +991,18 @@ PersistentKernelProperties getPersistentKernelProperties(
 
 
   // more detailed info about fusion
+  // rng op in the fusion
   bool has_rng_op = ir_utils::hasOpsOfType<RNGOp>(fusion);
-  bool has_exp_op = false;
-  bool has_fused_op_before_reduction = false;
+
   const auto& persistent_buffers =
       persistent_buffer_info.persistent_buffers;
   auto all_inputs = ir_utils::inputTvsOf(persistent_buffers);
+  
+  // check if there is any fused op before reduction
+  bool has_pro_fused_ops = all_inputs.size() > 1;
+
+  // look for exp op between input and persistent buffer
+  bool has_exp_op = false;
   const auto all_exprs = StmtSort::getExprsBetween(
       {all_inputs.begin(), all_inputs.end()},
       {persistent_buffers.begin(), persistent_buffers.end()});
@@ -1009,23 +1015,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       break;
     }
   }
-  // check if there is any fused op before reduction, except cast and set
-  // skip check if there is only one tensor input, e.g. softmax
-  if(n_tensor_inputs > 1){
-    for (auto expr : all_exprs) {
-      if (expr->isA<UnaryOp>() &&
-          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
-        continue;
-      }    
-      if(expr->isA<LoadStoreOp>()){
-        continue;
-      }
-      has_fused_op_before_reduction = true;
-      break;
-    }
-  }
+
   std::cout << "has_exp_op: " << has_exp_op << std::endl;
-  std::cout << "has_fused_op_before_reduction: " << has_fused_op_before_reduction << std::endl;
+  std::cout << "has_pro_fused_ops: " << has_pro_fused_ops << std::endl;
   // (8) return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
@@ -1039,7 +1031,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       .index_type = runtime_info.getIndexType(),
       .has_rng_op = has_rng_op,
       .has_exp_op = has_exp_op,
-      .has_fused_op_before_reduction = has_fused_op_before_reduction};
+      .has_pro_fused_ops = has_pro_fused_ops};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {

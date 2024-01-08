@@ -240,7 +240,7 @@ class HeuristicCalculator {
       const bool project_to_input,
       const bool has_rng_ops,
       const bool has_exp_ops,
-      const bool has_fused_ops_before_reduction);
+      const bool has_pro_fused_ops);
 
   // Interface to get the best heuristic.
   HeuristicParas getBestHeuristic();
@@ -295,6 +295,7 @@ class HeuristicCalculator {
 
   // parameters of free choice and needs tuning.
   bool multi_redu_per_block_;
+  bool is_simple_fusion_;
   int64_t max_adjust_count_;
   int64_t target_warps_per_sm_;
   int64_t persistent_min_ = -1l;
@@ -388,10 +389,10 @@ HeuristicCalculator::HeuristicCalculator(
     const bool project_to_input,
     const bool has_rng_ops,
     const bool has_exp_ops,
-    const bool has_fused_ops_before_reduction)
+    const bool has_pro_fused_ops)
     : has_rng_ops_(has_rng_ops),
       has_exp_ops_(has_exp_ops),
-      has_pro_fused_ops_(has_fused_ops_before_reduction),
+      has_pro_fused_ops_(has_pro_fused_ops),
       total_reduction_numel_(total_reduction_numel),
       max_persistent_buffer_size_(max_persistent_buffer_size),
       vectorization_unroll_val_(max_vectorize_factor) {
@@ -437,9 +438,18 @@ HeuristicCalculator::HeuristicCalculator(
     return 8l;
   }();
 
+  // simple fusion, e.g. rms norm and layer norm.
+  // (1) used to calculateRegOccupancy() to determine if we should maximize
+  // occupancy or just set occupancy to target and then maximize register usage.
+  // (2) used to set threshold for multi_redu_per_block.
+  is_simple_fusion_ = !has_pro_fused_ops_ && !has_exp_ops_ && !has_rng_ops_;
+
   // do multi reductions per block if reduction dim is small and iteration dim
   // is large.
-  multi_redu_per_block_ = total_reduction_numel < 1024l && n_waves_max_ > 4l;
+  const int64_t mrpb_wave_threshold = 4l;
+  const int64_t element_threshold = is_simple_fusion_ ? 2048l : 1024l;
+  multi_redu_per_block_ = total_reduction_numel <= element_threshold &&
+      n_waves_max_ > mrpb_wave_threshold;
 
   // set [persistent_min_] and [persistent_max_]
   setRangeOfPersistentVal();
@@ -485,13 +495,19 @@ void HeuristicCalculator::setRangeOfPersistentVal() {
       }
     }
   } else {
-    if (multi_redu_per_block_) {
+    // used by softmax, rms_norm, layer_norm
+    if (total_reduction_numel_ <= 1024l) {
       experiment_min = 1l;
-      experiment_max = 4l;
-
+      experiment_max = 3l;
+    } else if (total_reduction_numel_ <= 2048l) {
+      experiment_min = 1l;
+      experiment_max = 5l;
+    } else if (total_reduction_numel_ <= 5120l) {
+      experiment_min = 1l;
+      experiment_max = has_exp_ops_ ? 5l : 2l;
     } else {
       experiment_min = 1l;
-      experiment_max = 10l;
+      experiment_max = has_exp_ops_ ? 9l : 10l;
     }
   }
   // increase [persistent_min] based on max threads per block.
@@ -669,8 +685,7 @@ std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegOccupancy(
   // e.g. softmax, rms_norm or layer norm fused with dropout, further increase
   // occupancy don't lead to better performance. So we should just set occupancy
   // to target and then maximize register usage.
-  bool is_simple_fusion = !has_pro_fused_ops_ && !has_exp_ops_ && !has_rng_ops_;
-  if (is_simple_fusion) {
+  if (is_simple_fusion_) {
     // Try to maximize occupancy.
     // calc blocks_per_sm using estimated register usage, if lower than
     // target, try to increase occupancy by reducing register usage.
@@ -710,7 +725,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const PrimDataType index_type,
     const bool has_rng_ops,
     const bool has_exp_ops,
-    const bool has_fused_op_before_reduction) {
+    const bool has_pro_fused_ops) {
   // wrap input parameters into a class and derive some other parameters
   HeuristicCalculator hc(
       total_reduction_numel,
@@ -722,7 +737,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       project_to_input,
       has_rng_ops,
       has_exp_ops,
-      has_fused_op_before_reduction);
+      has_pro_fused_ops);
 
   auto h_params = hc.getBestHeuristic();
 
@@ -869,7 +884,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const PrimDataType index_type,
     const bool has_rng_op,
     const bool has_exp_op,
-    const bool has_fused_op_before_reduction) {
+    const bool has_pro_fused_ops) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -898,7 +913,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           index_type,
           has_rng_op,
           has_exp_op,
-          has_fused_op_before_reduction);
+          has_pro_fused_ops);
     }
   }
   // Set some targets for parallelization
@@ -1449,7 +1464,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.index_type,
       prop.has_rng_op,
       prop.has_exp_op,
-      prop.has_fused_op_before_reduction);
+      prop.has_pro_fused_ops);
   return rparams;
 }
 
