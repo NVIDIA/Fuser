@@ -206,4 +206,25 @@ TEST_F(SegmentationTest, EnforceSegmentationByCachingBeforeAndAfter) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
+TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  add_out = segment_set(add_out);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+
+  add_out->setAllocationDomain(
+      {add_out->axis(0), add_out->axis(1), add_out->axis(2)}, false);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
