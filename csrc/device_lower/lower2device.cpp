@@ -390,10 +390,6 @@ void GpuLower::create(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
   FusionGuard fg(fusion_);
-
-  // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
-  replaceSymbolicSizes(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 }
 
 void GpuLower::create(const serde::GpuLower* gpulower) {
@@ -418,15 +414,6 @@ void GpuLower::create(const serde::GpuLower* gpulower) {
   kernel_ = std::make_unique<kir::Kernel>(scheduled_fusion_.get(), indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
-
-  {
-    FusionGuard fg(fusion_);
-    // TODO Replaces with kernel_->deserialize(kernel) to rematerialize saved
-    // kir::Kernel. Replaces integers that are tensor sizes by named scalars as
-    // "T0.size[0]"
-    replaceSymbolicSizes(fusion_);
-    dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
-  }
 }
 
 void GpuLower::analysis() {
@@ -457,6 +444,10 @@ void GpuLower::analysis() {
   // determine the padding is explicitly a single warp.
   collectPaddedParallelDims();
   dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
+
+  // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
+  replaceSymbolicSizes(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
