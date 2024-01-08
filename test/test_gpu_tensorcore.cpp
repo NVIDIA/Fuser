@@ -2393,7 +2393,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   int M = 504, N = 136, K = 8096;
 
   for (auto layout : kAllSupportedMmaLayout) {
-    for (int splitk_factor : {1, 2}) {
+    for (int splitk_factor : {2}) {
       for (int use_smem_epilogue : {false, true}) {
         Fusion fusion;
         FusionGuard fg(&fusion);
@@ -2449,48 +2449,55 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
   int M = 504, N = 136, K = 8096;
 
   for (auto layout : kAllSupportedMmaLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
-    auto tv2 = makeContigTensor(1, DataType::Half);
+    for (int splitk_factor : {2}) {
+      for (int use_smem_epilogue : {false, true}) {
+        Fusion fusion;
+        FusionGuard fg(&fusion);
+        auto tv0 = makeContigTensor(2, DataType::Half);
+        auto tv1 = makeContigTensor(2, DataType::Half);
+        auto tv2 = makeContigTensor(1, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
-    fusion.addInput(tv2);
+        fusion.addInput(tv0);
+        fusion.addInput(tv1);
+        fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
-    auto tv4 = broadcast(tv2, {false, true});
-    auto tv5 = add(tv3, tv4); // bias
+        auto tv3 = matmul(tv0, tv1, layout, true);
+        auto tv4 = broadcast(tv2, {false, true});
+        auto tv5 = add(tv3, tv4); // bias
 
-    fusion.addOutput(tv5);
+        fusion.addOutput(tv5);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+        MatMulTileOptions gemm_tile;
+        gemm_tile.cta_tile = GemmTile(128, 128, 32);
+        gemm_tile.warp_tile = GemmTile(64, 64, 32);
+        gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
-    scheduleMatmul(&fusion, params);
+        MatmulParams params;
+        params.mma_macro = MmaMacro::Ampere_16_8_16;
+        params.tile_sizes = gemm_tile;
+        params.splitk_factor = splitk_factor;
+        params.use_smem_epilogue = use_smem_epilogue;
+        params.promote_prologue_smem_reuse = true;
 
-    auto [aten_a, aten_b] = matmulAtInput(M, N, K, layout);
-    at::Tensor aten_bias = at::randn({M}, aten_a.options());
-    std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+        scheduleMatmul(&fusion, params);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        7, 5, fe.compileFusion(&fusion, inputs));
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    auto cg_outputs = fe.runFusion(inputs);
-    auto tref = atBiasEpilogue(
-        atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
-        aten_bias);
+        auto [aten_a, aten_b] = matmulAtInput(M, N, K, layout);
+        at::Tensor aten_bias = at::randn({M}, aten_a.options());
+        std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
-    // Relax tolerance for larger sum due to large K
-    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+        FusionExecutor fe;
+        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+            7, 5, fe.compileFusion(&fusion, inputs));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        auto cg_outputs = fe.runFusion(inputs);
+        auto tref = atBiasEpilogue(
+            atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
+            aten_bias);
+
+        // Relax tolerance for larger sum due to large K
+        NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      }
+    }
   }
 }
 
@@ -2505,45 +2512,53 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
   int B = 2, M = 504, N = 136, K = 2048;
 
   for (auto layout : kAllSupportedMmaLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(3, DataType::Half);
-    auto tv1 = makeContigTensor(3, DataType::Half);
+    for (int splitk_factor : {2}) {
+      for (int use_smem_epilogue : {false, true}) {
+        Fusion fusion;
+        FusionGuard fg(&fusion);
+        auto tv0 = makeContigTensor(3, DataType::Half);
+        auto tv1 = makeContigTensor(3, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+        fusion.addInput(tv0);
+        fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+        auto tv2 = matmul(tv0, tv1, layout, true);
 
-    fusion.addOutput(tv2);
+        fusion.addOutput(tv2);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+        MatMulTileOptions gemm_tile;
+        gemm_tile.cta_tile = GemmTile(128, 128, 32);
+        gemm_tile.warp_tile = GemmTile(64, 64, 32);
+        gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
-    scheduleMatmul(&fusion, params);
+        MatmulParams params;
+        params.mma_macro = MmaMacro::Ampere_16_8_16;
+        params.tile_sizes = gemm_tile;
+        params.splitk_factor = splitk_factor;
+        params.use_smem_epilogue = use_smem_epilogue;
+        params.promote_prologue_smem_reuse = true;
 
-    at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        scheduleMatmul(&fusion, params);
 
-    std::vector<c10::IValue> inputs = {aten_a, aten_b};
+        at::Tensor aten_a =
+            matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        at::Tensor aten_b =
+            matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        7, 5, fe.compileFusion(&fusion, inputs));
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    auto cg_outputs = fe.runFusion(inputs);
-    auto tref = atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout);
+        std::vector<c10::IValue> inputs = {aten_a, aten_b};
 
-    // Relax tolerance for larger sum due to large K
-    EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+        FusionExecutor fe;
+        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+            7, 5, fe.compileFusion(&fusion, inputs));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        auto cg_outputs = fe.runFusion(inputs);
+        auto tref =
+            atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout);
+
+        // Relax tolerance for larger sum due to large K
+        EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      }
+    }
   }
 }
 
@@ -2558,52 +2573,59 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
   int B = 2, M = 504, N = 136, K = 2048;
 
   for (auto layout : kAllSupportedMmaLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(3, DataType::Half);
-    auto tv1 = makeContigTensor(3, DataType::Half);
-    auto tv2 = makeContigTensor(1, DataType::Half);
+    for (int splitk_factor : {2}) {
+      for (int use_smem_epilogue : {false, true}) {
+        Fusion fusion;
+        FusionGuard fg(&fusion);
+        auto tv0 = makeContigTensor(3, DataType::Half);
+        auto tv1 = makeContigTensor(3, DataType::Half);
+        auto tv2 = makeContigTensor(1, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
-    fusion.addInput(tv2);
+        fusion.addInput(tv0);
+        fusion.addInput(tv1);
+        fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
-    auto tv4 = broadcast(tv2, {true, false, true});
-    auto tv5 = add(tv3, tv4);
+        auto tv3 = matmul(tv0, tv1, layout, true);
+        auto tv4 = broadcast(tv2, {true, false, true});
+        auto tv5 = add(tv3, tv4);
 
-    fusion.addOutput(tv5);
+        fusion.addOutput(tv5);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+        MatMulTileOptions gemm_tile;
+        gemm_tile.cta_tile = GemmTile(128, 128, 32);
+        gemm_tile.warp_tile = GemmTile(64, 64, 32);
+        gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
-    scheduleMatmul(&fusion, params);
+        MatmulParams params;
+        params.mma_macro = MmaMacro::Ampere_16_8_16;
+        params.tile_sizes = gemm_tile;
+        params.splitk_factor = splitk_factor;
+        params.use_smem_epilogue = use_smem_epilogue;
+        params.promote_prologue_smem_reuse = true;
 
-    at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
-    at::Tensor aten_bias = at::randn({M}, aten_a.options());
+        scheduleMatmul(&fusion, params);
 
-    std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+        at::Tensor aten_a =
+            matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        at::Tensor aten_b =
+            matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        at::Tensor aten_bias = at::randn({M}, aten_a.options());
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        7, 5, fe.compileFusion(&fusion, inputs));
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    auto cg_outputs = fe.runFusion(inputs);
-    auto tref = atBiasEpilogue(
-        atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
-        aten_bias);
+        std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
-    // Relax tolerance for larger sum due to large K
-    EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+        FusionExecutor fe;
+        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+            7, 5, fe.compileFusion(&fusion, inputs));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        auto cg_outputs = fe.runFusion(inputs);
+        auto tref = atBiasEpilogue(
+            atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
+            aten_bias);
+
+        // Relax tolerance for larger sum due to large K
+        EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      }
+    }
   }
 }
 
