@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import LLM_CONFIGS, FLOAT_DTYPES, PROMOTE_DTYPES
  
 def nanogpt_attn_fwd_fusion(
     fd: FusionDefinition,
@@ -54,30 +54,35 @@ def nanogpt_attn_fwd_fusion(
     fd.add_output(T43)
     fd.add_output(T11)
 
-# @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
+@pytest.mark.parametrize("batch_size", [32])
+@pytest.mark.parametrize("seq_len", [16, 32, 64, 128])
+@pytest.mark.parametrize("llm_config", LLM_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_benchmark(
     benchmark,
-    # size: tuple,
+    batch_size: int,
+    seq_len: int,
+    llm_config: tuple,
     dtype: torch.dtype,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    B, T, nh, hs = 32, 64, 12, 128
+    (nh, n_embd) = llm_config
+    hs = n_embd // nh
     dropout_p = 0.0
-    inputs = torch.randn(B, nh, T, T, device="cuda", dtype=dtype)
-    bias = torch.tril(torch.ones(T, T, device="cuda")).view(1, 1, T, T)
-    dropout_mask = torch.lt(torch.rand(B, nh, T, T, device="cuda"),  1 - dropout_p)
-    bias_mask = bias[:, :, :T, :T] == 0
-    bias_mask = bias_mask.broadcast_to(B, nh, T, T)
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(1, 1, seq_len, seq_len)
+    dropout_mask = torch.lt(torch.rand(batch_size, nh, seq_len, seq_len, device="cuda"),  1 - dropout_p)
+    bias_mask = bias[:, :, :seq_len, :seq_len] == 0
+    bias_mask = bias_mask.broadcast_to(batch_size, nh, seq_len, seq_len)
     
     with FusionDefinition() as fd:
         nanogpt_attn_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p)
 
     if not disable_validation:
         attn = inputs / (hs ** 0.5)
-        attn = attn.masked_fill(bias[:, :, :T, :T] == 0, float("-inf"))
+        attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
         attn = torch.nn.functional.softmax(attn, dim=-1)
         out = torch.nn.functional.dropout(attn, p = dropout_p) 
         fd.validate([inputs, bias], [out, dropout_mask, attn, bias_mask])

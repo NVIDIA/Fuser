@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES       
+from .global_params import LLM_CONFIGS, FLOAT_DTYPES, PROMOTE_DTYPES       
 
 def huggingface_attn_fwd_fusion(
     fd: FusionDefinition,
@@ -55,26 +55,32 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T37)
     fd.add_output(T47)
 
+@pytest.mark.parametrize("batch_size", [32])
+@pytest.mark.parametrize("seq_len", [16, 32, 64, 128])
+@pytest.mark.parametrize("llm_config", LLM_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_huggingface_attn_fwd_benchmark(
     benchmark,
-    # size: tuple,
+    batch_size: int,
+    seq_len: int,
+    llm_config: tuple,
     dtype: torch.dtype,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    B, T, nh, hs = 32, 64, 12, 128
+    
+    (nh, _) = llm_config
     dropout_p = 0.0
-    inputs = torch.randn(B, nh, T, T, device="cuda", dtype=dtype)
-    dropout_mask = torch.lt(torch.rand(B*nh, T, T, device="cuda"),  1 - dropout_p)
-    attention_mask = torch.zeros(B, nh, T, T, device="cuda", dtype=dtype)
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    dropout_mask = torch.lt(torch.rand(batch_size * nh, seq_len, seq_len, device="cuda"),  1 - dropout_p)
+    attention_mask = torch.zeros(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     
     with FusionDefinition() as fd:
         huggingface_attn_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
 
     if not disable_validation:
-        attn = (inputs + attention_mask).view(B * nh, T, T)
+        attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
         attn = torch.nn.functional.softmax(attn, dim=-1)
         out = torch.nn.functional.dropout(attn, p = dropout_p) 
         fd.validate([attention_mask, inputs], [out, attn, dropout_mask])
