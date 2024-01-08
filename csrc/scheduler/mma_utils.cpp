@@ -172,65 +172,32 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
+  // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
-      cta_tile.k % warp_tile.k == 0,
-      "Number of warp on k dimension need to be integer");
-
-  int num_warp_k = cta_tile.k / warp_tile.k;
+      cta_tile.k == warp_tile.k,
+      "CTA tile and warp tile must have same K dimension");
 
   mma_utils::checkDimSize(
       tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
 
-  if (num_warp_k == 1) {
-    // Non split K over warp case:
+  //       -3   -2  -1
+  //[...    M,   N,  K]
+  // Distribute warp tile:
+  tv->split(-3, warp_tile.m);
+  tv->split(-2, warp_tile.n);
 
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
+  //  -5   -4   -3   -2   -1
+  // [Mwo  Mw  Nwo   Nw   K]
+  tv->split(-4, instruction_tile.m);
+  tv->split(-2, instruction_tile.n);
+  tv->split(-1, instruction_tile.k);
 
-    //  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   K]
-    tv->split(-4, instruction_tile.m);
-    tv->split(-2, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
+  //   -8  -7 -6 -5 -4 -3  -2 -1
+  // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
 
-    //   -8  -7 -6 -5 -4 -3  -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
-
-    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
-    //   -8  -7 -6  -5 -4 -3 -2 -1
-    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  } else {
-    // Split K over warp case:
-    // Main difference is that an additional
-    //  thread dimension needs to be reserved
-    //  for cross warp reduction:
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
-    tv->split(-1, warp_tile.k);
-
-    //   -6  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   Kwo  Kw]
-    tv->split(-5, instruction_tile.m);
-    tv->split(-3, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
-
-    //  -9  -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Kw Ki]
-
-    tv->reorder({{-8, -6}, {-7, -3}, {-6, -8}, {-4, -2}, {-3, -7}, {-2, -4}});
-    //  -9   -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo  Nwo Ko Mw Nw Kw, Mi Ni Ki]
-
-    tv->merge(-9);
-    //  -8  -7 -6 -5 -4   -3 -2 -1
-    // [MNwo Ko Mw Nw Kw, Mi Ni Ki]
-  }
+  tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
+  //   -8  -7 -6  -5 -4 -3 -2 -1
+  // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
 void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {

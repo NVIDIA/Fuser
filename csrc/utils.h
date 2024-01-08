@@ -452,4 +452,11 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
 char* getNvFuserEnv(const char* env_name);
 
+// Returns the mapped value or the default.
+template <typename K, typename V>
+V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
+  const auto i = map.find(key);
+  return i == map.end() ? V() : i->second;
+}
+
 } // namespace nvfuser

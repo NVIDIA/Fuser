@@ -1329,6 +1329,9 @@ void FusionKernelRuntime::compileKernel(
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
+    fusion_to_run->printMath();
+  }
   FusionGuard fg(fusion_to_run.get());
   scheduler_entry->schedule(fusion_to_run.get());
   NVF_ERROR(
