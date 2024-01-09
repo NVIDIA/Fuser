@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
-from .global_params import LLM_CONFIGS, FLOAT_DTYPES, PROMOTE_DTYPES       
+from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES       
 
 def huggingface_attn_bwd_fusion(
     fd: FusionDefinition,
@@ -40,22 +40,19 @@ def huggingface_attn_bwd_fusion(
         T35 = fd.ops.cast(T35, dtype=dtype)
     fd.add_output(T35)
 
-@pytest.mark.parametrize("batch_size", [32])
-@pytest.mark.parametrize("seq_len", [16, 32, 64, 128])
-@pytest.mark.parametrize("llm_config", LLM_CONFIGS)
+
+@pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_huggingface_attn_fwd_benchmark(
+def test_huggingface_attn_bwd_benchmark(
     benchmark,
-    batch_size: int,
-    seq_len: int,
-    llm_config: tuple,
+    size: tuple,
     dtype: torch.dtype,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
 
-    (nh, _) = llm_config
+    batch_size, seq_len, nh, n_embd = size
 
     dropout_p = 0.0
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True)

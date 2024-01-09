@@ -5,6 +5,17 @@ from .core import DEVICE_PROPERTIES
 import numpy as np
 import itertools
 
+# Datatypes to benchmark
+FLOAT_DTYPES = [torch.float32]
+# Run only one of float16 / bfloat16.
+if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
+    FLOAT_DTYPES.append(torch.bfloat16)
+else:
+    FLOAT_DTYPES.append(torch.float16)
+
+# Datatypes that will be promoted to Datatype.Float in Fusion Definitions
+PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
+
 # Model Parameters from LLMs (GPT2/3, PaLM, LLama)
 
 # Embedding size: d_model, d_ff = 4 * d_model
@@ -29,7 +40,6 @@ LLM_CONFIGS = [
     (96, 12288),  # GPT-3 (175B)
     (48, 18432),  # PaLM (540B)
 ]
-
 
 # Utility function to generate input sizes for benchmarks
 def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
@@ -114,14 +124,10 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             )
     return inputs
 
-
-# Datatypes to benchmark
-FLOAT_DTYPES = [torch.float32]
-# Run only one of float16 / bfloat16.
-if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
-    FLOAT_DTYPES.append(torch.bfloat16)
-else:
-    FLOAT_DTYPES.append(torch.float16)
-
-# Datatypes that will be promoted to Datatype.Float in Fusion Definitions
-PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
+# Utility function to generate input sizes for attention benchmarks.
+def generate_attn_inputs():
+    batch_range = [16, 32]
+    seq_lengths = [2**i for i in range(3, 8)] # {8, 128}
+    inputs = [(batch_size, seq_len, nh, n_embd) for (batch_size, seq_len, (nh, n_embd))
+              in itertools.product(batch_range, seq_lengths, LLM_CONFIGS)]
+    return inputs
