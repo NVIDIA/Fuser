@@ -537,11 +537,10 @@ bool isLowerableToCommunication(Expr* expr) {
     NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
     auto out_tv = out->as<TensorView>();
     // check if the reduction involves only one axis
-    return std::count_if(out_tv->getMaybeRFactorDomain().begin(),
-                         out_tv->getMaybeRFactorDomain().end(),
-                         [] (IterDomain* id) {
-                             return id->isReduction();
-                         }) == 1;
+    return std::count_if(
+               out_tv->getMaybeRFactorDomain().begin(),
+               out_tv->getMaybeRFactorDomain().end(),
+               [](IterDomain* id) { return id->isReduction(); }) == 1;
   } else {
     return expr->isA<LoadStoreOp>() &&
         (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
