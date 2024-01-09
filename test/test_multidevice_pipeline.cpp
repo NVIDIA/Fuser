@@ -186,19 +186,19 @@ TEST_P(PipelineTestTwoStages, Communication) {
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  int first_axis_extent = 16;
+  int first_axis_extent = 3;
   if (is_stage0_sharded) {
     first_axis_extent = mesh0.vector().size();
   } else if (is_stage1_sharded) {
     first_axis_extent = mesh1.vector().size();
   }
-  int second_axis_extent = 32;
+  int second_axis_extent = 4;
   if (is_stage1_sharded && do_reduction) {
     GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
     second_axis_extent = mesh1.vector().size();
   }
   inputs = {
-      at::ones({first_axis_extent, second_axis_extent, 3, 5}, tensor_options) *
+      at::ones({first_axis_extent, second_axis_extent, 2, 3}, tensor_options) *
       communicator->deviceId()};
 
   validate();
