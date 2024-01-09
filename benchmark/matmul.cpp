@@ -250,6 +250,11 @@ MatmulParams getMatmulParams(
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
+  if (splitk_factor > 1) {
+    // always use smem_epilogue when doing splitk
+    params.promote_prologue_smem_reuse = true;
+    params.use_smem_epilogue = true;
+  }
 
   return params;
 }
@@ -496,7 +501,17 @@ static void NvFuserScheduler_MatmulSplitKReduction(
     {784, 72, 8},        \
     {784, 8, 72},        \
     /* {1, 1, 2048}, */  \
-    {1024, 1024, 1024}   \
+    {1024, 1024, 1024},  \
+    /* NanoGPT bwd sizes */  \
+    {1024, 2048, 4096},      \
+    {1024, 2048, 50304}     \
+  }
+
+#define SplitKSpecificShapes \
+  {                          \
+    /* NanoGPT bwd sizes */  \
+    {1024, 2048, 4096},      \
+    {1024, 2048, 50304}     \
   }
 // clang-format on
 
@@ -603,6 +618,22 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   }
 }
 
+// Use this for manual splitk.
+static void MatmulShapeWarpStageSpecificSplitK(
+    benchmark::internal::Benchmark* b) {
+  b->ArgNames({"M", "N", "K", "warps", "stages", "splitk_factor"});
+  for (long int num_warps : NumWarps) {
+    for (long int num_stages : NumStages) {
+      for (auto [m, n, k] :
+           std::vector<std::tuple<int, int, int>>(SplitKSpecificShapes)) {
+        for (auto splitk_factor : {2, 3, 4, 5, 6}) {
+          b->Args({m, n, k, num_warps, num_stages, splitk_factor});
+        }
+      }
+    }
+  }
+}
+
 #define EagerModeBenchmark(layout)                                         \
   BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_legacyshapes_##layout, MmaLayout::layout) \
@@ -683,9 +714,27 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
       ->UseManualTime()                   \
       ->Apply(MatmulShapeWarpStageAutoSplitK);
 
+static void NvFuserScheduler_Matmul_Manual(
+    benchmark::State& benchmark_state,
+    MmaLayout layout) {
+  int splitk_factor = benchmark_state.range(5);
+  NvFuserScheduler_Matmul(
+      benchmark_state, layout, splitk_factor, /*partitionedk=*/false);
+}
+
+#define SpecificSplitKBenchmark(layout) \
+  BENCHMARK_CAPTURE(                    \
+      NvFuserScheduler_Matmul_Manual,   \
+      nvfuser_splitk_##layout,          \
+      MmaLayout::layout)                \
+      ->Unit(benchmark::kMicrosecond)   \
+      ->UseManualTime()                 \
+      ->Apply(MatmulShapeWarpStageSpecificSplitK);
+
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
 ForAllLayouts(AutoSplitKBenchmark);
+ForAllLayouts(SpecificSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
