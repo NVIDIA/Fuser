@@ -5,6 +5,8 @@ from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES       
 
+# Fusion from nanogpt attention module
+# https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
 def nanogpt_attn_bwd_fusion(
     fd: FusionDefinition,
     dtype: DataType,
