@@ -7,6 +7,7 @@ from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
 # Fusion from huggingface attention implementation
+# The nvFuser defintion only includes the non-matmul computation (add + reshape + softmax + dropout)
 # https://github.com/Lightning-AI/lightning-thunder/blob/main/thunder/tests/hf_bart_self_attn.py#L73-L83
 def huggingface_attn_bwd_fusion(
     fd: FusionDefinition,
