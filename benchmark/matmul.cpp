@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/mma_utils.h>
 #include <utils.h>
 
 #include <benchmark/benchmark.h>
@@ -250,11 +251,14 @@ MatmulParams getMatmulParams(
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
-  if (splitk_factor > 1) {
-    // always use smem_epilogue when doing splitk
-    params.promote_prologue_smem_reuse = true;
-    params.use_smem_epilogue = true;
-  }
+  const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          gemm_tile,
+          stage_number,
+          {DataType::Half, DataType::Half, DataType::Float},
+          false);
+  params.promote_prologue_smem_reuse = use_smem_epilogue;
+  params.use_smem_epilogue = promote_prologue_smem_reuse;
 
   return params;
 }
