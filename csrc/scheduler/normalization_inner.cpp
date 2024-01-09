@@ -294,7 +294,8 @@ class HeuristicCalculator {
   // parameters of free choice and needs tuning.
   bool multi_redu_per_block_;
   int64_t max_adjust_count_;
-  int64_t target_warps_per_sm_;
+  int64_t target_min_warps_per_sm_;
+  int64_t target_max_warps_per_sm_;
   int64_t persistent_min_ = -1l;
   int64_t persistent_max_ = -1l;
 };
@@ -339,11 +340,8 @@ bool HeuristicCalculator::isBetterThan(
   // Tiebreaker condition:
   // If n_threads_tails is non-zero, perfer small
   // [persistent], it leads to larger [bdimx], means wasted fraction
-  // of threads is smaller. e.g. at 10496, prefer persistent = 3
-  // instead of 6., bandwidth is 1.24x
-  return ha.n_threads_tails != 0
-      ? ha.persistent_val < hb.persistent_val
-      : ha.persistent_val > hb.persistent_val;
+  // of threads is smaller. 
+  return ha.persistent_val > hb.persistent_val;
 }
 
 // Constructor to accept parameters passed to innerPersistentHeuristic2D
@@ -375,7 +373,8 @@ HeuristicCalculator::HeuristicCalculator(
       total_reduction_numel, vectorization_unroll_val_);
 
   // target occupancy based on experiments
-  target_warps_per_sm_ = [&]() { return 24l; }();
+  target_min_warps_per_sm_ = [&]() { return 24l; }();
+  target_max_warps_per_sm_ = [&]() { return 36l; }();
 
   // allows to reduce estimated register usage for higher occupancy.
   // at 19K, persistent = 4, reduce from 56 to 48, 10% improvement.
@@ -390,7 +389,7 @@ HeuristicCalculator::HeuristicCalculator(
   // is large.
   const int64_t mrpb_wave_threshold = 4l;
   const int64_t element_threshold = 1024l;
-  multi_redu_per_block_ = total_reduction_numel <= element_threshold &&
+  multi_redu_per_block_ = total_reduction_numel < element_threshold &&
       n_waves_max_ > mrpb_wave_threshold;
 
   // set [persistent_min_] and [persistent_max_]
@@ -418,9 +417,9 @@ void HeuristicCalculator::setRangeOfPersistentVal() {
   int64_t bdimx_min = std::min(
       (int64_t)after_vect_,
       n_waves_max_ > 1l ? 128l : hard_max_threads_per_block);
-  if (multi_redu_per_block_) {
-    bdimx_min = std::min(bdimx_min, (int64_t)threads_per_warp_);
-  }
+  // if (multi_redu_per_block_) {
+  //   bdimx_min = std::min(bdimx_min, (int64_t)threads_per_warp_);
+  // }
   persistent_max_ = std::max(
       persistent_min_,
       std::min(experiment_max, ceilDiv(after_vect_, bdimx_min)));
@@ -454,7 +453,7 @@ HeuristicParas HeuristicCalculator::getBestHeuristic() {
       });
   int64_t n_items = std::count_if(
       all_h_params.begin(), all_h_params.end(), [this](const auto& h_params) {
-        return h_params.warps_per_sm >= target_warps_per_sm_;
+        return h_params.warps_per_sm >= target_min_warps_per_sm_;
       });
 
   // (3) If has multiple candidates, further sort using isBetterThan().
@@ -556,13 +555,14 @@ std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegOccupancy(
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
   };
-  // calculate [target_blocks_per_sm] and [target_reg_per_thread]
+  // calculate [target_min_blocks_per_sm] and [target_reg_per_thread]
   // using [target_warps_per_sm]
   int64_t threads_per_block = bdimx_val * bdimy_val;
   int64_t warps_per_block = ceilDiv(threads_per_block, threads_per_warp_);
-  int64_t target_blocks_per_sm = ceilDiv(target_warps_per_sm_, warps_per_block);
+  int64_t target_min_blocks_per_sm = ceilDiv(target_min_warps_per_sm_, warps_per_block);
+  int64_t target_max_blocks_per_sm = ceilDiv(target_max_warps_per_sm_, warps_per_block);
   // int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
-  //     target_blocks_per_sm * threads_per_block);
+  //     target_min_blocks_per_sm * threads_per_block);
 
   // calculate [estimated_reg_per_thread] and [min_reg_per_thread]
   int64_t buffer_per_thread = max_persistent_buffer_size_ /
@@ -572,19 +572,24 @@ std::tuple<int64_t, int64_t> HeuristicCalculator::calculateRegOccupancy(
   int64_t min_reg_per_thread = estimated_reg_per_thread - max_adjust_count_;
 
   // calc blocks_per_sm using estimated register usage, if lower than
-  // target, try to increase occupancy by reducing register usage.
+  // target, try to increase occupancy by reducing register usage. If higher
+  // than target_max, set to target_max so we can use more registers. Test shows
+  // occupancy higher than target_max leads to about 5% regression.
   blocks_per_sm = getThreadsPerSMGivenRegPerThread(estimated_reg_per_thread) /
       threads_per_block;
-  if (blocks_per_sm < target_blocks_per_sm) {
+  if (blocks_per_sm < target_min_blocks_per_sm) {
     blocks_per_sm = getThreadsPerSMGivenRegPerThread(min_reg_per_thread) /
         threads_per_block;
+  }
+  if (blocks_per_sm > target_max_blocks_per_sm) {
+    blocks_per_sm = target_max_blocks_per_sm;
   }
   nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
       blocks_per_sm * warps_per_block * threads_per_warp_);
 
   // Try to set occupancy to target, then maximize register usage.
   // if (target_reg_per_thread >= min_reg_per_thread) {
-  //   blocks_per_sm = target_blocks_per_sm;
+  //   blocks_per_sm = target_min_blocks_per_sm;
   //   nvrtc_register_per_thread = target_reg_per_thread;
   // } else {
   //   blocks_per_sm = getThreadsPerSMGivenRegPerThread(min_reg_per_thread) /
