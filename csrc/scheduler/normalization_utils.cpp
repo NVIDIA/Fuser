@@ -1006,9 +1006,9 @@ PersistentKernelProperties getPersistentKernelProperties(
   const auto all_exprs = StmtSort::getExprsBetween(
       {all_inputs.begin(), all_inputs.end()},
       {persistent_buffers.begin(), persistent_buffers.end()});
-  std::cout << "exprs between input and persistent buffer: " << std::endl;
+  // std::cout << "exprs between input and persistent buffer: " << std::endl;
   for (auto expr : all_exprs) {
-    std::cout << expr << std::endl;
+    // std::cout << expr << std::endl;
     if (expr->isA<UnaryOp>() &&
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
