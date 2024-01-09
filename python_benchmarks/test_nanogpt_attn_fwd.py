@@ -4,22 +4,30 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
- 
+
+
 # Fusion from nanogpt attention module
 # https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
 def nanogpt_attn_fwd_fusion(
-    fd: FusionDefinition,
-    dtype: DataType,
-    head_size: int,
-    dropout_p: float      
+    fd: FusionDefinition, dtype: DataType, head_size: int, dropout_p: float
 ):
-    T0 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[True, True, True, True], dtype=dtype, is_cpu=False)
-    T1 = fd.define_tensor(shape=[1, 1, -1, -1], contiguity=[None, None, False, True], dtype=DataType.Float, is_cpu=False)
-    
+    T0 = fd.define_tensor(
+        shape=[-1, -1, -1, -1],
+        contiguity=[True, True, True, True],
+        dtype=dtype,
+        is_cpu=False,
+    )
+    T1 = fd.define_tensor(
+        shape=[1, 1, -1, -1],
+        contiguity=[None, None, False, True],
+        dtype=DataType.Float,
+        is_cpu=False,
+    )
+
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
 
-    S2 = fd.define_scalar( 1 / head_size**0.5, dtype=DataType.Double)
+    S2 = fd.define_scalar(1 / head_size**0.5, dtype=DataType.Double)
     T3 = fd.ops.mul(T0, S2)
     S4 = fd.define_scalar(0.00000, dtype=DataType.Double)
     T5 = fd.ops.eq(T1, S4)
@@ -71,19 +79,23 @@ def test_nanogpt_attn_fwd_benchmark(
     hs = n_embd // nh
     dropout_p = 0.0
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
-    bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(1, 1, seq_len, seq_len)
-    dropout_mask = torch.lt(torch.rand(batch_size, nh, seq_len, seq_len, device="cuda"),  1 - dropout_p)
+    bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
+        1, 1, seq_len, seq_len
+    )
+    dropout_mask = torch.lt(
+        torch.rand(batch_size, nh, seq_len, seq_len, device="cuda"), 1 - dropout_p
+    )
     bias_mask = bias[:, :, :seq_len, :seq_len] == 0
     bias_mask = bias_mask.broadcast_to(batch_size, nh, seq_len, seq_len)
-    
+
     with FusionDefinition() as fd:
         nanogpt_attn_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p)
 
     if not disable_validation:
-        attn = inputs / (hs ** 0.5)
+        attn = inputs / (hs**0.5)
         attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        out = torch.nn.functional.dropout(attn, p = dropout_p) 
+        out = torch.nn.functional.dropout(attn, p=dropout_p)
         fd.validate([inputs, bias], [out, dropout_mask, attn, bias_mask])
 
     if not disable_benchmarking:
