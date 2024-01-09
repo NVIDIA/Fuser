@@ -206,6 +206,15 @@ nvf::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
   return nvf::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
+nvf::PolymorphicValue deserializeScope(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const Scope* data = buffer->data_as_Scope();
+  NVF_ERROR(data != nullptr, "serde::Scope is nullptr.");
+  // Expressions for the scope are added upon their creation because they do not
+  // exist yet in the IrContainer.
+  return nvf::PolymorphicValue(nvf::Opaque(nvf::kir::Scope()));
+}
+
 nvf::PolymorphicValue deserializeString(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   auto data = buffer->data_as_String();
@@ -237,15 +246,6 @@ nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt,
       c10::nullopt);
-}
-
-nvf::PolymorphicValue deserializeScope(const PolymorphicValue* buffer) {
-  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
-  const Scope* data = buffer->data_as_Scope();
-  NVF_ERROR(data != nullptr, "serde::Scope is nullptr.");
-  // Expressions for the scope are added upon their creation because they do not
-  // exist yet in the IrContainer.
-  return nvf::PolymorphicValue(nvf::Opaque(nvf::kir::Scope()));
 }
 
 } // namespace
@@ -392,17 +392,15 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
-nvf::PolymorphicValue deserializePolymorphicValue(
-    nvf::IrContainer* container,
-    const PolymorphicValue* pv) {
-  PolymorphicValueFactory pv_factory(container);
+nvf::PolymorphicValue deserializePolymorphicValue(const PolymorphicValue* pv) {
+  PolymorphicValueFactory pv_factory;
   return pv_factory.parse(pv->data_type(), pv);
 }
 
 void deserializeManagedData(
     nvfuser::Fusion* fusion,
     const PolymorphicValue* pv) {
-  std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
+  std::any a = deserializePolymorphicValue(pv).as<nvf::Opaque>().any();
   if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
     fusion->manage(a, cloneDynamicTransformInitialInfo);
   } else if (a.type() == typeid(nvf::LoopRotationParam)) {
@@ -417,7 +415,7 @@ void deserializeManagedNamedData(
     nvfuser::Fusion* fusion,
     const std::string& name,
     const PolymorphicValue* pv) {
-  std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
+  std::any a = deserializePolymorphicValue(pv).as<nvf::Opaque>().any();
   if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
     fusion->manage(name, a, cloneDynamicTransformInitialInfo);
   } else if (a.type() == typeid(nvf::LoopRotationParam)) {

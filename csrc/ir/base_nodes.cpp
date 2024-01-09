@@ -105,7 +105,7 @@ Val::Val(
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
     const serde::PolymorphicValue* data)
-    : Val(passkey, serde::deserializePolymorphicValue(container, data)) {}
+    : Val(passkey, serde::deserializePolymorphicValue(data)) {}
 
 Val::Val(
     IrContainer* container,
@@ -120,7 +120,7 @@ Val::Val(
     const serde::Value* buffer,
     const serde::PolymorphicValueDtype* data)
     : Val(passkey,
-          serde::deserializePolymorphicValue(container, data->pv()),
+          serde::deserializePolymorphicValue(data->pv()),
           serde::mapToDtypeStruct(data->dtype_enum())) {}
 
 std::pair<serde::ValueData, flatbuffers::Offset<void>> Val::serializeData(
