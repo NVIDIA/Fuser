@@ -26,14 +26,7 @@ class PolymorphicValueFactory
     : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:
   PolymorphicValueFactory()
-      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)),
-        container_{nullptr} {
-    registerAllParsers();
-  }
-
-  PolymorphicValueFactory(nvfuser::IrContainer* container)
-      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)),
-        container_{container} {
+      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)) {
     registerAllParsers();
   }
 
@@ -44,12 +37,9 @@ class PolymorphicValueFactory
   std::vector<T> makeArray(const serde::Array* data);
 
   nvfuser::PolymorphicValue makeArray(const serde::Array* data);
-
-  nvfuser::IrContainer* container_;
 };
 
 nvfuser::PolymorphicValue deserializePolymorphicValue(
-    nvfuser::IrContainer* container,
     const PolymorphicValue* c);
 
 void deserializeManagedData(
