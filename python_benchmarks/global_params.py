@@ -127,7 +127,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 # Utility function to generate input sizes for attention benchmarks.
 def generate_attn_inputs():
     batch_range = [16, 32]
-    seq_lengths = [2**i for i in range(3, 8)] # {8, 128}
+    seq_lengths = [2**i for i in range(2, 10)] # {4, 512}
     inputs = [(batch_size, seq_len, nh, n_embd) for (batch_size, seq_len, (nh, n_embd))
               in itertools.product(batch_range, seq_lengths, LLM_CONFIGS)]
     return inputs
