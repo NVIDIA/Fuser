@@ -1295,4 +1295,94 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
           " must concretize to IterType::Broadcast but found")));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/1468
+TEST_F(NVFuserTest, SymbolicExpand) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addInput(s2);
+  fusion->addInput(s3);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = expand(tv1, {s2, s3});
+  auto tv3 = add(tv2, tv2);
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1, 6, 5};
+  // An invalid input has a second dimension that cannot be expanded
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  testValidate(fec.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
+
+  // An informative error message should be given during concretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
+}
+
+// Test that constant zero extents are not overwritten during concretization
+// with non-constant extents.
+// See https://github.com/NVIDIA/Fuser/issues/1572
+TEST_F(NVFuserTest, ConcretizeConstantExtents) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  auto tv2 = permute(tv1, {1, 2, 0, 3});
+  auto tv3 = slice(tv2, {0, 0, 0, 0}, {32, 1, 4096, 128});
+  auto tv4 = reshape(
+      tv3,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  // Note this slice has zero extent in last dimension. RemoveEmptyPass should
+  // recognize this and replace with full()
+  auto tv5 = slice(tv4, {0, 0, 0}, {32, 4096, 0});
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4096, 12288}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

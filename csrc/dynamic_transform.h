@@ -81,6 +81,12 @@ class DynamicTransformInitialInfo {
     return dynamic_resized_ids_;
   }
 
+  //! Return a vector of outputs of ExpandOp expressions that have Symbolic
+  //! output IterTypes
+  const std::vector<TensorView*>& getDynamicExpandedTensorViews() const {
+    return dynamic_expanded_tvs_;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -111,6 +117,8 @@ class DynamicTransformInitialInfo {
   std::vector<TensorView*> dynamic_reshaped_tvs_;
 
   std::vector<IterDomain*> dynamic_resized_ids_;
+
+  std::vector<TensorView*> dynamic_expanded_tvs_;
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
@@ -155,6 +163,15 @@ class DynamicTransformConcretizationInfo {
     return resize_itertypes_;
   }
 
+  //! Return a vector of pairs holding the index of each expanded TensorView in
+  //! the vector returned by initialInfo()->getDynamicExpandedTensorViews(),
+  //! along with a vector of bools describing whether each axis in the output
+  //! root domain is expanded.
+  const std::vector<std::pair<size_t, std::vector<bool>>>& getExpandAxes()
+      const {
+    return expand_axes_;
+  }
+
   //! Comparison operator for the purposes of determining cache hits. This does
   //! not guarantee equality of all members. Instead, it returns equal if the
   //! resulting concretizations would be structurally equivalent. Note that
@@ -174,6 +191,10 @@ class DynamicTransformConcretizationInfo {
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
   //! determine the concrete IterType of each resized IterDomain.
   void analyzeResizes(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine which axes of dynamic expand operations are expanded.
+  void analyzeExpands(ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
@@ -212,6 +233,11 @@ class DynamicTransformConcretizationInfo {
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
   std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+
+  //! Holds the index of the expanded TensorView in the vector returned by
+  //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector
+  //! of bools indicating whether each axis is in fact expanded.
+  std::vector<std::pair<size_t, std::vector<bool>>> expand_axes_;
 
   friend class DynamicTransformInfoBuilder;
 };

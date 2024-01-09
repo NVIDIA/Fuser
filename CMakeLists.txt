@@ -469,6 +469,7 @@ if(BUILD_TEST)
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/test/test_mma.cpp
+    ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp

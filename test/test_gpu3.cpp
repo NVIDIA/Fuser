@@ -8411,6 +8411,269 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
       unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// Test the persistent buffers in softmax are projected back to inputs.
+TEST_F(NVFuserTest, SoftmaxProjectToInput) {
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeContigTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
+    auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
+    fusion.addOutput(output);
+
+    // There should be 2 projectable persistent buffers.
+    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
+    NVF_ERROR(projectable.size() == 2);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+
+    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
+    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    // 24576 is the threshold to project to inputs. see deriviation in
+    // projectBufferToInputs()
+    bool should_project_to_input =
+        feature * dataTypeSize(DataType::Float) > 24576l;
+    NVF_CHECK(
+        reduction_params->project_persistent_buffers == should_project_to_input,
+        should_project_to_input ? "Should project to inputs!"
+                                : "Shouldn't project to inputs!");
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
+    auto lparams = reduction_params->lparams;
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  const int batch = 2048;
+  std::vector<int> features = {6 * 1024, 10240};
+  for (auto feature : features) {
+    test_softmax(batch, feature, DataType::Half);
+  }
+}
+
+// Test projection to inputs when there are three persistent buffers.
+TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs1) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = div(tv2, tv4);
+
+  auto tv6 = add(tv5, tv5);
+  auto tv7 = sum(tv6, {1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = div(tv6, tv8);
+
+  auto tv10 = add(tv9, tv9);
+  auto tv11 = sum(tv10, {1});
+  auto tv12 = broadcast(tv11, {false, true});
+  auto tv13 = div(tv10, tv12);
+
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv13);
+
+  // The persistent buffers in this fusion are: tv2, tv6, and tv10.
+  // tv2 is projected to input.
+  // tv6 is projected to input and tv4 which is a broadcast tv.
+  // tv10 is projected to input, tv4 and tv8 which are broadcast tvs.
+  // The only actual persisent buffer is the cached input.
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+}
+
+// Test projection to inputs when the persistent buffer is a broadcast tv.
+TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs2) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 8192;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = exp(tv1);
+  auto tv3 = sum(tv2, {-1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  auto tv6 = broadcast(tv5, {true, false, false});
+  auto tv7 = sum(tv6, {-1});
+  auto tv8 = broadcast(tv7, {false, false, true});
+  auto tv9 = add(tv6, tv8);
+  fusion->addOutput(tv9);
+
+  // In this fusion, tv6 is a persistent buffer with a broadcast dim.
+  // Between reduction tv2 and tv6, there are two broadcast tvs: tv4 and tv6.
+  // Only tv4 is a valid broadcast tv to project to.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  const auto& [can_project, broadcast_tvs] =
+      scheduler_utils::canProjectToInputsWithoutReduction(reduction_tvs, tv6);
+  NVF_CHECK(
+      can_project, "Expect can project to inputs to be true but got false!");
+  NVF_CHECK(
+      broadcast_tvs.size() == 1,
+      "Expect one target broadcast_tv!, Got: ",
+      broadcast_tvs.size());
+  NVF_CHECK(
+      broadcast_tvs.at(0) == tv4,
+      "Expect target tv4!, Got: ",
+      broadcast_tvs.at(0)->toString());
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
+TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs3) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 32;
+  const int dim2 = 256;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(3, input_dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1, 2});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = broadcast(tv3, {false, false, true});
+  auto tv5 = add(tv1, tv4);
+  fusion->addOutput(tv5);
+
+  auto tv6 = exp(tv5);
+  auto tv7 = sum(tv6, {1, 2});
+  auto tv8 = broadcast(tv7, {false, true, true});
+  auto tv9 = add(tv6, tv8);
+  fusion->addOutput(tv9);
+
+  auto tv10 = add(tv5, tv9);
+  auto tv11 = sum(tv10, {1, 2});
+  auto tv12 = broadcast(tv11, {false, true, true});
+  auto tv13 = add(tv10, tv12);
+  fusion->addOutput(tv13);
+
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  // (1) Test projection to inputs when there are two broadcast tvs (tv3 and
+  // tv4) between the reduction tv (tv2) and the persistent buffer (tv6). Should
+  // only project to tv4.
+  const auto& [can_project, broadcast_tvs] =
+      scheduler_utils::canProjectToInputsWithoutReduction(reduction_tvs, tv6);
+  NVF_CHECK(
+      can_project, "Expect can project to inputs to be true but got false!");
+  NVF_CHECK(
+      broadcast_tvs.size() == 1,
+      "Expect one target broadcast_tv!, Got: ",
+      broadcast_tvs.size());
+  NVF_CHECK(
+      broadcast_tvs.at(0) == tv4,
+      "Expect target tv4!, Got: ",
+      broadcast_tvs.at(0)->toString());
+
+  // (2) Test projection to inputs when the persistent buffer (tv10) depends on
+  // two reduction tvs (tv2 and tv7). Should project to tv4 and tv8.
+  const auto& [tv10_can_project, tv10_broadcast_tvs] =
+      scheduler_utils::canProjectToInputsWithoutReduction(reduction_tvs, tv10);
+  NVF_CHECK(
+      tv10_can_project,
+      "Expect can project to inputs to be true but got false!");
+  NVF_CHECK(
+      tv10_broadcast_tvs.size() == 2,
+      "Expect two target broadcast_tv!, Got: ",
+      tv10_broadcast_tvs.size());
+  NVF_CHECK(
+      tv10_broadcast_tvs.at(0) == tv4,
+      "Expect target tv4!, Got: ",
+      tv10_broadcast_tvs.at(0)->toString());
+  NVF_CHECK(
+      tv10_broadcast_tvs.at(1) == tv8,
+      "Expect target tv8!, Got: ",
+      tv10_broadcast_tvs.at(1)->toString());
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1, dim2}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -533,7 +533,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
     const auto def = s->definition();
-    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
+    const bool has_alloc = alloc_set_.find(s) != alloc_set_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
       if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
@@ -552,7 +552,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const NamedScalar* ns) final {
     if (ns->definition() != nullptr &&
-        alloc_map_.find(ns) == alloc_map_.end()) {
+        alloc_set_.find(ns) == alloc_set_.end()) {
       code_ << genInline(ns->definition());
     } else {
       code_ << genVariableName(ns);
@@ -2768,7 +2768,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     NVF_ERROR(alloc->buffer() != nullptr);
-    alloc_map_.emplace(alloc->buffer(), alloc);
+    alloc_set_.emplace(alloc->buffer());
 
     if (!alloc->buffer()->isA<TensorView>()) {
       // Pointer TensorMap allocation must be const as kernel parametr assigned
@@ -3185,7 +3185,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   bool vectorize_scope_ = false;
   //! Keep track of Allocate node for Val. Used to determine if Val
   //! should be inlined.
-  std::unordered_map<const Val*, const kir::Allocate*> alloc_map_;
+  std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
