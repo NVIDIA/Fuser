@@ -16,6 +16,48 @@
 #include <unordered_map>
 #include <vector>
 
+namespace nvfuser::MmaOpUtils {
+
+// The expected number of concrete domains for gemm
+constexpr size_t expected_gemm_cdomains = 2;
+
+// A helper structure used to gather all data created during analysis
+struct MmaOpDetails {
+  using AxesData = MmaOp::AxesData;
+  // Concrete axes from A that are broadcast in B and are not
+  //  reduction in output
+  AxesData m_axes;
+  // Concrete axes from B that are broadcast in A and are not
+  //  reduction in output
+  AxesData n_axes;
+  // Concrete axes from A that are concrete in B and are
+  //  reduction in output
+  AxesData k_axes;
+  // Concrete or broadcast axes that are present in all inputs
+  //  and output
+  AxesData batch_axes;
+  // A placeholder for mma input layout
+  std::optional<MmaLayout> input_layout = std::nullopt;
+};
+
+// A helper structure with pieces of information about TensorView
+struct TensorViewDetails {
+  using AxesData = MmaOp::AxesData;
+  // Broadcast domains
+  AxesData bcasts;
+  // Reduction domains
+  AxesData rdomains;
+  // Concrete domains
+  AxesData cdomains;
+};
+
+MmaOpDetails getMmaOpDetails(
+    TensorView* out,
+    TensorView* in_a,
+    TensorView* in_b);
+
+} // namespace nvfuser::MmaOpUtils
+
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator
@@ -171,6 +213,10 @@ std::vector<int> normalizeOld2New(
 //! Warning: Removes connection of reference through provided Expr.
 //! Warning: Creates new Expr defining substitute.
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
+
+//! Replace old_val with new_val in all active uses as well as in fusion
+//! outputs.
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val);
 
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an

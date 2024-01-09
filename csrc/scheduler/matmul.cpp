@@ -700,18 +700,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto cached_and_forked_outputs =
       scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);
 
+  mma_utils::CombineMulSum combiner(fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (combiner.isValid() && mma_ops.empty()) {
+    combiner.replaceWithMmaOp();
+    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+  }
+
+  NVF_ERROR(
+      mma_ops.size() == 1,
+      "scheduleMatmul supports fusion with single mma op in definition, got ",
+      mma_ops.size());
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
   //  compute-time checks
   NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
   const auto roles_map = roles_map_opt.getData();
-
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  NVF_ERROR(
-      mma_ops.size() == 1,
-      "scheduleMatmul supports fusion with single mma op in definition, got ",
-      mma_ops.size());
 
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
