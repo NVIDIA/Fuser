@@ -27,9 +27,9 @@ inline T getInitialValue(BinaryOpType op) {
       return 0;
     case BinaryOpType::Mul:
       return 1;
-    case BinaryOpType::Min:
-      return std::numeric_limits<T>::min();
     case BinaryOpType::Max:
+      return std::numeric_limits<T>::min();
+    case BinaryOpType::Min:
     case BinaryOpType::BitwiseAnd:
       return std::numeric_limits<T>::max();
     default:
@@ -417,6 +417,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh;
   const auto& receiver_mesh =
       c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
+  const bool same_mesh = sender_mesh.vector() == receiver_mesh.vector();
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =
@@ -464,7 +465,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
         "Insert a `set` before the reduction to reshard")
     if (is_output_sharded) {
       NVF_ERROR(
-          receiver_mesh == sender_mesh,
+          same_mesh,
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
       lowerToReduceScatter(
@@ -475,7 +476,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           op_type,
           comms);
     } else {
-      if (receiver_mesh == sender_mesh) {
+      if (same_mesh) {
         lowerToAllreduce(
             my_device_index,
             sender_mesh,
@@ -504,7 +505,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           output_tensor,
           comms);
     } else if (is_input_sharded && !is_output_sharded) {
-      if (receiver_mesh == sender_mesh) {
+      if (same_mesh) {
         lowerToAllgather(
             my_device_index, sender_mesh, input_tensor, output_tensor, comms);
       } else {
@@ -535,15 +536,16 @@ bool isLowerableToCommunication(Expr* expr) {
     auto out = expr->as<ReductionOp>()->out();
     NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
     auto out_tv = out->as<TensorView>();
-    NVF_ERROR(
-        out_tv->domain()->nDims() ==
-            TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() +
-                1,
-        "only reducing one-axis at a time is supported");
-    return true;
+    // check if the reduction involves only one axis
+    return std::count_if(out_tv->getMaybeRFactorDomain().begin(),
+                         out_tv->getMaybeRFactorDomain().end(),
+                         [] (IterDomain* id) {
+                             return id->isReduction();
+                         }) == 1;
+  } else {
+    return expr->isA<LoadStoreOp>() &&
+        (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
   }
-  return expr->isA<LoadStoreOp>() &&
-      (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
 }
 
 } // namespace nvfuser
