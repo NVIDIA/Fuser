@@ -123,7 +123,7 @@ class TestNvFuserFrontend(TestCase):
             fusion_func(fd)
         fd_str = fd.__repr__()
         torch.manual_seed(0)
-        out = fd.execute(inputs)
+        out = fd.execute(inputs, device=device)
 
         # Execute the python definition that was captured
         try:
@@ -132,7 +132,7 @@ class TestNvFuserFrontend(TestCase):
             with FusionDefinition() as fd_cap:
                 eval(func_name)(fd_cap)
             torch.manual_seed(0)
-            out_cap = fd_cap.execute(inputs_cap)
+            out_cap = fd_cap.execute(inputs_cap, device=device)
         except Exception as err:
             print("\nException For Printed FusionDefinition:")
             print(
