@@ -721,8 +721,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type,
-    bool has_exp_op,
-    bool has_rng_op) {
+    bool has_rng_op,
+    bool has_exp_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -737,11 +737,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         index_type);
   }
   if (std::getenv("TEST_NEW")) {
-    std::cout << "TEST_NEW n_tensor_inputs= " << n_tensor_inputs << std::endl;
     // the new heuristic is only used for layer norm or rms norm fused with
     // dropout.
     bool is_2d_norm = total_reduction_numel == inner_most_dimension_numel;
     bool non_exp_norm_fused_with_dropout = !has_exp_op && has_rng_op;
+    std::cout << "TEST_NEW is_2d_norm= " << is_2d_norm << ", has_exp_op= " << has_exp_op << ", has_rng_op= " << has_rng_op << std::endl;
     if (is_2d_norm && non_exp_norm_fused_with_dropout) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
