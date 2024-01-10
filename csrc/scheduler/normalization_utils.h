@@ -231,6 +231,8 @@ struct PersistentKernelProperties {
   int64_t vectorize_factor;
   bool project_persistent_buffers;
   PrimDataType index_type;
+  bool has_rng_op;
+  bool has_exp_op;
 };
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
