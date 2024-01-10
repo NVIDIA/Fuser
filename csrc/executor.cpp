@@ -2210,6 +2210,7 @@ void FusionExecutor::deserialize(
 
   // Initialize CompileOptions
   options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
+  c10::DeviceGuard dg(options_.device);
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
