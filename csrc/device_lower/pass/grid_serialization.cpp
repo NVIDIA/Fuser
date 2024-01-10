@@ -95,19 +95,24 @@ class GridSerializationSyncInserter : kir::ExprMutator {
   }
 
   void dispatch(Expr* expr) override {
+    // We will detect top-level exprs here that require serialization and
+    // insert the required syncs before and after those exprs.
     if (auto loop = dynamic_cast<kir::ForLoop*>(expr);
-        cur_top_level_expr_ || (loop && loop->isTrivial())) {
-      // Never sync around trivial loops. Also avoid redefining
-      // cur_top_level_expr_ if it is already set
+        cur_top_level_expr_.has_value() || (loop && loop->isTrivial())) {
+      // Never sync around trivial loops since they do not appear in the
+      // generated CUDA code. Also avoid redefining cur_top_level_expr_ if it
+      // is already set, which indicates that this expression is contained in
+      // an outer non-trivial loop.
       kir::ExprMutator::dispatch(expr);
       return;
     }
     // Any other expr, i.e. non-trivial loops or regular Exprs, can be synced if
     // it is top-level and either is or contains a serial grid reduction
     cur_top_level_expr_ = expr;
+    // If a serial grid reduction was found when traversing expr, then
+    // cur_expr_sync_pattern_ will be set
+    cur_expr_sync_pattern_ = std::nullopt;
     kir::ExprMutator::dispatch(expr);
-    // If a serial grid reduction was found in expr, then cur_expr_sync_pattern_
-    // will be set
     if (cur_expr_sync_pattern_.has_value()) {
       insertSyncs();
     }
