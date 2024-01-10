@@ -111,7 +111,9 @@ class TestNvFuserFrontend(TestCase):
     # definition based on the FusionDefinition is executable and matches the
     # original definition
     @serde_check
-    def exec_nvfuser(self, fusion_func, inputs, *, new_fusion_expected=True):
+    def exec_nvfuser(
+        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
+    ):
         inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -2246,10 +2248,8 @@ class TestNvFuserFrontend(TestCase):
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
 
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-
-        nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
+        inputs = [2.0, 3.0]
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, device="cuda:1")
         eager_out = torch.full([2, 2], 1.0, device="cuda:1") * 5.0
         self.assertEqual(eager_out, nvf_out[0])
 
