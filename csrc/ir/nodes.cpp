@@ -3124,8 +3124,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3142,8 +3141,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = root_domain_.size();
@@ -3189,7 +3187,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
@@ -3218,7 +3215,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
@@ -3253,7 +3249,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
