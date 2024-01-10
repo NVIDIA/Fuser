@@ -1657,7 +1657,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     dumpFusionArgs(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
-  
+
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();

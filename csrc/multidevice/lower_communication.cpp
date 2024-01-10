@@ -114,7 +114,7 @@ CommParams createParamsForGatherScatter(
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
       auto sliced_buf =
-          root_buf.index({static_cast<int>(i), "..."}).unsqueeze(0);
+          root_buf.index({at::indexing::Slice(i, i+1), "..."});
       ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
     // The scatter/gather semantics imposes the root to be both
@@ -123,7 +123,7 @@ CommParams createParamsForGatherScatter(
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
       at::Tensor dummy =
-          createDummyTensor(root_buf.index({0, "..."}).unsqueeze(0));
+          createDummyTensor(root_buf.index({at::indexing::Slice(0, 1), "..."}));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -187,8 +187,7 @@ void lowerToAllgather(
   CommParams params;
   params.team = mesh.vector();
   for (auto i : c10::irange(mesh.vector().size())) {
-    params.dst_bufs.push_back(output_tensor.index({static_cast<int>(i), "..."})
-                                  .view(input_tensor.sizes()));
+    params.dst_bufs.push_back(output_tensor.index({at::indexing::Slice(i, i+1), "..."}));
   }
   params.src_bufs = {input_tensor};
 
@@ -359,7 +358,6 @@ void lowerToAllreduce(
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
   params.src_bufs = {input_tensor.view(output_tensor.sizes())};
-
   comms.push_back(std::make_shared<Allreduce>(params));
 }
 
@@ -378,8 +376,7 @@ void lowerToReduceScatter(
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
   for (auto i : c10::irange(mesh.vector().size())) {
-    auto sliced_buf = input_tensor.index({0, static_cast<int>(i), "..."})
-                          .view(output_tensor.sizes());
+    auto sliced_buf = input_tensor.index({at::indexing::Slice(0, 1), static_cast<int>(i), "..."});
     params.src_bufs.push_back(sliced_buf);
   }
 

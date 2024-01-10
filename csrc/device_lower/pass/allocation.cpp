@@ -165,13 +165,10 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto id : maybe_rfactor_domain) {
       if (id->isReduction() || id->isStride()) {
         continue;
-      } else if (id->isBroadcast()) {
+      } else if (id->isBroadcast() || id->isDeviceDim()) {
         // No matter whether this broadcast is expanded or not, we always
         // allocate size 1
-        alloc_dims.emplace_back(id->container()->oneVal());
-        continue;
-      } else if (id->isDeviceDim()) {
-        // Allocate device axes as size 1
+        // Allocate devices axes as size 1
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
