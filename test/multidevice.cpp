@@ -69,24 +69,19 @@ void MultiDeviceTest::TearDown() {
 }
 
 void MultiDeviceTest::recordEvent(const std::string name) {
-  times.push_back(
-      std::make_pair(name, std::chrono::high_resolution_clock::now()));
+  times.push_back(std::make_pair(name, std::chrono::high_resolution_clock::now()));
 }
 
 void MultiDeviceTest::printTimes() {
   std::stringstream ss;
   auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-  ss << "Rank " << communicator->deviceId() << " -- test "
-     << test_info->test_suite_name() << "." << test_info->name()
+  ss << "Rank " << communicator->deviceId()
+     << " -- test " << test_info->test_suite_name() << "." << test_info->name()
      << " -- Timestamps: {\n";
-  for (auto i : c10::irange(times.size() - 1)) {
+  for (auto i: c10::irange(times.size() - 1)) {
     auto [event_name, time] = times[i];
-    auto [_, next_time] = times[i + 1];
-    ss << "  " << event_name << ": "
-       << std::chrono::duration_cast<std::chrono::milliseconds>(
-              next_time - time)
-              .count()
-       << " ms\n";
+    auto [_, next_time] = times[i+1];
+    ss << "  " << event_name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(next_time - time).count() << " ms\n";
   }
   ss << "}";
   std::cout << ss.str() << std::endl;

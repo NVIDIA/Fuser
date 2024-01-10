@@ -2094,6 +2094,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto override_it = override_index.find(alloc_dom[i]);
     const bool is_overriden = override_it != override_index.end();
+    
     if (alloc_dom[i]->isReduction() ||
         (alloc_dom[i]->isBroadcast() && !is_overriden)) {
       continue;
