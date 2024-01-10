@@ -3124,8 +3124,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3142,8 +3141,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = root_domain_.size();
@@ -3180,8 +3178,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_{false} {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
@@ -3205,8 +3202,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_{false} {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
@@ -3236,8 +3232,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_{false} {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
