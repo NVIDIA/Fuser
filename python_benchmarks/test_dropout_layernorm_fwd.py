@@ -67,13 +67,14 @@ def test_dropout_layernorm_fwd_benchmark(
         torch.ones(size[1], device="cuda", dtype=dtype),
         torch.zeros(size[1], device="cuda", dtype=dtype),
     ]
+    # dropout_p = 0.0 in fwd benchmark for validating the dropout mask
     dropout_p = 0.0
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
     with FusionDefinition() as fd:
         dropout_layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
     if not disable_validation:
         # dropout + add
-        x = inputs[0] + torch.nn.functional.dropout(inputs[0], dropout_p)
+        x = inputs[0] + 1 / (1 - dropout_p) * dropout_mask * inputs[0]
         # layernorm
         eager_output = torch.nn.functional.layer_norm(
             x,

@@ -92,10 +92,10 @@ def test_rmsnorm_bwd_benchmark(
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    dropout_p = 0.0
+    dropout_p = 0.1
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
 
-    x = inputs + torch.nn.functional.dropout(inputs, dropout_p)
+    x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
     squared_mean = (x.to(torch.float) ** 2).mean(1, keepdim=True)
     rms_eps = torch.sqrt(squared_mean + eps)
 
@@ -105,7 +105,6 @@ def test_rmsnorm_bwd_benchmark(
     if not disable_validation:
         eager_output = weights * (x / rms_eps)
         eager_output.backward(grads.to(torch.double))
-        # fd.execute([inputs, dropout_mask, rms_eps, grads, weights])
         fd.validate([inputs, dropout_mask, rms_eps, grads, weights], [inputs.grad, weights.grad])
 
     if not disable_benchmarking:

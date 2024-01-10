@@ -68,7 +68,9 @@ def dropout_layernorm_bwd_fusion(
     T95 = fd.ops.mul(S84, T93)
     T96 = fd.ops.add(T85, T95)
     T97 = fd.ops.add(T41, T96)
-    T101 = fd.ops.mul(T97, T1)
+
+    T100 = fd.ops.mul(T97, S10)
+    T101 = fd.ops.mul(T100, T1)
     T102 = fd.ops.add(T97, T101)
     if dtype in PROMOTE_DTYPES:
         T35 = fd.ops.cast(T35, dtype=dtype)
@@ -93,9 +95,9 @@ def test_layernorm_bwd_benchmark(
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
-    dropout_p = 0.0
+    dropout_p = 0.1
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
-    x = inputs + torch.nn.functional.dropout(inputs, dropout_p)
+    x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
     mean = x.to(torch.float).mean(dim=-1)
     variance = x.to(torch.float).var(dim=-1, unbiased=False)
     invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)

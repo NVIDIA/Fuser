@@ -73,6 +73,7 @@ def test_rmsnorm_fwd_benchmark(
     inputs = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
+    # dropout_p = 0.0 in fwd benchmark for validating the dropout mask
     dropout_p = 0.0
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
 
@@ -80,7 +81,7 @@ def test_rmsnorm_fwd_benchmark(
         dropout_rmsnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p, eps)
 
     if not disable_validation:
-        x = inputs + torch.nn.functional.dropout(inputs, dropout_p)
+        x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
         squared_mean = (x.to(torch.float) ** 2).mean(1, keepdim=True)
         rms_eps = torch.sqrt(squared_mean + eps)
         eager_output = weights * (x / rms_eps)
