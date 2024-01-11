@@ -3,7 +3,45 @@ from nvfuser import FusionDefinition, DataType
 from python_benchmarks.core import run_benchmark, clear_cuda_cache
 
 
-def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+def rope_fusion(fd: FusionDefinition) -> None:
+    cos = fd.define_tensor(
+        shape=[4096, 128],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
+    )
+    q = fd.define_tensor(
+        shape=[32, 4096, 32, 128],
+        contiguity=[True, True, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[3, 2, 1, 0],
+    )
+    sin = fd.define_tensor(
+        shape=[4096, 128],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
+    )
+
+    q = fd.ops.permute(q, dims=[0, 2, 1, 3])
+    q_left = fd.ops.slice(q, start_indices=[0, 0, 0, 0], end_indices=[32, 32, 4096, 64], strides=[1, 1, 1, 1])
+    q_right = fd.ops.slice(q, start_indices=[0, 0, 0, 64], end_indices=[32, 32, 4096, 128], strides=[1, 1, 1, 1])
+
+    q_right = fd.ops.cast(q_right, dtype=DataType.Float)
+    q_right = -q_right
+    q_right = fd.ops.cast(q_right, dtype=DataType.BFloat16)
+
+    q_rotated = fd.ops.cat([q_right, q_left], dim=-1)
+
+    cos = fd.ops.broadcast_in_dim(cos, shape=[1, 1, 4096, 128], broadcast_dims=[2, 3])
+    sin = fd.ops.broadcast_in_dim(sin, shape=[1, 1, 4096, 128], broadcast_dims=[2, 3])
+    fd.add_output(q * cos + q_rotated * sin)
+
+
+def qkv_split_rope_fusion(fd: FusionDefinition) -> None:
     T0 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -176,7 +214,7 @@ def test_qkv_split_rope(benchmark):
     clear_cuda_cache()
 
     with FusionDefinition() as fd:
-        nvfuser_fusion_id0(fd)
+        qkv_split_rope_fusion(fd)
 
     inputs = [
         torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
@@ -185,6 +223,25 @@ def test_qkv_split_rope(benchmark):
         torch.randn((1610612736,), dtype=torch.bfloat16, device="cuda:0").as_strided(
             (32, 4096, 12288), (50331648, 12288, 1)
         ),
+        torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (4096, 128), (128, 1)
+        ),
+    ]
+
+    run_benchmark(benchmark, fd.execute, inputs)
+
+
+def test_rope(benchmark):
+    clear_cuda_cache()
+
+    with FusionDefinition() as fd:
+        rope_fusion(fd)
+
+    inputs = [
+        torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (4096, 128), (128, 1)
+        ),
+        torch.randn(32, 4096, 32, 128, dtype=torch.bfloat16, device="cuda:0"),
         torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
             (4096, 128), (128, 1)
         ),
