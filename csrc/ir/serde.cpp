@@ -36,12 +36,11 @@ std::vector<V> convertContainer(
 
 namespace nvfuser {
 
-IrSerde::IrSerde(const IrContainer* container, bool deterministic_order)
+IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
       toposorted_stmts_{topologicalSortStatements(
           container->deterministic_vals(),
-          container->deterministic_exprs(),
-          deterministic_order)},
+          container->deterministic_exprs())},
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
 
@@ -55,8 +54,7 @@ IrSerde::IrSerde(const IrContainer* container, bool deterministic_order)
 // output Vals' definition. Now, output Val are valid for other Vals.
 std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Val*>& values,
-    const std::deque<Expr*>& exprs,
-    bool deterministic_order) {
+    const std::deque<Expr*>& exprs) {
   std::vector<Statement*> sorted;
 
   // During segmentation, intermediate TensorViews can become new global
@@ -156,8 +154,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
           if (top_stmt->isVal()) {
             // 1) Create Val without definition expression.
             // It is only valid for expressions.
-            if (deterministic_order ||
-                top_stmt->asVal()->definition() == nullptr) {
+            if (top_stmt->asVal()->definition() == nullptr) {
               valid_value_dependencies.insert(top_stmt);
             }
           } else {
