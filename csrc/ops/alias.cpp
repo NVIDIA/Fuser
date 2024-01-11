@@ -138,20 +138,19 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
       for (const auto j : c10::irange(inp_dom.size())) {
-        numel = mul(numel, inp_dom.at(j)->extent());
+        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
       }
       for (const auto j : c10::irange(new_sizes.size())) {
         if (i == j) {
           continue;
         }
-        other_new_numel = mul(other_new_numel, new_sizes.at(j));
+        other_new_numel =
+            SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
       }
-      new_size = div(numel, other_new_numel);
+      new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
-    if (new_size->dtype() != DataType::Index) {
-      new_size = castOp(DataType::Index, new_size);
-    }
+    new_size = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_size);
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
@@ -643,7 +642,8 @@ TensorView* cat(
             inp_root_id->toString());
         // The right pad of the last tensor is just zero
         right_pad = input_idx < inputs.size() - 1
-            ? sub(right_pad, inp_root_id->getMaybeExpandedExtent())
+            ? SimplifyingIrBuilder::subExpr(
+                  right_pad, inp_root_id->getMaybeExpandedExtent())
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;
