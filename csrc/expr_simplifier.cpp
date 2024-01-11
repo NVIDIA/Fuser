@@ -190,7 +190,7 @@ class Context {
     validateConsistency();
   }
 
-  void validateConsistency() {
+  void validateConsistency() const {
     // Check for obvious contradictions. Could have helped debugging #1572.
     // Let me know if there's a subquadratic way to check this. `Val*` equality
     // was't sufficient, so I had to call `sameAs` instead.
