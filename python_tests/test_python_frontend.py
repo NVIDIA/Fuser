@@ -111,7 +111,9 @@ class TestNvFuserFrontend(TestCase):
     # definition based on the FusionDefinition is executable and matches the
     # original definition
     @serde_check
-    def exec_nvfuser(self, fusion_func, inputs, *, new_fusion_expected=True):
+    def exec_nvfuser(
+        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
+    ):
         inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -121,7 +123,7 @@ class TestNvFuserFrontend(TestCase):
             fusion_func(fd)
         fd_str = fd.__repr__()
         torch.manual_seed(0)
-        out = fd.execute(inputs)
+        out = fd.execute(inputs, device=device)
 
         # Execute the python definition that was captured
         try:
@@ -130,7 +132,7 @@ class TestNvFuserFrontend(TestCase):
             with FusionDefinition() as fd_cap:
                 eval(func_name)(fd_cap)
             torch.manual_seed(0)
-            out_cap = fd_cap.execute(inputs_cap)
+            out_cap = fd_cap.execute(inputs_cap, device=device)
         except Exception as err:
             print("\nException For Printed FusionDefinition:")
             print(
@@ -2234,23 +2236,24 @@ class TestNvFuserFrontend(TestCase):
     )
     def test_selected_device(self):
         """
-        Run the same Fusion as in test_scalar_only_inputs, but on device 1
+        Run the Fusion on device 1
         """
+        inputs = [
+            torch.rand(2, 2, device="cuda:1"),
+            torch.rand(2, 2, device="cuda:1"),
+        ]
 
         def fusion_func(fd: FusionDefinition):
-            s0 = fd.define_scalar()
-            s1 = fd.define_scalar()
-            s2 = fd.ops.add(s0, s1)
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.add(t0, t1)
             c0 = fd.define_scalar(1.0, DataType.Float)
             t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
-            t4 = fd.ops.mul(t3, s2)
+            t4 = fd.ops.mul(t3, t2)
             fd.add_output(t4)
 
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-
-        nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
-        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * 5.0
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, device="cuda:1")
+        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * (inputs[0] + inputs[1])
         self.assertEqual(eager_out, nvf_out[0])
 
         self.assertTrue(nvf_out[0].device.index == 1)
