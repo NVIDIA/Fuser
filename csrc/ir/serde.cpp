@@ -71,18 +71,18 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       [](Val* v) { return v->isA<TensorView>(); });
 
   // Collect TensorDomains that are used in a TensorView
-  std::unordered_set<Val*> valid_tensor_domains;
+  std::unordered_set<Val*> invalid_tensor_domains;
   std::copy_if(
       values.begin(),
       values.end(),
-      std::inserter(valid_tensor_domains, valid_tensor_domains.end()),
+      std::inserter(invalid_tensor_domains, invalid_tensor_domains.end()),
       [&all_tensorviews](Val* v) {
         if (!v->isA<TensorDomain>()) {
           return false;
         }
-        return std::any_of(
+        return std::all_of(
             all_tensorviews.begin(), all_tensorviews.end(), [&v](Val* tv) {
-              return tv->as<TensorView>()->domain() == v->as<TensorDomain>();
+              return tv->as<TensorView>()->domain() != v->as<TensorDomain>();
             });
       });
 
@@ -111,7 +111,6 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       valid_value_dependencies);
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
-  int64_t invalid_tensor_domains = 0;
   std::vector<Statement*> ready_to_pop_stmts;
   ready_to_pop_stmts.reserve(to_sort.size());
   // Topological Sort
@@ -161,6 +160,10 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         if (top_stmt->asVal()->definition() == nullptr) {
           valid_value_dependencies.insert(top_stmt);
         }
+        // Only add TensorDomain statements if they are used by a TensorView.
+        if (invalid_tensor_domains.count(top_stmt->asVal()) > 0) {
+          continue;
+        }
       } else {
         // 2) Create Expr that requires inputs, outputs, and attribute Vals.
         // Expr is valid for both expressions and vals.
@@ -172,21 +175,12 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
           valid_value_dependencies.insert(output_val);
         }
       }
-      // Only add TensorDomain statements if they are used by a TensorView.
-      if (top_stmt->isA<TensorDomain>()) {
-        if (valid_tensor_domains.count(top_stmt->as<Val>()) > 0) {
-          sorted.push_back(top_stmt);
-        } else {
-          ++invalid_tensor_domains;
-        }
-      } else {
-        sorted.push_back(top_stmt);
-      }
+      sorted.push_back(top_stmt);
     }
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
   NVF_ERROR(
-      (sorted.size() + invalid_tensor_domains) ==
+      (sorted.size() + invalid_tensor_domains.size()) ==
       (values.size() + exprs.size()));
   return sorted;
 }
