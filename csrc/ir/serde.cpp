@@ -139,6 +139,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     ready_values.clear();
     ready_exprs.clear();
 
+    // Find any available values and expressions to add to sorted vector
     std::copy_if(
         to_sort_values.begin(),
         to_sort_values.end(),
@@ -161,9 +162,9 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
 
     NVF_ERROR(
         !ready_values.empty() || !ready_exprs.empty(),
-        "Failed to remove any statement from to_sort",
-        " and none of the statements are ready to be removed in the next iteration,"
-        " so we are stopping here to break infinite loop.");
+        "Failed to find any statements from to_sort_values or to_sort_exprs ",
+        "that are ready to be removed in the next iteration, so we are ",
+        "stopping here to break infinite loop.");
 
     // Add all statements to sorted vector except TensorDomain statements that
     // are unused by any TensorView.
@@ -177,6 +178,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     std::copy(
         ready_exprs.begin(), ready_exprs.end(), std::back_inserter(sorted));
 
+    // Add all statements to created_statements
     std::copy(
         ready_values.begin(),
         ready_values.end(),
@@ -186,17 +188,19 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         ready_exprs.end(),
         std::inserter(created_statements, created_statements.end()));
 
+    // Erase all statements from to_sort_values and to_sort_exprs
     for (auto stmt : ready_values) {
       to_sort_values.erase(stmt->asVal());
     }
-
     for (auto stmt : ready_exprs) {
       to_sort_exprs.erase(stmt);
       // After creating an expression, its output values are now valid
       // because the definition for those values is this expression.
-      for (const auto output_val : stmt->outputs()) {
-        valid_value_dependencies.insert(output_val);
-      }
+      std::copy(
+          stmt->outputs().begin(),
+          stmt->outputs().end(),
+          std::inserter(
+              valid_value_dependencies, valid_value_dependencies.end()));
     }
 
     // Any Expression or Val without a definition expression is immediately
