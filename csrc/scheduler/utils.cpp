@@ -2054,8 +2054,8 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) 
   if (!tv->hasAllocation()) {
     return ret;
   }
-  const auto& alloc_dom = tv->allocation();
-  const auto& maybe_rfactor_dom = tv->allocation();
+  const auto& alloc_dom = tv->getAllocationDomain();
+  const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
   if (alloc_dom == maybe_rfactor_dom) {
     return ret; 
   }
@@ -2066,7 +2066,7 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) 
   std::unordered_map<IterDomain*, int> rfactor_index;
   for (int i : c10::irange()) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[rfactor_dom[i]] = i;
+    rfactor_index[maybe_rfactor_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];

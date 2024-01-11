@@ -313,7 +313,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point,
-    const std::vector<size_t>& rfactor_reorder = {});
+    const std::unordered_map<int, int>& rfactor_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,

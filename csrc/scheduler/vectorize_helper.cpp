@@ -783,8 +783,9 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     auto original_rfactor_dom = root_dom;
     NVF_ERROR(root_dom.size() == rfactor_order.size(), "rfactor_order needs to be the same length as ref's rfactor_domain.");
 
+    int rank = (int)rfactor_order.size();
     for (auto [i, j] : rfactor_order) {
-      NVF_ERROR(i >= 0 && j >= 0 && i < rfactor_order.size() && j < rfactor_order.size(), "rfactor_order entry needs to be smaller then its length.");
+      NVF_ERROR(i >= 0 && j >= 0 && i < rank && j < rank, "rfactor_order entry needs to be smaller then its length.");
       root_dom[j] = original_rfactor_dom[i];
     }
   }
@@ -816,7 +817,7 @@ int64_t getVectorizationFactor(
 
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
-          data_cache, [&reference_tv]() {
+          data_cache, [&reference_tv, &rfactor_order]() {
             return std::make_unique<
                 std::vector<std::unordered_map<TensorView*, Val*>>>(
                 getTvToContigInnerSizeMapsOf(reference_tv, rfactor_order));
