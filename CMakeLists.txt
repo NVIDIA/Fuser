@@ -28,7 +28,7 @@ endif()
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
 find_package(Torch REQUIRED)
-find_package(Python REQUIRED Development Interpreter)
+find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
 
 # need this since the pytorch execution uses a different name
@@ -430,7 +430,7 @@ if(BUILD_PYTHON)
     ${LIBNVTOOLSEXT}
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
-    Python::Python
+    # Python::Python
   )
 
   target_link_libraries(nvfuser PRIVATE
