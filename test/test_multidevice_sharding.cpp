@@ -19,8 +19,13 @@
 namespace nvfuser {
 namespace {
 
-inline at::Tensor shardInputTensor(at::Tensor tensor, int deviceId) {
-  return tensor.index({at::indexing::Slice(deviceId, deviceId+1), "..."});
+inline at::Tensor shardInputTensor(at::Tensor tensor, std::vector<int64_t>& devices, int deviceId) {
+  int i = 0;
+  auto it = find (devices.begin(), devices.end(), deviceId);
+  if (it != devices.end()) {
+    i = *it;
+  }
+  return tensor.index({at::indexing::Slice(i, i+1), "..."});
 }
 } // namespace
   
@@ -31,9 +36,9 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
-  std::vector<int64_t> ranks(num_devices);
-  std::iota(ranks.begin(), ranks.end(), 0);
-  DeviceMesh mesh(ranks);
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
   std::vector<int64_t> input_size = {num_devices, 3};
 
   TensorView* tv0 = concreteTV ? makeConcreteTensor(input_size) : makeContigTensor(2);
@@ -72,9 +77,9 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
-  std::vector<int64_t> ranks(num_devices);
-  std::iota(ranks.begin(), ranks.end(), 0);
-  DeviceMesh mesh(ranks);
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
   std::vector<int64_t> unsharded_input_size = {num_devices, 3, 2};
 
   TensorView* tv0 = concreteTV ? makeConcreteTensor(unsharded_input_size) : makeContigTensor(2);
@@ -92,7 +97,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 
   auto x = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardInputTensor(x, communicator->deviceId())};
+      shardInputTensor(x, devices, communicator->deviceId())};
   auto ref_outputs = x * 2;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
