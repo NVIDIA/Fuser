@@ -154,16 +154,7 @@ static void SingleMatmulBase(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  KernelIndexTypeCompute index_type_helper;
-  index_type_helper.addDim(m, k); // A
-  index_type_helper.addDim(n, k); // B
-  index_type_helper.addDim(m, n); // D
-  cparams.index_type = index_type_helper.getType();
-  if (cparams.index_type == DataType::Int) {
-    // Notify as this can have a slight perf impact, but is necessary for large
-    // inputs
-    debug() << "Using int64_t as index type" << std::endl;
-  }
+  cparams.index_type = computeIndexType(m, n, k);
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
@@ -274,6 +265,20 @@ int computeAutoSplitKFactor(
   return num_SMs / num_blocks;
 }
 
+IndexType computeIndexType(int m, int n, int k) {
+  KernelIndexTypeCompute index_type_helper;
+  index_type_helper.addDim(m, k); // A
+  index_type_helper.addDim(n, k); // B
+  index_type_helper.addDim(m, n); // D
+  auto index_type = index_type_helper.getType();
+  if (index_type == DataType::Int) {
+    // Notify as this can have a slight perf impact, but is necessary for large
+    // inputs
+    debug() << "Using int64_t as index type" << std::endl;
+  }
+  return index_type;
+}
+
 // This performs the splitk matmul WITHOUT any outer reduction, which is useful
 // for comparing against the first kernel in Cutlass's two-kernel split-K.
 static void SingleMatmulPartitionedK(
@@ -332,8 +337,7 @@ static void SingleMatmulPartitionedK(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  cparams.index_type = computeIndexType(m, n, k);
 
   // Compile kernel
   FusionExecutor fe;
@@ -428,8 +432,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  cparams.index_type = computeIndexType(m, n, k);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
