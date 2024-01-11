@@ -2059,12 +2059,12 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) 
   if (alloc_dom == maybe_rfactor_dom) {
     return ret; 
   }
-  if (!std::is_permutation(maybe_rfactor_dom, alloc_dom)) {
+  if (!std::is_permutation(alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
     return ret; 
   }
   std::unordered_map<IterDomain*, int> alloc_index;
   std::unordered_map<IterDomain*, int> rfactor_index;
-  for (int i : c10::irange()) {
+  for (int i : c10::irange(alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
     rfactor_index[maybe_rfactor_dom[i]] = i;
   }

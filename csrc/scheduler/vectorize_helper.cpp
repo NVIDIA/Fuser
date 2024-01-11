@@ -803,7 +803,7 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point
+    int64_t break_point,
     const std::unordered_map<int, int>& rfactor_order) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
