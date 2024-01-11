@@ -154,4 +154,77 @@ TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
+TEST_F(SegmentationTest, EnforceSegmentationByCachingBeforeAndAfter) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = sum(tv0, {0});
+  TensorView* tv2 = div(tv0, tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  // A fake proxy for the real isSharding check.
+  auto is_sharding = [](Expr* expr) -> bool {
+    return expr->isA<ReductionOp>();
+  };
+
+  // I'd put this in a pre-segmenter pass.
+  std::vector<Expr*> sharding_exprs;
+  for (Expr* expr : fusion->exprs()) {
+    if (is_sharding(expr)) {
+      sharding_exprs.push_back(expr);
+    }
+  }
+  for (Expr* sharding_expr : sharding_exprs) {
+    for (TensorView* in_tv :
+         ir_utils::filterByType<TensorView>(sharding_expr->inputs())) {
+      if (!in_tv->isFusionInput()) {
+        in_tv->cacheBefore(LoadStoreOpType::SegmenterSet);
+      }
+    }
+    for (TensorView* out_tv :
+         ir_utils::filterByType<TensorView>(sharding_expr->outputs())) {
+      if (!out_tv->isFusionOutput()) {
+        out_tv->cacheAfter(LoadStoreOpType::SegmenterSet);
+      }
+    }
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      {in_tensor / in_tensor.sum({0})},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+}
+
+TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  add_out = segment_set(add_out);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+
+  add_out->setAllocationDomain(
+      {add_out->axis(0), add_out->axis(1), add_out->axis(2)}, false);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
