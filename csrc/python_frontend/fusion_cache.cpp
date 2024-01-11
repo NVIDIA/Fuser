@@ -95,7 +95,9 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
   // Check flatbuffer integrity
-  flatbuffers::Verifier v(buffer.data(), buffer.size());
+  // Increase max_tables limit to avoid false-positive failures.
+  flatbuffers::Verifier v(
+      buffer.data(), buffer.size(), /*max_depth=*/64, /*max_tables=*/UINT_MAX);
   NVF_CHECK(
       fusion_cache_buffer->Verify(v),
       "Failed to verify the integrity of FusionCache buffer.");

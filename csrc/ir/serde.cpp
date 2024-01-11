@@ -111,82 +111,77 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       valid_value_dependencies);
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
-  bool removed_any_statment_from_to_sort = false;
-  bool any_ready_to_pop = false;
   int64_t invalid_tensor_domains = 0;
   // Topological Sort
   while (!to_sort.empty()) {
-    removed_any_statment_from_to_sort = false;
-    any_ready_to_pop = false;
+    std::vector<Statement*> ready_to_pop_stmts;
     for (auto top_stmt : to_sort) {
-      if (created_statements.count(top_stmt) > 0) {
-        to_sort.erase(top_stmt);
-        removed_any_statment_from_to_sort = true;
-        break;
+      // Check if a statements dependencies are satisfied.
+      bool ready_to_pop = true;
+
+      if (top_stmt->isVal()) {
+        for (const auto producer : top_stmt->serdeDependencies()) {
+          if (valid_value_dependencies.count(producer) == 0) {
+            ready_to_pop = false;
+          }
+        }
       } else {
-        // Check if a statements dependencies are satisfied.
-        bool ready_to_pop = true;
-
-        if (top_stmt->isVal()) {
-          for (const auto producer : top_stmt->serdeDependencies()) {
-            if (valid_value_dependencies.count(producer) == 0) {
-              ready_to_pop = false;
-            }
-          }
-        } else {
-          // expression input values must be valid.
-          for (const auto producer : top_stmt->asExpr()->inputs()) {
-            if (valid_value_dependencies.count(producer) == 0) {
-              ready_to_pop = false;
-            }
-          }
-          // serdeDependencies == outputs and attributes
-          for (const auto producer : top_stmt->serdeDependencies()) {
-            if (created_statements.count(producer) == 0) {
-              ready_to_pop = false;
-            }
+        // expression input values must be valid.
+        for (const auto producer : top_stmt->asExpr()->inputs()) {
+          if (valid_value_dependencies.count(producer) == 0) {
+            ready_to_pop = false;
           }
         }
-
-        any_ready_to_pop |= ready_to_pop;
-        if (ready_to_pop) {
-          created_statements.insert(top_stmt);
-          if (top_stmt->isVal()) {
-            // 1) Create Val without definition expression.
-            // It is only valid for expressions.
-            if (top_stmt->asVal()->definition() == nullptr) {
-              valid_value_dependencies.insert(top_stmt);
-            }
-          } else {
-            // 2) Create Expr that requires inputs, outputs, and attribute Vals.
-            // Expr is valid for both expressions and vals.
-            valid_value_dependencies.insert(top_stmt);
-
-            // 3) After creating Expr, assign Expr to output definition.
-            // Output Val are now valid.
-            for (const auto output_val : top_stmt->asExpr()->outputs()) {
-              valid_value_dependencies.insert(output_val);
-            }
-          }
-          // Only add TensorDomain statements if they are used by a TensorView.
-          if (top_stmt->isA<TensorDomain>()) {
-            if (valid_tensor_domains.count(top_stmt->as<Val>()) > 0) {
-              sorted.push_back(top_stmt);
-            } else {
-              ++invalid_tensor_domains;
-            }
-          } else {
-            sorted.push_back(top_stmt);
+        // serdeDependencies == outputs and attributes
+        for (const auto producer : top_stmt->serdeDependencies()) {
+          if (created_statements.count(producer) == 0) {
+            ready_to_pop = false;
           }
         }
+      }
+
+      if (ready_to_pop) {
+        ready_to_pop_stmts.push_back(top_stmt);
       }
     }
 
     NVF_ERROR(
-        removed_any_statment_from_to_sort || any_ready_to_pop,
+        !ready_to_pop_stmts.empty(),
         "Failed to remove any statement from to_sort",
         " and none of the statements are ready to be removed in the next iteration,"
         " so we are stopping here to break infinite loop.");
+
+    for (auto top_stmt : ready_to_pop_stmts) {
+      to_sort.erase(top_stmt);
+      created_statements.insert(top_stmt);
+      if (top_stmt->isVal()) {
+        // 1) Create Val without definition expression.
+        // It is only valid for expressions.
+        if (top_stmt->asVal()->definition() == nullptr) {
+          valid_value_dependencies.insert(top_stmt);
+        }
+      } else {
+        // 2) Create Expr that requires inputs, outputs, and attribute Vals.
+        // Expr is valid for both expressions and vals.
+        valid_value_dependencies.insert(top_stmt);
+
+        // 3) After creating Expr, assign Expr to output definition.
+        // Output Val are now valid.
+        for (const auto output_val : top_stmt->asExpr()->outputs()) {
+          valid_value_dependencies.insert(output_val);
+        }
+      }
+      // Only add TensorDomain statements if they are used by a TensorView.
+      if (top_stmt->isA<TensorDomain>()) {
+        if (valid_tensor_domains.count(top_stmt->as<Val>()) > 0) {
+          sorted.push_back(top_stmt);
+        } else {
+          ++invalid_tensor_domains;
+        }
+      } else {
+        sorted.push_back(top_stmt);
+      }
+    }
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
   NVF_ERROR(
