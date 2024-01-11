@@ -32,6 +32,17 @@ std::vector<V> convertContainer(
   return result;
 }
 
+// This helper function checks if all the items are present in a set of
+// nvfuser::Statements.
+template <typename Container>
+bool checkSetContainsItems(
+    const std::unordered_set<const nvfuser::Statement*>& set,
+    const Container& items) {
+  return std::all_of(items.begin(), items.end(), [&](const auto& a) {
+    return set.count(a) > 0;
+  });
+}
+
 } // namespace
 
 namespace nvfuser {
@@ -133,12 +144,8 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         to_sort_values.end(),
         std::back_inserter(ready_values),
         [&valid_value_dependencies](Val* stmt) {
-          for (const auto producer : stmt->serdeDependencies()) {
-            if (valid_value_dependencies.count(producer) == 0) {
-              return false;
-            }
-          }
-          return true;
+          return checkSetContainsItems(
+              valid_value_dependencies, stmt->serdeDependencies());
         });
 
     std::copy_if(
@@ -146,19 +153,10 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         to_sort_exprs.end(),
         std::back_inserter(ready_exprs),
         [&created_statements, &valid_value_dependencies](Expr* stmt) {
-          // expression input values must be valid.
-          for (const auto producer : stmt->inputs()) {
-            if (valid_value_dependencies.count(producer) == 0) {
-              return false;
-            }
-          }
-          // serdeDependencies == outputs and attributes
-          for (const auto producer : stmt->serdeDependencies()) {
-            if (created_statements.count(producer) == 0) {
-              return false;
-            }
-          }
-          return true;
+          return checkSetContainsItems(
+                     valid_value_dependencies, stmt->inputs()) &&
+              checkSetContainsItems(
+                     created_statements, stmt->serdeDependencies());
         });
 
     NVF_ERROR(
