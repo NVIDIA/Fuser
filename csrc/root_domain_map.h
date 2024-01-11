@@ -12,8 +12,7 @@
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
 #include <utils.h>
-
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -81,7 +80,7 @@ class RootDomainMap : public PolymorphicBase {
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class PairwiseRootDomainMap : public RootDomainMap {
+class NVF_API PairwiseRootDomainMap : public RootDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -269,7 +268,7 @@ class UnmappableReductionDomains : private IterVisitor {
 //! fail. Currently, the only use of this class is getMappableDims,
 //! which just grabs any domain that is mappable, which works no
 //! matter view is used or not.
-class ComputeAtRootDomainMap : public RootDomainMap {
+class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
 
  public:
@@ -555,7 +554,7 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
 
 //! Maps root domains of an entire fusion. Does not map broadcast
 //! domains with non-broadcast domains.
-class ExactRootDomainMap : public RootDomainMap {
+class NVF_API ExactRootDomainMap : public RootDomainMap {
  public:
   ExactRootDomainMap(Fusion* fusion);
 

@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <multidevice/device_mesh.h>
+#include <visibility.h>
 
 /*
 This file implements the Pipeline interface.
@@ -90,7 +91,7 @@ class PipelineStageDescriptor final {
   // stores the Vals belonging to the Stage
   ValSet vals_;
   // used to set the unique_id attribute
-  static int running_unique_id_;
+  NVF_API static int running_unique_id_;
 };
 
 // Interface to describe the composition of a Pipeline
@@ -116,9 +117,9 @@ PipelineCommunications as edges.
 */
 class Pipeline : public Fusion {
  public:
-  Pipeline(Fusion* fusion, PipelineDescriptor descriptor);
+  NVF_API Pipeline(Fusion* fusion, PipelineDescriptor descriptor);
 
-  std::string toString();
+  NVF_API std::string toString();
 
   const auto& descriptor() const {
     return descriptor_;

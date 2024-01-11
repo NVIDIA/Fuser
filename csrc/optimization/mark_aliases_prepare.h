@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <optimization/optimization_pass.h>
+#include <visibility.h>
 
 namespace nvfuser::optimization {
 
@@ -16,7 +17,7 @@ class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
   friend class OptimizationPass<MarkAliasesPreparePass>;
 
  protected:
-  static void runPass(Fusion* fusion);
+  NVF_API static void runPass(Fusion* fusion);
 };
 
 } // namespace nvfuser::optimization

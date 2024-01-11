@@ -8,16 +8,15 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <visibility.h>
 
 #include <debug.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
 #include <deque>
-#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -450,7 +449,7 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-char* getNvFuserEnv(const char* env_name);
+NVF_API char* getNvFuserEnv(const char* env_name);
 
 // Returns the mapped value or the default.
 template <typename K, typename V>

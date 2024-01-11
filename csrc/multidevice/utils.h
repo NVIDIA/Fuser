@@ -8,12 +8,13 @@
 #pragma once
 
 #include <ir/interface_nodes.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
 // Returns whether a TensorView has its first non-reduction axis parallelized
 // on Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
-bool isSharded(TensorView*);
+NVF_API bool isSharded(TensorView*);
 
 } // namespace nvfuser
