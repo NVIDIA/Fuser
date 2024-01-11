@@ -737,12 +737,20 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         index_type);
   }
   if (std::getenv("TEST_NEW")) {
-    // the new heuristic is only used for layer norm or rms norm fused with
-    // dropout.
+    // Only process 2D norm for now.
     bool is_2d_norm = total_reduction_numel == inner_most_dimension_numel;
-    bool non_exp_norm_fused_with_dropout = !has_exp_op && has_rng_op;
-    std::cout << "TEST_NEW is_2d_norm= " << is_2d_norm << ", has_exp_op= " << has_exp_op << ", has_rng_op= " << has_rng_op << std::endl;
-    if (is_2d_norm && non_exp_norm_fused_with_dropout) {
+    // Tested and improved performance for vect = 8:
+    // (1) softmax fused with dropout
+    // (2) layer norm and rms norm fused with dropout
+    // Will apply to any inner norm vectorized by 8 and fused with rng op.
+    // TODO: extend to other cases, already tested layer norm and rms norm fused
+    // bias add.
+    bool use_new_heuristic =
+        is_2d_norm && (vectorize_factor == 8l) && has_rng_op;
+    std::cout << "TEST_NEW is_2d_norm= " << is_2d_norm
+              << ", has_exp_op= " << has_exp_op
+              << ", has_rng_op= " << has_rng_op << std::endl;
+    if (use_new_heuristic) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
           total_iteration_numel,
