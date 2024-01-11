@@ -429,10 +429,16 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Don't try to vectorize if it's not recommended
   params->unroll_factor = 1;
 
+  std::unordered_map<int, int> rfactor_reorder_map;
+  // NOTE: rfactor_reorder is only applied for fusion without view op yet.
+  if (ir_utils::getViewOps(fusion).empty()) {
+    rfactor_reorder_map = scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
+  }
+
   const auto vectorize_factor = std::min(
       max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info, largest_out, data_cache, break_point));
+          runtime_info, largest_out, data_cache, break_point, rfactor_reorder_map));
 
   if (vectorize_factor == 1) {
     params->vectorize = false;
@@ -440,6 +446,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   } else {
     params->vectorize = true;
     params->unroll_factor = vectorize_factor;
+    params->rfactor_reorder_map = rfactor_reorder_map;
   }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
@@ -635,6 +642,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   } else {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
+
+    if (params.vectorize && !params.rfactor_reorder_map.empty()) {
+      reference_tv->reorder(params.rfactor_reorder_map);
+    }
 
     // Merge right side of break point
     for (int i = (int)reference_tv->nDims(); i > (int)params.break_point; i--) {

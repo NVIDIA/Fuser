@@ -43,6 +43,9 @@ class PointwiseParams : public HeuristicParams {
   // Unroll or vectorization factor
   size_t unroll_factor = 1;
 
+  // Reorder to align rfactor domain with allocation domain
+  std::unordered_map<int, int> rfactor_reorder_map = {};
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
@@ -58,7 +61,8 @@ class PointwiseParams : public HeuristicParams {
         other.split_block == split_block &&
         other.split_grid_y_dim == split_grid_y_dim &&
         other.unroll_factor == unroll_factor &&
-        other.flip_grid_binding == flip_grid_binding;
+        other.flip_grid_binding == flip_grid_binding &&
+        other.rfactor_reorder_map == rfactor_reorder_map;
     return attr_equal;
   }
 
@@ -84,6 +88,13 @@ class PointwiseParams : public HeuristicParams {
       } else {
         ss << "Unroll, Factor: " << unroll_factor << "\n";
       }
+    }
+    if (!rfactor_reorder_map.empty()) {
+      ss << "rfactor_reorder: ";
+      for (auto [i, j] : rfactor_reorder_map) {
+        ss << "(" << i << ", " << j << ") ";
+      }
+      ss << "\n";
     }
     if (flip_grid_binding) {
       ss << "Flip BIDx/BIDy bindings\n";

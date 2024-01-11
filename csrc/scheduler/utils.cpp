@@ -2049,6 +2049,31 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) {
+  std::unordered_map<int, int> ret;
+  if (!tv->hasAllocation()) {
+    return ret;
+  }
+  const auto& alloc_dom = tv->allocation();
+  const auto& maybe_rfactor_dom = tv->allocation();
+  if (alloc_dom == maybe_rfactor_dom) {
+    return ret; 
+  }
+  if (!std::is_permutation(maybe_rfactor_dom, alloc_dom)) {
+    return ret; 
+  }
+  std::unordered_map<IterDomain*, int> alloc_index;
+  std::unordered_map<IterDomain*, int> rfactor_index;
+  for (int i : c10::irange()) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[rfactor_dom[i]] = i;
+  }
+  for (auto iter_dom : alloc_dom) {
+    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  }
+  return ret;
+}
+
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;

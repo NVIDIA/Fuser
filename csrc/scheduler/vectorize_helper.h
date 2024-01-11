@@ -312,7 +312,8 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point);
+    int64_t break_point,
+    const std::vector<size_t>& rfactor_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,

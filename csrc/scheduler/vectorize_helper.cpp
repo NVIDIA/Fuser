@@ -776,10 +776,18 @@ namespace {
 // associated with:
 // {{i0, r1, b2}, {r1, b2}, {b2}}
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
-    TensorView* ref) {
+    TensorView* ref, const std::unordered_map<int, int>& rfactor_order) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  // auto root_dom = ref->getMaybeRFactorDomain();
-  auto root_dom = ref->getMaybeAllocationDomain();
+  auto root_dom = ref->getMaybeRFactorDomain();
+  if (!rfactor_order.empty()) {
+    auto original_rfactor_dom = root_dom;
+    NVF_ERROR(root_dom.size() == rfactor_order.size(), "rfactor_order needs to be the same length as ref's rfactor_domain.");
+
+    for (auto [i, j] : rfactor_order) {
+      NVF_ERROR(i >= 0 && j >= 0 && i < rfactor_order.size() && j < rfactor_order.size(), "rfactor_order entry needs to be smaller then its length.");
+      root_dom[j] = original_rfactor_dom[i];
+    }
+  }
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());
@@ -794,7 +802,8 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point) {
+    int64_t break_point
+    const std::unordered_map<int, int>& rfactor_order) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -810,7 +819,7 @@ int64_t getVectorizationFactor(
           data_cache, [&reference_tv]() {
             return std::make_unique<
                 std::vector<std::unordered_map<TensorView*, Val*>>>(
-                getTvToContigInnerSizeMapsOf(reference_tv));
+                getTvToContigInnerSizeMapsOf(reference_tv, rfactor_order));
           });
 
   if (vectorizable_inputs_outputs.empty()) {

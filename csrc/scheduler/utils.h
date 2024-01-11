@@ -559,6 +559,10 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
 
+// Generates an old to new map to reorder tv's domain as the rfactor order.
+// This only handles the simple case where allocation is a permutation of rfactor domain, otherwise, the function returns an empty container.
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv);
+
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
