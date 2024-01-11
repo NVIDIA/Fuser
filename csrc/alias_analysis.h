@@ -112,8 +112,7 @@ class AliasAnalysisResult {
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
 // enable aliases; the latter, used by NoOpScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
-NVF_API AliasAnalysisResult findAliases(
-    Fusion* fusion,
-    bool can_override_empty_allocation_domain = true);
+NVF_API AliasAnalysisResult
+findAliases(Fusion* fusion, bool can_override_empty_allocation_domain = true);
 
 } // namespace nvfuser
