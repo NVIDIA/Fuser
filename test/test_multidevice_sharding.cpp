@@ -28,7 +28,11 @@ inline at::Tensor shardInputTensor(at::Tensor tensor, std::vector<int64_t>& devi
   return tensor.index({at::indexing::Slice(i, i+1), "..."});
 }
 } // namespace
-  
+
+class ShardingTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<bool> {
+};
 
 TEST_P(ShardingTest, UnshardedGlobalInput) {
   auto concreteTV = GetParam();
