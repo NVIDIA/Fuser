@@ -118,6 +118,24 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
       "]");
 }
 
+//! Compute the index type (either Int32 or, if needed, Int) for an MNK problem
+//! size. This function ensures that an Int32 can represent the linear index of
+//! any of the contiguous tensors involved in this problem. If not, then Int
+//! (double) is returned.
+PrimDataType computeIndexType(int m, int n, int k) {
+  KernelIndexTypeCompute index_type_helper;
+  index_type_helper.addDim(m, k); // A
+  index_type_helper.addDim(n, k); // B
+  index_type_helper.addDim(m, n); // D
+  PrimDataType index_type = index_type_helper.getType();
+  if (index_type == DataType::Int) {
+    // Notify as this can have a slight perf impact, but is necessary for large
+    // inputs
+    debug() << "Using int64_t as index type" << std::endl;
+  }
+  return index_type;
+}
+
 static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MmaLayout layout,
@@ -265,20 +283,6 @@ int computeAutoSplitKFactor(
   return num_SMs / num_blocks;
 }
 
-IndexType computeIndexType(int m, int n, int k) {
-  KernelIndexTypeCompute index_type_helper;
-  index_type_helper.addDim(m, k); // A
-  index_type_helper.addDim(n, k); // B
-  index_type_helper.addDim(m, n); // D
-  auto index_type = index_type_helper.getType();
-  if (index_type == DataType::Int) {
-    // Notify as this can have a slight perf impact, but is necessary for large
-    // inputs
-    debug() << "Using int64_t as index type" << std::endl;
-  }
-  return index_type;
-}
-
 // This performs the splitk matmul WITHOUT any outer reduction, which is useful
 // for comparing against the first kernel in Cutlass's two-kernel split-K.
 static void SingleMatmulPartitionedK(
@@ -337,7 +341,7 @@ static void SingleMatmulPartitionedK(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  cparams.index_type = computeIndexType(m, n, k);
+  cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
   FusionExecutor fe;
@@ -432,7 +436,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  cparams.index_type = computeIndexType(m, n, k);
+  cparams.index_type = computeIndexType(M, N * splitk_factor, 1);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
