@@ -56,6 +56,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Val*>& values,
     const std::deque<Expr*>& exprs) {
   std::vector<Statement*> sorted;
+  sorted.reserve(values.size() + exprs.size());
 
   // During segmentation, intermediate TensorViews can become new global
   // TensorViews. A new TensorDomain is created for the new global TensorView
@@ -111,17 +112,17 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       valid_value_dependencies);
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
-  std::vector<Statement*> ready_to_pop_stmts;
-  ready_to_pop_stmts.reserve(to_sort.size());
+  std::vector<Statement*> ready_stmts;
+  ready_stmts.reserve(to_sort.size());
   // Topological Sort
   while (!to_sort.empty()) {
-    ready_to_pop_stmts.clear();
+    ready_stmts.clear();
 
     std::copy_if(
         to_sort.begin(),
         to_sort.end(),
-        std::back_inserter(ready_to_pop_stmts),
-        [&](Statement* stmt) {
+        std::back_inserter(ready_stmts),
+        [&created_statements, &valid_value_dependencies](Statement* stmt) {
           if (stmt->isVal()) {
             for (const auto producer : stmt->serdeDependencies()) {
               if (valid_value_dependencies.count(producer) == 0) {
@@ -146,37 +147,47 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         });
 
     NVF_ERROR(
-        !ready_to_pop_stmts.empty(),
+        !ready_stmts.empty(),
         "Failed to remove any statement from to_sort",
         " and none of the statements are ready to be removed in the next iteration,"
         " so we are stopping here to break infinite loop.");
 
-    for (auto top_stmt : ready_to_pop_stmts) {
-      to_sort.erase(top_stmt);
-      created_statements.insert(top_stmt);
-      if (top_stmt->isVal()) {
-        // 1) Create Val without definition expression.
-        // It is only valid for expressions.
-        if (top_stmt->asVal()->definition() == nullptr) {
-          valid_value_dependencies.insert(top_stmt);
-        }
-        // Only add TensorDomain statements if they are used by a TensorView.
-        if (invalid_tensor_domains.count(top_stmt->asVal()) > 0) {
-          continue;
-        }
-      } else {
-        // 2) Create Expr that requires inputs, outputs, and attribute Vals.
-        // Expr is valid for both expressions and vals.
-        valid_value_dependencies.insert(top_stmt);
+    // Add all statements to sorted vector except TensorDomain statements that
+    // are unused by any TensorView.
+    std::copy_if(
+        ready_stmts.begin(),
+        ready_stmts.end(),
+        std::back_inserter(sorted),
+        [&invalid_tensor_domains](Statement* stmt) {
+          return !stmt->isVal() ||
+              invalid_tensor_domains.count(stmt->asVal()) == 0;
+        });
 
-        // 3) After creating Expr, assign Expr to output definition.
-        // Output Val are now valid.
-        for (const auto output_val : top_stmt->asExpr()->outputs()) {
+    std::copy(
+        ready_stmts.begin(),
+        ready_stmts.end(),
+        std::inserter(created_statements, created_statements.end()));
+
+    for (auto stmt : ready_stmts) {
+      to_sort.erase(stmt);
+      if (stmt->isExpr()) {
+        // After creating an expression, its output values are now valid
+        // because the definition for those values is this expression.
+        for (const auto output_val : stmt->asExpr()->outputs()) {
           valid_value_dependencies.insert(output_val);
         }
       }
-      sorted.push_back(top_stmt);
     }
+
+    // Any Expression or Val without a definition expression is immediately
+    // valid.
+    std::copy_if(
+        ready_stmts.begin(),
+        ready_stmts.end(),
+        std::inserter(valid_value_dependencies, valid_value_dependencies.end()),
+        [](Statement* stmt) {
+          return stmt->isExpr() || stmt->asVal()->definition() == nullptr;
+        });
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
   NVF_ERROR(
