@@ -50,10 +50,10 @@ def is_pre_ampere():
 
 
 def setUpModule():
-    # from nvfuser import enable_automatic_serialization
+    from nvfuser import enable_automatic_serialization
 
     # Turn on default serialization upon program exit
-    # enable_automatic_serialization()
+    enable_automatic_serialization()
     # Automatically load common workplace
     fc = FusionCache.get()
     # Clear FusionCache because the tests expect a new fusion to be generated.
@@ -2989,7 +2989,6 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
-    """
     # Test that expand+pad does not cause indexing error, and that no scalars
     # are lost during segmentation.
     # See https://github.com/NVIDIA/Fuser/issues/1277
@@ -3148,7 +3147,6 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         # self.assertEqual(nvf_out[0], t24)
-    """
 
 
 if __name__ == "__main__":
