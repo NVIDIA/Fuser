@@ -87,10 +87,17 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
             });
       });
 
-  std::unordered_set<Statement*> to_sort;
+  std::unordered_set<Val*> to_sort_values;
   std::copy(
-      values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
-  std::copy(exprs.begin(), exprs.end(), std::inserter(to_sort, to_sort.end()));
+      values.begin(),
+      values.end(),
+      std::inserter(to_sort_values, to_sort_values.end()));
+
+  std::unordered_set<Expr*> to_sort_exprs;
+  std::copy(
+      exprs.begin(),
+      exprs.end(),
+      std::inserter(to_sort_exprs, to_sort_exprs.end()));
 
   // valid_value_dependencies holds all statements available for value
   // dependencies. Expressions require output values in their constructor, so
@@ -112,42 +119,50 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       valid_value_dependencies);
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
-  std::vector<Statement*> ready_stmts;
-  ready_stmts.reserve(to_sort.size());
+  std::vector<Val*> ready_values;
+  std::vector<Expr*> ready_exprs;
+  ready_values.reserve(exprs.size());
+  ready_exprs.reserve(values.size());
   // Topological Sort
-  while (!to_sort.empty()) {
-    ready_stmts.clear();
+  while (!to_sort_values.empty() || !to_sort_exprs.empty()) {
+    ready_values.clear();
+    ready_exprs.clear();
 
     std::copy_if(
-        to_sort.begin(),
-        to_sort.end(),
-        std::back_inserter(ready_stmts),
-        [&created_statements, &valid_value_dependencies](Statement* stmt) {
-          if (stmt->isVal()) {
-            for (const auto producer : stmt->serdeDependencies()) {
-              if (valid_value_dependencies.count(producer) == 0) {
-                return false;
-              }
+        to_sort_values.begin(),
+        to_sort_values.end(),
+        std::back_inserter(ready_values),
+        [&valid_value_dependencies](Val* stmt) {
+          for (const auto producer : stmt->serdeDependencies()) {
+            if (valid_value_dependencies.count(producer) == 0) {
+              return false;
             }
-          } else {
-            // expression input values must be valid.
-            for (const auto producer : stmt->asExpr()->inputs()) {
-              if (valid_value_dependencies.count(producer) == 0) {
-                return false;
-              }
+          }
+          return true;
+        });
+
+    std::copy_if(
+        to_sort_exprs.begin(),
+        to_sort_exprs.end(),
+        std::back_inserter(ready_exprs),
+        [&created_statements, &valid_value_dependencies](Expr* stmt) {
+          // expression input values must be valid.
+          for (const auto producer : stmt->inputs()) {
+            if (valid_value_dependencies.count(producer) == 0) {
+              return false;
             }
-            // serdeDependencies == outputs and attributes
-            for (const auto producer : stmt->serdeDependencies()) {
-              if (created_statements.count(producer) == 0) {
-                return false;
-              }
+          }
+          // serdeDependencies == outputs and attributes
+          for (const auto producer : stmt->serdeDependencies()) {
+            if (created_statements.count(producer) == 0) {
+              return false;
             }
           }
           return true;
         });
 
     NVF_ERROR(
-        !ready_stmts.empty(),
+        !ready_values.empty() || !ready_exprs.empty(),
         "Failed to remove any statement from to_sort",
         " and none of the statements are ready to be removed in the next iteration,"
         " so we are stopping here to break infinite loop.");
@@ -155,39 +170,49 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     // Add all statements to sorted vector except TensorDomain statements that
     // are unused by any TensorView.
     std::copy_if(
-        ready_stmts.begin(),
-        ready_stmts.end(),
+        ready_values.begin(),
+        ready_values.end(),
         std::back_inserter(sorted),
-        [&invalid_tensor_domains](Statement* stmt) {
-          return !stmt->isVal() ||
-              invalid_tensor_domains.count(stmt->asVal()) == 0;
+        [&invalid_tensor_domains](Val* stmt) {
+          return invalid_tensor_domains.count(stmt) == 0;
         });
+    std::copy(
+        ready_exprs.begin(), ready_exprs.end(), std::back_inserter(sorted));
 
     std::copy(
-        ready_stmts.begin(),
-        ready_stmts.end(),
+        ready_values.begin(),
+        ready_values.end(),
+        std::inserter(created_statements, created_statements.end()));
+    std::copy(
+        ready_exprs.begin(),
+        ready_exprs.end(),
         std::inserter(created_statements, created_statements.end()));
 
-    for (auto stmt : ready_stmts) {
-      to_sort.erase(stmt);
-      if (stmt->isExpr()) {
-        // After creating an expression, its output values are now valid
-        // because the definition for those values is this expression.
-        for (const auto output_val : stmt->asExpr()->outputs()) {
-          valid_value_dependencies.insert(output_val);
-        }
+    for (auto stmt : ready_values) {
+      to_sort_values.erase(stmt->asVal());
+    }
+
+    for (auto stmt : ready_exprs) {
+      to_sort_exprs.erase(stmt);
+      // After creating an expression, its output values are now valid
+      // because the definition for those values is this expression.
+      for (const auto output_val : stmt->outputs()) {
+        valid_value_dependencies.insert(output_val);
       }
     }
 
     // Any Expression or Val without a definition expression is immediately
     // valid.
     std::copy_if(
-        ready_stmts.begin(),
-        ready_stmts.end(),
+        ready_values.begin(),
+        ready_values.end(),
         std::inserter(valid_value_dependencies, valid_value_dependencies.end()),
-        [](Statement* stmt) {
-          return stmt->isExpr() || stmt->asVal()->definition() == nullptr;
-        });
+        [](Val* stmt) { return stmt->definition() == nullptr; });
+    std::copy(
+        ready_exprs.begin(),
+        ready_exprs.end(),
+        std::inserter(
+            valid_value_dependencies, valid_value_dependencies.end()));
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
   NVF_ERROR(
