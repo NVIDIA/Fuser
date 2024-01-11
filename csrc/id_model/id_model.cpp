@@ -779,9 +779,10 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
-      for (const auto& entry : permissive_forwarding.producer_compliment_map) {
-        for (auto entry_2 : entry.second) {
-          if (getenv("COMP")) {
+      if (permissive_graph_map_compliment_ids_) {
+        for (const auto& entry :
+             permissive_forwarding.producer_compliment_map) {
+          for (auto entry_2 : entry.second) {
             idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
           }
         }
@@ -791,9 +792,10 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
-      for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
-        for (auto entry_2 : entry.second) {
-          if (getenv("COMP")) {
+      if (permissive_graph_map_compliment_ids_) {
+        for (const auto& entry :
+             permissive_forwarding.consumer_compliment_map) {
+          for (auto entry_2 : entry.second) {
             idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
           }
         }
@@ -1158,7 +1160,8 @@ void IdModel::build(
   }
 
   buildPermissiveMap(tv_exprs);
-  if (validate) {
+  // Validation is not implemented when compliment mapping is enabled
+  if (validate && !permissive_graph_map_compliment_ids_) {
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }

@@ -347,6 +347,10 @@ class IdModel : public PolymorphicBase {
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
+
+  // By default, the permissive graph should map compliment domains as
+  // well. See the design doc for more details
+  bool permissive_graph_map_compliment_ids_ = true;
 };
 
 } // namespace nvfuser
