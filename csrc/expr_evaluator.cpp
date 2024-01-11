@@ -141,9 +141,7 @@ void ExpressionEvaluator::bind_(
             i);
         bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (
-          rfactor_domain[i]->isDeviceDim() &&
-          rfactor_domain[i]->getMaybeExpandedExtent()->isConst()) {
+      } else if (rfactor_domain[i]->isDeviceDim()) {
         // Device dimensions extents will always be 1.
         // Ignore concrete extents because they hold the unsharded extents.
         NVF_CHECK(

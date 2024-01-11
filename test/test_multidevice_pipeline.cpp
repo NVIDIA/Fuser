@@ -168,11 +168,15 @@ TEST_P(PipelineTestTwoStages, Communication) {
     GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
     second_axis_extent = mesh1.vector().size();
   }
-  std::vector<int64_t> input_sizes = {
+  std::vector<int64_t> unsharded_input_sizes = {
       first_axis_extent, second_axis_extent, 3, 5};
-
+  std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
+  if (is_stage0_sharded) {
+    sharded_input_sizes[0] = 1;
+  }
+  
   FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeConcreteTensor(input_sizes);
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
   TensorView* tv3 = sum(tv2, {1});
@@ -186,8 +190,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
   if (is_stage0_sharded) {
     tv0->axis(0)->parallelize(ParallelType::DIDx);
     tv1->axis(0)->parallelize(ParallelType::DIDx);
-    // Shard outermost-axis of input
-    input_sizes[0] = 1;
   }
   if (is_stage1_sharded) {
     // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
@@ -197,7 +199,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
+  inputs = {at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
 
   executeAndValidate();
 }

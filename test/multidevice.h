@@ -59,6 +59,11 @@ class MultiDeviceTest : public NVFuserTest {
   std::vector<std::pair<const std::string, std::chrono::time_point<std::chrono::high_resolution_clock>>> times;
 };
 
+class ShardingTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<bool> {
+};
+
 class CommunicationTest
     : public MultiDeviceTest,
       public ::testing::WithParamInterface<CommunicatorBackend> {
