@@ -778,7 +778,8 @@ namespace {
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getMaybeRFactorDomain();
+  // auto root_dom = ref->getMaybeRFactorDomain();
+  auto root_dom = ref->getMaybeAllocationDomain();
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());
