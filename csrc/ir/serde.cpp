@@ -112,38 +112,39 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
   int64_t invalid_tensor_domains = 0;
+  std::vector<Statement*> ready_to_pop_stmts;
+  ready_to_pop_stmts.reserve(to_sort.size());
   // Topological Sort
   while (!to_sort.empty()) {
-    std::vector<Statement*> ready_to_pop_stmts;
-    for (auto top_stmt : to_sort) {
-      // Check if a statements dependencies are satisfied.
-      bool ready_to_pop = true;
+    ready_to_pop_stmts.clear();
 
-      if (top_stmt->isVal()) {
-        for (const auto producer : top_stmt->serdeDependencies()) {
-          if (valid_value_dependencies.count(producer) == 0) {
-            ready_to_pop = false;
+    std::copy_if(
+        to_sort.begin(),
+        to_sort.end(),
+        std::back_inserter(ready_to_pop_stmts),
+        [&](Statement* stmt) {
+          if (stmt->isVal()) {
+            for (const auto producer : stmt->serdeDependencies()) {
+              if (valid_value_dependencies.count(producer) == 0) {
+                return false;
+              }
+            }
+          } else {
+            // expression input values must be valid.
+            for (const auto producer : stmt->asExpr()->inputs()) {
+              if (valid_value_dependencies.count(producer) == 0) {
+                return false;
+              }
+            }
+            // serdeDependencies == outputs and attributes
+            for (const auto producer : stmt->serdeDependencies()) {
+              if (created_statements.count(producer) == 0) {
+                return false;
+              }
+            }
           }
-        }
-      } else {
-        // expression input values must be valid.
-        for (const auto producer : top_stmt->asExpr()->inputs()) {
-          if (valid_value_dependencies.count(producer) == 0) {
-            ready_to_pop = false;
-          }
-        }
-        // serdeDependencies == outputs and attributes
-        for (const auto producer : top_stmt->serdeDependencies()) {
-          if (created_statements.count(producer) == 0) {
-            ready_to_pop = false;
-          }
-        }
-      }
-
-      if (ready_to_pop) {
-        ready_to_pop_stmts.push_back(top_stmt);
-      }
-    }
+          return true;
+        });
 
     NVF_ERROR(
         !ready_to_pop_stmts.empty(),

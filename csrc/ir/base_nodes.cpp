@@ -507,7 +507,6 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
 
 std::vector<const Statement*> Expr::serdeDependencies() const {
   std::vector<const Statement*> deps;
-  std::copy(inputs_.begin(), inputs_.end(), std::back_inserter(deps));
   std::copy(outputs_.begin(), outputs_.end(), std::back_inserter(deps));
   std::copy(attributes_.begin(), attributes_.end(), std::back_inserter(deps));
   return deps;
