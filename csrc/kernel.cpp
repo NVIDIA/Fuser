@@ -307,7 +307,7 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
 
 flatbuffers::Offset<serde::Kernel> Kernel::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  IrSerde container(this, /*deterministic_order=*/true);
+  IrSerde container(this);
   std::vector<flatbuffers::Offset<serde::Scope>> fb_scopes;
   fb_scopes.reserve(scopes_.size());
   std::transform(

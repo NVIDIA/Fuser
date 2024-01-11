@@ -153,7 +153,7 @@ Fusion::~Fusion() {
 
 flatbuffers::Offset<serde::Fusion> Fusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  IrSerde container(this, /*deterministic_order=*/false);
+  IrSerde container(this);
   return serialize(container, builder);
 }
 
