@@ -1006,23 +1006,14 @@ inline void resolveTvToMatmulDomainsMapping(
 
 } // anonymous namespace
 
-ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (mma_exprs.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << mma_exprs.size();
-    return ss.str();
-  }
-  const auto mma_output = mma_exprs.front()->out();
-
+ProblemIterDomainsOpt getProblemIterDomains(
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   // NOTE: the iter domains of MMA output should be [...,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
   IterDomain* k = nullptr;
 
-  const auto leaf_domains =
-      static_cast<const TensorView*>(mma_output)->getLeafDomain();
+  const auto& leaf_domains = props.out->getLeafDomain();
   const auto concrete =
       TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
   if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
@@ -1050,7 +1041,23 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   return ProblemIterDomains{m, n, k};
 }
 
-MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getProblemIterDomains(
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
+MatmulProblemLayoutOpt getMmaLayout(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1058,7 +1065,7 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
     return {"Failed to find any TV that is fusion input"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(fusion);
+  const auto mma_output_domains = getProblemIterDomains(props);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1128,7 +1135,24 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
   return {"Failed to decide fusion inputs' data layout."};
 }
 
-RolesMapOpt getTensorsRoles(Fusion* fusion) {
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getMmaLayout(
+      fusion,
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
+RolesMapOpt getTensorsRoles(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1141,7 +1165,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return {"Failed to find any TV that is fusion output"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(fusion);
+  const auto mma_output_domains = getProblemIterDomains(props);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1256,12 +1280,28 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   return roles_map;
 }
 
+RolesMapOpt getTensorsRoles(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getTensorsRoles(
+      fusion,
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
 namespace {
 
-void addMMAOp(Fusion* fusion_, std::vector<MulSumAsMmaProps>& props) {
+void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
   auto* init = IrBuilder::create<Val>(0.0);
   for (auto prop : props) {
-    IrBuilder::create<MmaOp>(prop.out, prop.a, prop.b, init);
+    IrBuilder::create<MmaOp>(
+        prop.insouts.out, prop.insouts.a, prop.insouts.b, init);
   }
 }
 
@@ -1344,7 +1384,7 @@ TensorView* getTensorviewPriorToCast(TensorView* in) {
 // Check if the Mul-Sum pair represents a matmul. If so, add the properties
 // of the mma op which can be a tentatice substitue. This checks that the output
 // of sum has on reduction axis, and the inputs to mul are valid broadcasts.
-std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
+std::optional<MulSumProperties> getMulSumInsOutsBcasts(
     BinaryOp* mop,
     ReductionOp* redop) {
   auto a = getTensorviewPriorToCast(static_cast<TensorView*>(mop->lhs()));
@@ -1361,14 +1401,12 @@ std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
   }
 
   if (broadcastsAreValid(a, b, *red_axis)) {
-    return MulSumAsMmaProps(
-        mop,
-        redop,
-        a,
-        b,
-        static_cast<TensorView*>(redop->output(0)),
-        dynamic_cast<BroadcastOp*>(a->definition()),
-        dynamic_cast<BroadcastOp*>(b->definition()));
+    MulSumProperties props = {
+        {mop, redop},
+        {a, b, static_cast<TensorView*>(redop->output(0))},
+        {dynamic_cast<BroadcastOp*>(a->definition()),
+         dynamic_cast<BroadcastOp*>(b->definition())}};
+    return props;
   }
   return std::nullopt;
 }
@@ -1396,12 +1434,27 @@ void CombineMulSum::handle(ReductionOp* stmt) {
   }
 };
 
-std::vector<MulSumAsMmaProps> CombineMulSum::generateMulSumCanidates(
-    bool use_cached_results) {
-  if (use_cached_results && !mul_sum_props_.empty()) {
-    return mul_sum_props_;
+void CombineMulSum::generateMulSumCanidates() {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion_);
+  if (mma_exprs.size() == 1) {
+    mma_utils::MulSumProperties props;
+    props.insouts = {
+        static_cast<TensorView*>(mma_exprs.front()->inA()),
+        static_cast<TensorView*>(mma_exprs.front()->inB()),
+        static_cast<TensorView*>(mma_exprs.front()->out())};
+    mul_sum_props_.push_back(props);
+  } else {
+    traverse(fusion_);
   }
-  traverse(fusion_);
+  is_valid_ = (mul_sum_props_.size() == 1) ? true : false;
+}
+
+const std::vector<MulSumProperties>& CombineMulSum::getMulSumCanidates(
+    const bool refresh_data) {
+  if (refresh_data) {
+    mul_sum_props_.clear();
+    generateMulSumCanidates();
+  }
   return mul_sum_props_;
 }
 

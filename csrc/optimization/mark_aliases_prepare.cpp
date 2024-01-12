@@ -23,41 +23,42 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
-  // Fusion outputs that are (1) aliased by others and (2) not aliases
-  // themselves. Code will later add `segment_set` before them so aliases are
+  // Fusion outputs that are (1) aliased by others, (2) not aliases
+  // themselves, and (3) not fusion inputs (yes, a fusion may trivially forward
+  // an input). Code will later add `segment_set` before them so aliases are
   // separated from non-aliases and more likely to be accepted by the no-op
   // scheduler.
-  std::vector<TensorView*> aliased_outs;
-  aliased_outs.reserve(fusion->outputs().size());
+  std::unordered_set<TensorView*> aliased_outs;
 
-  for (TensorView* out :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* aliased_io = analysis.getNearestAliasedIo(out);
+  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+    TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
     if (aliased_io == nullptr) {
       continue;
     }
 
-    if (aliased_io->isFusionOutput() &&
+    if (aliased_io->isFusionOutput() && !aliased_io->isFusionInput() &&
         analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-      aliased_outs.push_back(aliased_io);
+      aliased_outs.insert(aliased_io);
     }
 
-    // We already checked it's compatible; no need to change.
-    if (out->hasAllocation()) {
+    // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
+    // is compliant with `tv`'s existing layout before adding `tv` to
+    // `alias_to_root_`. So the existing layout can remain unchanged.
+    if (tv->hasAllocation()) {
       continue;
     }
 
-    // A scalar `out` triggers a corner case that crashes
+    // A scalar `tv` triggers a corner case that crashes
     // `validateDomainEquivalence`.
-    if (out->isZeroDim()) {
+    if (tv->isZeroDim()) {
       continue;
     }
 
-    const Layout preferred_layout = analysis.preferredLayout(out);
-    out->setAllocationDomain(
+    const Layout preferred_layout = analysis.preferredLayout(tv);
+    tv->setAllocationDomain(
         preferred_layout.allocation_domain, preferred_layout.contiguity);
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-      debug() << "Set the layout of " << ir_utils::varName(out) << " to "
+      debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
               << preferred_layout.toString() << std::endl;
     }
   }
