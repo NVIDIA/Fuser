@@ -956,8 +956,6 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   // fusion.printKernel();
 }
 
-// TODO: Finish and enable test
-//
 // Progressive loop promotion. producer gets promoted in consumer, consumer is
 // promoted in a different way to its consumer.
 TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
@@ -1004,7 +1002,111 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
   // [2, 4, (3*5//2)*7//4]
   tv5->inlineAt(2);
 
-  fusion.printKernel();
+  IdModel id_model(&fusion);
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  // For tv1, tv2, tv4, their first leaf domains should all be
+  // loop-mapped and promoted to a domain that is exaclty mapped with
+  // the first leaf domain of tv7. The second leaf domains should also
+  // be promoted to the domain at the same position in tv7 but since
+  // they are not inlined, they should not be loop-mapped
+  for (auto tv : {tv1, tv2, tv4}) {
+    // Validating the first leaf ID
+    {
+      auto leaf_id0 = tv->axis(0);
+      auto ref_id0 = tv7->axis(0);
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::LOOP)
+                      .disjointValSets()
+                      .strictAreMapped(leaf_id0, ref_id0));
+      auto promotion_map_it = promotion_map.find(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id0));
+      ASSERT_NE(promotion_map_it, promotion_map.end());
+      auto promoted_id = promotion_map_it->second;
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                      .disjointValSets()
+                      .strictAreMapped(promoted_id, ref_id0))
+          << "Expected exact mapping: " << promoted_id->toString() << " with "
+          << ref_id0->toString() << " of " << tv7->toString();
+    }
+
+    // Validating the second leaf ID
+    {
+      auto leaf_id1 = tv->axis(1);
+      // Should be promoted to a domain that is exactly mapped with iS31
+      auto ref_id1 = tv7->axis(1)
+                         ->definition()
+                         ->as<Split>()
+                         ->in()
+                         ->definition()
+                         ->as<Merge>()
+                         ->outer();
+      auto promotion_map_it = promotion_map.find(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id1));
+      ASSERT_NE(promotion_map_it, promotion_map.end());
+      auto promoted_id = promotion_map_it->second;
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                      .disjointValSets()
+                      .strictAreMapped(promoted_id, ref_id1))
+          << "Expected exact mapping: " << promoted_id->toString() << " with "
+          << ref_id1->toString() << " of " << tv7->toString();
+      // While promoted ID should be exact-mapped with the reference ID, they
+      // should not be loop-mapped
+      ASSERT_FALSE(id_model.idGraph(IdMappingMode::LOOP)
+                       .disjointValSets()
+                       .strictAreMapped(promoted_id, ref_id1))
+          << "Expected no loop mapping: " << promoted_id->toString() << " with "
+          << ref_id1->toString() << " of " << tv7->toString();
+
+      // In the case of tv1 and tv2, the promoted id is a newly replayed
+      // domain, whereas for the tv4, there should be no replay as
+      // there's no broadcast. So, the size of the loop group should be
+      // 2 for the former and 1 for the latter.
+      const auto& leaf_id1_loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id1);
+      ASSERT_EQ(leaf_id1_loop_group->size(), tv == tv4 ? 1 : 2)
+          << "Unexpected loop group: "
+          << nvfuser::toString(leaf_id1_loop_group);
+    }
+  }
+
+  // Validate tv5. The last leaf domain should be promoted to a domain
+  // that is exactly mapped with the last domain of tv7
+  {
+    auto last_leaf = tv5->axis(-1);
+    auto promotion_map_it = promotion_map.find(
+        id_model.idGraph(IdMappingMode::LOOP).toGroup(last_leaf));
+    ASSERT_NE(promotion_map_it, promotion_map.end());
+    auto promoted_id = promotion_map_it->second;
+    ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                    .disjointValSets()
+                    .strictAreMapped(promoted_id, tv7->axis(-1)))
+        << "Expected exact mapping: " << promoted_id->toString() << " with "
+        << tv7->axis(-1)->toString() << " of " << tv7->toString();
+
+    // While promoted ID should be exact-mapped with the last ID, they
+    // should not be loop-mapped
+    ASSERT_FALSE(id_model.idGraph(IdMappingMode::LOOP)
+                     .disjointValSets()
+                     .strictAreMapped(promoted_id, tv7->axis(-1)))
+        << "Expected no loop maping: " << promoted_id->toString() << " with "
+        << tv7->axis(-1)->toString() << " of " << tv7->toString();
+  }
+
+  // Validation not enabled yet as incorrect code is generated. Need
+  // to use the loop promotion info to generate correct loop-nests
+#if 0
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5}, options);
+  auto t3 = at::randn({3, 5}, options);
+  auto t6 = at::randn({3, 5, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t3, t6};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+#endif
 }
 
 // Repro for issue #1873
@@ -1088,9 +1190,11 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-// TODO: Finish and enable test.
 // Broadcast and concretize same domain in two different ways and try to merge
-// their loops remains unsupported.
+// their loops. The inlining pattern is invalid but the current
+// inlining check is not capable of flagging the inlining poistion as
+// invalid. The loop promotion analysis should not find any promotion
+// of the loop group where all the leaf domains are merged into.
 TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1125,11 +1229,19 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
     tv->merge(0);
   }
 
+  // Since x and y are not proven to be the same, this inling position
+  // should not be allowed.
   for (auto tv : std::vector<TensorView*>{tv3, tv4, tv6}) {
     tv->inlineAt(1);
   }
 
-  ASSERT_ANY_THROW(fusion.printKernel());
+  // For now, just make sure there's no loop promotion for the merged
+  // loop group.
+  IdModel id_model(&fusion);
+  const auto& leaf_loop_group =
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv7->axis(0));
+  auto promotion_map_it = id_model.loopPromotionMap().find(leaf_loop_group);
+  ASSERT_EQ(promotion_map_it, id_model.loopPromotionMap().end());
 }
 
 // TODO: All the above tests are merges followed by splits, we should make some

@@ -130,7 +130,7 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
-  const std::unordered_map<ValGroup, IterDomain*> loopPromotionMap() const {
+  const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;
   }
 
