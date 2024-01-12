@@ -195,7 +195,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   fec.profile(true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::empty_strided({1024, 128, 25}, stride, options);
+  at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
   auto cg_outputs = fec.runFusionWithInputs({t0});
   EXPECT_EQ(getVecSizeForPointwise(fec), 4);
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
