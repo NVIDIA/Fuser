@@ -475,7 +475,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     for (auto [i, j] : rfactor_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
-    debug() << "broadcast_byte_multiples: ";
+    debug() << "\nbroadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
