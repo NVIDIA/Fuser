@@ -776,7 +776,8 @@ namespace {
 // associated with:
 // {{i0, r1, b2}, {r1, b2}, {b2}}
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
-    TensorView* ref, const std::unordered_map<int, int>& rfactor_order) {
+    TensorView* ref,
+    const std::unordered_map<int, int>& rfactor_order) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
   if (!rfactor_order.empty()) {

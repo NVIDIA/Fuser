@@ -208,9 +208,11 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   std::unordered_map<int, int> rfactor_reorder_map;
   // NOTE: rfactor_reorder is only applied for fusion without view op yet.
   if (ir_utils::getViewOps(fusion).empty()) {
-    rfactor_reorder_map = scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
+    rfactor_reorder_map =
+        scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
   }
-  // reorder of root to align with rfactor map should always help with indexing, even when vectorization isn't used.
+  // reorder of root to align with rfactor map should always help with indexing,
+  // even when vectorization isn't used.
   params->rfactor_reorder_map = rfactor_reorder_map;
 
   if (!rfactor_reorder_map.empty()) {
@@ -444,7 +446,11 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto vectorize_factor = std::min(
       max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info, largest_out, data_cache, break_point, rfactor_reorder_map));
+          runtime_info,
+          largest_out,
+          data_cache,
+          break_point,
+          rfactor_reorder_map));
 
   if (vectorize_factor == 1) {
     params->vectorize = false;
@@ -475,7 +481,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "vectorize_factor: " << vectorize_factor << std::endl << "\n"
+            << "vectorize_factor: " << vectorize_factor << std::endl
+            << "\n"
             << "rfactor_reorder_map: ";
     for (auto [i, j] : rfactor_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";

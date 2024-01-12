@@ -564,7 +564,8 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
 
 // Generates an old to new map to reorder tv's domain as the rfactor order.
-// This only handles the simple case where allocation is a permutation of rfactor domain, otherwise, the function returns an empty container.
+// This only handles the simple case where allocation is a permutation of
+// rfactor domain, otherwise, the function returns an empty container.
 std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by

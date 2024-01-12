@@ -2060,7 +2060,8 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
-std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) {
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
+    TensorView* tv) {
   std::unordered_map<int, int> ret;
   if (!tv->hasAllocation()) {
     return ret;
@@ -2068,16 +2069,17 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv) 
   const auto& alloc_dom = tv->getAllocationDomain();
   const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
   if (alloc_dom == maybe_rfactor_dom) {
-    return ret; 
+    return ret;
   }
-  if (!std::is_permutation(alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
-    return ret; 
+  if (!std::is_permutation(
+          alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
+    return ret;
   }
   std::unordered_map<IterDomain*, int> alloc_index;
   std::unordered_map<IterDomain*, int> rfactor_index;
-  for (int i : c10::irange(alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = i;
-    rfactor_index[maybe_rfactor_dom[i]] = i;
+  for (auto i : c10::irange(alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = static_cast<int>(i);
+    rfactor_index[maybe_rfactor_dom[i]] = static_cast<int>(i);
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
