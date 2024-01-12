@@ -176,6 +176,7 @@ class Kernel final : public Fusion {
   // TV, we may want to continue to do fusion like analysis on the original
   // expression.
   Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int);
+  Kernel(PrimDataType index_type = PrimDataType::Int);
   Kernel() = delete;
 
   // No move or copy semantics

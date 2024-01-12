@@ -62,6 +62,8 @@ class IrSerde {
 
   const IrContainer* container_;
 
+  std::unordered_set<Statement*> invalid_tensor_domains_;
+
   std::vector<Statement*> toposorted_stmts_;
 
   //! Return mapping from value to integer id in topological sorted order

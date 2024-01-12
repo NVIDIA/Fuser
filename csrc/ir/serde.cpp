@@ -9,6 +9,7 @@
 #include <ir/container.h>
 #include <ir/serde.h>
 
+namespace nvfuser {
 namespace {
 // This helper function converts selected keys to their corresponding values.
 // During serialization, we map pointers to an integer. For deserialization,
@@ -36,26 +37,58 @@ std::vector<V> convertContainer(
 // nvfuser::Statements.
 template <typename Container>
 bool checkSetContainsItems(
-    const std::unordered_set<const nvfuser::Statement*>& set,
+    const std::unordered_set<const Statement*>& set,
     const Container& items) {
   return std::all_of(items.begin(), items.end(), [&](const auto& a) {
     return set.count(a) > 0;
   });
 }
 
-int64_t getStatementId(nvfuser::Statement* stmt) {
+int64_t getStatementId(Statement* stmt) {
   if (stmt == nullptr) {
     return -1l;
   }
   return stmt->id();
 }
 
-} // namespace
+// During segmentation, intermediate TensorViews can become new global
+// TensorViews. A new TensorDomain is created for the new global TensorView
+// but its original TensorDomain remains in container. The values of the
+// original TensorDomain are altered and reused making the original
+// TensorDomain invalid. A solution is to prune the unused TensorDomain from
+// the Container.
+std::unordered_set<Statement*> findInvalidTensorDomain(
+    const std::unordered_set<Val*>& values) {
+  std::vector<Val*> all_tensorviews;
+  std::copy_if(
+      values.begin(),
+      values.end(),
+      std::back_inserter(all_tensorviews),
+      [](Val* v) { return v->isA<TensorView>(); });
 
-namespace nvfuser {
+  // Collect TensorDomains that are used in a TensorView
+  std::unordered_set<Statement*> invalid_tensor_domains;
+  std::copy_if(
+      values.begin(),
+      values.end(),
+      std::inserter(invalid_tensor_domains, invalid_tensor_domains.end()),
+      [&all_tensorviews](Val* v) {
+        if (!v->isA<TensorDomain>()) {
+          return false;
+        }
+        return std::all_of(
+            all_tensorviews.begin(), all_tensorviews.end(), [&v](Val* tv) {
+              return tv->as<TensorView>()->domain() != v->as<TensorDomain>();
+            });
+      });
+  return invalid_tensor_domains;
+}
+
+} // namespace
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
+      invalid_tensor_domains_{findInvalidTensorDomain(container->vals())},
       toposorted_stmts_{topologicalSortStatements(container)},
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
@@ -83,7 +116,9 @@ std::vector<int64_t> IrSerde::update(const std::vector<Statement*>& new_stmts) {
   // Add statements that are missing from toposorted_stmts_
   for (Statement* stmt : new_stmts) {
     int64_t stmt_id = getStatementId(stmt);
-    if (this_stmts_set.count(stmt_id) > 0) {
+    auto is_invalid_td =
+        stmt != nullptr && invalid_tensor_domains_.count(stmt) > 0;
+    if (this_stmts_set.count(stmt_id) > 0 || is_invalid_td) {
       continue;
     }
     statement_ids.push_back(stmt_id);
@@ -116,35 +151,6 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Expr*>& exprs) {
   std::vector<Statement*> sorted;
   sorted.reserve(values.size() + exprs.size());
-
-  // During segmentation, intermediate TensorViews can become new global
-  // TensorViews. A new TensorDomain is created for the new global TensorView
-  // but its original TensorDomain remains in container. The values of the
-  // original TensorDomain are altered and reused making the original
-  // TensorDomain invalid. A solution is to prune the unused TensorDomain from
-  // the Container.
-  std::vector<Val*> all_tensorviews;
-  std::copy_if(
-      values.begin(),
-      values.end(),
-      std::back_inserter(all_tensorviews),
-      [](Val* v) { return v->isA<TensorView>(); });
-
-  // Collect TensorDomains that are used in a TensorView
-  std::unordered_set<Val*> invalid_tensor_domains;
-  std::copy_if(
-      values.begin(),
-      values.end(),
-      std::inserter(invalid_tensor_domains, invalid_tensor_domains.end()),
-      [&all_tensorviews](Val* v) {
-        if (!v->isA<TensorDomain>()) {
-          return false;
-        }
-        return std::all_of(
-            all_tensorviews.begin(), all_tensorviews.end(), [&v](Val* tv) {
-              return tv->as<TensorView>()->domain() != v->as<TensorDomain>();
-            });
-      });
 
   std::unordered_set<Val*> to_sort_values;
   std::copy(
@@ -220,9 +226,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         ready_values.begin(),
         ready_values.end(),
         std::back_inserter(sorted),
-        [&invalid_tensor_domains](Val* stmt) {
-          return invalid_tensor_domains.count(stmt) == 0;
-        });
+        [this](Val* stmt) { return invalid_tensor_domains_.count(stmt) == 0; });
     std::copy(
         ready_exprs.begin(), ready_exprs.end(), std::back_inserter(sorted));
 
@@ -266,7 +270,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
   NVF_ERROR(
-      (sorted.size() + invalid_tensor_domains.size()) ==
+      (sorted.size() + invalid_tensor_domains_.size()) ==
       (values.size() + exprs.size()));
   return sorted;
 }

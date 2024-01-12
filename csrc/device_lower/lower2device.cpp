@@ -318,20 +318,20 @@ GpuLower::GpuLower(
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
   create(gpulower);
-  for (size_t index : c10::irange(container_analyze_statements_.size())) {
+  analysis();
+  NVF_ERROR(
+      gpulower->container_state_names()->size() ==
+      kernel_->deterministic_stmts().size());
+  for (size_t index : c10::irange(gpulower->container_state_names()->size())) {
     NVF_ERROR(
-        index < gpulower->container_state_names()->size(),
-        "Out-of-bounds index for serde::GpuLower::container_state_names");
-    NVF_ERROR(
-        container_analyze_statements_.at(index) != nullptr ||
+        kernel_->deterministic_stmts().at(index) != nullptr ||
             gpulower->container_state_names()->Get(index) == -1,
         "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
     NVF_ERROR(
         gpulower->container_state_names()->Get(index) ==
-            container_analyze_statements_.at(index)->id(),
+            kernel_->deterministic_stmts().at(index)->id(),
         "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
   }
-  analysis();
 }
 
 namespace {
@@ -381,9 +381,8 @@ flatbuffers::Offset<serde::GpuLower> GpuLower::serialize(
   // TODO Add kir::Kernel serialization to serde::GpuLower
   // Currently there is an invalid flatbuffer validation error with
   // test_matmuls.
-  IrSerde container(scheduled_fusion_.get());
   std::vector<int64_t> serde_container_state_names =
-      container.update(container_analyze_statements_);
+      kernel_serde_->update(container_analyze_statements_);
   return serde::CreateGpuLowerDirect(
       builder,
       scheduled_fusion_->serialize(builder),
@@ -397,18 +396,22 @@ void GpuLower::create(Fusion* fusion) {
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
   LowerGuard lower_guard(this);
 
-  scheduled_fusion_ = std::make_unique<Fusion>(*fusion);
-
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
     cparams_.index_type = PrimDataType::Int;
   }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(scheduled_fusion_.get(), indexType());
+  kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
-  FusionGuard fg(fusion_);
+
+  // Make a copy of the kernel containing the scheduled fusion.
+  // All elements should be in same order
+  scheduled_fusion_ = std::make_unique<Fusion>(*fusion_);
+
+  // Get mapping for kernel
+  kernel_serde_ = std::make_unique<IrSerde>(kernel_.get());
 }
 
 void GpuLower::create(const serde::GpuLower* gpulower) {
@@ -418,6 +421,9 @@ void GpuLower::create(const serde::GpuLower* gpulower) {
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
   LowerGuard lower_guard(this);
 
+  // The Fusion copy constructor makes an equivalent but not exact copy.
+  // We create a blank fusion and then deserialize, so scheduled_fusion_
+  // matches kernel_.
   scheduled_fusion_ = std::make_unique<Fusion>();
   {
     FusionGuard fg(scheduled_fusion_.get());
@@ -430,9 +436,18 @@ void GpuLower::create(const serde::GpuLower* gpulower) {
   }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(scheduled_fusion_.get(), indexType());
+  kernel_ = std::make_unique<kir::Kernel>(indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
+
+  {
+    // This kernel has exact copy from serde buffer.
+    FusionGuard fg(fusion_);
+    fusion_->deserialize(gpulower->scheduled_fusion());
+  }
+
+  // Get mapping for kernel
+  kernel_serde_ = std::make_unique<IrSerde>(kernel_.get());
 }
 
 void GpuLower::analysis() {

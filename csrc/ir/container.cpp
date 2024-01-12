@@ -73,6 +73,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
+  to->unique_stmt_counter_ = from->unique_stmt_counter_;
 
   if (from->axioms_ != nullptr) {
     to->axioms_ = std::make_unique<std::vector<Val*>>();
@@ -294,6 +295,7 @@ void IrContainer::deserialize(const serde::IrContainer* buffer) {
 
   // Given that all values and expressions are created according to serde
   // buffer, set valid_serialize_state to True.
+  NVF_ERROR(stmts_.size() == (vals_.size() + exprs_.size()));
   valid_serialize_state_ = true;
 
   NVF_ERROR(
@@ -453,6 +455,7 @@ void IrContainer::clear() noexcept {
   val_type_name_map_.clear();
   metadata_.clear();
   expr_name_counter_ = 0;
+  unique_stmt_counter_ = 0;
   valid_serialize_state_ = false;
 }
 
