@@ -26,8 +26,7 @@ PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
 ## Developer
 
-Getting started: https://github.com/NVIDIA/Fuser/wiki/Getting-started
-Build: https://github.com/NVIDIA/Fuser/wiki/Building-fuser-project
+Docs: https://github.com/NVIDIA/Fuser/wiki
 
 Supported compilers:
 - gcc 11.4+

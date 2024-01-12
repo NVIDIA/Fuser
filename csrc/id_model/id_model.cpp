@@ -924,6 +924,25 @@ std::unordered_map<ValGroup, IterDomain*> updateMap(
 
 } // namespace
 
+void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
+  idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
+
+  // Make sure this is called in a deterministic order. Build all inlined
+  // relationships in loop graph.
+  for (IterDomain* p_id : info.ordered_p_ca_ids) {
+    auto entry_it = info.p2c_ca_permissive_maps.find(p_id);
+    if (entry_it != info.p2c_ca_permissive_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
+      for (Val* c_id : c_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
+  }
+}
+
 void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
   if (!exprs.empty()) {
     std::stringstream ss;
@@ -1240,25 +1259,6 @@ ValGraph IdModel::buildIntersection(
     }
   }
   return intersection;
-}
-
-void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
-  // In the case of the Loop graph, we do not propagate mappings but
-  // explicitly set which domains to map based on the permissive graph
-  // and the CA positions.
-  idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
-
-  // Make sure this is called in a deterministic order. Build all inlined
-  // relationships in loop graph.
-  for (IterDomain* p_id : info.ordered_p_ca_ids) {
-    auto entry_it = info.p2c_ca_permissive_maps.find(p_id);
-    if (entry_it != info.p2c_ca_permissive_maps.end()) {
-      const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
-      for (Val* c_id : c_ids) {
-        idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
-      }
-    }
-  }
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotionMap(

@@ -1,9 +1,10 @@
 import ctypes
+import gc
+import pytest_benchmark
 import torch
+from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
-from torch.autograd import DeviceType
-import gc
 
 
 def get_device_properties() -> Tuple[int, float]:
@@ -267,7 +268,7 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark,
+    benchmark: pytest_benchmark.fixture.BenchmarkFixture,
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,

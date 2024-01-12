@@ -372,6 +372,7 @@ class FusionExecutor : public NonCopyable {
   void deserialize(
       const serde::FusionExecutor* buffer,
       Fusion* fusion,
+      int8_t device_index,
       CompileParams compile_params,
       ScheduleHeuristic heuristic,
       int64_t fusion_id,

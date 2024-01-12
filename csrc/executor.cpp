@@ -2184,6 +2184,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion,
+    int8_t device_index,
     CompileParams compile_params,
     ScheduleHeuristic heuristic,
     int64_t fusion_id,
@@ -2206,6 +2207,10 @@ void FusionExecutor::deserialize(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
   NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
+
+  // Initialize CompileOptions
+  options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
+  c10::DeviceGuard dg(options_.device);
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();

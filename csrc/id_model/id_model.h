@@ -26,15 +26,15 @@ struct StatefulInliningInfo {
   // used for deterministic order
   VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
 
-  // Broadcast resolution map for root domains, including non-inlined
-  // root domains
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-      p2c_root_broadcast_resolution_map;
-
   // p2c mappings through the fusion within (including dependencies of) inlined
   // leaf domains.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
+
+  // Broadcast resolution map for root domains, including non-inlined
+  // root domains
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+      p2c_root_broadcast_resolution_map;
 };
 
 // A collection of ValGraphs that are built from a fusion or series of
@@ -88,10 +88,9 @@ struct StatefulInliningInfo {
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 // IdMappingMode::LOOP
-//   Forward broadcast axes in replay
-//   Denotes groups of IterDomains that are considered promoted to a common iter
-//   domain size
-//
+//   Subgraph of the permissive graph. Maps only CA and their
+//   dependent domains. Denotes groups of IterDomains that are
+//   considered promoted to a common iter domain
 class IdModel : public PolymorphicBase {
  public:
   IdModel(
