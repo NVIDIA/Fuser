@@ -3784,11 +3784,8 @@ void SegmentCandidateFinder::forwardInputs() {
       // (1) Fragmentation of the DAG, increased segments, see test in #1301.
       // (2) Miss detection of persistent buffers, see issue #1607.
       const auto& input_uses = inp->uses();
-      if (input_uses.size() != 1) {
-        continue;
-      }
-      // Add the use of input if it is a UnaryOp
-      if (input_uses.at(0)->isA<UnaryOp>()) {
+      // Add single-use input if it is a UnaryOp
+      if (input_uses.size() == 1 && input_uses.at(0)->isA<UnaryOp>()) {
         to_visit.push_back(input_uses.at(0)->as<UnaryOp>());
       }
     }
