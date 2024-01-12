@@ -3782,7 +3782,7 @@ void SegmentCandidateFinder::forwardInputs() {
       // Skip input with more than one use to avoid introducing additional
       // persistent buffer, see https://github.com/NVIDIA/Fuser/issues/1607
       const auto& input_uses = inp->uses();
-      if (input_uses.size() > 1) {
+      if (input_uses.size() != 1) {
         continue;
       }
       // Add the use of input if it is a UnaryOp
