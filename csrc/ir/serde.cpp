@@ -49,11 +49,18 @@ namespace nvfuser {
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
-      toposorted_stmts_{topologicalSortStatements(
-          container->deterministic_vals(),
-          container->deterministic_exprs())},
+      toposorted_stmts_{topologicalSortStatements(container)},
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
+
+std::vector<Statement*> IrSerde::topologicalSortStatements(
+    const IrContainer* container) {
+  if (container->validSerializationState()) {
+    return container->deterministic_stmts();
+  }
+  return topologicalSortStatements(
+      container->deterministic_vals(), container->deterministic_exprs());
+}
 
 // A generic utility then ensures that all of a value's dependencies should have
 // indicies less than its index.

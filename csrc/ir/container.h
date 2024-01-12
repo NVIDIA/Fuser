@@ -58,6 +58,10 @@ class IrContainer : public PolymorphicBase {
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 
+  bool validSerializationState() const {
+    return valid_serialize_state_;
+  }
+
   template <typename NvfuserExprType>
   NvfuserExprType* getExpr(int64_t index) {
     NVF_CHECK(
@@ -144,6 +148,11 @@ class IrContainer : public PolymorphicBase {
 
   //! Return expression in insertion order
   std::deque<Expr*> deterministic_exprs() const noexcept;
+
+  //! Return statements in insertion order
+  std::vector<Statement*> deterministic_stmts() const noexcept {
+    return stmts_;
+  }
 
   //! Return mapping from value to integer id in deterministic order
   std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept;
@@ -254,6 +263,15 @@ class IrContainer : public PolymorphicBase {
   // already have because it would require a const_cast from a constant
   // expr/val, or a dynamic cast from a Statement.
   std::unordered_set<void*> raw_ptrs_;
+
+  // All statements in container inserted in deterministic order
+  std::vector<Statement*> stmts_;
+
+  // Determine if the IrContainer is in a serialized state where its statements
+  // are in toposort order. If this container is created from a serde buffer,
+  // we do not need to run topological sort again during serialization. If we
+  // modify the container, then the value and expression order is not valid.
+  bool valid_serialize_state_ = false;
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
