@@ -167,6 +167,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
+  auto params =
+      std::make_shared<PointwiseParams>("Pointwise heuristics", index_type);
+
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 
   auto domain_map_entry =
@@ -283,9 +286,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         max_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
-
-  auto params =
-      std::make_shared<PointwiseParams>("Pointwise heuristics", index_type);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
