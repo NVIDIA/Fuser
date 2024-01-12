@@ -3779,8 +3779,10 @@ void SegmentCandidateFinder::forwardInputs() {
   {
     std::deque<UnaryOp*> to_visit;
     for (auto inp : completeFusion()->inputs()) {
-      // Skip input with more than one use to avoid introducing additional
-      // persistent buffer, see https://github.com/NVIDIA/Fuser/issues/1607
+      // Just allow stripping out input with single use.
+      // Stripping out multi-used inputs can lead to:
+      // (1) Fragmentation of the DAG, increased segments, see test in #1301.
+      // (2) Miss detection of persistent buffers, see issue #1607.
       const auto& input_uses = inp->uses();
       if (input_uses.size() != 1) {
         continue;
