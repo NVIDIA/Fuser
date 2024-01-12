@@ -105,24 +105,16 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
       "This function is not supposed to be used for fusion inputs: ",
       tv->toString());
 
+  // When a TensorView is non-contiguous, currently there's no way to obtain its
+  // strides. So we conservatively use 64-bit indices. This is an interface
+  // problem and should be fixed.
   auto non_contig = std::any_of(
       tv->domain()->contiguity().begin(),
       tv->domain()->contiguity().end(),
-      [](const auto contig) { return contig.has_value() && !contig.value(); });
-
-  // When a fusion output is non-contiguous, currently there's no
-  // way to obtain its strides. This is an interface problem and
-  // should be fixed.
-  if (tv->isFusionOutput() && non_contig) {
+      [](const auto contig) { return contig == false; });
+  if (non_contig) {
     return PrimDataType::Int;
   }
-
-  // This function should not be used for fusion inputs, so any
-  // non-contig tensor means a fusion intermediate tensor. However,
-  // since we don't support non-contiguous intermediates, there must be
-  // something wrong.
-  NVF_ERROR(
-      !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
   // Note that at this point tensors are not scheduled yet. Each
   // tensor may end up being inlined, stored on Shared or Local, but

@@ -120,6 +120,42 @@ class ValGraph {
 
   bool hasUses(const ValGroup& val_group) const;
 
+  // Uses the Valgraph to produce mappings between from and to.
+  // Supports one to many mappings. If a single Val in from maps to
+  // multiple Vals in to, the order of the Vals in value of
+  // the map is preserved to be the order provided in to.
+  //
+  // Example:
+  //  tv0: [i0, b1]
+  //  tv1: [i2, i3]
+  //  tv2: [i4, i5]
+  //  tv2 = tv0 + tv1
+  //
+  //  tv0: [i0*b1] CA(1)
+  //  tv1: [i2*i3] CA(1)
+  //  tv2: [i4*i5] CA(1)
+  //
+  // Between tv0 and tv2, the Permissive graph would map:
+  //   {i0, i4}
+  //   {b1, i5}
+  //   {i0*b1, i4*i5}
+  //
+  // Here, buildMapBetween with:
+  //   from: {i0, b1, i0*b1}
+  //   to: {i4, i5, i4*i5}
+  // will return a map of:
+  //   i0: {i4}
+  //   b1: {i5}
+  //   i0*b1: {i4*i5}
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to) const;
+
+  // Alias of the above on unique vector entries
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const VectorOfUniqueEntries<Val*>& from,
+      const VectorOfUniqueEntries<Val*>& to) const;
+
   std::string toString() const;
 
   // Initializes entries for the provided Val with its definitions and

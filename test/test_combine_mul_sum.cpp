@@ -37,7 +37,24 @@
 
 namespace nvfuser {
 
-class CombineMulSumAsMmaTest : public NVFuserTest {};
+class CombineMulSumAsMmaTest : public NVFuserTest {
+  void SetUp() override {
+    // These test are enable for Turing and newer. Temporarily
+    // we are skipping Hopper since the matmul for it is under development.
+    auto lower_major = 8;
+    auto lower_minor = 0;
+    auto upper_major = 9;
+    auto upper_minor = 0;
+    if (cudaArchGuardShouldSkip(
+            lower_major, lower_minor, upper_major, upper_minor)) {
+      GTEST_SKIP() << "CombineMulSumAsMmaTest skipped "
+                   << "Requires GPU capability between  " << lower_major << "."
+                   << lower_minor << "and " << upper_major << "." << upper_minor
+                   << " to run.\n";
+    }
+    NVFuserTest::SetUp();
+  }
+};
 
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
@@ -171,19 +188,60 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        8,
-        0,
-        fe.compileFusion(
-            &fusion,
-            {inputs.first, inputs.second},
-            LaunchParams(),
-            matmul_cparams));
+    fe.compileFusion(
+        &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  }
+}
+
+TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+  for (auto layout : kAllSupportedMmaLayout) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true, true);
+    fusion->addOutput(tv2);
+    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+
+    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+    auto tref = atMatmul(t0, t1, layout);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+    // Ensure there's a mma op.
+    // If there's no mma op present, then stop the test.
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(
+                     executor_cache.getMostRecentKernelRuntime()
+                         ->executors()
+                         .at(0)
+                         .kernel())
+                     .empty());
+    // Ensure that the matmul scheduler ran.
+    EXPECT_TRUE(
+        dynamic_cast<MatmulScheduler*>(
+            executor_cache.getMostRecentKernelRuntime()
+                ->schedulerHeuristics()
+                ->heuristicsList()
+                .at(0)
+                .get()) != nullptr);
+
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
   }
 }
 
