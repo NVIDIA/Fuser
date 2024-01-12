@@ -780,14 +780,7 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
   if (!rfactor_order.empty()) {
-    auto original_rfactor_dom = root_dom;
-    NVF_ERROR(root_dom.size() == rfactor_order.size(), "rfactor_order needs to be the same length as ref's rfactor_domain.");
-
-    int rank = (int)rfactor_order.size();
-    for (auto [i, j] : rfactor_order) {
-      NVF_ERROR(i >= 0 && j >= 0 && i < rank && j < rank, "rfactor_order entry needs to be smaller then its length.");
-      root_dom[j] = original_rfactor_dom[i];
-    }
+    root_dom = TensorDomain::orderedAs(root_dom, rfactor_order);
   }
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)

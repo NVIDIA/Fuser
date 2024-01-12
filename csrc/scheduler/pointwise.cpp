@@ -202,6 +202,18 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   auto ref_root =
       TensorDomain::noReductions(largest_out->getMaybeRFactorDomain());
 
+  std::unordered_map<int, int> rfactor_reorder_map;
+  // NOTE: rfactor_reorder is only applied for fusion without view op yet.
+  if (ir_utils::getViewOps(fusion).empty()) {
+    rfactor_reorder_map = scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
+  }
+  // reorder of root to align with rfactor map should always help with indexing, even when vectorization isn't used.
+  params->rfactor_reorder_map = rfactor_reorder_map;
+
+  if (!rfactor_reorder_map.empty()) {
+    ref_root = TensorDomain::orderedAs(ref_root, rfactor_reorder_map);
+  }
+
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
   for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
@@ -429,12 +441,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Don't try to vectorize if it's not recommended
   params->unroll_factor = 1;
 
-  std::unordered_map<int, int> rfactor_reorder_map;
-  // NOTE: rfactor_reorder is only applied for fusion without view op yet.
-  if (ir_utils::getViewOps(fusion).empty()) {
-    rfactor_reorder_map = scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
-  }
-
   const auto vectorize_factor = std::min(
       max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
@@ -446,7 +452,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   } else {
     params->vectorize = true;
     params->unroll_factor = vectorize_factor;
-    params->rfactor_reorder_map = rfactor_reorder_map;
   }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
@@ -647,7 +652,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    if (params.vectorize && !params.rfactor_reorder_map.empty()) {
+    if (!params.rfactor_reorder_map.empty()) {
       reference_tv->reorder(params.rfactor_reorder_map);
     }
 

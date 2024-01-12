@@ -364,6 +364,8 @@ struct DisjointRFactorSetInfo {
   // disjoint_sets_of_ref to the vector, but not the other way around.
   std::vector<int> disjoint_set_ids;
 
+  std::unordered_map<int, int> rfactor_order;
+
   // TensorView reference the above vectors are relative to.
   TensorView* ref;
 };
@@ -382,7 +384,8 @@ struct DisjointRFactorSetInfo {
 DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set);
+    DisjointSets<IterDomain*>& disjoint_rfactor_set,
+    const std::unordered_map<int, int>& rfactor_reorder = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -418,7 +421,8 @@ struct BroadcastMultipleInformation {
 // multiple.
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
-    DataType index_type);
+    DataType index_type,
+    const std::unordered_map<int, int>& rfactor_reorder = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
