@@ -466,6 +466,82 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   }
 }
 
+namespace {
+
+// Grab inlining relationships
+StatefulInliningInfo buildStatefulInliningInfo(
+    const std::vector<Expr*>& exprs,
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph) {
+  StatefulInliningInfo info;
+  for (auto expr : exprs) {
+    for (auto producer_tv :
+         ir_utils::filterByType<TensorView>(expr->inputs())) {
+      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
+      const auto& producer_domain = producer_tv->domain()->leaf();
+
+      // Grab all iteration domains in producer that its compute at iter domains
+      // depend on.
+      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+          {producer_root.begin(), producer_root.end()},
+          {producer_domain.begin(),
+           producer_domain.begin() + producer_tv->getComputeAtPosition()});
+      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+          ca_deps_filter.begin(), ca_deps_filter.end());
+
+      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
+      // Gather info on and producer-consumer
+      // mappings of CA domains and broadcast resolution
+      for (auto consumer_tv :
+           ir_utils::filterByType<TensorView>(expr->outputs())) {
+        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
+        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+
+        auto p2c_permissive_map = permissive_graph.buildMapBetween(
+            all_producer_ids, all_consumer_ids);
+
+        for (const auto& [p_id, c_ids] : p2c_permissive_map) {
+          if (!c_ids.empty() &&
+              all_producer_ca_deps.has(p_id->as<IterDomain>())) {
+            info.p2c_ca_permissive_maps[p_id->as<IterDomain>()].pushBack(c_ids);
+          }
+        }
+      }
+    }
+  }
+  return info;
+}
+
+} // namespace
+
+void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
+  idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
+
+  // Make sure this is called in a deterministic order. Build all inlined
+  // relationships in loop graph.
+  for (IterDomain* p_id : info.ordered_p_ca_ids) {
+    auto entry_it = info.p2c_ca_permissive_maps.find(p_id);
+    if (entry_it != info.p2c_ca_permissive_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
+      for (Val* c_id : c_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
+  }
+}
+
+void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
+  const StatefulInliningInfo info = buildStatefulInliningInfo(
+      exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
+
+  initializeLoopMap(info);
+}
+
 void IdModel::build(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
