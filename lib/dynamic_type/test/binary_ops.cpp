@@ -174,6 +174,79 @@ TEST_COMPARE_OP(Gt, >);
 TEST_COMPARE_OP(Le, <=);
 TEST_COMPARE_OP(Ge, >=);
 
+#define TEST_NAMED_COMPARE_OP(name, op, func)                                \
+  TEST_F(DynamicTypeTest, name) {                                            \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64Bool(2.0)) == (2L op 2.0));     \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64BoolTwo{}) == (2L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(1L), DoubleInt64BoolTwo{}) == (1L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(3L), DoubleInt64BoolTwo{}) == (3L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(2L)) == (2L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(1L)) == (2L op 1L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(3L)) == (2L op 3L));      \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVec(2.0)), (2L op 2.0)); \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVecTwo{}), (2L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(1L), DoubleInt64BoolVecTwo{}), (1L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(3L), DoubleInt64BoolVecTwo{}), (3L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(2L)), (2L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(1L)), (2L op 1L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(3L)), (2L op 3L));  \
+    EXPECT_EQ(                                                               \
+        func(                                                                \
+            DoubleInt64BoolVec(std::vector<int64_t>{2}),                     \
+            DoubleInt64BoolVec(std::vector<double>{2.0})),                   \
+        (2L op 2.0));                                                        \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64Bool(2.5)) == (2L op 2.5));     \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVec(2.5)), (2L op 2.5)); \
+    EXPECT_EQ(                                                               \
+        func(                                                                \
+            DoubleInt64BoolVec(std::vector<int64_t>{2L}),                    \
+            DoubleInt64BoolVec(std::vector<double>{2.5})),                   \
+        (2L op 2.5));                                                        \
+    static_assert(func(DoubleInt64Bool(3L), 2L) == (3L op 2L));              \
+    EXPECT_EQ(func(DoubleInt64BoolVec(3L), 2L), (3L op 2L));                 \
+    static_assert(func(3L, DoubleInt64Bool(2L)) == (3L op 2L));              \
+    EXPECT_EQ(func(3L, DoubleInt64BoolVec(2L)), (3L op 2L));                 \
+    EXPECT_THAT(                                                             \
+        [&]() { func(DoubleInt64Bool(), DoubleInt64Bool(2L)); },             \
+        ::testing::ThrowsMessage<std::runtime_error>(                        \
+            ::testing::HasSubstr("Cannot compute ")));                       \
+    EXPECT_THAT(                                                             \
+        [&]() {                                                              \
+          func(                                                              \
+              DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}),         \
+              DoubleInt64BoolVec(2L));                                       \
+        },                                                                   \
+        ::testing::ThrowsMessage<std::runtime_error>(                        \
+            ::testing::HasSubstr("Cannot compute ")));                       \
+    EXPECT_THAT(                                                             \
+        [&]() { func(IntSomeType(SomeType{}), IntSomeType(SomeType{})); },   \
+        ::testing::ThrowsMessage<std::runtime_error>(                        \
+            ::testing::HasSubstr("Cannot compute ")));                       \
+  }
+
+TEST_NAMED_COMPARE_OP(NamedEq, ==, eq);
+TEST_NAMED_COMPARE_OP(NamedNe, !=, ne);
+TEST_NAMED_COMPARE_OP(NamedLt, <, lt);
+TEST_NAMED_COMPARE_OP(NamedGt, >, gt);
+TEST_NAMED_COMPARE_OP(NamedLe, <=, le);
+TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
+
 #define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
