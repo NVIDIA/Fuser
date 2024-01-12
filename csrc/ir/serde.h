@@ -50,6 +50,8 @@ class IrSerde {
 
  private:
   std::vector<Statement*> topologicalSortStatements(
+      const IrContainer* container);
+  std::vector<Statement*> topologicalSortStatements(
       const std::deque<Val*>& values,
       const std::deque<Expr*>& exprs);
   std::unordered_map<Val*, int64_t> createToposortValuesMap() const noexcept;

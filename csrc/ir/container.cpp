@@ -26,6 +26,7 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.exprs_, b.exprs_);
 
   swap(a.raw_ptrs_, b.raw_ptrs_);
+  swap(a.stmts_, b.stmts_);
 
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
@@ -289,6 +290,10 @@ void IrContainer::deserialize(const serde::IrContainer* buffer) {
     }
   }
 
+  // Given that all values and expressions are created according to serde
+  // buffer, set valid_serialize_state to True.
+  valid_serialize_state_ = true;
+
   NVF_ERROR(
       buffer->val_type_name_map_keys()->size() ==
       buffer->val_type_name_map_values()->size());
@@ -352,9 +357,19 @@ void IrContainer::removeExpr(Expr* expr) {
       expr_in_deque != exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
 
+  auto stmt_in_vector =
+      std::find_if(stmts_.begin(), stmts_.end(), [expr](Statement* stmt) {
+        return expr == stmt;
+      });
+  NVF_ERROR(
+      stmt_in_vector != stmts_.end(),
+      "Wanted to remove an expression but its statement is missing.")
+
   exprs_.erase(expr);
   exprs_up_.erase(expr_in_deque);
   raw_ptrs_.erase((void*)expr);
+  stmts_.erase(stmt_in_vector);
+  valid_serialize_state_ = false;
 }
 
 //! Completely remove val from the fusion, break all dependencies associated
@@ -379,9 +394,19 @@ void IrContainer::removeVal(Val* val) {
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
 
+  auto stmt_in_vector =
+      std::find_if(stmts_.begin(), stmts_.end(), [val](Statement* stmt) {
+        return val == stmt;
+      });
+  NVF_ERROR(
+      stmt_in_vector != stmts_.end(),
+      "Wanted to remove a value but its statement is missing.")
+
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
   raw_ptrs_.erase((void*)val);
+  stmts_.erase(stmt_in_vector);
+  valid_serialize_state_ = false;
 }
 
 //! Register the Val with this container
@@ -394,6 +419,8 @@ void IrContainer::registerVal(Val* val) {
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
   raw_ptrs_.emplace((void*)vals_up_.back().get());
+  stmts_.push_back(vals_up_.back().get());
+  valid_serialize_state_ = false;
 }
 
 //! Register expr with this container.
@@ -405,6 +432,8 @@ void IrContainer::registerExpr(Expr* expr) {
   exprs_.emplace(exprs_up_.back().get());
   expr->setName(IrContainerPasskey(), getExprName());
   raw_ptrs_.emplace((void*)exprs_up_.back().get());
+  stmts_.push_back(exprs_up_.back().get());
+  valid_serialize_state_ = false;
 }
 
 void IrContainer::clear() noexcept {
@@ -414,10 +443,12 @@ void IrContainer::clear() noexcept {
   exprs_.clear();
   exprs_up_.clear();
   raw_ptrs_.clear();
+  stmts_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
   metadata_.clear();
   expr_name_counter_ = 0;
+  valid_serialize_state_ = false;
 }
 
 bool IrContainer::inContainer(const Statement* stmt) const {
