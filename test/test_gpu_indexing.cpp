@@ -819,6 +819,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   }
 
   IdModel id_model(&fusion);
+  id_model.build();
 
   // All of the IDs that are generated with merge operations from the
   // root domains should be mapped to the single group.
@@ -1003,6 +1004,7 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
   tv5->inlineAt(2);
 
   IdModel id_model(&fusion);
+  id_model.build();
   const auto& promotion_map = id_model.loopPromotionMap();
 
   // For tv1, tv2, tv4, their first leaf domains should all be
@@ -1238,6 +1240,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
   // For now, just make sure there's no loop promotion for the merged
   // loop group.
   IdModel id_model(&fusion);
+  id_model.build();
   const auto& leaf_loop_group =
       id_model.idGraph(IdMappingMode::LOOP).toGroup(tv7->axis(0));
   auto promotion_map_it = id_model.loopPromotionMap().find(leaf_loop_group);

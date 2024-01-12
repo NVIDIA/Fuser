@@ -384,6 +384,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // names
   if (true || isOptionEnabled(EnableOption::IdModel)) {
     IdModel id_model(fusion_, false, true);
+    id_model.build();
   }
 
   resolveComputeWith(fusion_);

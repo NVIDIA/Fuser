@@ -37,6 +37,11 @@ struct StatefulInliningInfo {
       p2c_root_broadcast_resolution_map;
 };
 
+StatefulInliningInfo buildStatefulInliningInfo(
+    const std::vector<Expr*>& exprs,
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph);
+
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
@@ -93,6 +98,9 @@ struct StatefulInliningInfo {
 //   considered promoted to a common iter domain
 class IdModel : public PolymorphicBase {
  public:
+  // Sometimes fusion inputs or outputs are disconnected from expressions, in
+  // those cases we still may want to send in some additional tensor views from
+  // the Fusion that don't have expressions associated with them.
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
@@ -133,21 +141,18 @@ class IdModel : public PolymorphicBase {
     return loop_promotion_map_;
   }
 
- private:
-  // Sometimes fusion inputs or outputs are disconnected from expressions, in
-  // those cases we still may want to send in some additional tensor views from
-  // the Fusion that don't have expressions associated with them.
-  void build(
-      const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs,
-      bool validate = false);
+  virtual void build();
 
+  virtual void buildGraph(IdMappingMode mode);
+
+  virtual void maybeBuildGraph(IdMappingMode mode);
+
+ protected:
   // ======= START Iteration domain build process in order called =======
 
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
-  void buildIterDomainDefinitionsAndUses(
-      const std::vector<TensorView*>& all_tvs);
+  void buildIterDomainDefinitionsAndUses();
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.
@@ -155,23 +160,23 @@ class IdModel : public PolymorphicBase {
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
-  void buildExactGraph(const std::vector<Expr*>& exprs);
+  void buildExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
   // Exact entries, then map anything that's either merged with a size-1 or
   // split by a size-1 dimension.
-  void buildAlmostExactMap();
+  void buildAlmostExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
   // Exact entries, then map through broadcasts
-  void buildPermissiveMap(const std::vector<Expr*>& exprs);
+  void buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph
-  void buildLoopMap(const std::vector<Expr*>& exprs);
+  void buildLoopGraph();
 
   // Start loop map by grouping inlined iter domains
-  void initializeLoopMap(const StatefulInliningInfo& info);
+  void initializeLoopGraph(const StatefulInliningInfo& info);
 
   // Build a map of loop groups to IterDomains that represent actual
   // loops. The map is built based on the broadcast resolution with
@@ -180,8 +185,9 @@ class IdModel : public PolymorphicBase {
       const StatefulInliningInfo& info);
 
   // Helper function for buildLoopPromotionMap. Returns a map of
-  // root broadcast ValGroups in the IEL graph to a representative IterDomain.
-  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotionMap(
+  // root broadcast ValGroups in the IEL graph to a representative
+  // IterDomain picked from its IEL group.
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionmap(
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
@@ -315,7 +321,12 @@ class IdModel : public PolymorphicBase {
   // not have any registered uses or definitions.
   IterDomain* cloneIterDomain(IterDomain* id);
 
- private:
+ protected:
+  std::vector<Expr*> tv_exprs_;
+  std::vector<TensorView*> tvs_;
+  bool allow_self_mapping_ = false;
+  bool validate_ = false;
+
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
