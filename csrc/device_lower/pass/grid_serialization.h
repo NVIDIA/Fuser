@@ -19,8 +19,9 @@ namespace nvfuser {
 
 //! Detect ReductionOps that have serialGridReductionRequested() == true. When
 //! found, confirm that no conflicting operations exist, then place sync nodes
-//! before and after outer-most non-parallelized loop.
-std::vector<Expr*> insertGridSerializationSyncs(
+//! before and after outer-most non-parallelized loop. Finally, translate the
+//! reduction op itself into a sequence of set and add ops.
+std::vector<Expr*> translateSerialGridReduction(
     const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser

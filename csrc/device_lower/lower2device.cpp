@@ -265,7 +265,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
-           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
+           {"translateSerialGridReduction", translateSerialGridReduction},
            {"insertAllocations", insertAllocations},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
