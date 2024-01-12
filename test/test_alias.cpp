@@ -587,7 +587,7 @@ void expectKernelDoesNotStoreToOutput(
 }
 } // namespace
 
-TEST_F(AliasTest, NotAllOutputsAlias) {
+TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -608,6 +608,36 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
 
   expectKernelDoesNotStoreToOutput(
       onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
+}
+
+TEST_F(AliasTest, NotAllOutputsAlias_Reduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({16, 12, 128, 192});
+  in->setAllocationDomain(
+      {in->axis(0), in->axis(2), in->axis(1), in->axis(3)}, true);
+  TensorView* dqkv = permute(in, {0, 2, 1, 3});
+  dqkv = reshape(dqkv, {16, 128, 12, 192}, {16, 128, 2304});
+  TensorView* sum_out = sum(dqkv, {0, 1});
+  TensorView* view_out = reshape(dqkv, {16, 128, 2304}, {2048, 2304});
+  TensorView* permute_out = permute(view_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(sum_out);
+  fusion->addOutput(view_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({16 * 12 * 128 * 192})
+          .cuda()
+          .as_strided({16, 12, 128, 192}, {128 * 12 * 192, 192, 12 * 192, 1});
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
 }
 
 TEST_F(AliasTest, Issue1452) {
