@@ -155,12 +155,19 @@ class Statement : public NonCopyable, public PolymorphicBase {
     return name_;
   }
 
+  // Return the int that represents this statement's unique id in a container.
+  StmtNameType id() const {
+    return id_;
+  }
+
   // Set the statements' name. Typically the container will set the name,
   // however if we're dealing with cloning, IrBuilder will set the name, this
   // maybe should be from IrCloner, however I didn't want to add another
   // passkey.
   void setName(IrContainerPasskey, StmtNameType name);
   void setName(IrBuilderPasskey, StmtNameType name);
+  void setId(IrContainerPasskey, StmtNameType id);
+  void setId(IrBuilderPasskey, StmtNameType id);
 
   virtual bool sameType(const Statement* const other) {
     return typeid(*this) == typeid(*other);
@@ -189,6 +196,9 @@ class Statement : public NonCopyable, public PolymorphicBase {
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   StmtNameType name_ = kInvalidStmName;
+
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
+  StmtNameType id_ = kInvalidStmName;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   IrContainer* ir_container_ = nullptr;

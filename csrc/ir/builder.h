@@ -74,6 +74,7 @@ class IrBuilder {
     // The statement name will be differnet so we set it according to the value
     // stored in serde buffer.
     node->setName(IrBuilderPasskey(container), buffer->name());
+    node->setId(IrBuilderPasskey(container), buffer->id());
     return node;
   }
 
@@ -96,6 +97,7 @@ class IrBuilder {
     // The statement name will be differnet so we set it according to the value
     // stored in serde buffer.
     node->setName(IrBuilderPasskey(container), buffer->name());
+    node->setId(IrBuilderPasskey(container), buffer->id());
     return node;
   }
 

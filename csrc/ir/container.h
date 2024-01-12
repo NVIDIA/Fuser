@@ -150,7 +150,7 @@ class IrContainer : public PolymorphicBase {
   std::deque<Expr*> deterministic_exprs() const noexcept;
 
   //! Return statements in insertion order
-  std::vector<Statement*> deterministic_stmts() const noexcept {
+  const std::vector<Statement*>& deterministic_stmts() const noexcept {
     return stmts_;
   }
 
@@ -278,6 +278,9 @@ class IrContainer : public PolymorphicBase {
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
+
+  // Statement name counter
+  StmtNameType unique_stmt_counter_ = 0;
 
   // Manually store some persistent, frequently used nodes. It's very
   // challenging to do this anything but manually as detecting when a container

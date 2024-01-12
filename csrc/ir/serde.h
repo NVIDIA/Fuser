@@ -30,6 +30,8 @@ class IrSerde {
     return toposorted_stmts_;
   }
 
+  std::vector<int64_t> update(const std::vector<Statement*>& new_stmts);
+
   int64_t map(Statement* v) const;
   int64_t map(const Statement* v) const;
 
@@ -60,7 +62,7 @@ class IrSerde {
 
   const IrContainer* container_;
 
-  const std::vector<Statement*> toposorted_stmts_;
+  std::vector<Statement*> toposorted_stmts_;
 
   //! Return mapping from value to integer id in topological sorted order
   const std::unordered_map<Val*, int64_t> vals_to_id_map_;

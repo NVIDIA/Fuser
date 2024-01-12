@@ -43,6 +43,13 @@ bool checkSetContainsItems(
   });
 }
 
+int64_t getStatementId(nvfuser::Statement* stmt) {
+  if (stmt == nullptr) {
+    return -1l;
+  }
+  return stmt->id();
+}
+
 } // namespace
 
 namespace nvfuser {
@@ -52,6 +59,40 @@ IrSerde::IrSerde(const IrContainer* container)
       toposorted_stmts_{topologicalSortStatements(container)},
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
+
+std::vector<int64_t> IrSerde::update(const std::vector<Statement*>& new_stmts) {
+  std::unordered_set<int64_t> new_stmts_set;
+  for (Statement* stmt : new_stmts) {
+    new_stmts_set.insert(getStatementId(stmt));
+  }
+
+  std::vector<Statement*> updated_stmts;
+  std::vector<int64_t> statement_ids;
+  std::unordered_set<int64_t> this_stmts_set;
+  // Remove statments that are missing from new_stmts
+  for (Statement* stmt : toposorted_stmts_) {
+    int64_t stmt_id = getStatementId(stmt);
+    if (new_stmts_set.count(stmt_id) == 0) {
+      continue;
+    }
+    statement_ids.push_back(stmt_id);
+    this_stmts_set.insert(stmt_id);
+    updated_stmts.push_back(stmt);
+  }
+
+  // Add statements that are missing from toposorted_stmts_
+  for (Statement* stmt : new_stmts) {
+    int64_t stmt_id = getStatementId(stmt);
+    if (this_stmts_set.count(stmt_id) > 0) {
+      continue;
+    }
+    statement_ids.push_back(stmt_id);
+    updated_stmts.push_back(stmt);
+  }
+
+  toposorted_stmts_.swap(updated_stmts);
+  return statement_ids;
+}
 
 std::vector<Statement*> IrSerde::topologicalSortStatements(
     const IrContainer* container) {

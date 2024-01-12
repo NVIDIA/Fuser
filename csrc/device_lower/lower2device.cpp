@@ -318,6 +318,19 @@ GpuLower::GpuLower(
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
   create(gpulower);
+  for (size_t index : c10::irange(container_analyze_statements_.size())) {
+    NVF_ERROR(
+        index < gpulower->container_state_names()->size(),
+        "Out-of-bounds index for serde::GpuLower::container_state_names");
+    NVF_ERROR(
+        container_analyze_statements_.at(index) != nullptr ||
+            gpulower->container_state_names()->Get(index) == -1,
+        "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
+    NVF_ERROR(
+        gpulower->container_state_names()->Get(index) ==
+            container_analyze_statements_.at(index)->id(),
+        "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
+  }
   analysis();
 }
 
@@ -368,7 +381,13 @@ flatbuffers::Offset<serde::GpuLower> GpuLower::serialize(
   // TODO Add kir::Kernel serialization to serde::GpuLower
   // Currently there is an invalid flatbuffer validation error with
   // test_matmuls.
-  return serde::CreateGpuLower(builder, scheduled_fusion_->serialize(builder));
+  IrSerde container(scheduled_fusion_.get());
+  std::vector<int64_t> serde_container_state_names =
+      container.update(container_analyze_statements_);
+  return serde::CreateGpuLowerDirect(
+      builder,
+      scheduled_fusion_->serialize(builder),
+      &serde_container_state_names);
 }
 
 void GpuLower::create(Fusion* fusion) {
@@ -422,6 +441,12 @@ void GpuLower::analysis() {
   NVF_ERROR(kernel_ != nullptr);
 
   LowerGuard lower_guard(this);
+
+  container_analyze_statements_.reserve(kernel_->deterministic_stmts().size());
+  std::copy(
+      kernel_->deterministic_stmts().begin(),
+      kernel_->deterministic_stmts().end(),
+      std::back_inserter(container_analyze_statements_));
 
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);

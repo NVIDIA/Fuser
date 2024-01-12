@@ -30,6 +30,7 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
 
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
+  swap(a.unique_stmt_counter_, b.unique_stmt_counter_);
 
   swap(a.metadata_, b.metadata_);
 
@@ -260,6 +261,7 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
       &fb_val_type_name_map_keys,
       &fb_val_type_name_map_values,
       expr_name_counter_,
+      unique_stmt_counter_,
       (fb_axioms.empty()) ? nullptr : &fb_axioms,
       &fb_metadata_keys,
       &fb_metadata_values_lhs,
@@ -305,6 +307,7 @@ void IrContainer::deserialize(const serde::IrContainer* buffer) {
   }
 
   expr_name_counter_ = buffer->expr_name_counter();
+  unique_stmt_counter_ = buffer->unique_stmt_counter();
 
   if (buffer->axioms() != nullptr) {
     axioms_ = std::make_unique<std::vector<Val*>>();
@@ -418,6 +421,7 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
+  val->setId(IrContainerPasskey(), unique_stmt_counter_++);
   raw_ptrs_.emplace((void*)vals_up_.back().get());
   stmts_.push_back(vals_up_.back().get());
   valid_serialize_state_ = false;
@@ -431,6 +435,7 @@ void IrContainer::registerExpr(Expr* expr) {
   exprs_up_.emplace_back(std::unique_ptr<Expr>(expr));
   exprs_.emplace(exprs_up_.back().get());
   expr->setName(IrContainerPasskey(), getExprName());
+  expr->setId(IrContainerPasskey(), unique_stmt_counter_++);
   raw_ptrs_.emplace((void*)exprs_up_.back().get());
   stmts_.push_back(exprs_up_.back().get());
   valid_serialize_state_ = false;

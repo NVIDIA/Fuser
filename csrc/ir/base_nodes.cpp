@@ -49,6 +49,14 @@ void Statement::setName(IrBuilderPasskey, StmtNameType name) {
   name_ = name;
 }
 
+void Statement::setId(IrContainerPasskey, StmtNameType id) {
+  id_ = id;
+}
+
+void Statement::setId(IrBuilderPasskey, StmtNameType id) {
+  id_ = id;
+}
+
 Val* Statement::asVal() {
   NVF_ERROR(isVal(), "Cannot cast to Val as this is not a Val.");
   return this->as<Val>();
@@ -192,6 +200,7 @@ flatbuffers::Offset<serde::Value> Val::serialize(
   return serde::CreateValueDirect(
       builder,
       name(),
+      id(),
       dtype_enum,
       is_fusion_input_,
       is_fusion_output_,
@@ -498,6 +507,7 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
   return serde::CreateExpressionDirect(
       builder,
       name(),
+      id(),
       serde_expr_type_,
       &fb_inputs,
       &fb_outputs,

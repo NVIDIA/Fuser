@@ -636,6 +636,7 @@ table TensorView {
 
 table Value {
   name: ulong;
+  id: ulong;
   dtype_enum: long;
   is_fusion_input: bool;
   is_fusion_output: bool;
@@ -647,6 +648,7 @@ table Value {
 
 table Expression {
   name: ulong;
+  id: ulong;
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
@@ -669,6 +671,7 @@ table IrContainer {
   val_type_name_map_keys: [long];
   val_type_name_map_values: [ulong];
   expr_name_counter: ulong;
+  unique_stmt_counter: ulong;
   axioms: [long];
   metadata_keys: [long];
   metadata_values_lhs: [long];
@@ -727,6 +730,7 @@ table Kernel {
 
 table GpuLower {
   scheduled_fusion: Fusion;
+  container_state_names: [long];
   kernel: Kernel;
 }
 
