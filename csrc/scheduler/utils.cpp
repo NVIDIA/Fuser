@@ -1508,7 +1508,6 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
   DisjointRFactorSetInfo info;
   if (!rfactor_reorder_map.empty()) {
     rfactor_dom = TensorDomain::orderedAs(rfactor_dom, rfactor_reorder_map);
-    info.rfactor_reorder_map = rfactor_reorder_map;
   }
 
   // Start naming id's based on 0 so the inner most dimension will always be
