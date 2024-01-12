@@ -1499,16 +1499,16 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int, int>& rfactor_reorder) {
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
   if (rfactor_dom.empty()) {
     return {};
   }
 
   DisjointRFactorSetInfo info;
-  if (!rfactor_reorder.empty()) {
-    rfactor_dom = TensorDomain::orderedAs(rfactor_dom, rfactor_reorder);
-    info.rfactor_order = rfactor_reorder;
+  if (!rfactor_reorder_map.empty()) {
+    rfactor_dom = TensorDomain::orderedAs(rfactor_dom, rfactor_reorder_map);
+    info.rfactor_reorder_map = rfactor_reorder_map;
   }
 
   // Start naming id's based on 0 so the inner most dimension will always be
@@ -1574,7 +1574,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int, int>& rfactor_reorder) {
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto fusion = reference_tv->fusion();
   FusionGuard fg(fusion);
 
@@ -1583,15 +1583,16 @@ BroadcastMultipleInformation getBroadcastMultiples(
   auto ref_root_domain =
       TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain());
 
-  if (!rfactor_reorder.empty()) {
-    ref_root_domain = TensorDomain::orderedAs(ref_root_domain, rfactor_reorder);
+  if (!rfactor_reorder_map.empty()) {
+    ref_root_domain =
+        TensorDomain::orderedAs(ref_root_domain, rfactor_reorder_map);
   }
 
   std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
   auto disjoint_rfactor_sets = disjointRFactorSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
-      fusion, reference_tv, disjoint_rfactor_sets, rfactor_reorder);
+      fusion, reference_tv, disjoint_rfactor_sets, rfactor_reorder_map);
 
   auto ref_disjoint_sets = disjoint_set_information.disjoint_sets_of_ref;
   auto ref_disjoint_set_ids = disjoint_set_information.disjoint_set_ids;

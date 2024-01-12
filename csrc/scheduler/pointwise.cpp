@@ -206,7 +206,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
       TensorDomain::noReductions(largest_out->getMaybeRFactorDomain());
 
   std::unordered_map<int, int> rfactor_reorder_map;
-  // NOTE: rfactor_reorder is only applied for fusion without view op yet.
+  // NOTE: rfactor_reorder_map is only applied for fusion without view op yet.
   if (ir_utils::getViewOps(fusion).empty()) {
     rfactor_reorder_map =
         scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
@@ -483,7 +483,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "vectorize_factor: " << vectorize_factor << std::endl
             << "\n"
-            << "rfactor_reorder_map: ";
+            << "efactor_reorder_map: ";
     for (auto [i, j] : rfactor_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }

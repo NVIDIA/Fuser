@@ -364,8 +364,6 @@ struct DisjointRFactorSetInfo {
   // disjoint_sets_of_ref to the vector, but not the other way around.
   std::vector<int> disjoint_set_ids;
 
-  std::unordered_map<int, int> rfactor_order;
-
   // TensorView reference the above vectors are relative to.
   TensorView* ref;
 };
@@ -381,11 +379,14 @@ struct DisjointRFactorSetInfo {
 // passed in as a reference. Algorithm is N^2 based on number of dims in
 // reference, but generating the disjoint rfactor set is likely the limiter on
 // perf of this function.
+//
+// rfactor_reorder_map is provided to assume TensorView `of` will be reordered
+// per the map
 DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int, int>& rfactor_reorder = {});
+    const std::unordered_map<int, int>& rfactor_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -419,10 +420,13 @@ struct BroadcastMultipleInformation {
 // non-broadcast dimension in the given input/output. Otherwise if all
 // dimensions are broadcast that input/output will not contribute to the
 // multiple.
+//
+// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// the map
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int, int>& rfactor_reorder = {});
+    const std::unordered_map<int, int>& rfactor_reorder_map = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has

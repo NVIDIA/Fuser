@@ -43,7 +43,8 @@ class PointwiseParams : public HeuristicParams {
   // Unroll or vectorization factor
   size_t unroll_factor = 1;
 
-  // Reorder to align rfactor domain with allocation domain
+  // Reorder applied to reference tensor for scheduling, this is used to
+  // leverage allocation domain for efficient indexing / vectorization.
   std::unordered_map<int, int> rfactor_reorder_map = {};
 
   using HeuristicParams::HeuristicParams;

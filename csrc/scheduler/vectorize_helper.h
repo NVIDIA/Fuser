@@ -308,6 +308,8 @@ class ContiguousInnerDimensionsMapper : public MaxInfoSpanningTree,
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
+// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
