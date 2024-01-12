@@ -169,6 +169,47 @@ bool ValGraph::hasUses(const ValGroup& val_group) const {
   return unique_uses_.find(val_group) != unique_uses_.end();
 }
 
+std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& to) const {
+  // Map from the sets associated with the Vals in to, to those Vals
+  std::unordered_map<ValGroup, VectorOfUniqueEntries<Val*>> set2to_vals;
+
+  for (auto to_val : to) {
+    if (!hasGroup(to_val)) {
+      continue;
+    }
+    const auto& to_set = toGroup(to_val);
+    set2to_vals[to_set].pushBack(to_val);
+  }
+
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> from_vals2to_vals;
+  for (auto from_val : from) {
+    // Initialize in case no to val is mapped
+    from_vals2to_vals[from_val] = VectorOfUniqueEntries<Val*>();
+
+    if (!hasGroup(from_val)) {
+      continue;
+    }
+
+    const ValGroup& from_set = toGroup(from_val);
+
+    auto to_entry_it = set2to_vals.find(from_set);
+    if (to_entry_it == set2to_vals.end()) {
+      continue;
+    }
+
+    from_vals2to_vals[from_val] = to_entry_it->second;
+  }
+  return from_vals2to_vals;
+}
+
+std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
+    const VectorOfUniqueEntries<Val*>& from,
+    const VectorOfUniqueEntries<Val*>& to) const {
+  return buildMapBetween(from.vector(), to.vector());
+}
+
 std::string ValGraph::toString() const {
   std::stringstream ss;
   ss << "IdGraph { \n";
