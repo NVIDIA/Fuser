@@ -470,13 +470,17 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "vectorize_factor: " << vectorize_factor << std::endl;
+            << "vectorize_factor: " << vectorize_factor << std::endl << "\n"
+            << "rfactor_reorder_map: ";
+    for (auto [i, j] : rfactor_reorder_map) {
+      debug() << "(" << i << ", " << j << "), ";
+    }
     debug() << "broadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
     }
-    debug() << "LHS elems: "
+    debug() << "\nLHS elems: "
             << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
             << " RHS elems: " << right_elem_count << std::endl;
     debug() << std::endl;
