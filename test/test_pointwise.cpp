@@ -217,6 +217,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
                         .strideOrder({2, 0, 1})
                         .build();
   fusion->addInput(tv0);
+  fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
   tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
   fusion->addOutput(tv2);
