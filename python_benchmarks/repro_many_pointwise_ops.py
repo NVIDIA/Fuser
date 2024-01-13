@@ -1,9 +1,7 @@
-import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import clear_cuda_cache
+from core import clear_cuda_cache
 import torch
-from .global_params import PROMOTE_DTYPES
 
 def pointwise_ops_fusion(
     fd: FusionDefinition,
@@ -13,9 +11,8 @@ def pointwise_ops_fusion(
     x = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     y = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
 
-    if dtype in PROMOTE_DTYPES:
-        x = fd.ops.cast(x, dtype=DataType.Float)
-        y = fd.ops.cast(y, dtype=DataType.Float)
+    x = fd.ops.cast(x, dtype=DataType.Float)
+    y = fd.ops.cast(y, dtype=DataType.Float)
 
     a = fd.ops.add(x, y)
     for _ in range(num_iters):
@@ -23,8 +20,7 @@ def pointwise_ops_fusion(
         y = fd.ops.sin(a)
         a = fd.ops.add(x, y)
 
-    if dtype in PROMOTE_DTYPES:
-        a = fd.ops.cast(a, dtype=dtype)
+    a = fd.ops.cast(a, dtype=dtype)
     fd.add_output(a)
 
 def test_pointwise_ops_benchmark(
