@@ -60,7 +60,8 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
       prof.cluster = {
           pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
-      prof.shared_mem = {pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
+      prof.shared_mem = {
+          pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
       prof.registers = pKARecord->registersPerThread;
 
       FusionProfiler::recordAsyncKernelActivity(std::move(prof));
@@ -379,48 +380,58 @@ uint32_t SegmentProfiler::segmentId() const {
 }
 
 auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
-  NVF_CHECK(!prof.kernel_profiles.empty(), "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
-  NVF_CHECK(seg_id < prof.kernel_profiles.size(), "Invalid seg_id for FusionProfile. Segments: ", prof.kernel_profiles.size(), " seg_id: ", seg_id);
+  NVF_CHECK(
+      !prof.kernel_profiles.empty(),
+      "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
+  NVF_CHECK(
+      seg_id < prof.kernel_profiles.size(),
+      "Invalid seg_id for FusionProfile. Segments: ",
+      prof.kernel_profiles.size(),
+      " seg_id: ",
+      seg_id);
   auto& kp = prof.kernel_profiles[seg_id];
 
-  return std::tie(prof.fusion_id,
-                  prof.segments,
-                  prof.cuda_evt_time_ms,
-                  prof.host_time_ms,
-                  prof.compile_time_ms,
-                  prof.kernel_time_ms,
-                  prof.effective_bandwidth_gbs,
-                  prof.percentage_peak_bandwidth,
-                  prof.input_bytes,
-                  prof.output_bytes,
-                  kp.segment_id,
-                  kp.time_ms,
-                  kp.compile_time_ms,
-                  kp.effective_bandwidth_gbs,
-                  kp.percentage_peak_bandwidth,
-                  kp.input_bytes,
-                  kp.output_bytes,
-                  kp.shared_mem_str,
-                  kp.registers,
-                  kp.grid_str,
-                  kp.block_str,
-                  kp.cluster_str,
-                  kp.device,
-                  kp.stream,
-                  kp.peak_bandwidth_gbs,
-                  kp.device_name,
-                  kp.name
-                );
+  return std::tie(
+      prof.fusion_id,
+      prof.segments,
+      prof.cuda_evt_time_ms,
+      prof.host_time_ms,
+      prof.compile_time_ms,
+      prof.kernel_time_ms,
+      prof.effective_bandwidth_gbs,
+      prof.percentage_peak_bandwidth,
+      prof.input_bytes,
+      prof.output_bytes,
+      kp.segment_id,
+      kp.time_ms,
+      kp.compile_time_ms,
+      kp.effective_bandwidth_gbs,
+      kp.percentage_peak_bandwidth,
+      kp.input_bytes,
+      kp.output_bytes,
+      kp.shared_mem_str,
+      kp.registers,
+      kp.grid_str,
+      kp.block_str,
+      kp.cluster_str,
+      kp.device,
+      kp.stream,
+      kp.peak_bandwidth_gbs,
+      kp.device_name,
+      kp.name);
 }
 
 auto FusionProfile::toNocuptiTuple(const FusionProfile& prof) {
-  NVF_CHECK(prof.kernel_profiles.empty(), "Cannot convert FusionProfile to a tuple without CUPTI gathered stats!");
+  NVF_CHECK(
+      prof.kernel_profiles.empty(),
+      "Cannot convert FusionProfile to a tuple without CUPTI gathered stats!");
 
-  return std::tie(prof.fusion_id,
-                  prof.segments,
-                  prof.cuda_evt_time_ms,
-                  prof.host_time_ms,
-                  prof.compile_time_ms);
+  return std::tie(
+      prof.fusion_id,
+      prof.segments,
+      prof.cuda_evt_time_ms,
+      prof.host_time_ms,
+      prof.compile_time_ms);
 }
 
 void FusionProfile::reset() {
@@ -431,7 +442,7 @@ void FusionProfile::reset() {
   host_time_ms = 0.0;
   compile_time_ms = 0.0;
   kernel_time_ms = 0.0;
-  
+
   effective_bandwidth_gbs = 0.0;
   percentage_peak_bandwidth = 0.0;
 
@@ -443,7 +454,8 @@ void FusionProfile::reset() {
 
 const size_t FusionProfile::first_cupti_idx = 5;
 const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
-    // column_header, verbose, segment, list, column_width, number, mantissa_width, unit_multiplier
+    // column_header, verbose, segment, list, column_width, number,
+    // mantissa_width, unit_multiplier
     {"Fus#", false, false, false, 5, true, 0, std::nullopt},
     {"NSegs", false, false, false, 5, true, 0, std::nullopt},
     {"CuEvtTm(ms)", false, false, false, 11, true, 3, std::nullopt},
@@ -474,18 +486,18 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
 
 namespace {
 // The operator* overloads are to satisfy the compiler and should not be called!
-double operator*(const std::basic_string<char>& a,  double b) {
+double operator*(const std::basic_string<char>& a, double b) {
   NVF_ERROR(false, "This types operator* overload should not be called!");
   return 0.0;
 }
 
-template<typename T, size_t I>
+template <typename T, size_t I>
 std::string to_string(const std::array<T, I>& cont) {
   std::string out{"["};
   bool first_elem = true;
-  for(const auto& elem : cont) {
+  for (const auto& elem : cont) {
     if (first_elem) {
-        first_elem = false;
+      first_elem = false;
     } else {
       out += ", ";
     }
@@ -496,8 +508,14 @@ std::string to_string(const std::array<T, I>& cont) {
 }
 
 template <bool NOCUPTI = false, size_t I = 0, typename... Ts>
-constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, size_t seg_id, bool verbose) {
-  if constexpr ((I == sizeof...(Ts)) || (NOCUPTI && (I == FusionProfile::first_cupti_idx))) {
+constexpr std::ostream& print_tuple(
+    std::ostream& os,
+    std::tuple<Ts...> tup,
+    size_t seg_id,
+    bool verbose) {
+  if constexpr (
+      (I == sizeof...(Ts)) ||
+      (NOCUPTI && (I == FusionProfile::first_cupti_idx))) {
     return os;
   } else {
     os << std::setfill(' ') << std::fixed << std::right;
@@ -515,7 +533,8 @@ constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, siz
           os << std::setprecision(desc.mantissa_width);
         }
         if (desc.unit_multiplier.has_value()) {
-          os << static_cast<double>(std::get<I>(tup) * desc.unit_multiplier.value());
+          os << static_cast<double>(
+              std::get<I>(tup) * desc.unit_multiplier.value());
         } else {
           os << std::get<I>(tup);
         }
@@ -532,7 +551,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
     // Print headers starting on the left
     os << std::setfill(' ') << std::left;
-    
+
     // Print no-cupti headers
     for (size_t i = 0; i < FusionProfile::first_cupti_idx; ++i) {
       const auto& desc = FusionProfile::profile_attr_descs.at(i);
@@ -544,7 +563,9 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 
     // Print cupti collected column headers
     if (!fp.kernel_profiles.empty()) {
-      for (size_t i = FusionProfile::first_cupti_idx; i < FusionProfile::profile_attr_descs.size(); ++i) {
+      for (size_t i = FusionProfile::first_cupti_idx;
+           i < FusionProfile::profile_attr_descs.size();
+           ++i) {
         const auto& desc = FusionProfile::profile_attr_descs.at(i);
         if ((fp.verbose && desc.verbose) || !desc.verbose) {
           os << " " << std::setw(desc.column_width) << desc.column_header;
@@ -558,7 +579,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.kernel_profiles.empty()) {
     print_tuple<true>(os, FusionProfile::toNocuptiTuple(fp), 0, fp.verbose);
     os << std::endl;
-  // Print segment data per segment
+    // Print segment data per segment
   } else {
     for (size_t i = 0; i < fp.kernel_profiles.size(); ++i) {
       print_tuple(os, FusionProfile::toTuple(fp, i), i, fp.verbose);
@@ -731,9 +752,9 @@ void FusionProfiler::stop() {
       kprof.segment_id = static_cast<size_t>(kp_idx);
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
-      kprof.effective_bandwidth_gbs =
-          (double)(segment(kp_idx).inputBytes() + segment(kp_idx).outputBytes()) / kprof.time_ms *
-          mb_divider;
+      kprof.effective_bandwidth_gbs = (double)(segment(kp_idx).inputBytes() +
+                                               segment(kp_idx).outputBytes()) /
+          kprof.time_ms * mb_divider;
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
       kprof.compile_time_ms = segment(kp_idx).compileTime();

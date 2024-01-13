@@ -117,7 +117,7 @@ struct KernelProfile {
 
   std::string device_name{};
   double peak_bandwidth_gbs{0.0};
-  
+
   // These strings are here to capture the conversion
   // in struct that can be reference when making a tuple
   std::string grid_str{};
@@ -128,11 +128,11 @@ struct KernelProfile {
 
 struct ProfileAttrDescriptor {
   std::string column_header{};
-  
+
   bool verbose{false};
   bool segment{false};
   bool list{false};
-  
+
   int column_width{0};
   bool number{false};
   int mantissa_width{0};
@@ -161,7 +161,7 @@ struct FusionProfile {
   double host_time_ms{0.0};
   double compile_time_ms{0.0};
   double kernel_time_ms{0.0};
-  
+
   double effective_bandwidth_gbs{0.0};
   double percentage_peak_bandwidth{0.0};
 
