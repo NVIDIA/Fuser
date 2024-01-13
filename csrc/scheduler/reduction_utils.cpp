@@ -573,8 +573,8 @@ int idPos(const IterDomain* id) {
   }
   inner_most--;
 
-  // Reduction and constant
-  if (id->isReduction() && id->extent()->isConstScalar()) {
+  // Reduction, constant, and not root.
+  if (id->isReduction() && id->extent()->isConstScalar() && id->definition()) {
     return inner_most;
   }
   inner_most--;
