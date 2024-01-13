@@ -213,6 +213,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
                         .build();
   TensorView* tv1 = TensorViewBuilder()
                         .ndims(3)
+                        .shape({1, -1, 1})
                         .contiguity({std::nullopt, std::nullopt, true})
                         .strideOrder({2, 0, 1})
                         .build();
