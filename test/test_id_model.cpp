@@ -35,7 +35,7 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   EXPECT_THAT(
       [&]() {
         IdModel id_model(&fusion);
-        id_model.build();
+        id_model.buildAllGraphs();
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("!hasSelfMapping")));
@@ -46,7 +46,8 @@ namespace {
 // Helper class to test IdModel
 class IdModelTester : public IdModel {
  public:
-  IdModelTester(Fusion* fusion) : IdModel(fusion, false) {}
+  // Do not automatically build the graphs
+  IdModelTester(Fusion* fusion) : IdModel(fusion, /* build_graphs */ false) {}
 
   std::pair<ValGraph, std::unordered_map<ValGroup, IterDomain*>>
   getInlineRootResolutionMap() {

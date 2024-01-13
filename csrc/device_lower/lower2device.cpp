@@ -383,8 +383,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (true || isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_, false, true);
-    id_model.build();
+    IdModel id_model(fusion_);
   }
 
   resolveComputeWith(fusion_);

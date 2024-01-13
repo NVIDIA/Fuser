@@ -104,6 +104,7 @@ class IdModel : public PolymorphicBase {
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
+      bool build_graphs = true,
       bool allow_self_mapping = false);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
@@ -114,8 +115,9 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
+      bool build = true,
       bool allow_self_mapping = false,
-      bool validate = false);
+      bool validate = true);
 
   // Returns iter domain graph of provided mode.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -137,26 +139,8 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
-  const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
-    return loop_promotion_map_;
-  }
-
-  virtual void build();
-
-  virtual void buildGraph(IdMappingMode mode);
-
-  virtual void maybeBuildGraph(IdMappingMode mode);
-
- protected:
-  // ======= START Iteration domain build process in order called =======
-
-  // Fills id_uses_ and id_definitions_ for all IterDomains active in the
-  // fusion.
-  void buildIterDomainDefinitionsAndUses();
-
-  // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
-  // a new ValGraph and returns it.
-  ValGraph initializeIdGraph(bool propagate_through_exprs = true);
+  // Build all graphs. This is by default called from the constructor
+  void buildAllGraphs();
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
@@ -174,6 +158,25 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph
   void buildLoopGraph();
+
+  // Build a graph
+  void buildGraph(IdMappingMode mode);
+
+  // Build a graph if not already built
+  void maybeBuildGraph(IdMappingMode mode);
+
+  // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
+  // a new ValGraph and returns it.
+  ValGraph initializeIdGraph(bool propagate_through_exprs = true);
+
+  const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
+    return loop_promotion_map_;
+  }
+
+ protected:
+  // Fills id_uses_ and id_definitions_ for all IterDomains active in the
+  // fusion.
+  void buildIterDomainDefinitionsAndUses();
 
   // Start loop map by grouping inlined iter domains
   void initializeLoopGraph(const StatefulInliningInfo& info);

@@ -71,6 +71,7 @@ void IdModel::assertNoSelfMapping() {
 IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
+    bool build_graphs,
     bool allow_self_mapping)
     : allow_self_mapping_(allow_self_mapping) {
   std::copy_if(
@@ -89,9 +90,17 @@ IdModel::IdModel(
 
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
+
+  if (build_graphs) {
+    buildAllGraphs();
+  }
 }
 
-IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate)
+IdModel::IdModel(
+    Fusion* fusion,
+    bool build_graphs,
+    bool allow_self_mapping,
+    bool validate)
     : allow_self_mapping_(allow_self_mapping), validate_(validate) {
   auto all_exprs = fusion->exprs();
   std::copy_if(
@@ -118,6 +127,10 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate)
 
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
+
+  if (build_graphs) {
+    buildAllGraphs();
+  }
 }
 
 const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
@@ -1160,7 +1173,7 @@ void IdModel::propagateLoopPTypes() const {
   }
 }
 
-void IdModel::build() {
+void IdModel::buildAllGraphs() {
   if (tvs_.empty()) {
     return;
   }
