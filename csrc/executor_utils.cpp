@@ -50,7 +50,6 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensorcore.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -99,7 +98,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
@@ -371,12 +369,12 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
-  NVF_ERROR(
-      !info.contig_alloc_ids.empty(),
-      "No root ID found for vectorization with ",
-      info.consumer_tv->toString(),
-      " and ",
-      info.producer_tv->toString());
+  if (info.contig_alloc_ids.empty()) {
+    // This happens when device lowering removes the `Expr` that computes
+    // `info.consumer_tv` because it's merely an alias.
+    // `getTensorIndexFromIdGraph` captures only remaining `Expr`s.
+    return;
+  }
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
@@ -585,13 +583,6 @@ void validateAlignedVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  auto tensor_vectorization_validation_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
-          });
-
   // Verify extents of aligned vectorized tensors
   for (const auto& vec_info : kernel->summary().vectorized_set_info) {
     if (vec_info.vectorized_leaf_id->getParallelType() ==
@@ -602,6 +593,12 @@ void validateAlignedVectorizedTensors(
 
   // Validate input and output tensors with aligend
   // vectorization.
+  auto tensor_vectorization_validation_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::VectorizedTensorValidation>(
+          data_cache, [kernel]() {
+            return executor_utils::getVectorizedTensorValidationInfo(kernel);
+          });
   for (auto pos : tensor_vectorization_validation_entry.get()
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
@@ -970,6 +967,10 @@ void fillCompileOptions(
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
+
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
   // (since older driver doesn't necessarily recognize PTX emitted by new
@@ -977,9 +978,13 @@ void fillCompileOptions(
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
+  std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
+  if (major == 9) {
+    // Hopper MMAs require 90a instead of 90
+    compute += "a";
+  }
   nvrtc_compile_driver.setOption(compute);
 
   nvrtc_compile_driver.setOption("-default-device");
@@ -1056,7 +1061,7 @@ void fillCompileOptions(
 }
 
 // Dump ptxas output if register spill is detected
-void warnRegisterSpill(const std::string& compile_log) {
+int warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
     auto it_end =
         std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
@@ -1091,6 +1096,7 @@ void warnRegisterSpill(const std::string& compile_log) {
       load_count > allowed_spill) {
     debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
+  return store_count + load_count;
 }
 
 void createNvrtcProgram(
@@ -1264,7 +1270,8 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(compiled_kernel->compile_log);
+    compiled_kernel->register_spills =
+        warnRegisterSpill(compiled_kernel->compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(

@@ -61,6 +61,8 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Merge* merge) override;
 
+  void handle(Swizzle* swizzle) override;
+
   void handle(Swizzle2D* swizzle) override;
 
   void handle(Resize* resize) override;
@@ -254,6 +256,7 @@ class ContigIDs : public OptInDispatch {
   // as contiguity is generally not preserved after swizzles.
   // But in follow ups we could gradually add back a few special
   // cases, depending on specific swizzle type and axes.
+  void handle(Swizzle* swizzle) override {}
   void handle(Swizzle2D* swizzle) override {}
 
   void handle(Resize* resize) override {}

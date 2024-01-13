@@ -53,6 +53,9 @@ Val* castOp(DataType dtype, Val* v1) {
 }
 
 Val* maybeCastOp(DataType dtype, Val* v1) {
+  if (v1->isScalar()) {
+    return SimplifyingIrBuilder::maybeCastExpr(dtype, v1);
+  }
   if (v1->dtype() != dtype) {
     return castOp(dtype, v1);
   }
@@ -408,7 +411,7 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
   auto abs_step = abs(step_for_size_computation);
   auto length = ceilDiv(distance, abs_step);
   if (!isIntegralType(length->dtype())) {
-    length = castOp(DataType::Index, length);
+    length = maybeCastOp(DataType::Index, length);
   }
   return iota(length, start, step, dtype);
 }
@@ -1460,7 +1463,8 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   std::vector<Val*> maybe_expanded_sizes;
   maybe_expanded_sizes.resize(inp_domain.size(), nullptr);
 
-  // Did a dimension actually get expanded
+  // Might a dimension actually get expanded? This will be true if any input
+  // IterDomains are Symbolic, since these may or may not be Broadcast.
   bool expanded = false;
 
   std::vector<IterDomain*> out_domain;
@@ -1478,13 +1482,33 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
     } else if (
-        inp_id->isBroadcast() &&
+        // special patch for Symbolic IterDomain with a static size-1 extent
+        // since we know it will become broadcast at concretization
+        // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
+        (inp_id->extent()->isConstInt() && inp_id->extent()->evaluate() == 1) &&
         (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
       auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
       out_id_builder.expanded_extent(expanded_extent);
+      // need to mark iter type as Broadcast for Symbolic input domains
+      out_id_builder.iter_type(IterType::Broadcast);
+      maybe_expanded_sizes[i] = expanded_extent;
+    } else if (
+        inp_id->isSymbolic() &&
+        (!inp_id->extent()->isConstInt() &&
+         !inp_id->extent()->sameAs(expanded_sizes[i]))) {
+      // need to mark iter type as Symbolic since this might not be an expand
+      // after concretization
+      expanded = true;
+      out_id_builder.iter_type(IterType::Symbolic);
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      // We set the extent instead of the expanded extent on a Symbolic
+      // IterDomain. At concretization, if the IterType is determined to be
+      // Broadcast, we will replace this with 1 and use the old extent as
+      // expandedExtent.
+      out_id_builder.extent(expanded_extent);
       maybe_expanded_sizes[i] = expanded_extent;
     } else if (!inp_id->extent()->isConstInt()) {
       // Input id is non-broadcast and its extent is symbolic. Promote

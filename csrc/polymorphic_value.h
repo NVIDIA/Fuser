@@ -228,6 +228,8 @@ inline std::string toString(const PolymorphicValue& v) {
     ss << "Tensor(sizes=" << t.sizes() << ", "
        << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
        << ")";
+  } else if (v.is<std::monostate>()) {
+    ss << "std::monostate";
   } else {
     ss << v;
   }
@@ -318,6 +320,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
+  }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().abs();
   }
   NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());

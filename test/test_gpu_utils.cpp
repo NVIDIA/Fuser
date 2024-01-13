@@ -985,7 +985,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
         }
         auto fusion_inps = fusion.inputs();
         for (auto inp : fusion_inps) {
-          fusion.removeOutput(inp);
+          fusion.removeInput(inp);
         }
       }
 

@@ -120,6 +120,42 @@ class ValGraph {
 
   bool hasUses(const ValGroup& val_group) const;
 
+  // Uses the Valgraph to produce mappings between from and to.
+  // Supports one to many mappings. If a single Val in from maps to
+  // multiple Vals in to, the order of the Vals in value of
+  // the map is preserved to be the order provided in to.
+  //
+  // Example:
+  //  tv0: [i0, b1]
+  //  tv1: [i2, i3]
+  //  tv2: [i4, i5]
+  //  tv2 = tv0 + tv1
+  //
+  //  tv0: [i0*b1] CA(1)
+  //  tv1: [i2*i3] CA(1)
+  //  tv2: [i4*i5] CA(1)
+  //
+  // Between tv0 and tv2, the Permissive graph would map:
+  //   {i0, i4}
+  //   {b1, i5}
+  //   {i0*b1, i4*i5}
+  //
+  // Here, buildMapBetween with:
+  //   from: {i0, b1, i0*b1}
+  //   to: {i4, i5, i4*i5}
+  // will return a map of:
+  //   i0: {i4}
+  //   b1: {i5}
+  //   i0*b1: {i4*i5}
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to) const;
+
+  // Alias of the above on unique vector entries
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const VectorOfUniqueEntries<Val*>& from,
+      const VectorOfUniqueEntries<Val*>& to) const;
+
   std::string toString() const;
 
   // Initializes entries for the provided Val with its definitions and
@@ -159,6 +195,82 @@ class ValGraph {
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
+  // Can't back prop through merge without making sure one input actually
+  // matches. This can be done on a map or extent basis.
+  // TODO: Move this to val_graph.cpp once validation_utils.cpp is
+  // retired.
+  template <typename T>
+  static bool shouldMapMergeBackward(
+      Merge* merge0,
+      Merge* merge1,
+      const DisjointSets<T*>& id_sets) {
+    auto extent_match = [](IterDomain* id0, IterDomain* id1) -> bool {
+      return id0->extent()->sameAs(id1->extent()) ||
+          (id0->extent()->isConstInt() && id1->extent()->isConstInt() &&
+           id0->extent()->evaluate() == id1->extent()->evaluate());
+    };
+
+    // If one pair of the domains are mapped in the given graph, the
+    // backward merge is considered mapped
+    if (id_sets.permissiveAreMapped(merge0->outer(), merge1->outer()) ||
+        id_sets.permissiveAreMapped(merge0->inner(), merge1->inner())) {
+      return true;
+    }
+
+    // Considered mapped if the extents are equal
+    if (extent_match(merge0->outer(), merge1->outer()) ||
+        extent_match(merge0->inner(), merge1->inner())) {
+      return true;
+    }
+
+    // The mapped ID group may have different extents depending on the
+    // mapping conditions. For example, the Permissive graph may have a
+    // symbolic extent as well as an extent of 1 for broadcast
+    // domains. Those other mapped domains need to be checked as well.
+
+    // First, the outer groups
+    auto outer0_group = id_sets.mappingExists(merge0->outer())
+        ? id_sets.disjointSetMap().at(merge0->outer())
+        : std::make_shared<VectorOfUniqueEntries<T*>>(
+              VectorOfUniqueEntries<T*>{merge0->outer()});
+    auto outer1_group = id_sets.mappingExists(merge1->outer())
+        ? id_sets.disjointSetMap().at(merge1->outer())
+        : std::make_shared<VectorOfUniqueEntries<T*>>(
+              VectorOfUniqueEntries<T*>{merge1->outer()});
+
+    for (T* outer0 : *outer0_group) {
+      for (T* outer1 : *outer1_group) {
+        if (extent_match(
+                outer0->template as<IterDomain>(),
+                outer1->template as<IterDomain>())) {
+          return true;
+        }
+      }
+    }
+
+    // Check the inner groups as well if not already matched
+    auto inner0_group = id_sets.mappingExists(merge0->inner())
+        ? id_sets.disjointSetMap().at(merge0->inner())
+        : std::make_shared<VectorOfUniqueEntries<T*>>(
+              VectorOfUniqueEntries<T*>{merge0->inner()});
+    auto inner1_group = id_sets.mappingExists(merge1->inner())
+        ? id_sets.disjointSetMap().at(merge1->inner())
+        : std::make_shared<VectorOfUniqueEntries<T*>>(
+              VectorOfUniqueEntries<T*>{merge1->inner()});
+
+    for (T* inner0 : *inner0_group) {
+      for (T* inner1 : *inner1_group) {
+        if (extent_match(
+                inner0->template as<IterDomain>(),
+                inner1->template as<IterDomain>())) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
  private:
   // Map expr0 and expr1 with each other, update unique_definitions_
   // unique_uses_
@@ -177,14 +289,6 @@ class ValGraph {
   //
   // Returns true if expressions were mapped through.
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
-
-  DisjointSets<Val*>& disjointValSets() {
-    return disjoint_vals_;
-  }
-
-  DisjointSets<Expr*>& disjointExprSets() {
-    return disjoint_exprs_;
-  }
 
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called

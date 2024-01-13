@@ -333,22 +333,6 @@ Val* getProducerIndexWithPartialSplit(
       SimplifyingIrBuilder::create<Val>(diff->evaluate(), DataType::Index));
 }
 
-Val* getTensorBaseAddress(TensorView* tv) {
-  auto metadata = IrBuilder::metadataExpr(tv);
-  switch (auto memtype = tv->getMemoryType()) {
-    case MemoryType::Global:
-      return IrBuilder::getAttrExpr(metadata, "data");
-    case MemoryType::Shared: {
-      auto output = IrBuilder::create<Val>(DataType::SMemAddress);
-      IrBuilder::create<UnaryOp>(
-          UnaryOpType::ToUnsignedSmemAddr, output, metadata);
-      return output;
-    }
-    default:
-      NVF_CHECK(false, "Unsupported memory type ", memtype);
-  }
-}
-
 } // namespace
 
 bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
@@ -673,6 +657,32 @@ void IndexCompute::handle(Merge* merge) {
   }
 }
 
+void IndexCompute::handle(Swizzle* swizzle) {
+  auto out_x_id = maybeGetExactMapConcreteID(swizzle->outX());
+  auto out_y_id = maybeGetExactMapConcreteID(swizzle->outY());
+  auto in_x_id = maybeGetExactMapConcreteID(swizzle->inX());
+  auto in_y_id = maybeGetExactMapConcreteID(swizzle->inY());
+
+  auto out_x_it = index_map_.find(out_x_id);
+  auto out_y_it = index_map_.find(out_y_id);
+
+  if (out_x_it == index_map_.end() || out_y_it == index_map_.end()) {
+    return;
+  }
+
+  const auto out_x_ind = out_x_it->second;
+  const auto out_y_ind = out_y_it->second;
+
+  std::pair<Val*, Val*> swizzled_index = dispatchSwizzle(
+      swizzle->swizzleType(),
+      out_x_ind,
+      out_y_ind,
+      getExtent(out_x_id),
+      getExtent(out_y_id));
+  index_map_[in_x_id] = swizzled_index.first;
+  index_map_[in_y_id] = swizzled_index.second;
+}
+
 void IndexCompute::handle(Swizzle2D* swizzle_2d) {
   auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
   auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
@@ -748,7 +758,8 @@ void IndexCompute::handle(Resize* resize) {
 }
 
 void IndexCompute::dispatch(Expr* e) {
-  auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_expected_type =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
       is_expected_type, "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
@@ -928,7 +939,7 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 
 void IndexCompute::run() {
   const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
-  traverseTo(td_->fusion(), domain_vals, false);
+  traverseTo(domain_vals, false);
 }
 
 IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
@@ -1035,7 +1046,7 @@ class UpdateLeafIndices : public IterVisitor {
         extent_map_(std::move(extent_map)) {
     const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
 
-    traverseTo(td_->fusion(), domain_vals, false);
+    traverseTo(domain_vals, false);
   }
 
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {
@@ -1325,7 +1336,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // to consumer but they should still be detected as same
   // parallel type. In a follow up may want to extend
   // find_matching_parallel_domain to cover this case.
-  if (within_mma_loops && loop_id->getParallelType() == ParallelType::TIDx) {
+  if ((within_mma_loops || ir_utils::isLdMatrixOp(tv->definition())) &&
+      loop_id->getParallelType() == ParallelType::TIDx) {
     return true;
   }
 
@@ -1664,6 +1676,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
+  bool is_mma_input = consumer_tv->definition()->isA<MmaOp>();
   const auto gpu_lower = GpuLower::current();
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
@@ -1755,7 +1768,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   for (auto alloc_id : alloc_dom) {
     // Already taken care of because we can detect no indexing required
     if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride()) {
+        alloc_id->isStride() ||
+        (alloc_id->isThread() &&
+         producer_tv->getMemoryType() == MemoryType::Local)) {
       skip_indexing.insert(alloc_id);
       continue;
     }
@@ -1768,6 +1783,23 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
+
+  // MMA operation op is a special operation that our automatic "zero domain"
+  // analysis of our current indexing approach does not work. So we need to
+  // manually specify which dimensions are used for MMA allocation.
+  std::function<bool(const IterDomain* id)> is_mma_allocation;
+  if (is_mma_input) {
+    int size = (int)alloc_dom.size();
+    const IterDomain* allocation0 = alloc_dom.at(size - 3);
+    const IterDomain* allocation1 = alloc_dom.at(size - 2);
+    const IterDomain* allocation2 = alloc_dom.at(size - 1);
+    is_mma_allocation = [=](const IterDomain* id) {
+      return id == allocation0 || id == allocation1 || id == allocation2;
+    };
+  } else {
+    is_mma_allocation = [](const IterDomain* id) { return false; };
+  }
+
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (skip_indexing.count(alloc_dom[i])) {
       continue;
@@ -1812,13 +1844,15 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         continue;
       }
 
-      auto alloc_ext_j = extent_map.find(alloc_dom[j]) == extent_map.end()
+      auto alloc_ext_j = (extent_map.find(alloc_dom[j]) == extent_map.end() ||
+                          is_mma_allocation(alloc_dom[j]))
           ? alloc_dom[j]->extent()
           : extent_map.at(alloc_dom[j]);
 
       alloc_ext_j = getHaloExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
 
-      if (zero_domain_map.count(alloc_dom[j]) == 0) {
+      if (zero_domain_map.count(alloc_dom[j]) == 0 ||
+          is_mma_allocation(alloc_dom[j])) {
         if (stride == nullptr) {
           stride = alloc_ext_j;
         } else {
@@ -2193,7 +2227,9 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride()) {
+        alloc_dom[i]->isStride() ||
+        (alloc_dom[i]->isThread() &&
+         consumer_tv->getMemoryType() == MemoryType::Local)) {
       continue;
     }
 
@@ -2328,7 +2364,7 @@ Val* Index::getProducerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
   if (producer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return getTensorBaseAddress(producer);
+      return IrBuilder::baseAddressExpr(producer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2339,7 +2375,7 @@ Val* Index::getProducerStridedIndices(
         producer, consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          getTensorBaseAddress(producer), index);
+          IrBuilder::baseAddressExpr(producer), index);
     } else {
       return index;
     }
@@ -2351,7 +2387,8 @@ Val* Index::getProducerStridedIndices(
           index,
           IrBuilder::create<Val>(
               dataTypeSize(*producer->getDataType()), *index->getDataType()));
-      return IrBuilder::addExpr(getTensorBaseAddress(producer), index_bytes);
+      return IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
       return index;
     }
@@ -2365,7 +2402,8 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
-    bool generate_pointer) {
+    bool generate_pointer,
+    DataType as_type) {
   auto index = getProducerStridedIndices(
       producer,
       consumer,
@@ -2374,17 +2412,29 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-  if (ir_utils::isLdMatrixOp(consumer->definition())) {
-    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+  if (ir_utils::isLdMatrixOp(consumer->definition()) &&
+      at::cuda::getCurrentDeviceProperties()->major < 8) {
+    auto items_per_thread = ir_utils::getVectorizeSize(consumer);
+    if (items_per_thread != 8) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
       auto orig_index = index;
       index = IrBuilder::create<Val>(index->dtype());
-      IrBuilder::create<UnaryOp>(
-          UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+      UnaryOpType op = UnaryOpType::Print;
+      if (items_per_thread == 2) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring8;
+      } else if (items_per_thread == 4) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
+            items_per_thread);
+      }
+      IrBuilder::create<UnaryOp>(op, index, orig_index);
     }
   }
-  return SimplifyingIrBuilder::create<kir::TensorIndex>(producer, index);
+  return IrBuilder::create<kir::TensorIndex>(producer, index, as_type);
 }
 
 Val* Index::getConsumerStridedIndices(
@@ -2396,7 +2446,7 @@ Val* Index::getConsumerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
   if (consumer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return getTensorBaseAddress(consumer);
+      return IrBuilder::baseAddressExpr(consumer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2407,7 +2457,7 @@ Val* Index::getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          getTensorBaseAddress(consumer), index);
+          IrBuilder::baseAddressExpr(consumer), index);
     } else {
       return index;
     }
@@ -2419,7 +2469,8 @@ Val* Index::getConsumerStridedIndices(
           index,
           IrBuilder::create<Val>(
               dataTypeSize(*consumer->getDataType()), *index->getDataType()));
-      return IrBuilder::addExpr(getTensorBaseAddress(consumer), index_bytes);
+      return IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
       return index;
     }
@@ -3259,7 +3310,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      TensorMapSwizzle::NoSwizzle,
+      MmaInputSmemSwizzle::None,
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 

@@ -623,4 +623,36 @@ __device__ void gridReduceGroup(
 }
 #endif // NVFUSER_PROFILE_KERNEL
 
+// This performs a single reduction step, combining a single element "in" with
+// a previous value "work". For a serial grid reduction, "work" resides in
+// global memory.
+//
+// If the write predicate is false, this function returns early (noop). If the
+// read predicate is false, "init" is used in place of "in".
+//
+// If first_step is false, "work" will be read and reduction_op will be called.
+// The result will be written back to "work" unless last_step is true.
+template <typename T, typename Func>
+__device__ void serialReductionStep(
+    T& out,
+    T in,
+    T init,
+    volatile T& work,
+    Func reduction_op,
+    bool first_step,
+    bool last_step,
+    bool read_pred,
+    bool write_pred) {
+  if (!write_pred) {
+    return;
+  }
+  out = read_pred ? in : init;
+  if (!first_step) {
+    reduction_op(out, work);
+  }
+  if (!last_step) {
+    work = out;
+  }
+}
+
 } // namespace reduction

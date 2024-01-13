@@ -473,6 +473,74 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
+namespace {
+// This function checks if there is a broadcast tv in the dependencies between
+// the reduction_tv and the persistent_buffer. A tv is considered projectable
+// if its definition is a broadcast, has the same number of dimensions as the
+// reduction_tv, and each reduction dimension in reduction_tv corresponds to
+// a broadcast dimension in the broadcast tv.
+// Return the broadcast tv if there is one, otherwise return nullptr.
+TensorView* getBufferProjectableBroadcastsTv(
+    TensorView* reduction_tv,
+    TensorView* persistent_buffer) {
+  const auto& dep_vals =
+      DependencyCheck::getAllValsBetween({reduction_tv}, {persistent_buffer});
+  for (auto val : dep_vals) {
+    if (auto tv = dynamic_cast<TensorView*>(val)) {
+      if (!tv->definition()->isA<BroadcastOp>()) {
+        continue;
+      }
+      if (reduction_tv->nDims() != tv->nDims()) {
+        continue;
+      }
+      // Each reduction dimension the producer, must be mapped to a broadcast
+      // dimension in the consumer, otherwise it is not a valid broadcast after
+      // reduction.
+      bool is_broadcast_after_reduction = true;
+      for (auto i : c10::irange(reduction_tv->nDims())) {
+        if (reduction_tv->axis((int)i)->isReduction() &&
+            !tv->axis((int)i)->isBroadcast()) {
+          is_broadcast_after_reduction = false;
+          break;
+        }
+      }
+      if (is_broadcast_after_reduction) {
+        return tv;
+      }
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
+    const std::vector<TensorView*> reduction_tvs,
+    TensorView* persistent_buffer) {
+  std::vector<TensorView*> dep_reduction_tvs, target_broadcast_tvs;
+  dep_reduction_tvs.reserve(reduction_tvs.size());
+  for (auto tv : reduction_tvs) {
+    if (DependencyCheck::isDependencyOf(tv, persistent_buffer)) {
+      dep_reduction_tvs.push_back(tv);
+    }
+  }
+  // (1) The persistent buffer doesn't depend on any reduction tv
+  if (dep_reduction_tvs.empty()) {
+    return std::make_pair(true, target_broadcast_tvs);
+  }
+  // (2) It depends on reduction tv(s), but after each reduction tv, there is a
+  // broadcasted tv can be projected to.
+  target_broadcast_tvs.reserve(dep_reduction_tvs.size());
+  for (auto reduction_tv : dep_reduction_tvs) {
+    auto broadcast_tv =
+        getBufferProjectableBroadcastsTv(reduction_tv, persistent_buffer);
+    if (!broadcast_tv) {
+      return std::make_pair(false, target_broadcast_tvs);
+    }
+    target_broadcast_tvs.push_back(broadcast_tv);
+  }
+  return std::make_pair(true, target_broadcast_tvs);
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -542,12 +610,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
-    auto dep_vals = DependencyCheck::getAllValsBetween(
-        {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
 
-    // If there's a reduction between a persistent buffer and the inputs, it
-    // can't be projected backwards.
-    if (dep_vals.empty()) {
+    // can project to input if the persistent_buffer can be recalculated without
+    // doing reduction.
+    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+            .first) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -781,6 +848,23 @@ getScopePersistenceFactors(
 
 } // namespace
 
+// Returns true if a persistent tv can be projected to its persistent producers.
+bool canProjectToPersistentProducer(
+    TensorView* buffer,
+    const std::vector<TensorView*>& producers,
+    const std::unordered_set<TensorView*>& persistent_buffer_set) {
+  if (buffer->hasReduction() || producers.empty()) {
+    return false;
+  }
+  if (std::all_of(producers.begin(), producers.end(), [&](auto producer) {
+        return persistent_buffer_set.count(producer) > 0;
+      })) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -847,14 +931,19 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Buffers involved in normal persistence
   std::vector<bool> persistent_mask(all_buffers.size(), false);
-
+  std::unordered_set<TensorView*> persistent_buffer_set(
+      persistent_buffers.begin(), persistent_buffers.end());
   for (auto buffer_i : c10::irange(persistent_buffers.size())) {
-    persistent_mask[buffer_i] = true;
+    auto buffer = persistent_buffers[buffer_i];
+    const auto& producers = ir_utils::producerTvsOf(buffer);
+    if (!canProjectToPersistentProducer(
+            buffer, producers, persistent_buffer_set)) {
+      persistent_mask[buffer_i] = true;
+    }
   }
 
   // Buffers involved in projected to inputs
   std::vector<bool> projected_mask(all_buffers.size(), true);
-
   for (auto buffer_i : c10::irange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
@@ -936,6 +1025,12 @@ std::pair<bool, bool> canonicalDimReduction(
     return {has_iter_axis, has_red_axis};
   } else {
     NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    if (tv->axis(1)->isBroadcast()) {
+      NVF_ERROR(
+          !tv->axis(0)->isBroadcast(),
+          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+      tv->reorder({{0, 1}});
+    }
     return {true, true};
   }
 }
@@ -1088,7 +1183,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
+  auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1154,9 +1249,7 @@ IterDomain* projectIdToRFactor(
   }
 
   auto replay_exprs = StmtSort::getExprsTo(
-      tv->fusion(),
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
-      false);
+      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()}, false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1831,7 +1924,6 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsTo(
-             fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
       if (expr->isA<Merge>()) {
@@ -1882,7 +1974,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprsTo(
-      tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
@@ -1965,7 +2057,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsBetween(
-             fusion,
              {tv->getRootDomain().begin(), tv->getRootDomain().end()},
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {

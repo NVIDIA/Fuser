@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   // concretized to Broadcast
   // NOTE: squeeze interface should be updated to match reshape and friends,
   // accepting Val inputs
-  auto tv2 = squeeze(tv1, {20, 1}, 1);
+  auto tv2 = squeeze(tv1, std::vector<int64_t>{1});
   // tv1 is of shape {0, 5}
   fusion->addOutput(tv2);
 
@@ -2904,6 +2904,99 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   }
 }
 
+// Test concretizing a pad that follows a reshape. This requires the
+// ExpressionEvaluator used in concretization to propagate shapes properly
+// across symbolic reshapes in order to infer the size of the downstream pad.
+TEST_F(ResizeTest, ReshapeToPad) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  auto s1 = IrBuilder::create<Val>(DataType::Int);
+  auto s2 = IrBuilder::create<Val>(DataType::Int);
+  auto s3 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(s2);
+  fusion.addInput(s3);
+
+  auto tv1 = reshape(tv0, {s2, s3});
+  auto tv2 = pad(tv1, {fusion.zeroVal(), s0, fusion.zeroVal(), s1});
+  fusion.addOutput(tv2);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 1, 1, 3, 4};
+  auto at_y = at::pad(at_x.reshape({3, 4}), {0, 1, 0, 1});
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  // Assert that we segmented into two segments
+  auto seg_fusion =
+      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  EXPECT_TRUE(seg_fusion->isSegmented());
+  EXPECT_EQ(seg_fusion->groups().size(), 2);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_y},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(ResizeTest, ReshapeToSlice) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  auto s1 = IrBuilder::create<Val>(DataType::Int);
+  auto s2 = IrBuilder::create<Val>(DataType::Int);
+  auto s3 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(s2);
+  fusion.addInput(s3);
+
+  auto tv1 = reshape(tv0, {s2, s3});
+  auto tv2 = slice(tv1, {{fusion.zeroVal(), s0}, {fusion.zeroVal(), s1}});
+  fusion.addOutput(tv2);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 3, 2, 3, 4};
+  auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  // Assert that we segmented into two segments
+  auto seg_fusion =
+      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  EXPECT_TRUE(seg_fusion->isSegmented());
+  EXPECT_EQ(seg_fusion->groups().size(), 2);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_y},
+      __LINE__,
+      __FILE__);
+}
+
 // Test that we can cat along broadcast dims
 // See https://github.com/NVIDIA/Fuser/issues/224
 TEST_F(ResizeTest, CatOfBroadcast) {
@@ -3014,9 +3107,6 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  std::cout << t0 << std::endl;
-  std::cout << t0.strides() << std::endl;
-
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -3074,6 +3164,94 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({-1, -1})
+                 .contiguity({true, std::nullopt})
+                 .expanded({false, true})
+                 .build();
+  auto tv1 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({-1, -1})
+                 .contiguity({std::nullopt, true})
+                 .expanded({true, false})
+                 .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  auto s0 = IrBuilder::create<Val>(3);
+  auto s1 = IrBuilder::create<Val>(4);
+  auto s2 = IrBuilder::create<Val>(1);
+  auto s3 = IrBuilder::create<Val>(5);
+  auto tv3 = reshape(tv2, {s0, s1, s2});
+  auto tv4 = expand(tv3, {s0, s1, s3});
+  fusion->addOutput(tv4);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
+  at::Tensor t1 = at::randn({4}, options).as_strided({3, 4}, {0, 1});
+  auto ref = t0.add(t1).as_strided({3, 4, 5}, {4, 1, 0});
+
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
+}
+
+// Test that we can slice a trivially expanded tensor to size 1 then squeeze
+// See https://github.com/NVIDIA/Fuser/issues/963
+TEST_F(ResizeTest, SqueezeSlicedExpand) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape0({9, 5});
+
+  // dynamic input shape
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Note these are Int instead of Index. They will be cast to Index when used
+  // as extents.
+  auto s0 = IrBuilder::create<Val>(9L);
+  auto s1 = IrBuilder::create<Val>(5L);
+
+  // The expand op will create a LoadStoreOp with these values as output
+  // extents. This effectively creates a static shape TV from a dynamic shape
+  // TV.
+  auto tv1 = expand(tv0, {s0, s1});
+
+  auto s2 = IrBuilder::create<Val>(2L);
+  auto s3 = IrBuilder::create<Val>(3L);
+  auto tv2 =
+      slice(tv1, {{nullptr, nullptr, nullptr}, {s2, s3, fusion->oneVal()}});
+  std::vector<bool> squeeze_dims({false, true});
+
+  auto tv3 = squeeze(tv2, squeeze_dims);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
+
+  testValidate(
+      fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

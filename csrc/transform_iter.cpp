@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/builder.h>
+#include <ir/utils.h>
+#include <root_domain_map.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
-#include <ir/utils.h>
 
 #include <typeinfo>
 
@@ -16,7 +18,8 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_supported_expr =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::dispatch(e);
@@ -127,6 +130,53 @@ void ReplayTransformations::handle(Merge* m) {
 
   // Update our ID map with the replayed output
   id_map_[m->out()] = out;
+}
+
+void ReplayTransformations::handle(Swizzle* swizzle) {
+  // Grab our input to the split node
+  auto id_in_x = swizzle->inX();
+  auto id_in_y = swizzle->inY();
+
+  // Make sure we have a corresponding entry in our map pointing to the ID we're
+  // going to replay the swizzle on
+  auto it_x = id_map_.find(id_in_x);
+  auto it_y = id_map_.find(id_in_y);
+
+  if (it_x == id_map_.end() || it_y == id_map_.end()) {
+    if (error_on_failure_) {
+      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+    } else {
+      return;
+    }
+  }
+
+  auto mapped_x = it_x->second;
+  auto mapped_y = it_y->second;
+
+  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  NVF_ERROR(
+      leaf_ids_.find(mapped_x) != leaf_ids_.end() &&
+          leaf_ids_.find(mapped_y) != leaf_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a leaf node.");
+
+  auto outs = std::make_pair(mapped_x, mapped_y);
+
+  if (replay_swizzle_) {
+    // Replay the swizzle onto mapped
+    outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
+
+    // Remove mapped from the leaf IDs
+    leaf_ids_.erase(mapped_x);
+    leaf_ids_.erase(mapped_y);
+  }
+
+  // Add outputs to leaf IDs
+  leaf_ids_[outs.first] = newCounter();
+  leaf_ids_[outs.second] = newCounter();
+
+  // Update our ID map to include these outputs
+  id_map_[swizzle->outX()] = outs.first;
+  id_map_[swizzle->outY()] = outs.second;
 }
 
 void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
@@ -255,7 +305,7 @@ void ReplayTransformations::runReplay() {
   // Switch outDomain to a vector to start the traversal
   std::vector<Val*> traversal_vals(
       target_domain_.begin(), target_domain_.end());
-  traverseTo(traversal_vals[0]->fusion(), traversal_vals);
+  traverseTo(traversal_vals);
 
   if (error_on_failure_) {
     NVF_ERROR(
@@ -287,8 +337,9 @@ void ReplayTransformations::runReplay() {
   // Populate leaf_vec_ in a deterministic manner. This is deterministic
   // because size_t in leaf_ids is filled based on operation order.
   std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-  for (auto entry : leaf_ids_)
+  for (auto entry : leaf_ids_) {
     ordered_set.emplace(entry);
+  }
 
   leaf_vec_.clear();
   leaf_vec_.resize(ordered_set.size());
@@ -318,9 +369,8 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(target_domain.begin(), target_domain.end()));
+  std::vector<Expr*> target_exprs =
+      StmtSort::getExprsTo({target_domain.begin(), target_domain.end()});
 
   // If we check how an IterDomain was generated, it should only use an
   // IterDomain in an expression once. We pull a map from the input
@@ -329,9 +379,8 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
+  std::vector<Expr*> replay_exprs =
+      StmtSort::getExprsTo({replay_domain.begin(), replay_domain.end()});
 
   // Track which id's in replay have to be replayed to guarantee rfactor
   // transformations. The iteration domains in the rfactor axes don't have
@@ -666,142 +715,118 @@ int BestEffortReplay::findFirstMismatchedID(
   return (int)std::min(td1->nDims(), td2->nDims());
 }
 
-namespace {
+ForwardingInfo::ForwardingInfo(
+    const TensorView* producer,
+    const TensorView* consumer) {
+  // No forwarding unless this is broadcast or squeeze
+  if (!dynamic_cast<BroadcastOp*>(consumer->definition()) &&
+      !dynamic_cast<SqueezeOp*>(consumer->definition())) {
+    return;
+  }
 
-// Maps that track information relevant to best effort replay about newly added
-// or squeezed broadcast axes
-//
-// For example if we have consumer: T0[i0, b1, b2, i3] and producer:
-// T1[i0, i3]
-//
-// If consumer transformations are:
-// -> T[i0, b1o, b1i, b2o, b2i, i3]
-// -> T[i0*b1i, b1o, b2o, b2i, i3]
-// -> T[i0*b1i*b2o, b1o, b2i, i3]
-// -> T[i0*b1i*b2o*i3, b1o, b2i]
-//
-// forwarding_map would forward i0->i0*b1i and i0*b1i->i0*b1i*b2o
-// compliment_map would have the entry i0->b1i and i0*b1i->b2o
-//
-// The first is to fast forward transformations in consumer involving broadcast
-// axes not in producer. The compliment map is to use later to compute what leaf
-// nodes we may have after the forwarding process is finished. Leaf nodes are
-// only important for replayCasP, so look there to see how this is done. Forward
-// map is used for replayCasP and replayPasC.
-struct ForwardingInfo {
- public:
-  // Map IterDomain* axes that can safely be forwarded to their output.
-  std::unordered_map<IterDomain*, IterDomain*> producer_forwarding_map;
-  std::unordered_map<IterDomain*, IterDomain*> consumer_forwarding_map;
+  // Active indicates the TV that has axes the other TV does not. For
+  // broadcast this is the consumer squeeze the producer.
+  //
+  // Either producer or consumer maps depending on operation
+  std::unordered_map<IterDomain*, IterDomain*>* active_forwarding_map = nullptr;
+  std::unordered_map<IterDomain*, std::vector<IterDomain*>>*
+      active_compliment_map = nullptr;
 
-  // Given a forward id map id_input -> id_forwarded
-  // Track the other inputs in the expr that id_input is an input to. These will
-  // be used to adjust the replay's leaf tracking. Don't need to track one to
-  // many as currently transformations on IterDomains can only have maximum 2
-  // inputs, but maybe in the future we'll have more.
-  std::unordered_map<IterDomain*, std::vector<IterDomain*>>
-      producer_compliment_map;
-  std::unordered_map<IterDomain*, std::vector<IterDomain*>>
-      consumer_compliment_map;
+  // Either squeeze or broadcast dimension flags depending on operation
+  const std::vector<bool>* active_dim_flags = nullptr;
 
-  ForwardingInfo(const TensorView* producer, const TensorView* consumer) {
-    // Either producer or consumer maps depending on operation
-    std::unordered_map<IterDomain*, IterDomain*>* active_forwarding_map =
-        nullptr;
-    std::unordered_map<IterDomain*, std::vector<IterDomain*>>*
-        active_compliment_map = nullptr;
+  // Either producer or consumer depending on operation
+  std::vector<IterDomain*> active_root_dom;
+  const TensorView* active_tv = nullptr;
 
-    // Either squeeze or broadcast dimension flags depending on operation
-    const std::vector<bool>* active_dim_flags = nullptr;
+  if (auto bop = dynamic_cast<BroadcastOp*>(consumer->definition())) {
+    active_forwarding_map = &consumer_forwarding_map;
+    active_compliment_map = &consumer_compliment_map;
+    active_dim_flags = &bop->getBroadcastDimFlags();
+    active_root_dom = consumer->getRootDomain();
+    active_tv = consumer;
+  } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
+    active_forwarding_map = &producer_forwarding_map;
+    active_compliment_map = &producer_compliment_map;
+    active_dim_flags = &sop->getSqueezeDimFlags();
+    active_root_dom =
+        TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+    active_tv = producer;
+  } else {
+    NVF_ERROR(false, "Should not be reachable");
+  }
 
-    // Either producer or consumer depending on operation
-    std::vector<IterDomain*> active_root_dom;
-    const TensorView* active_tv = nullptr;
+  NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
 
-    if (auto bop = dynamic_cast<BroadcastOp*>(consumer->definition())) {
-      active_forwarding_map = &consumer_forwarding_map;
-      active_compliment_map = &consumer_compliment_map;
-      active_dim_flags = &bop->getBroadcastDimFlags();
-      active_root_dom = consumer->getRootDomain();
-      active_tv = consumer;
-    } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
-      active_forwarding_map = &producer_forwarding_map;
-      active_compliment_map = &producer_compliment_map;
-      active_dim_flags = &sop->getSqueezeDimFlags();
-      active_root_dom =
-          TensorDomain::noReductions(producer->getMaybeRFactorDomain());
-      active_tv = producer;
-    } else {
-      return;
-    }
-
-    // Collect which root ids are only in active_tv but not in the inactive
-    // tensor.
-    std::unordered_set<IterDomain*> forwarded_ids;
-    NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
-    for (auto i : c10::irange(active_dim_flags->size())) {
-      if (active_dim_flags->at(i)) {
-        forwarded_ids.emplace(active_root_dom.at(i));
-      }
-    }
-
-    // We have root axes in active_tv that don't exist in the inactive tensor,
-    // now forward those to include all id's in active_tv comprised of only axes
-    // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprsTo(
-        FusionGuard::getCurFusion(),
-        std::vector<Val*>(
-            active_tv->getLeafDomain().begin(),
-            active_tv->getLeafDomain().end()));
-
-    auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
-      return forwarded_ids.count(input_id) > 0;
-    };
-
-    for (auto expr : active_tv_history) {
-      auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
-      // If expr inputs are all in forwarded_ids, then so are all outputs
-      if (std::all_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
-        for (auto output_ids :
-             ir_utils::filterByType<IterDomain>(expr->outputs())) {
-          forwarded_ids.emplace(output_ids);
-        }
-      } else if (
-          expr->isA<Merge>() &&
-          std::any_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
-        auto merge_expr = expr->as<Merge>();
-        // If
-        // - one of the inputs is made of id's in active_tv that don't map to
-        //   the inactive tensor,
-        // - && the other input maps to an id in both the active and inactive
-        //   tensor
-        // - && this is a merge
-        //
-        // For the sake of BestEffortReplay we can forward the input mapping
-        //   to both the active and inactive tensor to the output of the
-        //   expression
-        std::vector<IterDomain*> forwarded_ids;
-        std::vector<IterDomain*> compliment_ids;
-
-        for (auto input_id : input_ids) {
-          if (!isIdOnlyInActiveTv(input_id)) {
-            forwarded_ids.emplace_back(input_id);
-            active_forwarding_map->emplace(
-                std::make_pair(input_id, merge_expr->out()));
-          } else {
-            compliment_ids.push_back(input_id);
-          }
-        }
-
-        // Set up compliment map
-        for (auto forwarded_id : forwarded_ids) {
-          active_compliment_map->emplace(
-              std::make_pair(forwarded_id, compliment_ids));
-        }
-      }
+  // Collect which root ids are only in active_tv but not in the inactive
+  // tensor.
+  //
+  // Initialize which id's should beforwarded.
+  std::unordered_set<IterDomain*> forwarded_ids;
+  for (auto i : c10::irange(active_dim_flags->size())) {
+    if (active_dim_flags->at(i)) {
+      forwarded_ids.emplace(active_root_dom.at(i));
     }
   }
-};
+
+  // We have root axes in active_tv that don't exist in the inactive tensor,
+  // now forward those to include all id's in active_tv comprised of only axes
+  // not in the inactive tensor.
+  auto active_tv_history = StmtSort::getExprsTo(std::vector<Val*>(
+      active_tv->domain()->leaf().begin(), active_tv->domain()->leaf().end()));
+
+  auto isInForwardIdSet = [&forwarded_ids](IterDomain* input_id) {
+    return forwarded_ids.count(input_id) > 0;
+  };
+
+  for (auto expr : active_tv_history) {
+    auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
+    // If expr inputs are all in forwarded_ids, then so are all outputs
+    if (std::all_of(input_ids.begin(), input_ids.end(), isInForwardIdSet)) {
+      for (auto output_ids :
+           ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        forwarded_ids.emplace(output_ids);
+      }
+    } else if (
+        expr->isA<Merge>() &&
+        std::any_of(input_ids.begin(), input_ids.end(), isInForwardIdSet)) {
+      auto merge_expr = expr->as<Merge>();
+      // If
+      // - one of the inputs is made of id's in active_tv that don't map to
+      //   the inactive tensor,
+      // - && the other input maps to an id in both the active and inactive
+      //   tensor
+      // - && this is a merge
+      //
+      // For the sake of BestEffortReplay we can forward the input mapping
+      //   to both the active and inactive tensor to the output of the
+      //   expression
+      IterDomain* forwarded_id = nullptr;
+      IterDomain* compliment_id = nullptr;
+
+      for (auto input_id : input_ids) {
+        if (!isInForwardIdSet(input_id)) {
+          NVF_ERROR(forwarded_id == nullptr);
+          forwarded_id = input_id;
+          active_forwarding_map->emplace(
+              std::make_pair(input_id, merge_expr->out()));
+        } else {
+          NVF_ERROR(compliment_id == nullptr);
+          compliment_id = input_id;
+        }
+      }
+
+      NVF_ERROR(forwarded_id != nullptr);
+      NVF_ERROR(compliment_id != nullptr);
+
+      // Set up compliment map
+      active_compliment_map->emplace(
+          forwarded_id, std::vector<IterDomain*>{compliment_id});
+    }
+  }
+}
+
+namespace {
 
 // Trace chain of swizzles until reaching
 //  an IterDomain that's either a leaf or
@@ -809,13 +834,11 @@ struct ForwardingInfo {
 IterDomain* getSwizzleFinalOutput(
     IterDomain* id,
     const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  bool is_swizzle_input = true;
-
   // Note: currently not supporting swizzling consumer of another
   //  swizzle id, so this should terminate in 1 iter, but eventually
   //  will try to support stacked swizzles so keeping this pass
   //  generic.
-  while (is_swizzle_input) {
+  while (true) {
     auto expr_it = id2expr.find(id);
 
     // This means id is a leaf that doesn't
@@ -840,7 +863,7 @@ IterDomain* getSwizzleFinalOutput(
     } else {
       // Probably unreachable but if the expression
       //  is unknown type assume it is not a swizzle op.
-      is_swizzle_input = false;
+      break;
     }
   }
 
@@ -899,8 +922,8 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
+  auto compliment_exprs =
+      StmtSort::getExprsTo({compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
   // the forwarded id
@@ -930,8 +953,9 @@ BestEffortReplay BestEffortReplay::replayCasP(
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
-  if (producer_compute_at_axis < 0)
+  if (producer_compute_at_axis < 0) {
     producer_compute_at_axis += (int)producer->nDims() + 1;
+  }
 
   NVF_ERROR(
       producer_compute_at_axis >= 0 &&
@@ -996,8 +1020,9 @@ BestEffortReplay BestEffortReplay::replayPasC(
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {
-  if (consumer_compute_at_axis < 0)
+  if (consumer_compute_at_axis < 0) {
     consumer_compute_at_axis += (int)consumer->nDims() + 1;
+  }
   NVF_ERROR(
       consumer_compute_at_axis >= 0 &&
           (unsigned int)consumer_compute_at_axis <= consumer->nDims(),

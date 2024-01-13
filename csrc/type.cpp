@@ -338,7 +338,8 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
-    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return false;
     default:
       return true;
@@ -457,8 +458,10 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
-    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
-      return "Turing::adjustPartialLdMatrixAddrInTuring";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<16>";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
@@ -841,8 +844,10 @@ constexpr unsigned int supported_switch_pair(PrimDataType t1, PrimDataType t2) {
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
 
-static const char* supported_casts2string(
-    const std::pair<DataType, DataType>& t) {
+static const char* supported_casts2string(std::pair<DataType, DataType> t) {
+  if (t.first == DataType::SMemAddress) {
+    t.first = DataType::UInt32;
+  }
   switch (supported_switch_pair(
       std::get<PrimDataType>(t.first.type),
       std::get<PrimDataType>(t.second.type))) {
@@ -1150,6 +1155,21 @@ std::ostream& operator<<(
 
 std::ostream& operator<<(std::ostream& out, const IterType bt) {
   return out << iter_type2string(bt);
+}
+
+std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
+  switch (swizzle) {
+    case SwizzleType::NoSwizzle:
+      os << "NoSwizzle";
+      break;
+    case SwizzleType::XOR:
+      os << "Xor";
+      break;
+    default:
+      NVF_ERROR(false, "undefined 2D swizzle");
+      break;
+  }
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {

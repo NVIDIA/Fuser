@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <utils.h>
 
 #include <benchmark/benchmark.h>
 
@@ -40,14 +41,11 @@ bool hasRequiredSmemSize(size_t required_size) {
     return;                                                      \
   }
 
-// util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaLayout;
-
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
 void setupMatmul(
     Fusion* fusion,
-    MatmulLayout layout,
+    MmaLayout layout,
     MatmulParams params,
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 ) {
@@ -120,18 +118,34 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
       "]");
 }
 
+//! Compute the index type (either Int32 or, if needed, Int) for an MNK problem
+//! size. This function ensures that an Int32 can represent the linear index of
+//! any of the contiguous tensors involved in this problem. If not, then Int
+//! (double) is returned.
+PrimDataType computeIndexType(int m, int n, int k) {
+  KernelIndexTypeCompute index_type_helper;
+  index_type_helper.addDim(m, k); // A
+  index_type_helper.addDim(n, k); // B
+  index_type_helper.addDim(m, n); // D
+  PrimDataType index_type = index_type_helper.getType();
+  if (index_type == DataType::Int) {
+    // Notify as this can have a slight perf impact, but is necessary for large
+    // inputs
+    debug() << "Using int64_t as index type" << std::endl;
+  }
+  return index_type;
+}
+
 static void SingleMatmulBase(
     benchmark::State& benchmark_state,
-    MatmulLayout layout,
+    MmaLayout layout,
     MatmulParams params) {
-  std::vector<int64_t> input_mnk{
-      benchmark_state.range(0),
-      benchmark_state.range(1),
-      benchmark_state.range(2)};
+  int64_t m = benchmark_state.range(0);
+  int64_t n = benchmark_state.range(1);
+  int64_t k = benchmark_state.range(2);
 
   // Tensor inputs
-  auto inputs =
-      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs = matmulAtInput(m, n, k, layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -158,8 +172,7 @@ static void SingleMatmulBase(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  cparams.index_type = computeIndexType(m, n, k);
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
@@ -175,7 +188,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
@@ -184,7 +197,7 @@ static void SingleMatmulBase(
 
 static void Baseline_Matmul(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
+    MmaLayout layout) {
   std::vector<int64_t> input_mnk{
       benchmark_state.range(0),
       benchmark_state.range(1),
@@ -221,7 +234,7 @@ size_t getSmemSize(GemmTile cta_tile, int stage_number) {
 MatmulParams getMatmulParams(
     GemmTile cta_tile,
     int stage_number,
-    MatmulLayout layout,
+    MmaLayout layout,
     int splitk_factor = 1) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
@@ -230,7 +243,7 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
-  params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+  params.mma_macro = MmaMacro::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
@@ -274,7 +287,7 @@ int computeAutoSplitKFactor(
 // for comparing against the first kernel in Cutlass's two-kernel split-K.
 static void SingleMatmulPartitionedK(
     benchmark::State& benchmark_state,
-    MatmulLayout layout,
+    MmaLayout layout,
     MatmulParams params,
     int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
@@ -328,8 +341,7 @@ static void SingleMatmulPartitionedK(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
   FusionExecutor fe;
@@ -353,7 +365,7 @@ static void SingleMatmulPartitionedK(
 
 static void NvFuserScheduler_Matmul(
     benchmark::State& benchmark_state,
-    MatmulLayout layout,
+    MmaLayout layout,
     int splitk_factor = 1,
     bool partitionedk = false) {
   int num_warps = benchmark_state.range(3);
@@ -424,8 +436,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  cparams.index_type = computeIndexType(M, N * splitk_factor, 1);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
@@ -512,7 +523,7 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
   { 65536 }
 
 #define Layouts \
-  { MatmulLayout::TT, MatmulLayout::TN, MatmulLayout::NT, MatmulLayout::NN }
+  { MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN }
 #define NumWarps \
   { 4, 8 }
 #define NumStages \
@@ -592,43 +603,43 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   }
 }
 
-#define EagerModeBenchmark(layout)                                            \
-  BENCHMARK_CAPTURE(                                                          \
-      Baseline_Matmul, eagermode_legacyshapes_##layout, MatmulLayout::layout) \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(                                                   \
-            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
-      });                                                                     \
-  BENCHMARK_CAPTURE(                                                          \
-      Baseline_Matmul, eagermode_timmshapes_##layout, MatmulLayout::layout)   \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(b, TIMMShapes);                                    \
-      });                                                                     \
-  BENCHMARK_CAPTURE(                                                          \
-      Baseline_Matmul, eagermode_splitkshapes_##layout, MatmulLayout::layout) \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(                                                   \
-            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));        \
+#define EagerModeBenchmark(layout)                                         \
+  BENCHMARK_CAPTURE(                                                       \
+      Baseline_Matmul, eagermode_legacyshapes_##layout, MmaLayout::layout) \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(                                                \
+            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));       \
+      });                                                                  \
+  BENCHMARK_CAPTURE(                                                       \
+      Baseline_Matmul, eagermode_timmshapes_##layout, MmaLayout::layout)   \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(b, TIMMShapes);                                 \
+      });                                                                  \
+  BENCHMARK_CAPTURE(                                                       \
+      Baseline_Matmul, eagermode_splitkshapes_##layout, MmaLayout::layout) \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(                                                \
+            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));     \
       });
 
 #define NvfuserMatmulBenchmark(layout)                                 \
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_legacyshapes_##layout,                          \
-      MatmulLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply(MatmulShapeWarpStageAutoSplitK);                         \
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_timmshapes_##layout,                            \
-      MatmulLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply([](benchmark::internal::Benchmark* b) {                  \
@@ -637,7 +648,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_splitkshapes_##layout,                          \
-      MatmulLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply([](benchmark::internal::Benchmark* b) {                  \
@@ -655,7 +666,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                  \
       NvFuserScheduler_Matmul,        \
       nvfuser_auto_splitk_##layout,   \
-      MatmulLayout::layout,           \
+      MmaLayout::layout,              \
       -1)                             \
       ->Unit(benchmark::kMicrosecond) \
       ->UseManualTime()               \
@@ -665,7 +676,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                      \
       NvFuserScheduler_Matmul,            \
       nvfuser_auto_partitionedk_##layout, \
-      MatmulLayout::layout,               \
+      MmaLayout::layout,                  \
       -1,                                 \
       true)                               \
       ->Unit(benchmark::kMicrosecond)     \
@@ -674,7 +685,11 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
-ForAllLayouts(AutoSplitKBenchmark);
+// Disable split-K benchmarks due to slow compilation.
+// See https://github.com/NVIDIA/Fuser/issues/1389.
+// These benchmarks should be enabled again after merging
+// https://github.com/NVIDIA/Fuser/pull/1510
+// ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk

@@ -75,9 +75,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
         ir_utils::checkCycle(fusion.get()).size() == 6,
         "cycle of size 6 should be detected in fusion");
     EXPECT_THAT(
-        [&]() {
-          StmtSort::getStmtsBetween(fusion.get(), {}, fusion->outputs());
-        },
+        [&]() { StmtSort::getStmtsBetween({}, fusion->outputs()); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("cycle detected")));
   }
@@ -115,7 +113,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     to.push_back(tv1);
     // cycle should be detected, since dead branch is in our check path
     EXPECT_THAT(
-        [&]() { StmtSort::getStmtsBetween(fusion.get(), {}, to); },
+        [&]() { StmtSort::getStmtsBetween({}, to); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("cycle detected")));
 
@@ -139,16 +137,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0});
 
-    auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
-    std::vector<at::Tensor> aten_outputs = {std::get<0>(at_var_mean)};
-
-    testValidate(
-        executor_cache.fusion(),
-        outputs,
-        {t0},
-        aten_outputs,
-        __LINE__,
-        __FILE__);
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
   }
 }
 

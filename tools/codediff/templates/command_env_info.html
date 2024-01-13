@@ -2,10 +2,18 @@
     Command: <code>{{ run1.command|e }}</code>
 {%- else -%}
     <i>{{ run1.name|e }} command: <code>{{ run1.command|e }}</code>
-        <br>
-        <i>{{ run2.name|e }} command: <code>{{ run2.command|e }}</code>
-        {%- endif -%}
-        {%- if run1.gpu_names is not none %}
+    <br>
+    <i>{{ run2.name|e }} command: <code>{{ run2.command|e }}</code>
+{%- endif -%}
+{%- if run1.exit_code != 0 -%}
+    <br>
+    <i>{{ run1.name|e }} command failed with exit code <b>{{ run1.exit_code }}</b>.
+{%- endif -%}
+{%- if run2.exit_code != 0 -%}
+    <br>
+    <i>{{ run2.name|e }} command failed with exit code <b>{{ run2.exit_code }}</b>.
+{%- endif -%}
+{%- if run1.gpu_names is not none %}
             <br>
             {%- if run1.gpu_names | length > 1 %}
                 {% if run1.gpu_names != run2.gpu_names %}{{ run1.name|e }}{% endif %}

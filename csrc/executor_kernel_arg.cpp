@@ -12,7 +12,7 @@
 
 #include <executor_kernel_arg.h>
 #include <instrumentation.h>
-#include <serde/polymorphic_value_serde.h>
+#include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {

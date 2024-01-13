@@ -89,54 +89,25 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       setWritePredicate(expr);
     }
 
-    // Note: [Predicate Inversion for CpAsync]
-    // Today for vectorized support the pattern is:
-    // Initialize buffer -> predicated load
-    // For memcpy async:
-    //    If we initialized and then loaded (without sync) it would be undefined
-    //    behavior.
-    // Initialize only the "virtual out of boundary" accesses.
-    //  Memory allocated, but outside the virtual tensor space.
-    //  Virtual tensor space today is effectively what would be allocated in
-    //  global memory. Then only copy the "within bound" accesses.
-    // This is a WAR today based on how our system is set up.
-    //    We would want to have a separate concept of SMEM space from Virtual or
-    //    GMEM space, so that we know we're only working with the allocated
-    //    SMEM.
-    //  If we hit outside the allocated SMEM bad things happen.
-    // Today asserting in predicate removal making sure that the virtual and
-    // SMEM boundaries line up based on the IterDomains.
-    //
-    // TODO: in a follow up we need to extend the predicate
-    //  infrastructure to generate predicate for both gmem
-    //  and smem, and the predicate removal will need to
-    //  be extended as well for the perf critical regions.
-    if (isPredicatedInitForCpAsync(expr)) {
-      invertPredicateForGmemToSharedMemInitialize(expr);
+    // According to:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async
+    // cp.async has a built-in mechanism `ignore-src` to ignore the source and
+    // fill zero. We can just invert the predicate and use it as `ignore-src`.
+    if (ir_utils::isCpAsyncOp(expr)) {
+      invertPredicate(expr);
     }
 
     kir::ExprMutator::dispatch(expr);
   }
 
   // Invert the predicate of given expr.
-  void invertPredicateForGmemToSharedMemInitialize(Expr* expr) {
+  void invertPredicate(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
     auto pred = expr->predicate()->value();
     Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
     invert =
         GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
     expr->predicate()->setValue(invert);
-  }
-
-  // Detect if this expr is an initialization for vectorized
-  //  cp asyc with predicates.
-  bool isPredicatedInitForCpAsync(Expr* expr) {
-    // Match the pattern:
-    //  If(pred)
-    //    TV = 0;
-    //  where TV is the output of cp async.
-    auto maybe_init = ir_utils::getMaybePredicatedSingleton(expr);
-    return maybe_init.has_value() &&
-        ir_utils::isCpAsyncInit(maybe_init.value());
   }
 
   void setWritePredicate(Expr* expr) {

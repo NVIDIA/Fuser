@@ -1299,4 +1299,38 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
+// This test is meant to verify that trivial stride order is dropped by
+// TensorViewBuilder. See issue: https://github.com/NVIDIA/Fuser/issues/1399
+TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = TensorViewBuilder().ndims(2).strideOrder({0, 1}).build();
+  EXPECT_TRUE(tv0->hasAllocation());
+  // trivial stride order would be dropped by TensorViewbuilder
+  tv0 = TensorViewBuilder().ndims(2).strideOrder({1, 0}).build();
+  // confirming that stride order is dropped and allocation domain is empty
+  EXPECT_TRUE(!tv0->hasAllocation());
+}
+
+TEST_F(AllocationDomainTest, Issue1524) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* permute_out = permute(in, {1, 0});
+  permute_out = segment_set(permute_out);
+  TensorView* add_out = add(permute_out, permute_out);
+
+  fusion->addInput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(add_out);
+
+  permute_out->setAllocationDomain(
+      {permute_out->axis(1), permute_out->axis(0)}, true);
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({in_tensor});
+}
+
 } // namespace nvfuser

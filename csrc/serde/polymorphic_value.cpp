@@ -7,7 +7,7 @@
 // clang-format on
 #include <ATen/EmptyTensor.h>
 #include <polymorphic_value.h>
-#include <serde/polymorphic_value_serde.h>
+#include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 
 namespace nvfuser::serde {

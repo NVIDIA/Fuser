@@ -38,11 +38,11 @@ class MatmulSASSTest : public NVFuserTest {};
 namespace {
 
 sass::Container getSASSFor(
-    MatmulLayout layout,
+    MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
     GemmTile instruction_tile,
-    MmaOptions::MacroType macro,
+    MmaMacro macro,
     int M,
     int N,
     int K,
@@ -94,11 +94,11 @@ sass::Container getSASSFor(
 
 // A fusion with epilogue made of binary op (scalar multiplication)
 sass::Container getBinaryOpMulEpilogueSASSFor(
-    MatmulLayout layout,
+    MmaLayout layout,
     GemmTile cta_tile,
     GemmTile warp_tile,
     GemmTile instruction_tile,
-    MmaOptions::MacroType macro,
+    MmaMacro macro,
     int M,
     int N,
     int K) {
@@ -166,7 +166,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
   bool found_LDSM = false;
   bool found_HMMA = false;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
@@ -176,7 +176,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -215,8 +215,8 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
   bool found_HMMA = false;
   bool found_LDGDEPBAR = false;
   bool found_BAR = false;
-  bool found_DEPBAR = false; // kAllSupportedMatmulLayout;
-  for (auto layout : {MatmulLayout::TT}) {
+  bool found_DEPBAR = false; // kAllSupportedMmaLayout;
+  for (auto layout : {MmaLayout::TT}) {
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
@@ -226,7 +226,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -341,12 +341,12 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
   }
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : {MatmulLayout::TT}) {
+  for (auto layout : {MmaLayout::TT}) {
     bool found_LDGSTS = false;
     bool found_LDSM = false;
     bool found_HMMA = false;
     bool found_LDGDEPBAR = false;
-    bool found_DEPBAR = false; // kAllSupportedMatmulLayout;
+    bool found_DEPBAR = false; // kAllSupportedMmaLayout;
     int BAR_COUNT = 0;
     // we have at least three shared memory barriers in the kernel if
     // use_shared_epilogue. If promote_prologue_smem_reuse, then 4
@@ -360,7 +360,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
             gemm_tile.cta_tile,
             gemm_tile.warp_tile,
             gemm_tile.instruction_tile,
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K,
@@ -469,7 +469,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
   bool found_LDGDEPBAR = false;
   bool found_BAR = false;
   bool found_DEPBAR = false;
-  for (auto layout : {MatmulLayout::TT}) {
+  for (auto layout : {MmaLayout::TT}) {
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
@@ -479,7 +479,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -597,7 +597,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     std::unordered_map<std::string, std::unordered_set<int>> base_offsets;
 
     sass::Container sass;
@@ -609,7 +609,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));

@@ -67,7 +67,7 @@ class MatmulParams : public HeuristicParams {
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
-  MmaOptions::MacroType mma_macro = MmaOptions::MacroType::NoMMA;
+  MmaMacro mma_macro = MmaMacro::NoMMA;
 
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;
@@ -105,7 +105,7 @@ class MatmulParams : public HeuristicParams {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
-       << "MMA macro: " << nvfuser::toString(mma_macro, true) << "\n"
+       << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
        << double_buffer_options.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "

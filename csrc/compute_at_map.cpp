@@ -605,13 +605,13 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
     auto exprs = StmtSort::getExprsTo(
-        fusion,
         {consumer_tv->getMaybeRFactorDomain().begin(),
          consumer_tv->getMaybeRFactorDomain().end()});
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
-          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>(),
+          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
           "\nto be an expression defined in an rfactor transformation.");
@@ -1229,6 +1229,14 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
+  if (expr_1->isA<Swizzle>()) {
+    auto swizzle_1 = expr_1->as<Swizzle>();
+    auto swizzle_2 = expr_2->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
+      return false;
+    }
+  }
+
   NVF_ERROR(
       expr_1->inputs().size() == expr_2->inputs().size() &&
           expr_1->outputs().size() == expr_2->outputs().size(),
@@ -1437,8 +1445,6 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
-  ss << "Innermost map:\n"
-     << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);

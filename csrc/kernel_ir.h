@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -43,10 +45,10 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
-class CpAsyncWait;
-class CpAsyncCommit;
-class CpAsyncBulkS2GWait;
-class CpAsyncBulkS2GCommit;
+class BlockSerializeWait;
+class BlockSerializeRelease;
+class AsyncWait;
+class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -177,6 +179,7 @@ class TensorIndex final : public Val {
 struct AsmOptions {
   bool volatile_ = false;
   bool memory = false;
+  std::unordered_set<int64_t> readable_outputs = {};
 };
 
 class Asm final : public Expr {
@@ -227,6 +230,15 @@ class Asm final : public Expr {
 
   bool& memory() {
     return options().memory;
+  }
+
+  bool hasBooleanInput() const {
+    for (auto input : inputs()) {
+      if (input->dtype() == DataType::Bool) {
+        return true;
+      }
+    }
+    return false;
   }
 
   std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
@@ -509,84 +521,130 @@ class MBarrierWait final : public Expr {
   }
 };
 
-// CpAsyncWait represents wait intrinsics for cp.async
-class CpAsyncWait final : public Expr {
+// For all but first block in each reduction segment, first thread waits for
+// sync flag to indicate it is our turn to proceed (sync flag is incremented by
+// BlockSerializeRelease). Then block sync. This has the effect of
+// serializing blocks in each reduction segment. This is a block syncing
+// operation.
+class BlockSerializeWait final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncWait";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  //! Returns the remaining number of stages that are not synchronized
-  //!  after this op.
-  int64_t keepStages() const {
-    return attribute<int64_t>(0);
-  }
-};
-
-// CpAsyncCommit represents commit intrinsics for cp.async
-//  A commit intrinsic communicates delimiter of transaction groups
-// to the async load hardware. Example usage see [Cicular buffer].
-class CpAsyncCommit final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncCommit(IrBuilderPasskey passkey);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncCommit";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-};
-
-class CpAsyncBulkS2GWait final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncBulkS2GWait(
+  explicit BlockSerializeWait(
       IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// This first performs a block sync. For all but last block in the reduction
+// segment, first thread then writes the next segment ID to the sync flag. When
+// used with BlockSerializeWait, this has the effect of serializing blocks in
+// order each reduction segment.
+class BlockSerializeRelease final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeRelease(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeRelease";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// AsyncWait represents wait intrinsics for cp.async, cp.async.bulk and
+// wgmma.mma_async
+class AsyncWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit AsyncWait(
+      IrBuilderPasskey passkey,
+      AsyncOpType async_op_type,
       int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GWait";
+    return "AsyncWait";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  const char* ptx() const;
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
+
+  //! Returns the remaining number of stages that are not synchronized
+  //!  after this op.
   int64_t keepStages() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 };
 
-class CpAsyncBulkS2GCommit final : public Expr {
+// AsyncCommit represents commit intrinsics for cp.async
+//  A commit intrinsic communicates delimiter of transaction groups
+// to the async load hardware. Example usage see [Cicular buffer].
+class AsyncCommit final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+  explicit AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GCommit";
+    return "AsyncCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  const char* ptx() const;
+
+  //! Returns if the corresponding PTX needs a `:memory` in the end, this value
+  //! will be used to set AsmOptions::memory when lowering to inline PTX.
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
 };
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
@@ -905,7 +963,8 @@ class GridReduction final : public ReductionOp {
       Allocate* sync_buffer,
       Val* entrance_index,
       Val* entrances,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      TensorIndex* serial_reduction_tensor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -943,6 +1002,14 @@ class GridReduction final : public ReductionOp {
 
   ParallelTypeBitmap& threadPredicate() {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
+  }
+
+  TensorIndex* serialReductionTensor() const {
+    return dynamic_cast<TensorIndex*>(attributeVal(num_reduction_op_attr + 5));
+  }
+
+  bool isSerial() const {
+    return serialReductionTensor() != nullptr;
   }
 
   GridReduction* withThreadPredicate(
@@ -1383,7 +1450,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      tma::TensorMapSwizzle swizzle,
+      MmaInputSmemSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1428,8 +1495,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const tma::TensorMapSwizzle& swizzle() const {
-    return attribute<tma::TensorMapSwizzle>(3);
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {

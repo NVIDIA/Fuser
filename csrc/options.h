@@ -22,11 +22,16 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
-  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization
+  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
+                  //!< before segmentation
+  FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
+  // TODO(wujingyue): name the following FusionIrSched
+  FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
+            //!< to `FusionExecutor::compileFusion`.
+  FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
+                //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code

@@ -113,6 +113,7 @@ class PipelineCommunication;
 // Exprs
 class Split;
 class Merge;
+class Swizzle;
 class Swizzle2D;
 class Resize;
 
@@ -129,10 +130,10 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
-class CpAsyncWait;
-class CpAsyncCommit;
-class CpAsyncBulkS2GWait;
-class CpAsyncBulkS2GCommit;
+class BlockSerializeWait;
+class BlockSerializeRelease;
+class AsyncWait;
+class AsyncCommit;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
@@ -148,6 +149,10 @@ class GetRNGSeedAndOffsetFromHost;
 class EncodeTensorMapTiled;
 
 } // namespace kir
+
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
@@ -206,6 +211,7 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const Split* stmt);
   virtual void handle(const Merge* stmt);
+  virtual void handle(const Swizzle* stmt);
   virtual void handle(const Swizzle2D* stmt);
   virtual void handle(const Resize* stmt);
   virtual void handle(const ExpandOp* stmt);
@@ -223,10 +229,10 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::MBarrierArrive*);
   virtual void handle(const kir::MBarrierArriveExpectTx*);
   virtual void handle(const kir::MBarrierWait*);
-  virtual void handle(const kir::CpAsyncWait*);
-  virtual void handle(const kir::CpAsyncCommit*);
-  virtual void handle(const kir::CpAsyncBulkS2GWait*);
-  virtual void handle(const kir::CpAsyncBulkS2GCommit*);
+  virtual void handle(const kir::BlockSerializeWait*);
+  virtual void handle(const kir::BlockSerializeRelease*);
+  virtual void handle(const kir::AsyncWait*);
+  virtual void handle(const kir::AsyncCommit*);
   virtual void handle(const kir::InitMagicZero*);
   virtual void handle(const kir::UpdateMagicZero*);
   virtual void handle(const kir::ForLoop*);
@@ -243,6 +249,8 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
+
+  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptOutDispatch : public PolymorphicBase {
@@ -300,6 +308,7 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(Split* stmt);
   virtual void handle(Merge* stmt);
+  virtual void handle(Swizzle* stmt);
   virtual void handle(Swizzle2D* stmt);
   virtual void handle(Resize* stmt);
   virtual void handle(ExpandOp* stmt);
@@ -317,10 +326,10 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::MBarrierArrive* stmt);
   virtual void handle(kir::MBarrierArriveExpectTx* stmt);
   virtual void handle(kir::MBarrierWait* stmt);
-  virtual void handle(kir::CpAsyncWait* stmt);
-  virtual void handle(kir::CpAsyncCommit* stmt);
-  virtual void handle(kir::CpAsyncBulkS2GWait* stmt);
-  virtual void handle(kir::CpAsyncBulkS2GCommit* stmt);
+  virtual void handle(kir::BlockSerializeWait* stmt);
+  virtual void handle(kir::BlockSerializeRelease* stmt);
+  virtual void handle(kir::AsyncWait* stmt);
+  virtual void handle(kir::AsyncCommit* stmt);
   virtual void handle(kir::InitMagicZero* stmt);
   virtual void handle(kir::UpdateMagicZero* stmt);
   virtual void handle(kir::ForLoop* stmt);
@@ -337,6 +346,8 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);
+
+  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptInConstDispatch : public OptOutConstDispatch {

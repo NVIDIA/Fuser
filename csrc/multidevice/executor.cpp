@@ -7,6 +7,7 @@
 // clang-format on
 #ifdef USE_DISTRIBUTED
 #include <ir/utils.h>
+#include <multidevice/allocator.h>
 #include <multidevice/executor.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
@@ -22,10 +23,23 @@ bool PipelineExecutor::shouldRun(PipelineStage* stage) {
 }
 
 void PipelineExecutor::handle(PipelineStage* stage) {
+  if (!shouldRun(stage)) {
+    return;
+  }
   // get the IValues corresponding to the stage's input
   std::vector<c10::IValue> stage_input_IValues;
-  for (auto& input_val : stage->inputs()) {
-    stage_input_IValues.push_back(val_to_IValue_[input_val]);
+  for (auto& input : stage->inputs()) {
+    auto input_val = input->as<PipelineVal>()->getOriginalVal();
+    NVF_ERROR(
+        val_to_IValue_.find(input_val) != val_to_IValue_.end(),
+        "Device ",
+        runtime_.comm_.deviceId(),
+        " has no buffer associated with Val ",
+        input_val,
+        " for handling stage ",
+        stage);
+    NVF_ERROR(val_to_IValue_.at(input_val).isTensor());
+    stage_input_IValues.push_back(val_to_IValue_.at(input_val));
   }
 
   std::vector<at::Tensor> outputs;
@@ -42,11 +56,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
               runtime_.pipeline_->stageToFusion(stage)));
     }
     // Run the stage to get concrete outputs or placeholders
-    // TODO: reimplement allocOutputSpace
-    // TODO: allocate output space only if strictly necessary
-    outputs = shouldRun(stage)
-        ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
-        : fec_[stage]->allocOutputSpace(stage_input_IValues);
+    outputs = fec_[stage]->runFusionWithInputs(stage_input_IValues);
 
   } else {
     // Check if the executor has been cached. If not, create and cache it
@@ -56,33 +66,30 @@ void PipelineExecutor::handle(PipelineStage* stage) {
           runtime_.pipeline_->stageToFusion(stage).get(), stage_input_IValues);
     }
     // Run the stage to get concrete outputs or placeholders
-    outputs = shouldRun(stage)
-        ? fe_[stage]->runFusion(stage_input_IValues)
-        : fe_[stage]->allocOutputSpace(stage_input_IValues);
+    // TODO: deal with aliases I/O. For example if the stage is empty, i.e.,
+    // Inputs=Outputs, we need to handle them anyway
+    outputs = fe_[stage]->runFusion(stage_input_IValues);
   }
 
   // Store the outputs or placeholders in the context
-  for (auto output_idx : c10::irange(stage->outputs().size())) {
-    val_to_IValue_[stage->outputs().at(output_idx)] = outputs.at(output_idx);
+  for (auto output_idx : c10::irange(outputs.size())) {
+    val_to_IValue_
+        [stage->outputs().at(output_idx)->as<PipelineVal>()->getOriginalVal()] =
+            outputs.at(output_idx);
   }
 }
 
 void PipelineExecutor::handle(PipelineCommunication* c) {
-  at::Tensor input_tensor = val_to_IValue_.at(c->in()).toTensor();
+  auto input_val = c->in()->as<PipelineVal>()->getOriginalVal();
+  auto output_val = c->out()->as<PipelineVal>()->getOriginalVal();
 
-  /* Allocation of output buffer.
-    TODO: revise to avoid garbage allocation. Indeed, for now we use the same
-    buffer for the input and output of the Communication. The input has always
-    been allocated previously since we systematically allocate the output of
-    every PipelineStage. This is valid but induces a lot of garbage allocation:
-    1) some PipelineStage's outputs could be ignore on certain devices
-    2) some buffers are overallocated, e.g., if the communication pattern is
-       the one of a "Scatter", the destination buffer's size only need to be a
-    fraction of the source buffer.
-  */
-  val_to_IValue_[c->out()] = val_to_IValue_.at(c->in());
-  at::Tensor output_tensor =
-      val_to_IValue_.at(c->out()).toTensor(); // shallow copy
+  at::Tensor input_tensor, output_tensor;
+  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
+    input_tensor = val_to_IValue_.at(input_val).toTensor();
+  }
+  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
+    output_tensor = val_to_IValue_.at(output_val).toTensor();
+  }
 
   // Lower the Communication into a vector of Communications
   if (communications_.find(c) == communications_.end()) { // check if cached
@@ -109,19 +116,27 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
       inputs.size() == runtime_.pipeline_->inputs().size(),
       "Wrong number of inputs");
 
-  // process input values input values:
+  val_to_IValue_ = allocatePipelineIntermediateBuffers(
+      runtime_.pipeline_, runtime_.comm().deviceId(), inputs);
+
+  // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[runtime_.pipeline_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
+    val_to_IValue_[runtime_.pipeline_->inputs()
+                       .at(input_idx)
+                       ->as<PipelineVal>()
+                       ->getOriginalVal()] = inputs.at(input_idx);
   }
 
   // Run through the stages to launch kernel
-  traverseTo(runtime_.pipeline_, runtime_.pipeline_->outputs());
+  traverseTo(runtime_.pipeline_->outputs());
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : runtime_.pipeline_->outputs()) {
-    outputs.push_back(val_to_IValue_[output_val].toTensor());
+  for (auto output_val : runtime_.pipeline_->originalFusion()->outputs()) {
+    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
+    outputs.push_back(output);
   }
 
   return outputs;

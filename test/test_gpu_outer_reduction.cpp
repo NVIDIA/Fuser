@@ -1908,25 +1908,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
     }
   }
 
-  auto norm_double = 1.0 / ((double)N * (double)HW * (double)HW);
-  auto t4 = t0.to(at::kFloat);
-  auto t5 = t1.to(at::kFloat);
-  auto t6 = sum(t4, {0, 1, 2});
-  auto t7 = t6 * norm_double;
-  auto t8 = t7.unsqueeze(0).unsqueeze(0).unsqueeze(0);
-  auto t9 = t4 - t5;
-  auto t10 = sum(t9, {0, 1, 2});
-  auto t11 = t10 * norm_double;
-  auto t12 = t11.unsqueeze(0).unsqueeze(0).unsqueeze(0);
-
-  // Second use of manually projected persistent buffer
-  auto t13 = t0.to(at::kFloat);
-  auto t14 = t1.to(at::kFloat);
-  auto t15 = t14 * t12;
-  auto t16 = t13 - t15;
-  auto t17 = t16 - t8;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {t17}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__, "");
 }
 
 } // namespace

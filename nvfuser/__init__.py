@@ -33,6 +33,20 @@ from . import contrib  # noqa: F401
 logger = logging.getLogger("nvfuser")
 
 
+# Register automatic serialization of Nvfuser cache hierarchy and cuda kernels.
+def enable_automatic_serialization():
+    import atexit
+
+    atexit.register(_C.serialize)
+
+
+# Unregister automatic serialization of Nvfuser cache hierarchy and cuda kernels.
+def disable_automatic_serialization():
+    import atexit
+
+    atexit.unregister(_C.serialize)
+
+
 class FusionDefinition(_C._FusionDefinition):
     def __enter__(self):
         return self._setup_definition()
@@ -134,7 +148,7 @@ class FusionDefinition(_C._FusionDefinition):
             )
             msg += (
                 f"Here's a script to reproduce the error:\n"
-                "```\n"
+                "```python\n"
                 "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
@@ -158,8 +172,9 @@ class FusionDefinition(_C._FusionDefinition):
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
                         msg += (
-                            f"    torch.randint(0, 10, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:

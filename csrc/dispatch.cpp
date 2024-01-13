@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <type.h>
@@ -208,6 +209,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<Merge>());
     return;
   }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
+    return;
+  }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
     return;
@@ -272,20 +277,20 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -346,6 +351,10 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   if (expr->isStrictlyA<PipelineCommunication>()) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
+    return;
+  }
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
@@ -524,6 +533,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<Merge>());
     return;
   }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
+    return;
+  }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
     return;
@@ -588,20 +601,20 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -662,6 +675,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<PipelineCommunication>()) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
+    return;
+  }
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
@@ -947,6 +964,9 @@ void OptOutConstDispatch::handle(const Split* stmt) {
 void OptOutConstDispatch::handle(const Merge* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const Swizzle* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const Swizzle2D* stmt) {
   unhandled(stmt);
 }
@@ -996,16 +1016,16 @@ void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
+void OptOutConstDispatch::handle(const kir::BlockSerializeWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncCommit* stmt) {
+void OptOutConstDispatch::handle(const kir::BlockSerializeRelease* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GWait* stmt) {
+void OptOutConstDispatch::handle(const kir::AsyncWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GCommit* stmt) {
+void OptOutConstDispatch::handle(const kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::InitMagicZero* stmt) {
@@ -1052,6 +1072,10 @@ void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
+  unhandled(stmt);
+}
+
+void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 
@@ -1180,6 +1204,9 @@ void OptOutDispatch::handle(Split* stmt) {
 void OptOutDispatch::handle(Merge* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(Swizzle* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(Swizzle2D* stmt) {
   unhandled(stmt);
 }
@@ -1229,16 +1256,16 @@ void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
+void OptOutDispatch::handle(kir::BlockSerializeWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncCommit* stmt) {
+void OptOutDispatch::handle(kir::BlockSerializeRelease* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncBulkS2GWait* stmt) {
+void OptOutDispatch::handle(kir::AsyncWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncBulkS2GCommit* stmt) {
+void OptOutDispatch::handle(kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::InitMagicZero* stmt) {
@@ -1285,6 +1312,10 @@ void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(PipelineCommunication* stmt) {
+  unhandled(stmt);
+}
+
+void OptOutDispatch::handle(assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 

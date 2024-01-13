@@ -59,8 +59,7 @@ TensorView* RecomputeTv::recompute(
       "Cannot recompute buffers that are inputs of the fusion.");
 
   // Grab all the expressions used to generate the TensorView
-  auto exprs =
-      StmtSort::getExprsBetween(tv->fusion(), from, {tv}, false, false);
+  auto exprs = StmtSort::getExprsBetween(from, {tv}, false, false);
 
   // Run the replicator
   RecomputeTv replicator(tv->fusion());
@@ -91,7 +90,7 @@ TensorView* RecomputeTv::recompute(
   return cloned_val->as<TensorView>();
 }
 
-RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion), fusion_(fusion) {
+RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion) {
   // Add inputs to the clones map to prevent cloning them.
   for (const auto inp : fusion->inputs()) {
     clones_map_[inp] = inp;
@@ -115,8 +114,7 @@ Statement* RecomputeTv::handle(const Statement* s) {
 Statement* RecomputeTv::handle(const TensorDomain* td) {
   // Make sure to recompute the history of the iteration domains, explicitly go
   // through the expressions and send them to IrCloner.
-  auto exprs =
-      StmtSort::getExprsTo(fusion_, {td->leaf().begin(), td->leaf().end()});
+  auto exprs = StmtSort::getExprsTo({td->leaf().begin(), td->leaf().end()});
 
   for (auto expr : exprs) {
     IrCloner::handle(expr);

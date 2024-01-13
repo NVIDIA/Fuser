@@ -96,7 +96,9 @@ TensorIndex::TensorIndex(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
-          isStructType(index->dtype()),
+          isStructType(index->dtype()) ||
+          index->dtype() ==
+              DataType::UInt /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -255,6 +257,9 @@ DataType getTypeOrIndexType(Val* value) {
 
 const char* getPTXConstraints(Val* value) {
   DataType dt = getTypeOrIndexType(value);
+  if (dt == DataType::Bool) {
+    return "r";
+  }
   if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
     // If the index type is a pointer type, then we directly uses the pointer in
     // the generated code, instead of generating something like T0[i]. For this
@@ -292,8 +297,14 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  std::string prefix = "=";
-  for (auto out : outputs()) {
+  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+    std::string prefix;
+    if (options().readable_outputs.count(i) > 0) {
+      prefix = "+";
+    } else {
+      prefix = "=";
+    }
+    auto out = output(i);
     NVF_ERROR(!out->isConst());
     result.emplace_back(prefix + getPTXConstraints(out), out);
   }
@@ -315,14 +326,17 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
 
 std::string Asm::parameters() const {
   int64_t counter = 0;
+  int64_t bool_counter = 0;
   std::stringstream ss;
-  auto gen = [&counter, &ss](Val* v) {
+  auto gen = [&counter, &bool_counter, &ss](Val* v) {
     DataType dtype = getTypeOrIndexType(v);
     if (counter > 0) {
       ss << ", ";
     }
     if (isPointerType(dtype)) {
       ss << "[%" << counter++ << "]";
+    } else if (dtype == DataType::Bool) {
+      ss << "p" << bool_counter++;
     } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
       ss << "%" << counter++;
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
@@ -335,6 +349,8 @@ std::string Asm::parameters() const {
         ss << "%" << counter++;
       }
       ss << "}";
+    } else {
+      NVF_ERROR(false, "Unsupported data type ", dtype);
     }
   };
   for (auto out : outputs()) {
@@ -543,88 +559,151 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
 
-CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
+BlockSerializeWait::BlockSerializeWait(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addDataAttribute(keep_stages);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
 }
 
-std::string CpAsyncWait::toString(int indent_size) const {
+std::string BlockSerializeWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncWait(" << keepStages() << ")\n";
+  indent(ss, indent_size) << "BLOCKSERIALIZEWAIT(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
   return ss.str();
 }
 
-std::string CpAsyncWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncWait can not be printed inline");
+std::string BlockSerializeWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction pre sync can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeWait)
 
-CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-}
-
-std::string CpAsyncCommit::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncCommit()\n";
-  return ss.str();
-}
-
-std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncCommit can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
-
-CpAsyncBulkS2GWait::CpAsyncBulkS2GWait(
+BlockSerializeRelease::BlockSerializeRelease(
     IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string BlockSerializeRelease::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "BLOCKSERIALIZERELEASE(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockSerializeRelease::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction post sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeRelease)
+
+AsyncWait::AsyncWait(
+    IrBuilderPasskey passkey,
+    AsyncOpType async_op_type,
     int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
   addDataAttribute(keep_stages);
 }
 
-std::string CpAsyncBulkS2GWait::toString(int indent_size) const {
+std::string AsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncBulkS2GWait(" << keepStages() << ")\n";
+  indent(ss, indent_size) << ptx() << " " << keepStages() << "\n";
   return ss.str();
 }
 
-std::string CpAsyncBulkS2GWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncBulkS2GWait can not be printed inline");
+std::string AsyncWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncWait can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GWait)
+const char* AsyncWait::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      if (keepStages() == 0) {
+        return "cp.async.wait_all";
+      } else {
+        return "cp.async.wait_group";
+      }
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.wait_group.read";
+    case AsyncOpType::WgMma:
+      return "wgmma.wait_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
 
-CpAsyncBulkS2GCommit::CpAsyncBulkS2GCommit(IrBuilderPasskey passkey)
+bool AsyncWait::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return false;
+    case AsyncOpType::CpAsyncBulk:
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
+
+AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
 }
 
-std::string CpAsyncBulkS2GCommit::toString(int indent_size) const {
+std::string AsyncCommit::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncBulkS2GCommit()\n";
+  indent(ss, indent_size) << ptx() << ";\n";
   return ss.str();
 }
 
-std::string CpAsyncBulkS2GCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncBulkS2GCommit can not be printed inline");
+std::string AsyncCommit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncCommit can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GCommit)
+const char* AsyncCommit::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return "cp.async.commit_group";
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.commit_group";
+    case AsyncOpType::WgMma:
+      return "wgmma.commit_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+bool AsyncCommit::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+    case AsyncOpType::CpAsyncBulk:
+      return false;
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -1052,7 +1131,8 @@ GridReduction::GridReduction(
     Allocate* sync_buffer,
     Val* entrance_index,
     Val* entrances,
-    bool is_allreduce)
+    bool is_allreduce,
+    TensorIndex* serial_reduction_tensor)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -1067,6 +1147,7 @@ GridReduction::GridReduction(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addDataAttribute(ParallelTypeBitmap{});
+  addAttribute(serial_reduction_tensor);
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -1099,6 +1180,13 @@ std::string GridReduction::toString(int indent_size) const {
                           << threadPredicate().toString() << ",\n";
   indent(ss, indent_size) << "allreduce = "
                           << (isAllreduce() ? "true" : "false") << " )\n";
+  indent(ss, indent_size) << "serial reduction = "
+                          << (isSerial() ? "true" : "false") << " )\n";
+  if (isSerial()) {
+    indent(ss, indent_size)
+        << "serial reduction tensor = " << serialReductionTensor()->toString()
+        << " )\n";
+  }
   return ss.str();
 }
 
@@ -1571,7 +1659,7 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     tma::TensorMapInterleave interleave,
-    tma::TensorMapSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     tma::TensorMapL2Promotion l2_promotion,
     tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
@@ -1625,7 +1713,7 @@ std::string EncodeTensorMapTiled::toString(int indent_size) const {
                           << ", element_strides="
                           << elementStrides()->toString()
                           << ", interleave=" << interleave()
-                          << ", swizzle=" << swizzle()
+                          << ", swizzle=" << nvfuser::toString(swizzle())
                           << ", l2_promotion=" << l2Promotion()
                           << ", oob_fill=" << oobFill() << ")\n";
   return ss.str();
@@ -1639,7 +1727,8 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
      << ", global_strides=" << globalStrides()->toInlineString()
      << ", box_dim=" << boxDim()->toInlineString()
      << ", element_strides=" << elementStrides()->toInlineString()
-     << ", interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", interleave=" << interleave()
+     << ", swizzle=" << nvfuser::toString(swizzle())
      << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
   return ss.str();
 }

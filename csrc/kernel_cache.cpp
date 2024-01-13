@@ -85,7 +85,7 @@ class ArgumentManager {
   const PolymorphicValue* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
-  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
+  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
   // (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
@@ -196,8 +196,9 @@ class ArgumentManager {
       Val* output = group_outputs[group_out_i];
       const PolymorphicValue*& runtime_output = tensor_map_[output];
       if (runtime_output != nullptr) {
-        // A trivial forwarding output shares the same `Val*` as an input, so we
-        // simply map it to the same runtime output.
+        // A trivial forwarding output or a dupliated output shares the same
+        // `Val*` as another fusion input/output. In those cases, we keep
+        // mapping it to the same runtime output.
         continue;
       }
 
@@ -683,7 +684,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // each pair of device ID and
   auto config = std::make_pair(args.getDeviceIndex(), conc_info);
   auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto result =
+      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  if (result.second) {
+    deterministic_conc_info_.emplace_back(config);
+  }
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
@@ -751,6 +756,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
         args,
+        /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
@@ -781,7 +787,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
       fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (auto&& [config, device_runtimes] : kernel_runtimes_) {
+  for (const auto& config : deterministic_conc_info_) {
+    const auto& device_runtimes = kernel_runtimes_.at(config);
     std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
@@ -870,9 +877,13 @@ void FusionExecutorCache::deserialize(
     auto config =
         std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
     auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-    conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    auto result =
+        conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    if (result.second) {
+      deterministic_conc_info_.emplace_back(config);
+    }
 
-    for (auto runtime : *fb_device_runtimes->runtimes()) {
+    for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 
@@ -893,16 +904,21 @@ void FusionExecutorCache::deserialize(
 
       // 1. Deserialize arguments for this FusionKernelRuntime
       KernelArgumentHolder args;
-      args.deserialize(runtime->args());
+      args.deserialize(fb_fusion_kernel_runtime->args());
 
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
-          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+          "Expected serde FusionKernelRuntime device_id ",
+          ((int64_t)fb_device_runtimes->device_id()),
+          " to match KernelArgumentHolder metadata device id ",
+          ((int64_t)args.getDeviceIndex()),
+          ".");
 
       // 2. Construct new FusionKernelRuntime
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
+          fb_fusion_kernel_runtime,
           std::nullopt,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
@@ -910,7 +926,8 @@ void FusionExecutorCache::deserialize(
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
-      device_runtimes.back()->deserialize(runtime);
+      device_runtimes.back()->deserialize(
+          fb_fusion_kernel_runtime, args.getDeviceIndex());
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
@@ -927,6 +944,7 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
+    const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -946,6 +964,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       args.cend(),
       args_metadata_.getBackInserter(),
       convertMetadataArg);
+  args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
@@ -965,8 +984,34 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  segmented_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  if (serde_buffer == nullptr) {
+    // Default compilation path applies segmentation before scheduling and
+    // compiling the fusion.
+    segmented_fusion_ =
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  } else {
+    // Serialization path that generates segmented fusion from flatbuffers.
+    // Convert Welford to two-pass if option is enabled and the original
+    // heuristic is persistent
+    const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
+        segmented_groups = serde_buffer->segmented_fusion()->groups();
+    bool has_persistent_heuristic = std::any_of(
+        segmented_groups->begin(),
+        segmented_groups->end(),
+        [](const serde::SegmentedGroup* sg) {
+          auto heuristic = static_cast<ScheduleHeuristic>(sg->heuristic());
+          return heuristic == ScheduleHeuristic::InnerPersistent ||
+              heuristic == ScheduleHeuristic::OuterPersistent ||
+              heuristic == ScheduleHeuristic::InnerOuterPersistent;
+        });
+
+    bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    if (has_welford_ops && has_persistent_heuristic) {
+      SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+    }
+    segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+    segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
+  }
 
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
@@ -996,17 +1041,24 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     executors_fb.push_back(executor.serialize(builder));
   }
 
+  flatbuffers::Offset<serde::SegmentedFusion> segmented_fusion_fb = 0;
+  if (segmented_fusion_) {
+    segmented_fusion_fb = segmented_fusion_->serialize(builder);
+  }
+
   return serde::CreateFusionKernelRuntimeDirect(
       builder,
       fusion_id_,
       concrete_id_,
       runtime_id_,
       args_metadata_.serialize(builder),
-      &executors_fb);
+      &executors_fb,
+      segmented_fusion_fb);
 }
 
 void FusionKernelRuntime::deserialize(
-    const serde::FusionKernelRuntime* buffer) {
+    const serde::FusionKernelRuntime* buffer,
+    int8_t device_index) {
   // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
@@ -1038,6 +1090,7 @@ void FusionKernelRuntime::deserialize(
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
+        device_index,
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
         fusion_id_,
@@ -1197,6 +1250,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
   }
+
+  std::atomic<bool> detect_exception_in_thread_pool{false};
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1218,11 +1273,21 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
+      getThreadPool()->run([this,
+                            args,
+                            group_runtime_inputs,
+                            group_to_run,
+                            &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-        compileKernel(group_runtime_inputs, group_to_run);
+        try {
+          c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+          c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+          compileKernel(group_runtime_inputs, group_to_run);
+        } catch (const std::exception& e) {
+          // Set flag inside lambda so we can throw an exception after thread
+          // pool completes its work.
+          detect_exception_in_thread_pool.store(true);
+        }
       });
     }
 
@@ -1238,8 +1303,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    // wait until all segments finish compiling
+    // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool.load(),
+        "Detected exception while compiling fusion segments in parallel.\n",
+        "Use NVFUSER_DISABLE=parallel_compile to print exception message.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
@@ -1263,6 +1332,9 @@ void FusionKernelRuntime::compileKernel(
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
+    fusion_to_run->printMath();
+  }
   FusionGuard fg(fusion_to_run.get());
   scheduler_entry->schedule(fusion_to_run.get());
   NVF_ERROR(

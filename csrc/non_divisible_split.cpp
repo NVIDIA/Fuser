@@ -26,7 +26,7 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
         tv->getLeafDomain().begin(), tv->getLeafDomain().end());
     current_tv_ = tv;
     clearReachability();
-    traverseTo(fusion, domain_vals);
+    traverseTo(domain_vals);
     current_tv_ = nullptr;
   }
 

@@ -1,8 +1,10 @@
 import ctypes
+import gc
+import pytest_benchmark
 import torch
+from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
-from torch.autograd import DeviceType
 
 
 def get_device_properties() -> Tuple[int, float]:
@@ -122,6 +124,18 @@ def clear_l2_cache() -> None:
     n_elements = L2_CACHE_SIZE // 4
     x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
     y = torch.clone(x)
+
+
+def clear_cuda_cache() -> None:
+    """
+    Utility function to clear CUDA cache before running a test.
+    """
+    if (
+        torch.cuda.memory_allocated()
+        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
+    ):
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 class NVFBenchmark:
@@ -254,7 +268,7 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark,
+    benchmark: pytest_benchmark.fixture.BenchmarkFixture,
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,

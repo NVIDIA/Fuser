@@ -429,7 +429,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
-    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return {in};
       break;
     case UnaryOpType::Dereference:
@@ -457,6 +458,45 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
+      break;
+    case UnaryOpType::Cos:
+      return {in.as<at::Tensor>().cos()};
+      break;
+    case UnaryOpType::BitCast:
+      NVF_CHECK(
+          dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
+          "BitCast only works for types of the same size");
+      if (isComplexType(input(0)->dtype()) &&
+          std::holds_alternative<ArrayType>(out()->dtype().type)) {
+        // view_as_real case.
+        auto vec_type = std::get<ArrayType>(out()->dtype().type);
+        auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
+        NVF_CHECK(
+            *vec_type.type == inp_scalar_type,
+            "Output type must be the same as the scalar type of the complex input.");
+        NVF_CHECK(
+            vec_type.size == 2,
+            "Expected output to be array of size 2, found array of size ",
+            vec_type.size);
+        return {in.as<at::Tensor>()};
+      } else {
+        return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      }
+      break;
+    case UnaryOpType::Rsqrt:
+      return {in.as<at::Tensor>().rsqrt()};
+      break;
+    case UnaryOpType::Real:
+      return {at::real(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Imag:
+      return {at::imag(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Tan:
+      return {in.as<at::Tensor>().tan()};
+      break;
+    case UnaryOpType::IsFinite:
+      return {at::isfinite(in.as<at::Tensor>())};
       break;
     default:
       NVF_CHECK(
@@ -597,6 +637,15 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Gcd:
       return {gcd(lhs, rhs)};
+      break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
+      break;
+    case BinaryOpType::Complex:
+      return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
     default:
       NVF_CHECK(
@@ -1436,6 +1485,9 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Max:
       return {at::amax(input, reduction_axes)};
       break;
+    case BinaryOpType::Min:
+      return {at::amin(input, reduction_axes)};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -1499,6 +1551,45 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
 
   NVF_ERROR(
       false, "Not an output, ", output_val->toString(), ", of ", toString());
+}
+
+std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto num_reductions = numHorizontallyGroupedExprs();
+  std::vector<PolymorphicValue> grouped_reduction_out;
+  grouped_reduction_out.reserve(num_reductions);
+  for (const auto i : c10::irange(num_reductions)) {
+    const auto& in_tensor = inputs.at(i).as<at::Tensor>();
+    const auto out_tv = output(i)->as<TensorView>();
+    NVF_ERROR(
+        !out_tv->hasRFactor(),
+        "Evaluation for rFactored reductions is not supported.");
+
+    std::vector<int64_t> reduction_axes;
+    for (const auto id : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+      auto ax = out_tv->getRootDomain().at(id);
+      if (ax->isReduction()) {
+        reduction_axes.push_back(id);
+      }
+    }
+    switch (getReductionOpType(i)) {
+      case BinaryOpType::Add:
+        grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
+        break;
+      case BinaryOpType::Max:
+        grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
+        break;
+      default:
+        NVF_CHECK(
+            false,
+            "Unexpected operator type: ",
+            getReductionOpType(i),
+            " in ",
+            toString());
+    }
+  }
+  return grouped_reduction_out;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
@@ -1682,6 +1773,32 @@ std::string WelfordOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> WelfordOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      !hasInit(),
+      "Evaluation for WelfordOp is not implemented for non-empty initial values.");
+  const auto& in_tensor = inputs.at(0).as<at::Tensor>();
+  const auto out_tv = out()->as<TensorView>();
+  NVF_ERROR(
+      !out_tv->hasRFactor(),
+      "Evaluation for WelfordOp is not supported when output is rFactored.");
+
+  int64_t N = 1;
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+    auto ax = out_tv->getRootDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+      N *= in_tensor.size(i);
+    }
+  }
+  const auto [in_var, in_avg] =
+      at::var_mean(in_tensor, reduction_axes, false, false);
+  return {in_avg, in_var * N, N};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(WelfordOp)
 
 GroupedWelfordOp::GroupedWelfordOp(
@@ -1847,253 +1964,6 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
-// MmaOp utils
-namespace MmaOpUtils {
-
-// The expected number of concrete domains for gemm
-constexpr size_t expected_gemm_cdomains = 2;
-
-// A helper structure used to gather all data created during analysis
-struct MmaOpDetails {
-  using AxesData = MmaOp::AxesData;
-  // Concrete axes from A that are broadcast in B and are not
-  //  reduction in output
-  AxesData m_axes;
-  // Concrete axes from B that are broadcast in A and are not
-  //  reduction in output
-  AxesData n_axes;
-  // Concrete axes from A that are concrete in B and are
-  //  reduction in output
-  AxesData k_axes;
-  // Concrete or broadcast axes that are present in all inputs
-  //  and output
-  AxesData batch_axes;
-  // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
-};
-
-// A helper structure with pieces of information about TensorView
-struct TensorViewDetails {
-  using AxesData = MmaOp::AxesData;
-  // Broadcast domains
-  AxesData bcasts;
-  // Reduction domains
-  AxesData rdomains;
-  // Concrete domains
-  AxesData cdomains;
-};
-
-// A helper for gathering details about TensorView object
-TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
-  TensorViewDetails details;
-  for (auto pos : c10::irange((int64_t)dims.size())) {
-    const auto axis = dims.at(pos);
-    if (axis->isReduction()) {
-      details.rdomains.push_back(pos);
-      continue;
-    }
-    if (axis->isBroadcast()) {
-      details.bcasts.push_back(pos);
-      continue;
-    }
-    details.cdomains.push_back(pos);
-  }
-  return details;
-}
-
-MmaOptions::MmaLayout getInputLayout(
-    const TensorViewDetails& in_a,
-    const TensorViewDetails& in_b,
-    const MmaOp::AxesData& m_axes,
-    const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
-  // TT layout (b - broadcast, r - reduction):
-  // A = [M, K, b]
-  // B = [b, K, N]
-  // C = [M, r, N] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_a.bcasts.front()) &&
-      (in_b.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::TT;
-  }
-  // TN layout (b - broadcast, r - reduction):
-  // A = [M, b, K]
-  // B = [b, N, K]
-  // C = [M, N, r] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (in_a.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front()) &&
-      (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaLayout::TN;
-  }
-  // NT layout (b - broadcast, r - reduction):
-  // A = [K, M, b]
-  // B = [K, b, N]
-  // C = [r, M, N] (root domain)
-  if ((k_axes.front() < in_a.bcasts.front()) &&
-      (m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_b.bcasts.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::NT;
-  }
-  // NN layout (b - broadcast, r - reduction):
-  // A = [b, K, M]
-  // B = [N, K, b]
-  // C = [N, r, M] (root domain)
-  if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
-      (k_axes.front() < in_b.bcasts.front())) {
-    return MmaOptions::MmaLayout::NN;
-  }
-
-  NVF_ERROR(false, "Unsupported input layout");
-}
-
-MmaOpDetails getMmaOpDetails(
-    TensorView* out,
-    TensorView* in_a,
-    TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
-  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
-  const auto out_details = getDetailsFor(out->getRootDomain());
-
-  using AxesData = MmaOp::AxesData;
-
-  const auto getMOrNaxes = [](const AxesData& cdomains,
-                              const AxesData& bcasts,
-                              const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains
-    for (const auto& cdomain : cdomains) {
-      // That are in broadcast domains but are not in reduction domains
-      if ((std::find(bcasts.begin(), bcasts.end(), cdomain) != bcasts.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain) ==
-           rdomains.end())) {
-        result.push_back(cdomain);
-      }
-    }
-    return result;
-  };
-
-  const auto getKaxes = [](const AxesData& cdomains_a,
-                           const AxesData& cdomains_b,
-                           const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains from in_a
-    for (const auto& cdomain_a : cdomains_a) {
-      // That are in concrete domains in in_b and are in reduction domains
-      if ((std::find(cdomains_b.begin(), cdomains_b.end(), cdomain_a) !=
-           cdomains_b.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain_a) !=
-           rdomains.end())) {
-        result.push_back(cdomain_a);
-      }
-    }
-    return result;
-  };
-
-  const auto getBatchAxes = [](const TensorViewDetails& in_a_details,
-                               const TensorViewDetails& in_b_details,
-                               const TensorViewDetails& out_details) {
-    AxesData result;
-    // Batch candidates:
-    //  concrete domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.cdomains) {
-      if ((std::find(
-               in_b_details.cdomains.begin(),
-               in_b_details.cdomains.end(),
-               domain) != in_b_details.cdomains.end()) &&
-          (std::find(
-               out_details.cdomains.begin(),
-               out_details.cdomains.end(),
-               domain) != out_details.cdomains.end())) {
-        result.push_back(domain);
-      }
-    }
-    // Batch candidates:
-    //  broadcast domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.bcasts) {
-      if ((std::find(
-               in_b_details.bcasts.begin(),
-               in_b_details.bcasts.end(),
-               domain) != in_b_details.bcasts.end()) &&
-          (std::find(
-               out_details.bcasts.begin(), out_details.bcasts.end(), domain) !=
-           out_details.bcasts.end())) {
-        result.push_back(domain);
-      }
-    }
-    std::sort(result.begin(), result.end());
-    return result;
-  };
-
-  const auto validateInputDetails = [](const TensorViewDetails& details,
-                                       const std::string& desc) {
-    NVF_ERROR(!details.bcasts.empty(), desc, ": has no broadcast domains.");
-    NVF_ERROR(details.rdomains.empty(), desc, ": has reduction domains.");
-    NVF_ERROR(
-        details.cdomains.size() >= expected_gemm_cdomains,
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  const auto validateOutputDetails = [](const TensorViewDetails& details,
-                                        const std::string& desc) {
-    // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
-    NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
-    NVF_ERROR(
-        (details.cdomains.size() >= expected_gemm_cdomains),
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  validateInputDetails(in_a_details, "MmaOp input A");
-  validateInputDetails(in_b_details, "MmaOp input B");
-  validateOutputDetails(out_details, "MmaOp output");
-
-  MmaOpDetails details;
-
-  // For details, check MmaOpDetails
-  details.m_axes = getMOrNaxes(
-      in_a_details.cdomains, in_b_details.bcasts, out_details.rdomains);
-  details.n_axes = getMOrNaxes(
-      in_b_details.cdomains, in_a_details.bcasts, out_details.rdomains);
-  details.k_axes = getKaxes(
-      in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
-  details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
-
-  NVF_ERROR(
-      !details.m_axes.empty(),
-      "MmaOp inputs must define at least a single M dimension");
-  NVF_ERROR(
-      !details.n_axes.empty(),
-      "MmaOp inputs must define at least a single N dimension");
-  NVF_ERROR(
-      !details.k_axes.empty(),
-      "MmaOp inputs must define at least a single K dimension");
-
-  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
-  // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
-
-  return details;
-}
-
-}; // namespace MmaOpUtils
-
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -2122,7 +1992,7 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_MACRO
-  addDataAttribute(MmaOptions::MacroType::NoMMA);
+  addDataAttribute(MmaMacro::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2156,10 +2026,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaOptions::MacroType& macro,
+    const MmaMacro& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2188,13 +2058,9 @@ std::string MmaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-void MmaOp::configureOptions(MmaOptions options) {
-  MmaOptions::MacroType& macro =
-      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
-  NVF_ERROR(
-      options.macro != MmaOptions::MacroType::NoMMA,
-      "Un-configured mma type from options.");
-  macro = options.macro;
+void MmaOp::setMacro(MmaMacro macro) {
+  NVF_ERROR(macro != MmaMacro::NoMMA, "Unspecified mma type");
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2387,6 +2253,13 @@ std::string ViewAsScalar::toString(int indent_size) const {
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewAsScalar::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const at::Tensor& in = inputs.at(0).as<at::Tensor>();
+  return {at::view_as_real(in)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
@@ -2771,10 +2644,9 @@ std::string IterDomain::toString(int indent_size) const {
   if (stop() != extent()) {
     ss << stop()->toInlineString() << " : ";
   }
-  if (isBroadcast() && hasExpandedExtent()) {
-    ss << expandedExtent()->toInlineString();
-  } else {
-    ss << extent()->toInlineString();
+  ss << extent()->toInlineString();
+  if (hasExpandedExtent()) {
+    ss << " ex " << expandedExtent()->toInlineString();
   }
   ss << "}";
   if (isRFactorProduct()) {
@@ -2977,6 +2849,40 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
+    SwizzleType swizzle_type,
+    IterDomain* in_x,
+    IterDomain* in_y) {
+  NVF_CHECK(
+      !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
+      "Invalid swizzling of a empty dimension.");
+
+  // TODO: reduction check on swizzle:
+  NVF_CHECK(
+      !in_x->isReduction() && !in_y->isReduction(),
+      "swizzled reduction not yet supported");
+
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
+    NVF_CHECK(
+        !input->as<IterDomain>()->isBroadcast(),
+        "swizzling broadcast axes not yet supported");
+  }
+
+  // TODO: gather and shift check on swizzle
+  NVF_ERROR(
+      !in_x->isGather() && !in_y->isGather(),
+      "Swizzled gather not yet supported");
+
+  IterDomain* out_x = IterDomainBuilder(in_x).build();
+
+  IterDomain* out_y = IterDomainBuilder(in_y).build();
+
+  IrBuilder::create<Swizzle>(
+      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
+
+  return std::make_pair(out_x, out_y);
+}
+
+std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
     Swizzle2DType swizzle_type,
     IterDomain* in_x,
     IterDomain* in_y,
@@ -2990,7 +2896,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
       !in_x->isReduction() && !in_y->isReduction(),
       "swizzled reduction not yet supported");
 
-  for (auto input : InputsOf::outputs(in_x->fusion(), {in_x, in_y})) {
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
     NVF_CHECK(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");
@@ -3218,8 +3124,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3236,8 +3141,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = root_domain_.size();
@@ -3283,7 +3187,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
@@ -3312,7 +3215,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
@@ -3347,7 +3249,6 @@ TensorDomain::TensorDomain(
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
-  has_reduction_ = false;
   resetDomains();
 }
 
@@ -3718,6 +3619,35 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   return reordered_domain;
 }
 
+void TensorDomain::swizzle(SwizzleType swizzle_type, int x, int y) {
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
+
+  NVF_CHECK(
+      x >= 0 && (unsigned int)x < nDims(),
+      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+
+  NVF_CHECK(
+      y >= 0 && (unsigned int)y < nDims(),
+      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+
+  IterDomain* axis_x = axis(x);
+  IterDomain* axis_y = axis(y);
+
+  IterDomain* axis_out_x = nullptr;
+  IterDomain* axis_out_y = nullptr;
+
+  std::tie(axis_out_x, axis_out_y) =
+      IterDomain::swizzle(swizzle_type, axis_x, axis_y);
+
+  leaf_domain_.erase(leaf_domain_.begin() + x);
+  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
+
+  leaf_domain_.erase(leaf_domain_.begin() + y);
+  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
+
+  resetDomains();
+}
+
 void TensorDomain::swizzle(
     Swizzle2DType swizzle_type,
     int x,
@@ -3998,6 +3928,41 @@ std::string Merge::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
+
+Swizzle::Swizzle(
+    IrBuilderPasskey passkey,
+    IterDomain* out_x,
+    IterDomain* out_y,
+    IterDomain* in_x,
+    IterDomain* in_y,
+    SwizzleType swizzle_type)
+    : Expr(passkey) {
+  addOutput(out_x);
+  addOutput(out_y);
+  addInput(in_x);
+  addInput(in_y);
+  addDataAttribute(swizzle_type);
+}
+
+std::string Swizzle::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << swizzleType() << "(2D): ";
+  ss << inX()->toString();
+  ss << " , ";
+  ss << inY()->toString();
+  ss << " -> ";
+  ss << outX()->toString();
+  ss << " , ";
+  ss << outY()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Swizzle::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
 Swizzle2D::Swizzle2D(
     IrBuilderPasskey passkey,

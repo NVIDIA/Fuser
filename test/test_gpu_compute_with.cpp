@@ -311,9 +311,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0.mean({1}) + 1;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Compute a tensor with a consumer that has siblings. The tensor is
@@ -352,9 +350,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = (t0 + 1).mean({1}) + 1;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Testing inlining with a fusion with an outer persistent grid welford

@@ -128,8 +128,6 @@ class RecomputeTv : private IrCloner {
   RecomputeTv(Fusion* fusion);
   Statement* handle(const Statement* s) override;
   Statement* handle(const TensorDomain*);
-
-  Fusion* fusion_;
 };
 
 //! Clone an IR node, forwarding the arguments to the IrCloner constructor.

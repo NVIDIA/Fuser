@@ -118,7 +118,7 @@ struct TrieNode {
 class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
-  FusionCache(size_t max_fusions, bool load_from_default_workspace);
+  FusionCache(size_t max_fusions);
 
  public:
   //! Copy and Assignment of the FusionCache is not supported
@@ -139,7 +139,7 @@ class FusionCache {
   //! print cache stats
   void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
-  static void reset(bool load_from_default_workspace = false);
+  static void reset();
 
   //! Serialize Fusion Cache using flatbuffers
   void serialize(std::string filename) const;
@@ -177,12 +177,6 @@ class FusionCache {
   TrieNode* rootTriePtr();
 
  private:
-  using BinaryBuffer = std::vector<uint8_t>;
-  //! Deserialize Fusion Cache
-  void deserialize(
-      const BinaryBuffer& buffer,
-      const serde::FusionCache* fusion_cache_buffer);
-
   //! The static pointer to the FusionCache
   static FusionCache* singleton_;
   //! Lock for accessing the singleton by multiple threads
