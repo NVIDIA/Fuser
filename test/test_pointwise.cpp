@@ -201,4 +201,35 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, true})
+                        .strideOrder({2, 0, 1})
+                        .build();
+  TensorView* tv1 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({std::nullopt, std::nullopt, true})
+                        .strideOrder({2, 0, 1})
+                        .build();
+  fusion->addInput(tv0);
+  auto tv2 = add(tv0, tv1);
+  tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
+  at::Tensor t1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  // EXPECT_EQ(getVecSizeForPointwise(fec), 4);
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
