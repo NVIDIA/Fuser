@@ -680,7 +680,8 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
 void IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
-  NVF_ERROR(id_graphs_.emplace(IdMappingMode::EXACT, initializeIdGraph()).second);
+  NVF_ERROR(
+      id_graphs_.emplace(IdMappingMode::EXACT, initializeIdGraph()).second);
 
   for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
@@ -769,7 +770,10 @@ void IdModel::buildAlmostExactGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
 
   // Build almost exact map by forwarding through broadcast axes
-  NVF_ERROR(id_graphs_.emplace(IdMappingMode::ALMOSTEXACT, idGraph(IdMappingMode::EXACT)).second);
+  NVF_ERROR(
+      id_graphs_
+          .emplace(IdMappingMode::ALMOSTEXACT, idGraph(IdMappingMode::EXACT))
+          .second);
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
@@ -811,7 +815,10 @@ void IdModel::buildPermissiveGraph() {
   // Use the exact map as the starting map rather than the
   // almost-exact map. Almost exact is useful for index hoisting but
   // not necessary for permissive and loop maps
-  NVF_ERROR(id_graphs_.emplace(IdMappingMode::PERMISSIVE, idGraph(IdMappingMode::EXACT)).second);
+  NVF_ERROR(
+      id_graphs_
+          .emplace(IdMappingMode::PERMISSIVE, idGraph(IdMappingMode::EXACT))
+          .second);
 
   for (auto expr : tv_exprs_) {
     // Multiple outputs are already mapped, we can ignore all but the first
@@ -975,7 +982,8 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   // In the case of the Loop graph, we do not propagate mappings but
   // explicitly set which domains to map based on the permissive graph
   // and the CA positions.
-  NVF_ERROR(id_graphs_.emplace(IdMappingMode::LOOP, initializeIdGraph(false)).second);
+  NVF_ERROR(
+      id_graphs_.emplace(IdMappingMode::LOOP, initializeIdGraph(false)).second);
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.
