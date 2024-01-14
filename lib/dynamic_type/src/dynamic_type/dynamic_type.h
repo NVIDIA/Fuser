@@ -590,7 +590,7 @@ DEFINE_BINARY_OP(rshift, >>, operator>>);
 // overloading, because we want to leave the operator overloading for comparison
 // operators that returns bool. Instead, we give each operator a function name,
 // so that users can use the function name to call the operator. That is:
-//   dt1 < dt2 --> returns a bool
+//   dt1 < dt2 --> returns a bool (defined below by DEFINE_COMPARE_OP)
 //   lt(dt1, dt2) --> returns a DynamicType
 DEFINE_BINARY_OP(eq, ==, eq);
 DEFINE_BINARY_OP(neq, !=, ne);
