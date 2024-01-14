@@ -25,12 +25,13 @@ class IrContainer;
 class IrSerde {
  public:
   IrSerde(const IrContainer* container);
+  IrSerde(
+      const IrContainer* container,
+      const std::vector<Statement*>& preconstructed_statements);
 
   const std::vector<Statement*>& topologicalSortedStatements() const {
     return toposorted_stmts_;
   }
-
-  std::vector<int64_t> update(const std::vector<Statement*>& new_stmts);
 
   int64_t map(Statement* v) const;
   int64_t map(const Statement* v) const;
@@ -53,9 +54,12 @@ class IrSerde {
  private:
   std::vector<Statement*> topologicalSortStatements(
       const IrContainer* container);
+
   std::vector<Statement*> topologicalSortStatements(
+      const std::vector<Statement*>& preconstructed_statements,
       const std::deque<Val*>& values,
       const std::deque<Expr*>& exprs);
+
   std::unordered_map<Val*, int64_t> createToposortValuesMap() const noexcept;
   std::unordered_map<Expr*, int64_t> createToposortExpressionsMap()
       const noexcept;

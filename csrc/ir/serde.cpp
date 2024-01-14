@@ -93,49 +93,28 @@ IrSerde::IrSerde(const IrContainer* container)
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
 
-std::vector<int64_t> IrSerde::update(const std::vector<Statement*>& new_stmts) {
-  std::unordered_set<int64_t> new_stmts_set;
-  for (Statement* stmt : new_stmts) {
-    new_stmts_set.insert(getStatementId(stmt));
-  }
-
-  std::vector<Statement*> updated_stmts;
-  std::vector<int64_t> statement_ids;
-  std::unordered_set<int64_t> this_stmts_set;
-  // Remove statments that are missing from new_stmts
-  for (Statement* stmt : toposorted_stmts_) {
-    int64_t stmt_id = getStatementId(stmt);
-    if (new_stmts_set.count(stmt_id) == 0) {
-      continue;
-    }
-    statement_ids.push_back(stmt_id);
-    this_stmts_set.insert(stmt_id);
-    updated_stmts.push_back(stmt);
-  }
-
-  // Add statements that are missing from toposorted_stmts_
-  for (Statement* stmt : new_stmts) {
-    int64_t stmt_id = getStatementId(stmt);
-    auto is_invalid_td =
-        stmt != nullptr && invalid_tensor_domains_.count(stmt) > 0;
-    if (this_stmts_set.count(stmt_id) > 0 || is_invalid_td) {
-      continue;
-    }
-    statement_ids.push_back(stmt_id);
-    updated_stmts.push_back(stmt);
-  }
-
-  toposorted_stmts_.swap(updated_stmts);
-  return statement_ids;
-}
+IrSerde::IrSerde(
+    const IrContainer* container,
+    const std::vector<Statement*>& preconstructed_statements)
+    : container_{container},
+      invalid_tensor_domains_{findInvalidTensorDomain(container->vals())},
+      toposorted_stmts_{topologicalSortStatements(
+          preconstructed_statements,
+          container->deterministic_vals(),
+          container->deterministic_exprs())},
+      vals_to_id_map_{createToposortValuesMap()},
+      exprs_to_id_map_{createToposortExpressionsMap()} {}
 
 std::vector<Statement*> IrSerde::topologicalSortStatements(
     const IrContainer* container) {
   if (container->validSerializationState()) {
     return container->deterministic_stmts();
   }
+  std::vector<Statement*> preconstructed_statements;
   return topologicalSortStatements(
-      container->deterministic_vals(), container->deterministic_exprs());
+      preconstructed_statements,
+      container->deterministic_vals(),
+      container->deterministic_exprs());
 }
 
 // A generic utility then ensures that all of a value's dependencies should have
@@ -147,6 +126,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
 // outputs, and attribute Vals. After creating an Expr, we assign the Expr to
 // output Vals' definition. Now, output Val are valid for other Vals.
 std::vector<Statement*> IrSerde::topologicalSortStatements(
+    const std::vector<Statement*>& preconstructed_statements,
     const std::deque<Val*>& values,
     const std::deque<Expr*>& exprs) {
   std::vector<Statement*> sorted;

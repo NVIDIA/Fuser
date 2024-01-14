@@ -485,6 +485,22 @@ bool IrContainer::inContainer(const Statement* stmt) const {
   return true;
 }
 
+void IrContainer::sortAllStatements() {
+  auto val_comp = [](std::unique_ptr<Val>& lhs, std::unique_ptr<Val>& rhs) {
+    return lhs->id() < rhs->id();
+  };
+  auto expr_comp = [](std::unique_ptr<Expr>& lhs, std::unique_ptr<Expr>& rhs) {
+    return lhs->id() < rhs->id();
+  };
+  auto stmt_comp = [](Statement* lhs, Statement* rhs) {
+    return lhs->id() < rhs->id();
+  };
+
+  std::sort(vals_up_.begin(), vals_up_.end(), val_comp);
+  std::sort(exprs_up_.begin(), exprs_up_.end(), expr_comp);
+  std::sort(stmts_.begin(), stmts_.end(), stmt_comp);
+}
+
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {

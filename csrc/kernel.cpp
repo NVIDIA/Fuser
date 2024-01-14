@@ -314,8 +314,9 @@ Kernel::Kernel(PrimDataType index_type) : index_type_(index_type) {
 }
 
 flatbuffers::Offset<serde::Kernel> Kernel::serialize(
+    const std::vector<Statement*>& container_analyze_statements,
     flatbuffers::FlatBufferBuilder& builder) const {
-  IrSerde container(this);
+  IrSerde container(this, container_analyze_statements);
   std::vector<flatbuffers::Offset<serde::Scope>> fb_scopes;
   fb_scopes.reserve(scopes_.size());
   std::transform(

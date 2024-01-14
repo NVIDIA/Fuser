@@ -300,14 +300,8 @@ class GpuLower : public NonCopyable {
   //! The scheduled fusion stored for serialization
   std::unique_ptr<Fusion> scheduled_fusion_;
 
-  //! GpuLower::analysis modifies the fusion before the lowering passes in
-  //! GpuLower::run. We save the statement names for kernel after
-  //! GpuLower::analysis, so we can verify the state of the kir::Kernel during
-  //! deserialization.
+  //! All statements in kir::Kernel after running GpuLower::lower
   std::vector<Statement*> container_analyze_statements_;
-
-  //! Serialization state for kir::Kernel
-  std::unique_ptr<IrSerde> kernel_serde_;
 };
 
 } // namespace nvfuser

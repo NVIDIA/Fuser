@@ -58,6 +58,8 @@ class IrContainer : public PolymorphicBase {
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 
+  void sortAllStatements();
+
   bool validSerializationState() const {
     return valid_serialize_state_;
   }

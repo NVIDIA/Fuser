@@ -184,6 +184,7 @@ class Kernel final : public Fusion {
   Kernel& operator=(const Kernel&) = delete;
 
   flatbuffers::Offset<serde::Kernel> serialize(
+      const std::vector<Statement*>& container_analyze_statements,
       flatbuffers::FlatBufferBuilder& builder) const;
 
   void deserialize(const serde::Kernel* buffer);

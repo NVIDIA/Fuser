@@ -730,7 +730,6 @@ table Kernel {
 
 table GpuLower {
   scheduled_fusion: Fusion;
-  container_state_names: [long];
   kernel: Kernel;
 }
 
