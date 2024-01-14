@@ -152,13 +152,17 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
   std::vector<Statement*> sorted;
   sorted.reserve(values.size() + exprs.size());
 
-  std::unordered_set<Val*> to_sort_values;
+  typedef std::function<bool(Val*, Val*)> val_comp_fn;
+  auto val_comp = [](Val* lhs, Val* rhs) { return lhs->id() < rhs->id(); };
+  std::set<Val*, val_comp_fn> to_sort_values(val_comp);
   std::copy(
       values.begin(),
       values.end(),
       std::inserter(to_sort_values, to_sort_values.end()));
 
-  std::unordered_set<Expr*> to_sort_exprs;
+  typedef std::function<bool(Expr*, Expr*)> expr_comp_fn;
+  auto expr_comp = [](Expr* lhs, Expr* rhs) { return lhs->id() < rhs->id(); };
+  std::set<Expr*, expr_comp_fn> to_sort_exprs(expr_comp);
   std::copy(
       exprs.begin(),
       exprs.end(),

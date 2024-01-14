@@ -305,6 +305,8 @@ class GpuLower : public NonCopyable {
   //! GpuLower::analysis, so we can verify the state of the kir::Kernel during
   //! deserialization.
   std::vector<Statement*> container_analyze_statements_;
+
+  //! Serialization state for kir::Kernel
   std::unique_ptr<IrSerde> kernel_serde_;
 };
 

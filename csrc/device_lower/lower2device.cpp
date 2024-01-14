@@ -321,15 +321,15 @@ GpuLower::GpuLower(
   analysis();
   NVF_ERROR(
       gpulower->container_state_names()->size() ==
-      kernel_->deterministic_stmts().size());
+      container_analyze_statements_.size());
   for (size_t index : c10::irange(gpulower->container_state_names()->size())) {
     NVF_ERROR(
-        kernel_->deterministic_stmts().at(index) != nullptr ||
+        container_analyze_statements_.at(index) != nullptr ||
             gpulower->container_state_names()->Get(index) == -1,
         "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
     NVF_ERROR(
         gpulower->container_state_names()->Get(index) ==
-            kernel_->deterministic_stmts().at(index)->id(),
+            container_analyze_statements_.at(index)->id(),
         "Mismatched statement name between this GpuLower and the serde::GpuLower buffer.");
   }
 }
