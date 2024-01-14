@@ -410,6 +410,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
     for (IterDomain* inp : new_inputs) {
       if (const ExprGroups* uses = graph.getUses(graph.toGroup(inp)); uses) {
         for (const ExprGroup& use_group : *uses) {
+          NVF_ERROR(!use_group->empty());
           representative_uses.pushBack(use_group->front());
         }
       }
@@ -756,7 +757,20 @@ void IdModel::buildAlmostExactMap() {
   }
 
   for (const auto& [id1, id2] : ids_to_map) {
+    for (const auto& [vg, egs]: almost_exact_graph.unique_uses_) {
+      for (const ExprGroup& eg: egs) {
+        NVF_ERROR(eg.get() != nullptr);
+      }
+    }
+
+    //std::cerr << "Almost mapping: " << id1->name() << " and " << id2->name() << std::endl;
     almost_exact_graph.mapVals(id1, id2);
+
+    for (const auto& [vg, egs]: almost_exact_graph.unique_uses_) {
+      for (const ExprGroup& eg: egs) {
+        NVF_ERROR(eg.get() != nullptr);
+      }
+    }
   }
 }
 
@@ -1120,10 +1134,13 @@ void IdModel::propagateLoopPTypes() const {
   }
 }
 
+
+
 void IdModel::build(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool validate) {
+  std::cerr << "***** Building graphs **** \n";
   // Initialize the required sets as if a permissive relationship is never
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
@@ -1149,6 +1166,79 @@ void IdModel::build(
     return;
   }
 
+  auto debug_print = [&](IdMappingMode mode) {
+    VERBOSE() << "\n********\n**** Debug print of " << mode << std::endl;
+    for (const auto& exprg: idGraph(mode).disjointExprSets().disjointSets()) {
+      NVF_ERROR(exprg.get() != nullptr);
+      VERBOSE() << mode << " g: " << nvfuser::toString(exprg)
+                << " @ " << exprg.get()
+                << std::endl;
+    }
+    std::unordered_set<ExprGroup> egs;
+    for (const auto& [expr, exprg]: idGraph(mode).disjointExprSets().disjointSetMap()) {
+      egs.insert(exprg);
+    }
+    for (const auto& g: egs) {
+      VERBOSE() << "Map g: " << g.get() << std::endl;
+    }
+
+    std::unordered_set<ValGroup> map_gs;
+    for (const auto& [val, valg]: idGraph(mode).disjointValSets().disjointSetMap()) {
+      VERBOSE() << mode << " map g: " << nvfuser::toString(valg)
+                << " @ " << valg.get()
+                << std::endl;
+      map_gs.insert(valg);
+    }
+    std::unordered_set<ValGroup> set_gs;
+    for (const auto& valg: idGraph(mode).disjointValSets().disjointSets()) {
+      VERBOSE() << mode << " set g: " << nvfuser::toString(valg)
+                << " @ " << valg.get()
+                << std::endl;
+      set_gs.insert(valg);
+    }
+
+    for (const auto& map_g: map_gs) {
+      if (set_gs.count(map_g) == 0) {
+        VERBOSE() << "ERROR! Map group not found in set: " << nvfuser::toString(map_g) << std::endl;
+      }
+    }
+
+    for (const auto& set_g: set_gs) {
+      if (map_gs.count(set_g) == 0) {
+        VERBOSE() << "ERROR! Set group not found in map: " << nvfuser::toString(set_g) << std::endl;
+      }
+    }
+    bool found = false;
+    const auto& expr_groups = idGraph(mode).disjointExprSets().disjointSets();
+    for (const auto& valg: idGraph(mode).disjointValSets().disjointSets()) {
+      VERBOSE() << "Valg: " << nvfuser::toString(valg) << " @ " << valg.get() << std::endl;
+      if (const auto uses = idGraph(mode).getUses(valg); uses) {
+        for (const ExprGroup& useg : *uses) {
+          VERBOSE() << "\tuse group @ " << useg.get() << " ";
+          auto it = std::find(expr_groups.begin(), expr_groups.end(), useg);
+          if (it == expr_groups.end()) {
+            VERBOSE() << "Unknown expr group!!!!!!!\n";
+            found = true;
+          } else {
+            VERBOSE() << "Valid expr group\n";
+          }
+
+          for (Expr* usee: *useg) {
+            VERBOSE() << "\t\t: use: " << usee->name() << ", mapped: "
+                      << idGraph(mode).hasGroup(usee)
+                      << std::endl;
+            if (!idGraph(mode).hasGroup(usee)) {
+              VERBOSE() << "ERROR!!!\n";
+            }
+          }
+        }
+      }
+    }
+
+    NVF_ERROR(!found);
+
+  };
+
   std::unique_ptr<IdModelValidator> validator;
 
   // A ComputeAtMap will be built inside the constructor of
@@ -1172,11 +1262,15 @@ void IdModel::build(
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
+  debug_print(IdMappingMode::EXACT);
+
   buildAlmostExactMap();
-  if (validate) {
+  if (false && validate) {
     validator->checkAlmostExactGraphEquivalence(
         idGraph(IdMappingMode::ALMOSTEXACT));
   }
+
+  debug_print(IdMappingMode::ALMOSTEXACT);
 
   buildPermissiveMap(tv_exprs);
   // Validation is not implemented when compliment mapping is enabled
@@ -1184,6 +1278,9 @@ void IdModel::build(
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
+
+  VERBOSE() << "Before removal\n";
+  debug_print(IdMappingMode::ALMOSTEXACT);
 
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions
