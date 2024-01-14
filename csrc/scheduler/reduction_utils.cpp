@@ -573,8 +573,12 @@ int idPos(const IterDomain* id) {
   }
   inner_most--;
 
-  // Reduction, constant, and not root.
-  if (id->isReduction() && id->extent()->isConstScalar() && id->definition()) {
+  // Reduction, constant and:
+  // id must be the factor used in a split, otherwise, the split output may be
+  // constant in the reference tensor but dynamic in others. See issue 1590.
+  bool is_split_factor = id->isDefinitionType<Split>() &&
+      (id == dynamic_cast<Split*>(id->definition())->factor());
+  if (id->isReduction() && id->extent()->isConstScalar() && is_split_factor) {
     return inner_most;
   }
   inner_most--;
