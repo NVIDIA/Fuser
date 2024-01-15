@@ -129,8 +129,7 @@ ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const ValGroup& output_group : outputGroups(current_expr)) {
-      const ExprGroups& group_uses = getUses(output_group);
-      for (const ExprGroup& group_use : group_uses) {
+      for (const ExprGroup& group_use : getUses(output_group)) {
         if (visited.count(group_use)) {
           continue;
         }
@@ -155,8 +154,7 @@ ExprGroups ValGraph::allDefinitionsOf(const ValGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const ValGroup& input_id : inputGroups(current_expr)) {
-      const ExprGroups& group_defs = getDefinitions(input_id);
-      for (const ExprGroup& group_def : group_defs) {
+      for (const ExprGroup& group_def : getDefinitions(input_id)) {
         if (visited.count(group_def)) {
           continue;
         }
@@ -346,8 +344,7 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 
       if (processValGroup(currently_visiting_ids)) {
         something_was_processed = true;
-        const ExprGroups& definitions = getDefinitions(currently_visiting_ids);
-        for (const ExprGroup& def : definitions) {
+        for (const ExprGroup& def : getDefinitions(currently_visiting_ids)) {
           if (!all_exprs.has(def)) {
             continue;
           }
@@ -645,15 +642,17 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   if (disjointValSets().strictAreMapped(val0, val1)) {
     return;
   }
+
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
-  ValGroup orig_val_group0 = toGroup(val0);
-  ValGroup orig_val_group1 = toGroup(val1);
-  const ExprGroups orig_defs0 = getDefinitions(orig_val_group0);
-  const ExprGroups orig_defs1 = getDefinitions(orig_val_group1);
-  const ExprGroups orig_uses0 = getUses(orig_val_group0);
-  const ExprGroups orig_uses1 = getUses(orig_val_group1);
+  const ValGroup orig_val_group0 = toGroup(val0);
+  const ValGroup orig_val_group1 = toGroup(val1);
+
+  const ExprGroups& orig_defs0 = getDefinitions(orig_val_group0);
+  const ExprGroups& orig_defs1 = getDefinitions(orig_val_group1);
+  const ExprGroups& orig_uses0 = getUses(orig_val_group0);
+  const ExprGroups& orig_uses1 = getUses(orig_val_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -661,8 +660,13 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   disjoint_vals_.mapEntries(val0, val1);
   auto new_val_group = toGroup(val0);
 
-  unique_definitions_[new_val_group] = orig_defs0.computeUnion(orig_defs1);
-  unique_uses_[new_val_group] = orig_uses0.computeUnion(orig_uses1);
+  // Make sure to use orig_defs0/1 and orig_uses0/1 before updating
+  // unique_definitions_ and unique_uses as they are references and
+  // may be invalidated
+  const ExprGroups new_defs = orig_defs0.computeUnion(orig_defs1);
+  const ExprGroups new_uses = orig_uses0.computeUnion(orig_uses1);
+  unique_definitions_[new_val_group] = new_defs;
+  unique_uses_[new_val_group] = new_uses;
 
   for (const auto& [vg, egs] : unique_uses_) {
     for (const ExprGroup& eg : egs) {
@@ -676,7 +680,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
       for (const ExprGroup& use_group_0 : orig_uses0) {
         NVF_ERROR(use_group_1.get() != nullptr);
         NVF_ERROR(use_group_0.get() != nullptr);
-
         if (use_group_0 == use_group_1 || use_group_1->empty() ||
             use_group_0->empty()) {
           continue;
@@ -695,7 +698,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
       for (const ExprGroup& def_group_0 : orig_defs0) {
         NVF_ERROR(def_group_1.get() != nullptr);
         NVF_ERROR(def_group_0.get() != nullptr);
-
         if (def_group_0 == def_group_1 || def_group_0->empty() ||
             def_group_1->empty()) {
           continue;

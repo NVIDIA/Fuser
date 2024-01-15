@@ -1256,7 +1256,7 @@ void IdModel::build(
   // debug_print(IdMappingMode::EXACT);
 
   buildAlmostExactMap();
-  if (false && validate) {
+  if (validate) {
     validator->checkAlmostExactGraphEquivalence(
         idGraph(IdMappingMode::ALMOSTEXACT));
   }
