@@ -456,6 +456,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_sharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
