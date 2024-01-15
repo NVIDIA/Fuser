@@ -16,4 +16,12 @@ namespace nvfuser {
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(TensorView*);
 
+// Returns the subset of tvs which elements have the same multi-device sharding as ref
+std::unordered_set<TensorView*> haveDifferentSharding(
+    TensorView* ref,
+    std::unordered_set<TensorView*> tvs);
+
+// Returns whether an Expr embbeds multi-device resharding
+bool isResharding(Expr* expr);
+
 } // namespace nvfuser
