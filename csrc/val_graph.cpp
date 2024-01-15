@@ -649,10 +649,13 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   const ValGroup orig_val_group0 = toGroup(val0);
   const ValGroup orig_val_group1 = toGroup(val1);
 
-  const ExprGroups& orig_defs0 = getDefinitions(orig_val_group0);
-  const ExprGroups& orig_defs1 = getDefinitions(orig_val_group1);
-  const ExprGroups& orig_uses0 = getUses(orig_val_group0);
-  const ExprGroups& orig_uses1 = getUses(orig_val_group1);
+  // Note that getDefinitions and getUses return references, which
+  // will be invalidated once unique_definitions_ and unique_uses_ are
+  // updated
+  const ExprGroups orig_defs0 = getDefinitions(orig_val_group0);
+  const ExprGroups orig_defs1 = getDefinitions(orig_val_group1);
+  const ExprGroups orig_uses0 = getUses(orig_val_group0);
+  const ExprGroups orig_uses1 = getUses(orig_val_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -660,13 +663,8 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   disjoint_vals_.mapEntries(val0, val1);
   auto new_val_group = toGroup(val0);
 
-  // Make sure to use orig_defs0/1 and orig_uses0/1 before updating
-  // unique_definitions_ and unique_uses as they are references and
-  // may be invalidated
-  const ExprGroups new_defs = orig_defs0.computeUnion(orig_defs1);
-  const ExprGroups new_uses = orig_uses0.computeUnion(orig_uses1);
-  unique_definitions_[new_val_group] = new_defs;
-  unique_uses_[new_val_group] = new_uses;
+  unique_definitions_[new_val_group] = orig_defs0.computeUnion(orig_defs1);
+  unique_uses_[new_val_group] = orig_uses0.computeUnion(orig_uses1);
 
   for (const auto& [vg, egs] : unique_uses_) {
     for (const ExprGroup& eg : egs) {
