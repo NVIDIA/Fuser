@@ -395,52 +395,44 @@ void AliasAnalysisResult::add(
       i->second.first);
 }
 
-TensorView* AliasAnalysisResult::findNearestAliasedIo(
-    TensorView* fusion_out) const {
-  TensorView* root = fusion_out;
-  do {
-    const auto i = alias_to_source_.find(root);
-    root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-  } while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput());
-  return root;
-}
-
 TensorView* AliasAnalysisResult::getNearestAliasedIo(
-    const TensorView* fusion_out) const {
-  const auto i = out_to_root_.find(fusion_out);
-  return i == out_to_root_.end() ? nullptr : i->second;
+    const TensorView* alias) const {
+  const auto i = alias_to_root_.find(alias);
+  return i == alias_to_root_.end() ? nullptr : i->second;
 }
 
 namespace {
 bool okToRelayout(
-    const TensorView* out,
+    const TensorView* tv,
     const Layout& new_layout,
     const bool can_override_empty_allocation_domain) {
-  const std::vector<IterDomain*> out_allocation =
-      (can_override_empty_allocation_domain ? out->getAllocationDomain()
-                                            : out->getMaybeAllocationDomain());
-  return new_layout.isCompliantWith({out_allocation, out->getContiguity()});
+  const std::vector<IterDomain*> allocation =
+      (can_override_empty_allocation_domain ? tv->getAllocationDomain()
+                                            : tv->getMaybeAllocationDomain());
+  return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
 } // namespace
 
 void AliasAnalysisResult::finalize(
-    Fusion* fusion,
     const bool can_override_empty_allocation_domain) {
-  for (TensorView* out :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* root = findNearestAliasedIo(out);
+  for (auto [alias, root_and_layout] : alias_to_source_) {
+    auto [root, preferred_layout] = root_and_layout;
+    // Walks up the `alias_to_source_` chain.
+    while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput()) {
+      const auto i = alias_to_source_.find(root);
+      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+    }
     if (root == nullptr) {
       continue;
     }
 
-    const Layout preferred_layout = preferredLayout(out);
     if (!okToRelayout(
-            out, preferred_layout, can_override_empty_allocation_domain)) {
+            alias, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
     }
 
-    out_to_root_[out] = root;
+    alias_to_root_[alias] = root;
   }
 }
 
@@ -456,7 +448,7 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "All aliases:"
+  indent(ss, indent_size) << "Potential aliases:"
                           << (alias_to_source_.empty() ? " <empty>" : "")
                           << std::endl;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
@@ -466,13 +458,15 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
         << ir_utils::varName(source) << " if its layout is "
         << layout.toString() << std::endl;
   }
-  indent(ss, indent_size) << "Output aliases only:"
-                          << (out_to_root_.empty() ? " <empty>" : "")
-                          << std::endl;
-  for (const auto& [out, root] : out_to_root_) {
+  indent(ss, indent_size) << "Finalized aliases:" << std::endl;
+  for (const auto& [alias, root] : alias_to_root_) {
     indent(ss, indent_size + 1)
-        << ir_utils::varName(out) << " is a transitive alias of "
-        << ir_utils::varName(root) << std::endl;
+        << ir_utils::varName(alias) << " of allocation domain ["
+        << toDelimitedString(alias->getAllocationDomain())
+        << "] and rfactor domain ["
+        << toDelimitedString(alias->getMaybeRFactorDomain())
+        << "] is a transitive alias of " << ir_utils::varName(root)
+        << std::endl;
   }
   return ss.str();
 }
@@ -491,7 +485,7 @@ AliasAnalysisResult findAliases(
     // results).
     finder.dispatch(expr);
   }
-  analysis.finalize(fusion, can_override_empty_allocation_domain);
+  analysis.finalize(can_override_empty_allocation_domain);
   return analysis;
 }
 
