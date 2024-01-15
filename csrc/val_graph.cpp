@@ -735,13 +735,6 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   // and outputs are mapped. Since exprsMap makes sure inputs or
   // outputs are mapped, only outputs or inputs need to be checked
   if (propagate_through_exprs_) {
-#if 0
-    std::cerr << "propagating mapping " << (forward ? "forward" : "backward")
-              << ", " << expr0->name() << " and " << expr1->name() << "\n"
-              << expr0->toString()
-              << expr1->toString()
-              << std::endl;
-#endif
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
@@ -767,124 +760,26 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
   const ExprGroup expr0_orig_group = toGroup(expr0);
   const ExprGroup expr1_orig_group = toGroup(expr1);
 
-  if ((expr0->name() == 1262 && expr1->name() == 1264) ||
-      (expr1->name() == 1262 && expr0->name() == 1264)) {
-    // std::cerr << "Mapping expr 1262 and 1264: " << expr0->toString() <<
-    // expr1->toString();
-  }
-
   disjoint_exprs_.mapEntries(expr0, expr1);
 
   const ExprGroup& expr_new_group = toGroup(expr0);
-#if 0
-  bool debug = std::find_if(expr0_orig_group->begin(),
-                            expr0_orig_group->end(),
-                            [](auto val) {
-                              return val->name() == 1262;
-                            }) != expr0_orig_group->end() ||
-      std::find_if(expr1_orig_group->begin(),
-                   expr1_orig_group->end(),
-                            [](auto val) {
-                              return val->name() == 1262;
-                            }) != expr1_orig_group->end() ||
-      std::find_if(expr0_orig_group->begin(),
-                   expr0_orig_group->end(),
-                            [](auto val) {
-                              return val->name() == 1266;
-                            }) != expr0_orig_group->end() ||
-      std::find_if(expr1_orig_group->begin(),
-                   expr1_orig_group->end(),
-                            [](auto val) {
-                              return val->name() == 1266;
-                            }) != expr1_orig_group->end();
-#endif
-  // Update unique uses of producers
-  ValGroups producers;
 
-#if 0
-  for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto input : expr->inputs()) {
-      producers.pushBack(toGroup(input));
-      if (debug) {
-        std::cerr << "input: " << input->name() << std::endl;
-      }
-    }
-  }
-#else
-  for (const auto& [val_group, expr_groups] : unique_uses_) {
-    if (expr_groups.has(expr0_orig_group) ||
-        expr_groups.has(expr1_orig_group)) {
-      producers.pushBack(val_group);
-    }
-  }
-#endif
-
-  for (const ValGroup& producer_group : producers) {
-#if 0
-    if (debug) {
-      std::cerr << "Producer group: " << nvfuser::toString(producer_group) << " @ " << producer_group.get() << std::endl;
-
-      std::cerr << "Removing use " << expr0_orig_group.get() << ", " << nvfuser::toString(expr0_orig_group) << std::endl;
-      std::cerr << "Removing use " << expr1_orig_group.get() << ", " << nvfuser::toString(expr1_orig_group) << std::endl;
-      std::cerr << "Adding use " << expr_new_group.get() << std::endl;
-      std::cerr << "\tBefore g: ";
-      for (const ExprGroup& eg : unique_uses_.at(producer_group)) {
-        std::cerr << " " << eg.get();
-      }
-      std::cerr << "\n";
-    }
-#endif
-    unique_uses_.at(producer_group).erase(expr0_orig_group);
-    unique_uses_.at(producer_group).erase(expr1_orig_group);
-    unique_uses_.at(producer_group).pushBack(expr_new_group);
-#if 0
-    if (debug) {
-      std::cerr << "\tAfter g: ";
-      for (const ExprGroup& eg : unique_uses_.at(producer_group)) {
-        std::cerr << " " << eg.get();
-      }
-      std::cerr << "\n";
-    }
-#endif
-  }
-
-#if 0
-  for (const auto& [vg, egs]: unique_uses_) {
-    for (const ExprGroup& eg: egs) {
-      if (std::find_if(eg->begin(),
-                       eg->end(),
-                       [](auto e) {
-                         return e->name() == 1262;
-                       }) != eg->end()) {
-        std::cerr << "Using 1262: " << nvfuser::toString(vg) << " @ " << vg.get()
-                  << ", expr group: ";
-        for (const auto& eg2: egs) {
-          std::cerr << eg2.get()
-                    << " (" << nvfuser::toString(eg2) << ") ";
-        }
-        std::cerr << std::endl;
-        for (auto expr: *eg) {
-          if (expr->name() == 1264) {
-            std::cerr << "1264: " << expr->toString();
-          }
-        }
-      }
-    }
-  }
-#endif
-
-  // Update unique definitinos of consumers
-  ValGroups consumers;
-  for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto output : expr->outputs()) {
-      consumers.pushBack(toGroup(output));
+  // Update unique uses
+  for (auto& [producer_group, use_groups] : unique_uses_) {
+    if (use_groups.has(expr0_orig_group) || use_groups.has(expr1_orig_group)) {
+      use_groups.erase(expr0_orig_group);
+      use_groups.erase(expr1_orig_group);
+      use_groups.pushBack(expr_new_group);
     }
   }
 
-  for (const ValGroup& consumer_group : consumers) {
-    unique_definitions_.at(consumer_group).erase(expr0_orig_group);
-    unique_definitions_.at(consumer_group).erase(expr1_orig_group);
-    unique_definitions_.at(consumer_group).pushBack(expr_new_group);
+  // Update unique definitions
+  for (auto& [consumer_group, def_groups] : unique_definitions_) {
+    if (def_groups.has(expr0_orig_group) || def_groups.has(expr1_orig_group)) {
+      def_groups.erase(expr0_orig_group);
+      def_groups.erase(expr1_orig_group);
+      def_groups.pushBack(expr_new_group);
+    }
   }
 }
 
