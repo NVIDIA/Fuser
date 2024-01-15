@@ -34,15 +34,19 @@ namespace {
 
 std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
   std::vector<IterDomain*> sharded_ids;
-  std::copy_if(tv->getLeafDomain().begin(), 
-              tv->getLeafDomain().end(), 
-              std::back_inserter(sharded_ids), [](auto id){return id->isDeviceDim();});
+  std::copy_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      std::back_inserter(sharded_ids),
+      [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
 
 } // namespace
 
-std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs) {
+std::unordered_set<TensorView*> haveDifferentSharding(
+    TensorView* ref,
+    std::unordered_set<TensorView*> tvs) {
   std::unordered_set<TensorView*> ret;
 
   const auto& reference_dom = ref->getLeafDomain();
@@ -55,18 +59,18 @@ std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unor
     concrete_to_reference_map[ca_id] = id;
   }
 
-  for (auto tv: tvs) {
+  for (auto tv : tvs) {
     if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
       ret.insert(tv);
       continue;
     }
     for (auto id : tv->getLeafDomain()) {
-      auto ca_id = ca_map.getConcreteMappedID(
-          id, IdMappingMode::PERMISSIVE_RESIZE);
+      auto ca_id =
+          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto ref_id = concrete_to_reference_map.at(ca_id);
-        if ((ref_id->isDeviceDim() || id->isDeviceDim())
-            && ref_id->getParallelType() != id->getParallelType()) {
+        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
+            ref_id->getParallelType() != id->getParallelType()) {
           ret.insert(tv);
           break;
         }
@@ -78,10 +82,10 @@ std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unor
 
 bool isResharding(Expr* expr) {
   std::unordered_set<TensorView*> tvs;
-  for (auto tv: ir_utils::filterByType<TensorView>(expr->inputs())) {
+  for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
     tvs.insert(tv);
   }
-  for (auto tv: ir_utils::filterByType<TensorView>(expr->outputs())) {
+  for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     tvs.insert(tv);
   }
   if (tvs.empty()) {
