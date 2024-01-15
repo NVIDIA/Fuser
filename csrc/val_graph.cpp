@@ -119,10 +119,8 @@ std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
 ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
   for (const ValGroup& of_val_group : of) {
-    if (const ExprGroups* group_uses = getUses(of_val_group);
-        group_uses != nullptr) {
-      to_visit.insert(to_visit.end(), group_uses->begin(), group_uses->end());
-    }
+    const ExprGroups& group_uses = getUses(of_val_group);
+    to_visit.insert(to_visit.end(), group_uses.begin(), group_uses.end());
   }
 
   UnorderedSetOfExprGroup visited;
@@ -131,14 +129,12 @@ ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const ValGroup& output_group : outputGroups(current_expr)) {
-      if (const ExprGroups* group_uses = getUses(output_group);
-          group_uses != nullptr) {
-        for (const ExprGroup& group_use : *group_uses) {
-          if (visited.count(group_use)) {
-            continue;
-          }
-          to_visit.push_back(group_use);
+      const ExprGroups& group_uses = getUses(output_group);
+      for (const ExprGroup& group_use : group_uses) {
+        if (visited.count(group_use)) {
+          continue;
         }
+        to_visit.push_back(group_use);
       }
     }
   }
@@ -149,10 +145,8 @@ ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
 ExprGroups ValGraph::allDefinitionsOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
   for (const ValGroup& of_val_group : of) {
-    if (const ExprGroups* group_defs = getDefinitions(of_val_group);
-        group_defs != nullptr) {
-      to_visit.insert(to_visit.end(), group_defs->begin(), group_defs->end());
-    }
+    const ExprGroups& group_defs = getDefinitions(of_val_group);
+    to_visit.insert(to_visit.end(), group_defs.begin(), group_defs.end());
   }
 
   UnorderedSetOfExprGroup visited;
@@ -161,14 +155,12 @@ ExprGroups ValGraph::allDefinitionsOf(const ValGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const ValGroup& input_id : inputGroups(current_expr)) {
-      if (const ExprGroups* group_defs = getDefinitions(input_id);
-          group_defs != nullptr) {
-        for (const ExprGroup& group_def : *group_defs) {
-          if (visited.count(group_def)) {
-            continue;
-          }
-          to_visit.push_back(group_def);
+      const ExprGroups& group_defs = getDefinitions(input_id);
+      for (const ExprGroup& group_def : group_defs) {
+        if (visited.count(group_def)) {
+          continue;
         }
+        to_visit.push_back(group_def);
       }
     }
   }
@@ -276,9 +268,9 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
     // domain coming back from any of its uses.
     ExprGroups min_groups;
 
-    const ExprGroups* uses = getUses(id_group);
+    const ExprGroups& uses = getUses(id_group);
 
-    if (!uses) {
+    if (uses.empty()) {
       // No expressions required for this iter domain, it must be a
       // terminating output.
       required_ind_exprs_ids[id_group] = min_groups;
@@ -287,7 +279,7 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 
     // Only worry about expressions between inputs and outputs we're
     // looking at.
-    for (const ExprGroup& use_group : uses->computeIntersect(all_exprs)) {
+    for (const ExprGroup& use_group : uses.computeIntersect(all_exprs)) {
       auto use_required_ind_exprs_it = required_ind_exprs_exprs.find(use_group);
       if (use_required_ind_exprs_it == required_ind_exprs_exprs.end()) {
         // If there isn't an entry for the use expression it wasn't
@@ -354,16 +346,14 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 
       if (processValGroup(currently_visiting_ids)) {
         something_was_processed = true;
-        if (const auto definitions = getDefinitions(currently_visiting_ids);
-            definitions) {
-          for (const ExprGroup& def : *definitions) {
-            if (!all_exprs.has(def)) {
-              continue;
-            }
-            if (required_ind_exprs_exprs.find(def) ==
-                required_ind_exprs_exprs.end()) {
-              to_visit_exprs.pushBack(def);
-            }
+        const ExprGroups& definitions = getDefinitions(currently_visiting_ids);
+        for (const ExprGroup& def : definitions) {
+          if (!all_exprs.has(def)) {
+            continue;
+          }
+          if (required_ind_exprs_exprs.find(def) ==
+              required_ind_exprs_exprs.end()) {
+            to_visit_exprs.pushBack(def);
           }
         }
       } else {
@@ -383,12 +373,8 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
   for (const auto& entry : required_ind_exprs_ids) {
     const ValGroup& id = entry.first;
     const ExprGroups& traverse_exprs = entry.second;
-    if (auto all_uses = getUses(id); all_uses) {
-      uses_path[id] = traverse_exprs.computeIntersect(*all_uses);
-    } else {
-      uses_path[id] = {};
-      continue;
-    }
+    const ExprGroups& all_uses = getUses(id);
+    uses_path[id] = traverse_exprs.computeIntersect(all_uses);
   }
 
   // Topologically sort the uses_path.
@@ -424,9 +410,8 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
         auto outputs = outputGroups(currently_visiting);
         for (const ValGroup& out_id : outputs) {
           visited.pushBack(out_id);
-          if (const auto uses = getUses(out_id); uses) {
-            still_to_visit.pushBack(uses->computeIntersect(all_exprs));
-          }
+          const ExprGroups& uses = getUses(out_id);
+          still_to_visit.pushBack(uses.computeIntersect(all_exprs));
         }
       } else {
         still_to_visit.pushBack(currently_visiting);
@@ -632,23 +617,24 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   return true;
 }
 
-const ExprGroups* ValGraph::getDefinitions(const ValGroup& val_group) const {
+const ExprGroups& ValGraph::getDefinitions(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
-  if (auto it = unique_definitions_.find(val_group);
-      it != unique_definitions_.end()) {
-    return &(it->second);
-  } else {
-    return nullptr;
-  }
+  auto it = unique_definitions_.find(val_group);
+  NVF_ERROR(
+      it != unique_definitions_.end(),
+      "Definition group not found for ",
+      nvfuser::toString(val_group));
+  return it->second;
 }
 
-const ExprGroups* ValGraph::getUses(const ValGroup& val_group) const {
+const ExprGroups& ValGraph::getUses(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
-  if (auto it = unique_uses_.find(val_group); it != unique_uses_.end()) {
-    return &(it->second);
-  } else {
-    return nullptr;
-  }
+  auto it = unique_uses_.find(val_group);
+  NVF_ERROR(
+      it != unique_uses_.end(),
+      "Use group not found for ",
+      nvfuser::toString(val_group));
+  return it->second;
 }
 
 void ValGraph::mapVals(Val* val0, Val* val1) {
@@ -659,24 +645,15 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   if (disjointValSets().strictAreMapped(val0, val1)) {
     return;
   }
-
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
   ValGroup orig_val_group0 = toGroup(val0);
   ValGroup orig_val_group1 = toGroup(val1);
-  const ExprGroups* orig_defs0 = getDefinitions(orig_val_group0);
-  NVF_ERROR(orig_defs0);
-  ExprGroups orig_defs0_ = *orig_defs0;
-  const ExprGroups* orig_defs1 = getDefinitions(orig_val_group1);
-  NVF_ERROR(orig_defs1);
-  ExprGroups orig_defs1_ = *orig_defs1;
-  const ExprGroups* orig_uses0 = getUses(orig_val_group0);
-  NVF_ERROR(orig_uses0);
-  ExprGroups orig_uses0_ = *orig_uses0;
-  const ExprGroups* orig_uses1 = getUses(orig_val_group1);
-  NVF_ERROR(orig_uses1);
-  ExprGroups orig_uses1_ = *orig_uses1;
+  const ExprGroups orig_defs0 = getDefinitions(orig_val_group0);
+  const ExprGroups orig_defs1 = getDefinitions(orig_val_group1);
+  const ExprGroups orig_uses0 = getUses(orig_val_group0);
+  const ExprGroups orig_uses1 = getUses(orig_val_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -684,24 +661,23 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   disjoint_vals_.mapEntries(val0, val1);
   auto new_val_group = toGroup(val0);
 
-  unique_definitions_[new_val_group] = orig_defs0_.computeUnion(orig_defs1_);
-  unique_uses_[new_val_group] = orig_uses0_.computeUnion(orig_uses1_);
+  unique_definitions_[new_val_group] = orig_defs0.computeUnion(orig_defs1);
+  unique_uses_[new_val_group] = orig_uses0.computeUnion(orig_uses1);
 
-  for (const auto& [vg, egs]: unique_uses_) {
-    for (const ExprGroup& eg: egs) {
+  for (const auto& [vg, egs] : unique_uses_) {
+    for (const ExprGroup& eg : egs) {
       NVF_ERROR(eg.get() != nullptr);
     }
   }
 
   // Propagate on uses
-  if (!orig_uses0_.empty() && !orig_uses1_.empty()) {
-    for (const ExprGroup& use_group_1 : orig_uses1_) {
-      for (const ExprGroup& use_group_0 : orig_uses0_) {
+  if (!orig_uses0.empty() && !orig_uses1.empty()) {
+    for (const ExprGroup& use_group_1 : orig_uses1) {
+      for (const ExprGroup& use_group_0 : orig_uses0) {
         NVF_ERROR(use_group_1.get() != nullptr);
         NVF_ERROR(use_group_0.get() != nullptr);
 
-        if (use_group_0 == use_group_1 ||
-            use_group_1->empty() ||
+        if (use_group_0 == use_group_1 || use_group_1->empty() ||
             use_group_0->empty()) {
           continue;
         }
@@ -714,14 +690,13 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   }
 
   // Propagate on definitions
-  if (!orig_defs0_.empty() && !orig_defs1_.empty()) {
-    for (const ExprGroup& def_group_1 : orig_defs1_) {
-      for (const ExprGroup& def_group_0 : orig_defs0_) {
+  if (!orig_defs0.empty() && !orig_defs1.empty()) {
+    for (const ExprGroup& def_group_1 : orig_defs1) {
+      for (const ExprGroup& def_group_0 : orig_defs0) {
         NVF_ERROR(def_group_1.get() != nullptr);
         NVF_ERROR(def_group_0.get() != nullptr);
 
-        if (def_group_0 == def_group_1 ||
-            def_group_0->empty() ||
+        if (def_group_0 == def_group_1 || def_group_0->empty() ||
             def_group_1->empty()) {
           continue;
         }
@@ -760,11 +735,13 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   // and outputs are mapped. Since exprsMap makes sure inputs or
   // outputs are mapped, only outputs or inputs need to be checked
   if (propagate_through_exprs_) {
+#if 0
     std::cerr << "propagating mapping " << (forward ? "forward" : "backward")
               << ", " << expr0->name() << " and " << expr1->name() << "\n"
               << expr0->toString()
               << expr1->toString()
               << std::endl;
+#endif
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
@@ -790,17 +767,16 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
   const ExprGroup expr0_orig_group = toGroup(expr0);
   const ExprGroup expr1_orig_group = toGroup(expr1);
 
-  if ((expr0->name() == 1262 &&
-       expr1->name() == 1264) ||
-      (expr1->name() == 1262 &&
-       expr0->name() == 1264)) {
-    std::cerr << "Mapping expr 1262 and 1264: " << expr0->toString() << expr1->toString();
+  if ((expr0->name() == 1262 && expr1->name() == 1264) ||
+      (expr1->name() == 1262 && expr0->name() == 1264)) {
+    // std::cerr << "Mapping expr 1262 and 1264: " << expr0->toString() <<
+    // expr1->toString();
   }
 
   disjoint_exprs_.mapEntries(expr0, expr1);
 
   const ExprGroup& expr_new_group = toGroup(expr0);
-
+#if 0
   bool debug = std::find_if(expr0_orig_group->begin(),
                             expr0_orig_group->end(),
                             [](auto val) {
@@ -821,7 +797,7 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
                             [](auto val) {
                               return val->name() == 1266;
                             }) != expr1_orig_group->end();
-
+#endif
   // Update unique uses of producers
   ValGroups producers;
 
@@ -835,7 +811,7 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     }
   }
 #else
-  for (const auto& [val_group, expr_groups]: unique_uses_) {
+  for (const auto& [val_group, expr_groups] : unique_uses_) {
     if (expr_groups.has(expr0_orig_group) ||
         expr_groups.has(expr1_orig_group)) {
       producers.pushBack(val_group);
@@ -844,6 +820,7 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
 #endif
 
   for (const ValGroup& producer_group : producers) {
+#if 0
     if (debug) {
       std::cerr << "Producer group: " << nvfuser::toString(producer_group) << " @ " << producer_group.get() << std::endl;
 
@@ -856,9 +833,11 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
       }
       std::cerr << "\n";
     }
+#endif
     unique_uses_.at(producer_group).erase(expr0_orig_group);
     unique_uses_.at(producer_group).erase(expr1_orig_group);
     unique_uses_.at(producer_group).pushBack(expr_new_group);
+#if 0
     if (debug) {
       std::cerr << "\tAfter g: ";
       for (const ExprGroup& eg : unique_uses_.at(producer_group)) {
@@ -866,8 +845,10 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
       }
       std::cerr << "\n";
     }
+#endif
   }
 
+#if 0
   for (const auto& [vg, egs]: unique_uses_) {
     for (const ExprGroup& eg: egs) {
       if (std::find_if(eg->begin(),
@@ -890,6 +871,7 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
       }
     }
   }
+#endif
 
   // Update unique definitinos of consumers
   ValGroups consumers;
