@@ -23,8 +23,8 @@ inline T getInitialValue(BinaryOpType op) {
   // TODO: add other ops
   switch (op) {
     case BinaryOpType::Add:
-    // case BinaryOpType::BitwiseOr:
-    // case BinaryOpType::BitwiseXor:
+      // case BinaryOpType::BitwiseOr:
+      // case BinaryOpType::BitwiseXor:
       return 0;
     case BinaryOpType::Mul:
       return 1;
@@ -89,8 +89,8 @@ inline at::Tensor createDummyTensor(
     BinaryOpType op_type) {
   // TODO: support other types
   NVF_ERROR(
-    reference.scalar_type() == at::kFloat,
-    "only float tensors are supported");
+      reference.scalar_type() == at::kFloat,
+      "only float tensors are supported");
   return createDummyTensor(reference).fill_(getInitialValue<float>(op_type));
 }
 
