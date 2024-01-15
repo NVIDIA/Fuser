@@ -20,18 +20,20 @@ namespace {
 
 template <typename T>
 inline T getInitialValue(BinaryOpType op) {
+  // TODO: add other ops
   switch (op) {
     case BinaryOpType::Add:
-    case BinaryOpType::BitwiseOr:
-    case BinaryOpType::BitwiseXor:
+    // case BinaryOpType::BitwiseOr:
+    // case BinaryOpType::BitwiseXor:
       return 0;
     case BinaryOpType::Mul:
       return 1;
     case BinaryOpType::Max:
       return std::numeric_limits<T>::min();
     case BinaryOpType::Min:
-    case BinaryOpType::BitwiseAnd:
       return std::numeric_limits<T>::max();
+    // case BinaryOpType::BitwiseAnd:
+    //   return ~(T)0;
     default:
       NVF_ERROR(false, "invalid binary op type");
       return 0;
@@ -85,6 +87,10 @@ inline at::Tensor createDummyTensor(at::Tensor reference) {
 inline at::Tensor createDummyTensor(
     at::Tensor reference,
     BinaryOpType op_type) {
+  // TODO: support other types
+  NVF_ERROR(
+    reference.scalar_type() == at::kFloat,
+    "only float tensors are supported");
   return createDummyTensor(reference).fill_(getInitialValue<float>(op_type));
 }
 
