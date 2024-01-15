@@ -23,10 +23,9 @@
 namespace nvfuser {
 
 std::map<CommunicatorBackend, std::string> communicator_backend_to_string = {
-  {CommunicatorBackend::nccl, "NCCL"},
-  {CommunicatorBackend::ucc, "UCC"},
-  {CommunicatorBackend::gloo, "GLOO"}
-};
+    {CommunicatorBackend::nccl, "NCCL"},
+    {CommunicatorBackend::ucc, "UCC"},
+    {CommunicatorBackend::gloo, "GLOO"}};
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
   return out << communicator_backend_to_string.at(cb);
