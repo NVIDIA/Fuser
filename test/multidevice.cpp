@@ -327,54 +327,6 @@ void PipelineTest::validate() {
       std::move(fusion), *pipeline, inputs, communicator, debug_print);
 }
 
-void PipelineTestTwoStages::SetUp() {
-  PipelineTest::SetUp();
-  auto [backend, mesh0, mesh1, is_stage0_sharded, is_stage1_sharded] =
-      GetParam();
-  if (!communicator->isBackendAvailable(backend)) {
-    GTEST_SKIP() << "Backend not available";
-  }
-  communicator->setDefaultBackend(backend);
-
-  FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeContigTensor(4);
-  TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = set(tv1);
-  TensorView* tv3 = sum(tv2, {2});
-  fusion->addInput(tv0);
-  fusion->addOutput(tv3);
-
-  PipelineStageDescriptor stage0(false), stage1(false);
-  stage0.addVal({tv0, tv1});
-  stage1.addVal({tv2, tv3});
-  stage0.mesh = mesh0;
-  stage1.mesh = mesh1;
-  if (is_stage0_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
-  }
-  if (is_stage1_sharded) {
-    tv2->axis(0)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  PipelineDescriptor descriptor{
-      .stage_descriptors{std::move(stage0), std::move(stage1)}};
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
-
-  int first_axis_extent = 16;
-  if (is_stage0_sharded) {
-    first_axis_extent = mesh0.vector().size();
-  } else if (is_stage1_sharded) {
-    first_axis_extent = mesh1.vector().size();
-  }
-  inputs = {
-      at::ones({first_axis_extent, 4, 3, 5}, tensor_options) *
-      communicator->deviceId()};
-
-  validate();
-}
-
 } // namespace nvfuser
 
 #endif
