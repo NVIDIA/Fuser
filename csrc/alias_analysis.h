@@ -18,6 +18,9 @@ struct Layout {
   std::vector<IterDomain*> allocation_domain;
   std::vector<std::optional<bool>> contiguity;
 
+  // The size of `allocation_domain` and therefore the size of `contiguity`.
+  int64_t size() const;
+
   std::string toString(int indent_size = 0) const;
 
   // Returns whether this layout is compliant with `required`. This is
@@ -35,7 +38,7 @@ struct Layout {
 // analysis.add(...);
 // ...
 // analysis.add(...);
-// analysis.finalize(fusion, ...);
+// analysis.finalize(...);
 //
 // // The user can now call const methods to retrieve information.
 // ```
@@ -51,9 +54,10 @@ class AliasAnalysisResult {
   // preferred layout.
   void add(const TensorView* alias, TensorView* source, Layout&& layout);
 
+  // Computes transitive aliases and caches them in `alias_to_root_`.
   // See `findAliases` for the meaning of
   // `can_override_empty_allocation_domain`.
-  void finalize(Fusion* fusion, bool can_override_empty_allocation_domain);
+  void finalize(bool can_override_empty_allocation_domain);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
@@ -61,25 +65,23 @@ class AliasAnalysisResult {
 
   std::string toString(int indent_size) const;
 
-  // Gets the nearest aliased fusion input/output of a `fusion_out` other than
-  // `fusion_out` itself. Returns null if that doesn't exist.
-  TensorView* getNearestAliasedIo(const TensorView* fusion_out) const;
+  // Returns the mapped value in `alias_to_root_` or null.
+  TensorView* getNearestAliasedIo(const TensorView* alias) const;
 
  private:
-  // Same as `getNearestAliasedIo` except that the `get` method returns the
-  // cached result.
-  TensorView* findNearestAliasedIo(TensorView* fusion_out) const;
-
-  // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
-  // input of the same View). Also stores the preferred output layout for the
-  // alias. Consider path compression, a common optimization used in
+  // Maps an alias (e.g. the output of a `ViewOp`) to its direct source (e.g.
+  // the input of the same `ViewOp`). Also stores the preferred output layout
+  // for the alias. Consider path compression, a common optimization used in
   // disjoint-set data structure, so it's easy to figure out the root of an
   // alias.
   std::unordered_map<const TensorView*, std::pair<TensorView*, Layout>>
       alias_to_source_;
 
-  // Maps a fusion output to its nearest aliased fusion input/output.
-  std::unordered_map<const TensorView*, TensorView*> out_to_root_;
+  // Maps an alias to its nearest, transitively aliased fusion input/output, if
+  // its preferred layout is compliant with its actual layout.
+  //
+  // TODO(wujingyue): consider to merge `alias_to_source_` and `alias_to_root_`.
+  std::unordered_map<const TensorView*, TensorView*> alias_to_root_;
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --

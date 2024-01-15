@@ -3804,14 +3804,14 @@ void SegmentCandidateFinder::forwardInputs() {
   {
     std::deque<UnaryOp*> to_visit;
     for (auto inp : completeFusion()->inputs()) {
-      // Add all uses of input if all of those uses are UnaryOps
-      // If any of these ops are not UnaryOps then we
-      if (std::all_of(inp->uses().begin(), inp->uses().end(), [](Expr* expr) {
-            return expr->isA<UnaryOp>();
-          })) {
-        for (auto use : inp->uses()) {
-          to_visit.push_back(use->as<UnaryOp>());
-        }
+      // Just allow stripping out input with single use.
+      // Stripping out multi-used inputs can lead to:
+      // (1) Fragmentation of the DAG, increased segments, see test in #1301.
+      // (2) Miss detection of persistent buffers, see issue #1607.
+      const auto& input_uses = inp->uses();
+      // Add single-use input if it is a UnaryOp
+      if (input_uses.size() == 1 && input_uses.at(0)->isA<UnaryOp>()) {
+        to_visit.push_back(input_uses.at(0)->as<UnaryOp>());
       }
     }
 

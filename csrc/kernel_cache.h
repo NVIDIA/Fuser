@@ -131,7 +131,9 @@ class FusionKernelRuntime {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(const serde::FusionKernelRuntime* buffer);
+  void deserialize(
+      const serde::FusionKernelRuntime* buffer,
+      int8_t device_index);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {

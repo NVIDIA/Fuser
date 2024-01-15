@@ -875,9 +875,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
-  // TODO(#1401): improve segmentation so it can split a partially aliasing
-  // pointwise fusion into an alias-only segment and the rest. This way,
-  // the pointwise scheduler doesn't need to mark aliases.
+  // TODO(#1401): We could let segmentation split a partially alias-producing
+  // fusion into an alias-only segment and the rest. This way, the rest of the
+  // fusion (which has fewer expressions) can potentially find a better
+  // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
 }
 

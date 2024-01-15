@@ -172,65 +172,32 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
+  // Do not split K dimension of CTA tile into multiple warp tiles
   NVF_CHECK(
-      cta_tile.k % warp_tile.k == 0,
-      "Number of warp on k dimension need to be integer");
-
-  int num_warp_k = cta_tile.k / warp_tile.k;
+      cta_tile.k == warp_tile.k,
+      "CTA tile and warp tile must have same K dimension");
 
   mma_utils::checkDimSize(
       tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
 
-  if (num_warp_k == 1) {
-    // Non split K over warp case:
+  //       -3   -2  -1
+  //[...    M,   N,  K]
+  // Distribute warp tile:
+  tv->split(-3, warp_tile.m);
+  tv->split(-2, warp_tile.n);
 
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
+  //  -5   -4   -3   -2   -1
+  // [Mwo  Mw  Nwo   Nw   K]
+  tv->split(-4, instruction_tile.m);
+  tv->split(-2, instruction_tile.n);
+  tv->split(-1, instruction_tile.k);
 
-    //  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   K]
-    tv->split(-4, instruction_tile.m);
-    tv->split(-2, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
+  //   -8  -7 -6 -5 -4 -3  -2 -1
+  // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
 
-    //   -8  -7 -6 -5 -4 -3  -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
-
-    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
-    //   -8  -7 -6  -5 -4 -3 -2 -1
-    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  } else {
-    // Split K over warp case:
-    // Main difference is that an additional
-    //  thread dimension needs to be reserved
-    //  for cross warp reduction:
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
-    tv->split(-1, warp_tile.k);
-
-    //   -6  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   Kwo  Kw]
-    tv->split(-5, instruction_tile.m);
-    tv->split(-3, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
-
-    //  -9  -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Kw Ki]
-
-    tv->reorder({{-8, -6}, {-7, -3}, {-6, -8}, {-4, -2}, {-3, -7}, {-2, -4}});
-    //  -9   -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo  Nwo Ko Mw Nw Kw, Mi Ni Ki]
-
-    tv->merge(-9);
-    //  -8  -7 -6 -5 -4   -3 -2 -1
-    // [MNwo Ko Mw Nw Kw, Mi Ni Ki]
-  }
+  tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
+  //   -8  -7 -6  -5 -4 -3 -2 -1
+  // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 }
 
 void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
@@ -845,37 +812,27 @@ void WarpMmaSwizzler::scheduleOperandRead(
     }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    // For example, [K, M]
     if (transpose2) {
-      // For example, [K, M]
       tv->reorder({{-2, -1}});
       // [M, K]
-      tv->split(-2, 8);
-      tv->split(-1, 8);
-      // [Mo, M8, Ko, K8]
-      tv->split(-3, 8 / swizzle_size);
-      // For example swizzle_size = 2
-      // [Mo, M2, M4, Ko, K8]
-      tv->split(-2, swizzle_size);
-      // [Mo, M2, M4, Koo, K2, K8]
-      tv->swizzle(SwizzleType::XOR, -5, -2);
-    } else {
-      // For example, [K, M]
-      tv->split(-2, 8);
-      tv->split(-1, 8);
-      // [Ko, K8, Mo, M8]
-      tv->reorder({{-2, -3}});
-      // [Ko, Mo, K8, M8]
-      // Note: the extent of Mo may not be a multiple of swizzle_size, but we
-      // still split swizzle_size. If this is the case, effectively we are
-      // padding it to a multiple of swizzle_size.
-      tv->split(-3, swizzle_size);
-      // For example, swizzle_size = 2
-      // [Ko, Moo, Mo2, K8, M8]
-      tv->reorder({{-2, -3}});
-      // [Ko, Moo, K8, Mo2, M8]
-      tv->split(-3, 8 / swizzle_size);
+    }
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // For example transpose2 == false
+    // [Ko, K8, Mo, M8]
+    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+    // still split swizzle_size. If this is the case, effectively we are
+    // padding it to a multiple of swizzle_size.
+    tv->split(-2, swizzle_size);
+    // For example, swizzle_size = 2
+    // [Ko, K8, Moo, Mo2, M8]
+    tv->split(-4, 8 / swizzle_size);
+    // [Ko, K2, K4, Moo, Mo2, M8]
+    tv->swizzle(SwizzleType::XOR, -5, -2);
+    if (!transpose2) {
+      tv->reorder({{-3, -5}});
       // [Ko, Moo, K2, K4, Mo2, M8]
-      tv->swizzle(SwizzleType::XOR, -4, -2);
     }
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
@@ -1039,23 +996,14 @@ inline void resolveTvToMatmulDomainsMapping(
 
 } // anonymous namespace
 
-ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (mma_exprs.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << mma_exprs.size();
-    return ss.str();
-  }
-  const auto mma_output = mma_exprs.front()->out();
-
+ProblemIterDomainsOpt getProblemIterDomains(
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   // NOTE: the iter domains of MMA output should be [...,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
   IterDomain* k = nullptr;
 
-  const auto leaf_domains =
-      static_cast<const TensorView*>(mma_output)->getLeafDomain();
+  const auto& leaf_domains = props.out->getLeafDomain();
   const auto concrete =
       TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
   if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
@@ -1083,7 +1031,23 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   return ProblemIterDomains{m, n, k};
 }
 
-MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getProblemIterDomains(
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
+MatmulProblemLayoutOpt getMmaLayout(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1091,7 +1055,7 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
     return {"Failed to find any TV that is fusion input"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(fusion);
+  const auto mma_output_domains = getProblemIterDomains(props);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1161,7 +1125,24 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
   return {"Failed to decide fusion inputs' data layout."};
 }
 
-RolesMapOpt getTensorsRoles(Fusion* fusion) {
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getMmaLayout(
+      fusion,
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
+RolesMapOpt getTensorsRoles(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1174,7 +1155,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return {"Failed to find any TV that is fusion output"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(fusion);
+  const auto mma_output_domains = getProblemIterDomains(props);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1289,12 +1270,28 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   return roles_map;
 }
 
+RolesMapOpt getTensorsRoles(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  return getTensorsRoles(
+      fusion,
+      {static_cast<TensorView*>(mma_exprs.front()->inA()),
+       static_cast<TensorView*>(mma_exprs.front()->inB()),
+       static_cast<TensorView*>(mma_exprs.front()->out())});
+}
+
 namespace {
 
-void addMMAOp(Fusion* fusion_, std::vector<MulSumAsMmaProps>& props) {
+void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
   auto* init = IrBuilder::create<Val>(0.0);
   for (auto prop : props) {
-    IrBuilder::create<MmaOp>(prop.out, prop.a, prop.b, init);
+    IrBuilder::create<MmaOp>(
+        prop.insouts.out, prop.insouts.a, prop.insouts.b, init);
   }
 }
 
@@ -1377,7 +1374,7 @@ TensorView* getTensorviewPriorToCast(TensorView* in) {
 // Check if the Mul-Sum pair represents a matmul. If so, add the properties
 // of the mma op which can be a tentatice substitue. This checks that the output
 // of sum has on reduction axis, and the inputs to mul are valid broadcasts.
-std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
+std::optional<MulSumProperties> getMulSumInsOutsBcasts(
     BinaryOp* mop,
     ReductionOp* redop) {
   auto a = getTensorviewPriorToCast(static_cast<TensorView*>(mop->lhs()));
@@ -1394,14 +1391,12 @@ std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
   }
 
   if (broadcastsAreValid(a, b, *red_axis)) {
-    return MulSumAsMmaProps(
-        mop,
-        redop,
-        a,
-        b,
-        static_cast<TensorView*>(redop->output(0)),
-        dynamic_cast<BroadcastOp*>(a->definition()),
-        dynamic_cast<BroadcastOp*>(b->definition()));
+    MulSumProperties props = {
+        {mop, redop},
+        {a, b, static_cast<TensorView*>(redop->output(0))},
+        {dynamic_cast<BroadcastOp*>(a->definition()),
+         dynamic_cast<BroadcastOp*>(b->definition())}};
+    return props;
   }
   return std::nullopt;
 }
@@ -1429,12 +1424,27 @@ void CombineMulSum::handle(ReductionOp* stmt) {
   }
 };
 
-std::vector<MulSumAsMmaProps> CombineMulSum::generateMulSumCanidates(
-    bool use_cached_results) {
-  if (use_cached_results && !mul_sum_props_.empty()) {
-    return mul_sum_props_;
+void CombineMulSum::generateMulSumCanidates() {
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion_);
+  if (mma_exprs.size() == 1) {
+    mma_utils::MulSumProperties props;
+    props.insouts = {
+        static_cast<TensorView*>(mma_exprs.front()->inA()),
+        static_cast<TensorView*>(mma_exprs.front()->inB()),
+        static_cast<TensorView*>(mma_exprs.front()->out())};
+    mul_sum_props_.push_back(props);
+  } else {
+    traverse(fusion_);
   }
-  traverse(fusion_);
+  is_valid_ = (mul_sum_props_.size() == 1) ? true : false;
+}
+
+const std::vector<MulSumProperties>& CombineMulSum::getMulSumCanidates(
+    const bool refresh_data) {
+  if (refresh_data) {
+    mul_sum_props_.clear();
+    generateMulSumCanidates();
+  }
   return mul_sum_props_;
 }
 

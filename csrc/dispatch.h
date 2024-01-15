@@ -145,6 +145,10 @@ class EncodeTensorMapTiled;
 
 } // namespace kir
 
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
+
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
 class OptOutConstDispatch : public PolymorphicBase {
@@ -235,6 +239,7 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::AllocateFusedReduction*);
   virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
   virtual void handle(const kir::EncodeTensorMapTiled*);
+  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptOutDispatch : public PolymorphicBase {
@@ -325,6 +330,7 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
   virtual void handle(kir::EncodeTensorMapTiled* stmt);
+  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptInConstDispatch : public OptOutConstDispatch {
