@@ -410,7 +410,8 @@ class DisjointSets {
         "Strict mapping failed on element: ",
         abstractToString(entry0),
         " either an error occurred, or non strict mapping should have been used.",
-        " ", entry0->name());
+        " ",
+        entry0->name());
     return entry_it->second->has(entry1);
   }
 
