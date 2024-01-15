@@ -230,7 +230,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
   at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
   at::Tensor t1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-  // EXPECT_EQ(getVecSizeForPointwise(fec), 4);
+  EXPECT_EQ(getVecSizeForPointwise(fec), 4);
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
