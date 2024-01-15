@@ -463,11 +463,19 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
   std::unordered_set<IterDomain*> consumer_ids_to_clear;
+
+  std::vector<IterDomain*> maybe_alloc_doms;
+  if (from->hasAllocation() && std::is_permutation(from->getRootDomain().begin(), from->getRootDomain().end(), from->getAllocationDomain().begin())) {
+    maybe_alloc_doms = from->getAllocationDomain();
+  } else {
+    maybe_alloc_doms = from->getRootDomain();
+  }
+
   if (to->hasBroadcast()) {
     // Find the last broadcast dimension resolved in consumers root domain
     int clear_pos = -1;
-    for (auto i : c10::irange(from->getRootDomain().size())) {
-      auto c_id = from->getRootDomain()[i];
+    for (auto i : c10::irange(maybe_alloc_doms.size())) {
+      auto c_id = maybe_alloc_doms[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
         continue;
@@ -481,8 +489,8 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     // dimension, including the broadcasted domain.
     if (clear_pos >= 0) {
       consumer_ids_to_clear.insert(
-          from->getRootDomain().begin(),
-          from->getRootDomain().begin() + clear_pos + 1);
+          maybe_alloc_doms.begin(),
+          maybe_alloc_doms.begin() + clear_pos + 1);
     }
   }
 
