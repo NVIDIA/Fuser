@@ -1285,10 +1285,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
+    auto fusion_to_run = segmented_fusion_->getFusion(group_to_run);
     auto group_runtime_outputs =
         executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+            fusion_to_run, group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1325,18 +1325,18 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  auto fusion_to_run = segmented_fusion_->getFusion(sg);
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
 
-  FusionGuard fg(fusion_to_run.get());
-  scheduler_entry->schedule(fusion_to_run.get());
+  FusionGuard fg(fusion_to_run);
+  scheduler_entry->schedule(fusion_to_run);
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
-      fusion_to_run.get(),
+      fusion_to_run,
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,
