@@ -656,4 +656,21 @@ TEST_F(ExprEvalTest, Reshape_MergeBroadcast) {
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1));
 }
 
+TEST_F(ExprEvalTest, SumDiv) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* s = sum(in, {0});
+  TensorView* out = div(in, s);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  evaluator.evaluate(out);
+}
+
 } // namespace nvfuser
