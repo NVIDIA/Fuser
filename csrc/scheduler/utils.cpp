@@ -295,12 +295,13 @@ void parallelizeAllLike(
   }
 
   if (selected_tvs.empty()) {
-    selected_tvs = ir_utils::allTvs(reference_tv->fusion());
+    auto all_tvs = ir_utils::allTvs(reference_tv->fusion());
+    std::copy_if(all_tvs.begin(), all_tvs.end(),
+              std::back_inserter(selected_tvs),
+              [](auto tv) {return !tv->isFusionInput();});
   }
+
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
     for (const auto i : c10::irange(tv->getLeafDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);

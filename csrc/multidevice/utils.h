@@ -8,6 +8,7 @@
 #pragma once
 
 #include <ir/interface_nodes.h>
+#include <fusion.h>
 
 namespace nvfuser {
 
@@ -24,5 +25,9 @@ std::unordered_set<TensorView*> haveDifferentSharding(
 
 // Returns whether an Expr embbeds multi-device resharding
 bool isResharding(Expr* expr);
+
+// Runs through the fusion and inserts a resharding Set Op before any resharding Expr that is not directly lowerable to a series of communications
+// TODO: add an option to rather insert the Set AFTER the resharding Expr
+void insertReshardings(Fusion* fusion);
 
 } // namespace nvfuser
