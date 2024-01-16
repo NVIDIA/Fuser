@@ -200,24 +200,22 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
   }
 
-  // We always cacheBefore output at the beginning of the scheduling. And after
-  // cacheBefore, the reference tensor will have all reduction IDs removed.
-  auto ref_root =
-      TensorDomain::noReductions(largest_out->getMaybeRFactorDomain());
-
   std::unordered_map<int, int> rfactor_reorder_map;
   // NOTE: rfactor_reorder_map is only applied for fusion without view op yet.
   if (ir_utils::getViewOps(fusion).empty()) {
     rfactor_reorder_map =
         scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
   }
+
+  auto ref_root = largest_out->getMaybeRFactorDomain();
   // reorder of root to align with rfactor map should always help with indexing,
   // even when vectorization isn't used.
-  params->rfactor_reorder_map = rfactor_reorder_map;
-
   if (!rfactor_reorder_map.empty()) {
     ref_root = TensorDomain::orderedAs(ref_root, rfactor_reorder_map);
   }
+  // We always cacheBefore output at the beginning of the scheduling. And after
+  // cacheBefore, the reference tensor will have all reduction IDs removed.
+  ref_root = TensorDomain::noReductions(ref_root);
 
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
@@ -659,8 +657,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    if (!params.rfactor_reorder_map.empty()) {
-      reference_tv->reorder(params.rfactor_reorder_map);
+    std::unordered_map<int, int> rfactor_reorder_map =
+        scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
+    if (!rfactor_reorder_map.empty()) {
+      reference_tv->reorder(rfactor_reorder_map);
     }
 
     // Merge right side of break point
