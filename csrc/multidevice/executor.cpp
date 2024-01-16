@@ -108,7 +108,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     // check if the group invovles inter-device communication
     if (std::none_of(
             group->exprs().begin(), group->exprs().end(), [](auto expr) {
-              return ir_utils::isResharding(expr);
+              return isResharding(expr);
             })) {
       // check if the segmentation is valid
       NVF_ERROR(

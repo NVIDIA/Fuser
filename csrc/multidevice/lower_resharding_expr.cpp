@@ -12,6 +12,7 @@
 #include <scheduler/utils.h>
 #include <ops/all_ops.h>
 #include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 
 
 namespace nvfuser{
@@ -37,7 +38,7 @@ void reshardBefore(Expr* expr, Fusion* fusion) {
                      NVF_ERROR(val->isA<TensorView>(), "the expression's input is not a TensorView");
                      return val->as<TensorView>();});
     std::vector<TensorView*> new_inputs;
-    for (auto input: ir_utils::haveDifferentSharding(output, inputs)) {
+    for (auto input: haveDifferentSharding(output, inputs)) {
         TensorView* new_input = set(input);
         expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
         new_inputs.push_back(new_input);

@@ -605,10 +605,4 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
-std::unordered_set<TensorView*> haveDifferentSharding(
-    TensorView* ref,
-    std::unordered_set<TensorView*> tvs);
-
-bool isResharding(Expr* expr);
-
 } // namespace nvfuser::ir_utils

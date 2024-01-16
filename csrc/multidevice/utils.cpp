@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <compute_at_map.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
@@ -27,6 +28,72 @@ bool isSharded(TensorView* tv) {
         "only the outmost dimension can be device-parallelized");
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
+}
+
+namespace {
+
+std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
+  std::vector<IterDomain*> sharded_ids;
+  std::copy_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      std::back_inserter(sharded_ids),
+      [](auto id) { return id->isDeviceDim(); });
+  return sharded_ids;
+}
+
+} // namespace
+
+std::unordered_set<TensorView*> haveDifferentSharding(
+    TensorView* ref,
+    std::unordered_set<TensorView*> tvs) {
+  std::unordered_set<TensorView*> ret;
+
+  const auto& reference_dom = ref->getLeafDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (auto tv : tvs) {
+    if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLeafDomain()) {
+      auto ca_id =
+          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
+            ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool isResharding(Expr* expr) {
+  std::unordered_set<TensorView*> tvs;
+  for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    tvs.insert(tv);
+  }
+  for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    tvs.insert(tv);
+  }
+  if (tvs.empty()) {
+    return false;
+  }
+  auto tv_ref = *tvs.begin();
+  tvs.erase(tv_ref);
+  return !haveDifferentSharding(tv_ref, tvs).empty();
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {

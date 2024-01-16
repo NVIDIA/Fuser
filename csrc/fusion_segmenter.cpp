@@ -14,6 +14,7 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -3547,7 +3548,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   if (options_.only_segment_resharding_exprs) {
     for (auto group : {group1, group2}) {
       for (auto expr : group->exprs()) {
-        if (ir_utils::isResharding(expr)) {
+        if (isResharding(expr)) {
           return false;
         }
       }

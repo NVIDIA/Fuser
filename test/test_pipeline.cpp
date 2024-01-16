@@ -14,6 +14,7 @@
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/lower_resharding_expr.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
 
@@ -155,32 +156,32 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   fusion->addOutput(tv25);
   fusion->addOutput(tv26);
 
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv1->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv2->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv3->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv4->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv5->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv6->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv7->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv8->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv9->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv10->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv11->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv12->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv13->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv14->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv15->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv16->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv17->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv18->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv19->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv20->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv21->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv22->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv23->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv24->definition()));
-  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv25->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv26->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv1->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv2->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv3->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv4->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv5->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv6->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv7->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv8->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv9->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv10->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv11->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv12->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv13->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv14->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv15->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv16->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv17->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv18->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv19->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv20->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv21->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv22->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv23->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv24->definition()));
+  GTEST_EXPECT_TRUE(!isResharding(tv25->definition()));
+  GTEST_EXPECT_TRUE(isResharding(tv26->definition()));
 }
 
 using automaticSetInsertionTestParams =
@@ -197,7 +198,7 @@ class automaticReshardingTest
   void validate() {
     for (auto expr : fusion->exprs()) {
       GTEST_EXPECT_TRUE(
-          !ir_utils::isResharding(expr) || isLowerableToCommunication(expr))
+          !isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
     }
 
@@ -216,9 +217,9 @@ class automaticReshardingTest
           std::none_of(
               group->exprs().begin(),
               group->exprs().end(),
-              [](auto expr) { return ir_utils::isResharding(expr); }) ||
+              [](auto expr) { return isResharding(expr); }) ||
           (group->exprs().size() == 1 &&
-           ir_utils::isResharding(group->exprs().at(0))));
+           isResharding(group->exprs().at(0))));
     }
     // checks that the segments are disjoints and that the graph of segment is
     // acyclic
