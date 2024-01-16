@@ -1357,9 +1357,16 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
       std::make_unique<PrecomputedValues>(fusion);
   evaluator_precomputed_values->bindInputs(args);
   evaluator_precomputed_values->evaluate();
+  return inferOutputSizes(fusion, args, evaluator_precomputed_values.get());
+}
 
+KernelArgumentHolder FusionExecutor::inferOutputSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args,
+    PrecomputedValues* evaluator_precomputed_values) {
+  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
   ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+  expr_eval.precomputedValues() = evaluator_precomputed_values;
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
 
