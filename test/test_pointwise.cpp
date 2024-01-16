@@ -192,6 +192,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   fusion->addOutput(tv1);
 
   FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
