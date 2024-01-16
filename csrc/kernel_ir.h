@@ -38,6 +38,7 @@ class TensorIndex;
 // Expressions
 class Allocate;
 class Asm;
+class Assign;
 class BlockSync;
 class GridSync;
 class MBarrierInit;
@@ -245,6 +246,69 @@ class Asm final : public Expr {
   std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
 
   std::string parameters() const;
+};
+
+//! This Expr is just like LoadStoreOp except that it does not have any
+//! outputs. The output is instead held as an attribute. This is useful for
+//! defining kernel expressions that need to reassign a variable. Since our
+//! Fusion IR is SSA, it is not possible to reassign variables, so we can use
+//! Assign to do those reassignments. Note that since there are no outputs,
+//! Assign ops will always represent "dead code" and will not be traversed using
+//! IterVisitor. However, if they are included in kernel expression lists they
+//! will appear in the generated CUDA kernel, and they will be traversed by
+//! kir::IrVisitor.
+class Assign : public Expr {
+ public:
+  using Expr::Expr;
+
+  Assign(
+      IrBuilderPasskey,
+      LoadStoreOpType op_type,
+      Val* out,
+      Val* in,
+      CacheOp cache_op = CacheOp::Unspecified);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Assign";
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return attributeVal(2);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  LoadStoreOpType opType() const {
+    return attribute<LoadStoreOpType>(0);
+  }
+
+  CacheOp cacheOp() const {
+    return attribute<CacheOp>(1);
+  }
+
+  bool hasInnerTranspose() const;
+
+  void setOpType(LoadStoreOpType op) {
+    attribute<LoadStoreOpType>(0) = op;
+    if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
+      attribute<CacheOp>(1) = CacheOp::Unspecified;
+    }
+  }
+
+  void setCacheOp(CacheOp cache_op) {
+    attribute<CacheOp>(1) = cache_op;
+  }
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that
