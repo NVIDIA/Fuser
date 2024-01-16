@@ -354,6 +354,11 @@ class SegmentedFusion {
       const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
+  //! Make a heuristics entry for a group and parameters
+  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
+      SegmentedGroup* sg,
+      SchedulerRuntimeInfo& runtime_info);
+
   //! Inline Debug print for segmented fusion
   std::string toString(int verbosity) const;
 
@@ -491,10 +496,6 @@ class SegmentedFusion {
   // TODO: this class needs cleanup
  protected:
   friend class SegmentCandidateFinder;
-  //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Cleanup function to be call at the end of fusion
   //!  segment pass

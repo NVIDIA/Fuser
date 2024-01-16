@@ -1012,7 +1012,9 @@ FusionKernelRuntime::FusionKernelRuntime(
     segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
   }
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
+  // Pre-compute the executor order so that the run time path
+  //  would go directly to kernel launch.
+  prepareRuntimeOrder();
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
 
@@ -1025,9 +1027,51 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  counts as un-segmented.
   is_segmented_ = segmented_fusion_->groups().size() > 1;
 
-  // Pre-compute the executor order so that the run time path
-  //  would go directly to kernel launch.
-  prepareRuntimeOrder();
+  // Create Initial Heuristics for Segmented Fusion
+  {
+    heuristics_ = std::make_unique<FusionHeuristics>();
+
+    const int64_t num_groups =
+        (int64_t)runtime_workspace_.group_run_order.size();
+
+    // Store metadata copy of arguments for serialization
+    KernelArgumentHolder args_metadata;
+    std::transform(
+        args.cbegin(),
+        args.cend(),
+        args_metadata.getBackInserter(),
+        convertMetadataArg);
+    args_metadata.setDeviceIndex(args.getDeviceIndex());
+
+    ArgumentManager args_manager(
+        args_metadata, runtime_workspace_, segmented_fusion_->inputs());
+
+    for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
+      auto fusion_to_run = segmented_fusion_->getFusion(group_to_run);
+
+      KernelArgumentHolder group_runtime_inputs;
+      for (auto input : group_to_run->inputs()) {
+        group_runtime_inputs.push(*args_manager.checkTensorMap(input));
+      }
+
+      auto all_tvs_for_local_fusion = ir_utils::allTvs(fusion_to_run);
+      SchedulerRuntimeInfo local_runtime_info(
+          fusion_to_run,
+          group_runtime_inputs,
+          nullptr,
+          all_tvs_for_local_fusion,
+          forced_index_type);
+      heuristics_->emplaceBack(segmented_fusion_->makeInitialSchedulerEntry(
+          group_to_run, local_runtime_info));
+
+      auto group_runtime_outputs =
+          executors_.at(group_to_run->groupId())
+              .inferOutputSizes(fusion_to_run, group_runtime_inputs);
+      args_manager.updateWithSegmentOutputs(
+          group_to_run->outputs(), group_runtime_outputs, group_id);
+    }
+  }
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
@@ -1285,10 +1329,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto fusion_to_run = segmented_fusion_->getFusion(group_to_run);
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
     auto group_runtime_outputs =
         executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run, group_runtime_inputs);
+            fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1325,18 +1369,18 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  auto fusion_to_run = segmented_fusion_->getFusion(sg);
+  auto fusion_to_run = segmented_fusion_->makeFusion(sg);
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
 
-  FusionGuard fg(fusion_to_run);
-  scheduler_entry->schedule(fusion_to_run);
+  FusionGuard fg(fusion_to_run.get());
+  scheduler_entry->schedule(fusion_to_run.get());
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
-      fusion_to_run,
+      fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,

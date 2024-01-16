@@ -1822,10 +1822,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
 }
 
 Fusion* SegmentedFusion::getFusion(SegmentedGroup* sg) {
-  auto all_segmented_fusions_iter = all_segmented_fusions_.find(sg);
-  NVF_ERROR(
-      all_segmented_fusions_iter != all_segmented_fusions_.end(),
-      "SegmentedGroup does not have a corresponding Fusion.");
+  auto [all_segmented_fusions_iter, _] =
+      all_segmented_fusions_.try_emplace(sg, makeFusion(sg));
   auto& [segmented_group_ptr, unique_ptr_fusion] = *all_segmented_fusions_iter;
   return unique_ptr_fusion.get();
 }
@@ -4189,18 +4187,7 @@ std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
     SchedulerRuntimeInfo& runtime_info) {
   auto ret = std::make_unique<FusionHeuristics>();
   for (auto g : groups()) {
-    auto&& [_, success] = all_segmented_fusions_.emplace(g, makeFusion(g));
-    NVF_ERROR(success, "Failed to add fusion for given segmented group.");
-
-    auto local_fusion = getFusion(g);
-    auto all_tvs_for_local_fusion = ir_utils::allTvs(local_fusion);
-    SchedulerRuntimeInfo local_runtime_info(
-        local_fusion,
-        inputs,
-        nullptr,
-        all_tvs_for_local_fusion,
-        runtime_info.getIndexType());
-    ret->emplaceBack(makeInitialSchedulerEntry(g, local_runtime_info));
+    ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
   }
   return ret;
 }
