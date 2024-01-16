@@ -220,8 +220,9 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
-  tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
-  fusion->addOutput(tv2);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0, DataType::Float));
+  tv3->setAllocationDomain({tv3->axis(0), tv3->axis(2), tv3->axis(1)}, true);
+  fusion->addOutput(tv3);
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   fec.profile(true);
