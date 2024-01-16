@@ -560,7 +560,9 @@ void propagateParallelization(
 namespace {
 
 // Convert properties of an ID to a numeric value
-int idPos(const IterDomain* id) {
+int idPos(
+    const IterDomain* id,
+    const std::unordered_set<const IterDomain*>& const_ids) {
   int inner_most = std::numeric_limits<int>::max();
   int outer_most = std::numeric_limits<int>::min();
 
@@ -573,15 +575,9 @@ int idPos(const IterDomain* id) {
   }
   inner_most--;
 
-  // Reduction, constant and:
-  // id must be the factor used in a split, otherwise, the split output may be
-  // constant in the reference tensor but dynamic in others. See issue 1590.
-  bool is_split_factor = false;
-  if (auto split = dynamic_cast<Split*>(id->definition())) {
-    is_split_factor = split->innerSplit() ? id->sameAs(split->inner())
-                                          : id->sameAs(split->outer());
-  }
-  if (id->isReduction() && id->extent()->isConstScalar() && is_split_factor) {
+  // Reduction, constant
+  if (id->isReduction() && id->extent()->isConstScalar() &&
+      const_ids.count(id)) {
     return inner_most;
   }
   inner_most--;
@@ -652,17 +648,49 @@ int idPos(const IterDomain* id) {
   return 0;
 }
 
-struct id_lt {
-  // Return if id0 should be before id1
-  inline bool operator()(const IterDomain* id0, const IterDomain* id1) {
-    return idPos(id0) < idPos(id1);
+std::unordered_set<const IterDomain*> getConstIds(
+    const std::vector<IterDomain*>& domain) {
+  std::unordered_set<const IterDomain*> const_ids;
+  // split factors are constant
+  for (auto id : domain) {
+    if (auto split = dynamic_cast<Split*>(id->definition())) {
+      if (split->innerSplit()) {
+        const_ids.emplace(split->inner());
+      } else {
+        const_ids.emplace(split->outer());
+      }
+    }
   }
-};
+  // further split and merge of constant ids
+  for (auto id : domain) {
+    // split a constant id
+    if (auto split = dynamic_cast<Split*>(id->definition())) {
+      if (const_ids.count(split->in())) {
+        const_ids.emplace(split->inner());
+        const_ids.emplace(split->outer());
+        continue;
+      }
+    }
+    // merge two constant ids
+    if (auto merge = dynamic_cast<Merge*>(id->definition())) {
+      if (const_ids.count(merge->inner()) && const_ids.count(merge->outer())) {
+        const_ids.emplace(merge->out());
+      }
+    }
+  }
+  return const_ids;
+}
 } // namespace
 
 TensorView* sortAndRFactor(TensorView* reference_tv) {
   auto domain = reference_tv->getLeafDomain();
-  std::sort(domain.begin(), domain.end(), id_lt());
+  const auto& const_ids = getConstIds(domain);
+  std::sort(
+      domain.begin(),
+      domain.end(),
+      [&const_ids](const IterDomain* id0, const IterDomain* id1) {
+        return idPos(id0, const_ids) < idPos(id1, const_ids);
+      });
   std::unordered_map<int, int> reorder_map;
   std::unordered_map<IterDomain*, int> domain_pos;
   for (int axis_i = 0; axis_i < (int)domain.size(); axis_i++) {
