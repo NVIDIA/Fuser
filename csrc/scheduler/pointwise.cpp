@@ -658,7 +658,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // as we normally would.
 
     std::unordered_map<int, int> rfactor_reorder_map =
-        scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out);
+        scheduler_utils::maybeRfactorReorderAsAllocationMap(reference_tv);
     if (!rfactor_reorder_map.empty()) {
       reference_tv->reorder(rfactor_reorder_map);
     }
