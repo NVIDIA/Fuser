@@ -10,8 +10,8 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/pipeline.h>
 #include <multidevice/lower_communication.h>
+#include <multidevice/pipeline.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
@@ -375,8 +375,7 @@ class automaticReshardingTest
   }
   void validate() {
     for (auto expr : fusion->exprs()) {
-      GTEST_EXPECT_TRUE(
-          !isResharding(expr) || isLowerableToCommunication(expr))
+      GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
     }
   }

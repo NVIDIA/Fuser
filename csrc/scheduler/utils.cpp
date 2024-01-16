@@ -296,9 +296,11 @@ void parallelizeAllLike(
 
   if (selected_tvs.empty()) {
     auto all_tvs = ir_utils::allTvs(reference_tv->fusion());
-    std::copy_if(all_tvs.begin(), all_tvs.end(),
-              std::back_inserter(selected_tvs),
-              [](auto tv) {return !tv->isFusionInput();});
+    std::copy_if(
+        all_tvs.begin(),
+        all_tvs.end(),
+        std::back_inserter(selected_tvs),
+        [](auto tv) { return !tv->isFusionInput(); });
   }
 
   for (auto tv : selected_tvs) {
