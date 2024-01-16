@@ -138,6 +138,26 @@ void SegmentedGroup::deserialize(
   is_fusion_input_ = buffer->is_fusion_input();
 }
 
+void SegmentedGroup::makeClonedFusion() {
+  auto&& [ir_cloner, fusion_segment] =
+      segmented_fusion_->makeFusionWithCloner(this);
+  NVF_ERROR(fusion_segment != nullptr, "Failed to create segmented fusion.");
+
+  cloned_fusion_ = std::move(fusion_segment);
+
+  // Map inputs for original fusion to the segmented fusion through IrCloner
+  const std::vector<Val*>& complete_inputs =
+      segmented_fusion_->completeFusion()->inputs();
+  original_inputs_in_cloned_fusion_.reserve(complete_inputs.size());
+  std::transform(
+      complete_inputs.begin(),
+      complete_inputs.end(),
+      std::back_inserter(original_inputs_in_cloned_fusion_),
+      [&complete_to_segment_map = ir_cloner](Val* v) {
+        return complete_to_segment_map.clone(v);
+      });
+}
+
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
@@ -510,7 +530,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
       exprs.size(),
       " expressions while serialization expected ",
@@ -1131,7 +1151,7 @@ void SegmentedFusion::finalize() {
   // Log the number of values and expressions. It is used as a sanity check
   // during serialization.
   initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
+  initial_exprs_size_ = complete_fusion_->unordered_exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
@@ -1821,7 +1841,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
-std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
+    makeFusionWithCloner(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
 
   auto complete_to_segment_map =
@@ -1859,7 +1880,12 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   // new Vals so that they can be bound to the segment inputs.
   convertInputRfactorsToRoots(fusion_segment.get());
 
-  return fusion_segment;
+  return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
+}
+
+std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+  auto&& [ir_cloner, fusion_segment] = makeFusionWithCloner(sg);
+  return std::move(fusion_segment);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
@@ -2483,23 +2509,6 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 }
 
 } // namespace
-
-std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
-    getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
-  FUSER_PERF_SCOPE("SegmentedGroup::getMaybeSchedulerEntry");
-  auto fusion = segmented_fusion_->completeFusion();
-  auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
-  // Here, segmentation has been completed, so insertion of cast to
-  // lower precision has also alredy been done. Just narrow the
-  // complete fusion to the segment.
-  FusionSegmentGuard fsg(fusion, getAllInputs(this), getAllOutputs(this));
-  if (!SchedulerEntry::canSchedule(
-          heuristic(), fusion, runtime_info, data_cache)) {
-    return std::nullopt;
-  }
-  return SchedulerEntry::makeEntry(
-      heuristic(), fusion, runtime_info, data_cache);
-}
 
 void SegmentedGroup::resetExprList() {
   auto input_group_vec = getAllInputs(this);
@@ -4161,11 +4170,9 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 
 FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
     makeInitialSchedulerEntry(
+        Fusion* local_fusion,
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
-  auto local_fusion = completeFusion();
-
-  FusionSegmentGuard fsg(this, sg);
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
@@ -4176,14 +4183,19 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
       sg->heuristic(), local_fusion, runtime_info, data_cache);
 }
 
-std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs,
-    SchedulerRuntimeInfo& runtime_info) {
-  auto ret = std::make_unique<FusionHeuristics>();
-  for (auto g : groups()) {
-    ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
+std::optional<FusionKernelRuntime::SchedulerEntryPtr> SegmentedFusion::
+    getMaybeSchedulerEntry(
+        Fusion* local_fusion,
+        SegmentedGroup* sg,
+        SchedulerRuntimeInfo& runtime_info) {
+  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
+  auto data_cache = getCachedHeuristicDataFor(sg);
+  if (!SchedulerEntry::canSchedule(
+          sg->heuristic(), local_fusion, runtime_info, data_cache)) {
+    return std::nullopt;
   }
-  return ret;
+  return SchedulerEntry::makeEntry(
+      sg->heuristic(), local_fusion, runtime_info, data_cache);
 }
 
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(

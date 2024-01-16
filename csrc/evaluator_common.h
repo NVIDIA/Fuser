@@ -141,11 +141,19 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
+  PrecomputedValues(PrecomputedValues&&) = default;
 
   explicit PrecomputedValues(Fusion* fusion);
 
+  ~PrecomputedValues();
+
   //! Bind concrete values from fusion runtime inputs
   void bindInputs(const KernelArgumentHolder& args);
+
+  //! Bind concrete values to a group of fusion values
+  void bindValues(
+      const std::vector<Val*>& values,
+      const KernelArgumentHolder& args);
 
   using ParallelExtentMap =
       std::unordered_map<ParallelType, std::vector<const Val*>>;

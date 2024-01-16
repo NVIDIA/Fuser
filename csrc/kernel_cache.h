@@ -220,7 +220,8 @@ class FusionKernelRuntime {
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type,
+      bool initial_heuristics);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
@@ -281,12 +282,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! Utility to speed up value evaluation at runtime
-  std::unique_ptr<PrecomputedValues> precomputed_values_;
-
-  //! Cache of all tensors in the complete fusion
-  std::vector<TensorView*> all_tvs_;
 
   //! store number of arguments in KernelArgumentHolder after each segment
   //! used to check if arguments are erased if not being used in the following

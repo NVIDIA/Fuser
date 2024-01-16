@@ -123,6 +123,19 @@ class SegmentedGroup {
     return exprs_;
   }
 
+  //! Returns the complete fusion inputs mapped to this segmented group's fusion
+  const auto& getCompleteFusionInputs() const {
+    return original_inputs_in_cloned_fusion_;
+  }
+
+  Fusion* getFusion() {
+    // Build cloned fusion for this segmented group
+    if (cloned_fusion_ == nullptr) {
+      makeClonedFusion();
+    }
+    return cloned_fusion_.get();
+  }
+
   //! Debug print function
   void print() const;
 
@@ -134,16 +147,6 @@ class SegmentedGroup {
   //! Utility to re-collect the operators included in this
   //!  segmented group after updating the group boundary.
   void resetExprList();
-
-  //! Try to get a scheduler entry for this group with
-  //!  the given runtime info.
-  //! Returns a new scheduler with the same heuristics
-  //!  for this group if possible.
-  //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
-  //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
   bool isFusionInputGroup() const;
@@ -211,6 +214,9 @@ class SegmentedGroup {
   //!  no more segment merging should be done beyond
   void finalize();
 
+  //! Make the cloned fusion for this segmented group
+  void makeClonedFusion();
+
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
 
@@ -236,6 +242,12 @@ class SegmentedGroup {
 
   //! SegmentedFusion this group belongs to
   SegmentedFusion* segmented_fusion_;
+
+  //! The cloned segmented fusion
+  std::unique_ptr<Fusion> cloned_fusion_;
+
+  //! These are the complete fusion's inputs mapped to the cloned fusion
+  std::vector<Val*> original_inputs_in_cloned_fusion_;
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
@@ -251,6 +263,13 @@ class FusionHeuristics {
   //!  uses emplaceBack for inserting heuristics in order
   explicit FusionHeuristics() = default;
 
+  //! Constructor fills heuristics_ with nullptr, which allows us to create
+  //! SchedulerEntries out of order.
+  explicit FusionHeuristics(size_t num_heuristics) {
+    heuristics_.reserve(num_heuristics);
+    std::fill_n(std::back_inserter(heuristics_), num_heuristics, nullptr);
+  }
+
   //! Constructor for complete fusion case, generates the scheduler entry
   //!  for the fusion owning the given expression
   explicit FusionHeuristics(
@@ -264,6 +283,13 @@ class FusionHeuristics {
 
   FusionHeuristics(const FusionHeuristics&) = delete;
   FusionHeuristics& operator=(const FusionHeuristics&) = delete;
+
+  SchedulerEntryOwningPtr& at(int index) {
+    NVF_ERROR(is_segmented_);
+    NVF_ERROR(index >= 0);
+    NVF_ERROR(index < (int)heuristics_.size());
+    return heuristics_.at(index);
+  }
 
   //! Place a scheduler entry on the list. Applies to segmented fusion only.
   void emplaceBack(SchedulerEntryOwningPtr&& pt) {
@@ -346,9 +372,27 @@ class SegmentedFusion {
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
+  //! Get the fusion for the segmented group and return the IrCloner used to
+  //! clone the complete fusion
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
+      SegmentedGroup* sg);
+
+  //! Make a heuristics entry for a group and parameters
+  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
+      Fusion* local_fusion,
+      SegmentedGroup* sg,
+      SchedulerRuntimeInfo& runtime_info);
+
+  //! Try to get a scheduler entry for this group with
+  //!  the given runtime info.
+  //! Returns a new scheduler with the same heuristics
+  //!  for this group if possible.
+  //!  Note that the schedule params can be different.
+  //! Returns a nullopt if this group cannot be scheduled
+  //!  with the same heuristics.
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+      Fusion* local_fusion,
+      SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 
   //! Inline Debug print for segmented fusion
@@ -484,10 +528,6 @@ class SegmentedFusion {
   // TODO: this class needs cleanup
  protected:
   friend class SegmentCandidateFinder;
-  //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Cleanup function to be call at the end of fusion
   //!  segment pass
