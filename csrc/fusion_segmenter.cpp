@@ -1821,7 +1821,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
-std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
+    makeFusionWithCloner(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
 
   auto complete_to_segment_map =
@@ -1859,7 +1860,12 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   // new Vals so that they can be bound to the segment inputs.
   convertInputRfactorsToRoots(fusion_segment.get());
 
-  return fusion_segment;
+  return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
+}
+
+std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+  auto&& [_, fusion_segment] = makeFusionWithCloner(sg);
+  return std::move(fusion_segment);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
@@ -4161,11 +4167,9 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 
 FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
     makeInitialSchedulerEntry(
+        Fusion* local_fusion,
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
-  auto local_fusion = completeFusion();
-
-  FusionSegmentGuard fsg(this, sg);
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
@@ -4174,16 +4178,6 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
   return SchedulerEntry::makeEntry(
       sg->heuristic(), local_fusion, runtime_info, data_cache);
-}
-
-std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs,
-    SchedulerRuntimeInfo& runtime_info) {
-  auto ret = std::make_unique<FusionHeuristics>();
-  for (auto g : groups()) {
-    ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
-  }
-  return ret;
 }
 
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(

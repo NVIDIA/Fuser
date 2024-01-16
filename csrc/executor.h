@@ -68,6 +68,11 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args);
 
+  KernelArgumentHolder inferOutputSizes(
+      Fusion* fusion,
+      const KernelArgumentHolder& args,
+      PrecomputedValues* evaluator_precomputed_values);
+
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.

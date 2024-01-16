@@ -346,9 +346,14 @@ class SegmentedFusion {
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
+  //! Get the fusion for the segmented group
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
+      SegmentedGroup* sg);
+
+  //! Make a heuristics entry for a group and parameters
+  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
+      Fusion* local_fusion,
+      SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 
   //! Inline Debug print for segmented fusion
@@ -464,6 +469,13 @@ class SegmentedFusion {
   //! A Copy of original full fusion
   std::unique_ptr<Fusion> complete_fusion_;
 
+  //! The segmented fusions for all segment groups
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
+      all_segmented_fusions_;
+
+  std::unordered_map<SegmentedGroup*, std::reference_wrapper<IrCloner>>
+      all_segmented_ir_cloners_;
+
   //! A set of intermediate tensors that need to be cast to fp16
   std::unordered_set<TensorView*> force_fp16_tv_set_;
 
@@ -484,10 +496,6 @@ class SegmentedFusion {
   // TODO: this class needs cleanup
  protected:
   friend class SegmentCandidateFinder;
-  //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Cleanup function to be call at the end of fusion
   //!  segment pass

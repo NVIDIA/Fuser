@@ -152,6 +152,11 @@ class FusionKernelRuntime {
   //! multithreaded. The segments in the fusion are compiled independently.
   void compileFusionParallel(KernelArgumentHolder args);
 
+  //! Make heuristics for all groups in this segmented fusion
+  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type);
+
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
   }
@@ -320,6 +325,9 @@ class FusionKernelRuntime {
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
+      all_segmented_fusions_;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
