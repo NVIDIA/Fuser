@@ -483,7 +483,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "vectorize_factor: " << vectorize_factor << std::endl
             << "\n"
-            << "efactor_reorder_map: ";
+            << "rfactor_reorder_map: ";
     for (auto [i, j] : rfactor_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
