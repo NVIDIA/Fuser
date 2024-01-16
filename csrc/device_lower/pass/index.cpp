@@ -639,21 +639,10 @@ void IndexLowering::handleSerialGridReduction(
 
   // Allocate global work buffer TensorIndex.
   //
-  // The global work buffer will look just like the reduction output, and be
-  // scheduled the same way, including reduction axes. However, it is not
-  // inlined and it resides in global memory.
-  std::vector<IterDomain*> work_buffer_ids;
-  for (auto id : out_tv->getRootDomain()) {
-    // Clone output root without reductions as work buffer root domain
-    work_buffer_ids.push_back(IterDomainBuilder(id).build());
-  }
-  auto work_buffer_root_domain =
-      IrBuilder::create<TensorDomain>(work_buffer_ids);
-  // replay leaf transformations from out_tv on work_buffer_tv
-  const auto new_domain = TransformReplay::fullSelfReplay(
-      work_buffer_root_domain, out_tv->domain());
+  // The global work buffer will look just like the reduction output except
+  // that it resides in global memory.
   auto work_buffer_tv = IrBuilder::create<TensorView>(
-      new_domain, out_tv->dtype(), MemoryType::Global);
+      out_tv->domain(), out_tv->dtype(), MemoryType::Global);
 
   Val* work_buffer_idx_val = nullptr;
   for (auto v :
