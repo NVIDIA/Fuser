@@ -204,7 +204,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto t0 = at::arange(32, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -229,7 +229,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto t0 = at::arange(16, options).view({4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -255,7 +255,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   tv1->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto t0 = at::arange(64, options).view({4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -282,7 +282,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   tv1->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto t0 = at::arange(256, options).view({4, 4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -310,7 +310,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   tv1->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto t0 = at::arange(1024, options).view({4, 4, 4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -334,7 +334,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   tv2->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto t0 = at::arange(32, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -359,7 +359,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto t0 = at::arange(16, options).view(16, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -385,7 +385,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto t0 = at::arange(64, options).view({4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -412,7 +412,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   tv2->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto t0 = at::arange(256, options).view({4, 4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -440,7 +440,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   tv2->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto t0 = at::arange(1024, options).view({4, 4, 4, 4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
