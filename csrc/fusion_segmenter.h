@@ -343,14 +343,11 @@ class SegmentedFusion {
     return complete_fusion_->getOutputAlias(val).first;
   }
 
-  //! Get the fusion for the segmented group
-  Fusion* getFusion(SegmentedGroup* sg);
-
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
   //! Get the fusion for the segmented group
-  std::pair<IrCloner, std::shared_ptr<Fusion>> makeFusionWithCloner(
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
       SegmentedGroup* sg);
 
   //! Make heuristics for all groups in this segmented fusion
@@ -480,6 +477,9 @@ class SegmentedFusion {
   //! The segmented fusions for all segment groups
   std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
       all_segmented_fusions_;
+
+  std::unordered_map<SegmentedGroup*, std::reference_wrapper<IrCloner>>
+      all_segmented_ir_cloners_;
 
   //! A set of intermediate tensors that need to be cast to fp16
   std::unordered_set<TensorView*> force_fp16_tv_set_;

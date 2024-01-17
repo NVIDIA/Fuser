@@ -1052,8 +1052,9 @@ FusionKernelRuntime::FusionKernelRuntime(
 
       auto&& result = segmented_fusion_->makeFusionWithCloner(group_to_run);
       IrCloner& complete_to_segment_map = result.first;
-      std::shared_ptr<Fusion> fusion_to_run = result.second;
-      all_segmented_fusions.try_emplace(group_to_run, fusion_to_run);
+      auto&& [iter, success] = all_segmented_fusions_.try_emplace(
+          group_to_run, std::move(result.second));
+      Fusion* fusion_to_run = iter->second.get();
 
       KernelArgumentHolder group_runtime_inputs;
       for (auto input : group_to_run->inputs()) {
@@ -1071,25 +1072,24 @@ FusionKernelRuntime::FusionKernelRuntime(
           [&](Val* v) { return complete_to_segment_map.clone(v); });
 
       std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
-          std::make_unique<PrecomputedValues>(fusion_to_run.get());
-      evaluator_precomputed_values->bindInputs(group_runtime_inputs);
+          std::make_unique<PrecomputedValues>(fusion_to_run);
       evaluator_precomputed_values->bindInputs(
           complete_inputs_for_segment, args_metadata_copy);
       evaluator_precomputed_values->evaluate();
 
-      auto all_tvs_for_local_fusion = ir_utils::allTvs(fusion_to_run.get());
+      auto all_tvs_for_local_fusion = ir_utils::allTvs(fusion_to_run);
       SchedulerRuntimeInfo local_runtime_info(
-          fusion_to_run.get(),
+          fusion_to_run,
           group_runtime_inputs,
           evaluator_precomputed_values.get(),
           all_tvs_for_local_fusion,
           forced_index_type);
       heuristics_->emplaceBack(segmented_fusion_->makeInitialSchedulerEntry(
-          fusion_to_run.get(), group_to_run, local_runtime_info));
+          fusion_to_run, group_to_run, local_runtime_info));
 
       auto group_runtime_outputs = executors_.at(group_to_run->groupId())
                                        .inferOutputSizes(
-                                           fusion_to_run.get(),
+                                           fusion_to_run,
                                            group_runtime_inputs,
                                            evaluator_precomputed_values.get());
       args_manager.updateWithSegmentOutputs(

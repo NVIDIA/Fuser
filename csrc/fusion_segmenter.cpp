@@ -1821,14 +1821,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
-Fusion* SegmentedFusion::getFusion(SegmentedGroup* sg) {
-  auto [all_segmented_fusions_iter, _] =
-      all_segmented_fusions_.try_emplace(sg, makeFusion(sg));
-  auto& [segmented_group_ptr, unique_ptr_fusion] = *all_segmented_fusions_iter;
-  return unique_ptr_fusion.get();
-}
-
-std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
+    makeFusionWithCloner(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
 
   auto complete_to_segment_map =
@@ -1866,49 +1860,12 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   // new Vals so that they can be bound to the segment inputs.
   convertInputRfactorsToRoots(fusion_segment.get());
 
-  return fusion_segment;
+  return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
 
-std::pair<IrCloner, std::shared_ptr<Fusion>> SegmentedFusion::
-    makeFusionWithCloner(SegmentedGroup* sg) {
-  std::shared_ptr<Fusion> fusion_segment = std::make_shared<Fusion>();
-
-  auto complete_to_segment_map =
-      Fusion::copy(completeFusion(), fusion_segment.get());
-
-  std::vector<Val*> input_list(
-      fusion_segment->inputs().begin(), fusion_segment->inputs().end());
-  for (auto inp : input_list) {
-    fusion_segment->removeInput(inp);
-  }
-
-  std::vector<Val*> output_list(
-      fusion_segment->outputs().begin(), fusion_segment->outputs().end());
-  for (auto out : output_list) {
-    fusion_segment->removeOutput(out);
-  }
-
-  std::vector<TensorView*> view_tvs;
-  for (auto inp : getAllInputs(sg)) {
-    auto clone_tv = complete_to_segment_map.clone(inp);
-    fusion_segment->addInput(clone_tv);
-    if (inp->isDefinitionType<ViewOp>()) {
-      NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
-      view_tvs.push_back(clone_tv->as<TensorView>());
-    }
-  }
-
-  // note, we would want to keep output consistent and not artificially drop
-  // duplicates.
-  for (auto out : sg->output_vals) {
-    fusion_segment->addOutput(complete_to_segment_map.clone(out));
-  }
-
-  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
-  // new Vals so that they can be bound to the segment inputs.
-  convertInputRfactorsToRoots(fusion_segment.get());
-
-  return std::make_pair(complete_to_segment_map, fusion_segment);
+std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
+  auto&& [_, fusion_segment] = makeFusionWithCloner(sg);
+  return std::move(fusion_segment);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
