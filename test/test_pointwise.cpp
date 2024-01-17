@@ -201,7 +201,12 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizeAllocationDomain_UnsqueezedTensor) {
+// All inputs & outputs share the same allocation domain permutation from root
+// domain, but intermediate tv2 isn't specified a stride order. There's also a
+// broadcast IterDomain on tv1, which is tricky for vectorization analysis to
+// figure out which axes should be excluded from the computation of
+// vectorization factor.
+TEST_F(PointwiseTest, VectorizeAllocationDomainIssue1567) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);

@@ -485,9 +485,17 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
           from->getRootDomain().begin() + clear_pos + 1);
     }
 
-    // merging order matters for broadcast as well, if the inner most broadcast
-    // dimension happens to be one of the vectorization IterDomain, We'll still
-    // be able to merge its "reordered" inner iter domains.
+    // A special case is that, if the last broadcast dimension resolved in
+    // consumers root domain is mapped for vectorization, then merge order in
+    // the vectorization axes matters. T0[i0, i1] T1[i0, i1, b2] = broadcast(T0)
+    // T2[i0, i1, i3]
+    // T3[i0, i1, i2] = T1 + T2
+    //
+    // If the mapped ids are {i0, i2, i1}, when propagating from T3 to T1, the
+    // previous "inner most resolved broadcast" would eliminate both i0 & i1
+    // from vectorization, but the reality is that the merged axes has i1 in the
+    // inner most and we should still map it for vectorization. see issue:
+    // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
     bool clear_pos_in_mapped_root = false;
     for (auto i : c10::irange(from_ids.size())) {
       if (clear_pos_in_mapped_root) {
