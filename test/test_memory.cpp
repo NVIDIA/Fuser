@@ -367,6 +367,8 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
   if (swizzle != MmaInputSmemSwizzle::None) {
     auto num_items_16bytes = 16 / dataTypeSize(tv0->dtype());
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
@@ -382,8 +384,6 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto inner_dim_size =
-      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
   auto t0 = at::arange(32 * inner_dim_size, options).view({32, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
