@@ -180,10 +180,6 @@ class TMALdstTest : public HopperTest,
   void SetUp() override {
     HopperTest::SetUp();
     swizzle = std::get<0>(GetParam());
-
-    if (swizzle != MmaInputSmemSwizzle::None) {
-      GTEST_SKIP() << "swizzle not supported yet";
-    }
   }
 };
 
@@ -204,7 +200,8 @@ TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(32, options);
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(inner_dim_size, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -229,7 +226,8 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(16, options).view({4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(4 * inner_dim_size, options).view({4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -255,7 +253,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   tv1->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(64, options).view({4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 =
+      at::arange(16 * inner_dim_size, options).view({4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -282,7 +282,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   tv1->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(256, options).view({4, 4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 =
+      at::arange(64 * inner_dim_size, options).view({4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -310,7 +312,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   tv1->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(1024, options).view({4, 4, 4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(256 * inner_dim_size, options)
+                .view({4, 4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -334,7 +338,8 @@ TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   tv2->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(32, options);
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(inner_dim_size, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -359,7 +364,8 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(16, options).view({4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(4 * inner_dim_size, options).view({4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -385,7 +391,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(64, options).view({4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 =
+      at::arange(16 * inner_dim_size, options).view({4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -412,7 +420,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   tv2->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(256, options).view({4, 4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 =
+      at::arange(64 * inner_dim_size, options).view({4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
@@ -440,7 +450,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   tv2->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(1024, options).view({4, 4, 4, 4, 4});
+  auto inner_dim_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv0);
+  auto t0 = at::arange(256 * inner_dim_size, options)
+                .view({4, 4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
