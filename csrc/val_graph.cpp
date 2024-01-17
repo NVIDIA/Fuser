@@ -764,7 +764,7 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
 
   const ExprGroup& expr_new_group = toGroup(expr0);
 
-   // Update unique uses of producers
+  // Update unique uses of producers
   ValGroups producers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
     for (auto input : expr->inputs()) {
