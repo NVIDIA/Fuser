@@ -206,7 +206,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             // NOTE: rfactor_reorder_map is only applied for fusion without view
             // op yet.
             if (!ir_utils::getViewOps(fusion).empty()) {
-              return std::make_unique<std::unordered_map<int, int>>({});
+              return std::make_unique<std::unordered_map<int, int>>();
             }
             return std::make_unique<std::unordered_map<int, int>>(
                 scheduler_utils::maybeRfactorReorderAsAllocationMap(
