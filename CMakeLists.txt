@@ -243,9 +243,12 @@ if(NOT MSVC)
 endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+target_include_directories(codegen_internal SYSTEM INTERFACE
+  ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
+  ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+)
 target_include_directories(codegen_internal SYSTEM PRIVATE
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-  ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
   ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
   ${CUDA_INCLUDE_DIRS}
 )
@@ -379,7 +382,7 @@ if(BUILD_PYTHON)
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
-  target_include_directories(nvf_py_internal SYSTEM PRIVATE
+  target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
 
