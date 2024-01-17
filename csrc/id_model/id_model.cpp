@@ -752,6 +752,10 @@ void IdModel::buildAlmostExactMap() {
     }
   }
 
+  for (const auto& [id1, id2] : ids_to_map) {
+    almost_exact_graph.mapVals(id1, id2);
+  }
+
   almost_exact_graph.validateConsistency();
 }
 
