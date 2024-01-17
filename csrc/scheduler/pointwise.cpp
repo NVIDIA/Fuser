@@ -203,14 +203,17 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   auto rfactor_reorder_map_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>(
           data_cache, [&fusion, &largest_out]() {
-            // NOTE: rfactor_reorder_map is only applied for fusion without view op yet.
+            // NOTE: rfactor_reorder_map is only applied for fusion without view
+            // op yet.
             if (!ir_utils::getViewOps(fusion).empty()) {
               return std::make_unique<std::unordered_map<int, int>>({});
             }
-            return std::make_unique<std::unordered_map<int, int>>
-                (scheduler_utils::maybeRfactorReorderAsAllocationMap(largest_out));
+            return std::make_unique<std::unordered_map<int, int>>(
+                scheduler_utils::maybeRfactorReorderAsAllocationMap(
+                    largest_out));
           });
-  std::unordered_map<int, int> rfactor_reorder_map = rfactor_reorder_map_entry.get()[0];
+  std::unordered_map<int, int> rfactor_reorder_map =
+      rfactor_reorder_map_entry.get()[0];
 
   auto ref_root = largest_out->getMaybeRFactorDomain();
   // reorder of root to align with rfactor map should always help with indexing,
