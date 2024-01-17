@@ -171,17 +171,23 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
 }
 
-class TMATest : public NVFuserTest {
+using TMATestParams = std::tuple<MmaInputSmemSwizzle>;
+
+class TMALdstTest : public HopperTest,
+                    public ::testing::WithParamInterface<TMATestParams> {
+  MmaInputSmemSwizzle swizzle;
+
   void SetUp() override {
-    // requires Hopper or newer
-    if (!deviceMajorMinorCheck(9)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    HopperTest::SetUp();
+    swizzle = std::get<0>(GetParam());
+
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      GTEST_SKIP() << "swizzle not supported yet";
     }
-    NVFuserTest::SetUp();
   }
 };
 
-TEST_F(TMATest, LoadCompleteTensor1D) {
+TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -205,7 +211,7 @@ TEST_F(TMATest, LoadCompleteTensor1D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor2D) {
+TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -230,7 +236,7 @@ TEST_F(TMATest, LoadCompleteTensor2D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor3D) {
+TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -256,7 +262,7 @@ TEST_F(TMATest, LoadCompleteTensor3D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor4D) {
+TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -283,7 +289,7 @@ TEST_F(TMATest, LoadCompleteTensor4D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor5D) {
+TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -311,7 +317,7 @@ TEST_F(TMATest, LoadCompleteTensor5D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor1D) {
+TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -335,7 +341,7 @@ TEST_F(TMATest, StoreCompleteTensor1D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor2D) {
+TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -360,7 +366,7 @@ TEST_F(TMATest, StoreCompleteTensor2D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor3D) {
+TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -386,7 +392,7 @@ TEST_F(TMATest, StoreCompleteTensor3D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor4D) {
+TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -413,7 +419,7 @@ TEST_F(TMATest, StoreCompleteTensor4D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor5D) {
+TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -441,11 +447,29 @@ TEST_F(TMATest, StoreCompleteTensor5D) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+std::string testNameTMALdstTest(
+    const testing::TestParamInfo<TMATestParams>& info) {
+  auto swizzle = std::get<0>(info.param);
+  return toString(swizzle);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TMALdstTest,
+    TMALdstTest,
+    testing::Values(
+        MmaInputSmemSwizzle::None,
+        MmaInputSmemSwizzle::B128,
+        MmaInputSmemSwizzle::B64,
+        MmaInputSmemSwizzle::B32),
+    testNameTMALdstTest);
+
+class TMAMiscTest : public HopperTest {};
+
 // Basically just StoreCompleteTensor1D, but with index hoisting disabled.
 // Because index hoisting is responsible making sure that tensor maps are
 // created on the host and passed as kernel argument, we need to make sure
 // that disabling index hoisting doesn't break this.
-TEST_F(TMATest, DisableIndexHoisting) {
+TEST_F(TMAMiscTest, DisableIndexHoisting) {
   DisableOptionsGuard opt_guard;
   opt_guard.getCurOptions().set(DisableOption::IndexHoist);
 

@@ -671,4 +671,14 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 // Get the number of SMs on the current device
 int getNumSMs();
 
+class HopperTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
 } // namespace nvfuser
