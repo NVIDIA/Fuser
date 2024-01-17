@@ -862,4 +862,88 @@ bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
               .empty();
 }
 
+void ValGraph::validateConsistency() const {
+  // Check the consistency of the mapping information. Specifically:
+  // 1. All ValGroup and ExprGroup sets are not empty. This may not be
+  // strictly necessary but it's often implicitly assumed as we tend
+  // to use `front()`.
+  // 2. All Val groups in disjoint_vals_ are mapped in unique_definitions_ and
+  // unique_uses_
+  // 3. All Expr groups in disjoint_exprs_ are mapped to in
+  // unique_definitions_ and unique_uses_
+  // 4. Any val and expr groups in unique_definitions_ and
+  //   unique_uses_ are found in disjoint_vals_ and disjoint_exprs_
+
+  // Check 1
+  for (const ValGroup& valg : disjointValSets().disjointSets()) {
+    NVF_ERROR(valg.get() != nullptr);
+    NVF_ERROR(!valg->empty(), "Empty Val group is not allowed");
+  }
+
+  for (const ExprGroup& exprg : disjointExprSets().disjointSets()) {
+    NVF_ERROR(exprg.get() != nullptr);
+    NVF_ERROR(!exprg->empty(), "Empty Expr group is not allowed");
+  }
+
+  // Check 2
+  for (const ValGroup& valg : disjointValSets().disjointSets()) {
+    NVF_ERROR(
+        unique_definitions_.find(valg) != unique_definitions_.end(),
+        "Definition exprs not found for ",
+        nvfuser::toString(valg));
+    NVF_ERROR(
+        unique_uses_.find(valg) != unique_uses_.end(),
+        "Use exprs not found for ",
+        nvfuser::toString(valg));
+  }
+
+  // Check 3
+  for (const ExprGroup& exprg : disjointExprSets().disjointSets()) {
+    for (const auto& use_def_map : {unique_definitions_, unique_uses_}) {
+      bool found = false;
+      for (const auto& [val_group, expr_groups] : use_def_map) {
+        if (expr_groups.has(exprg)) {
+          found = true;
+          continue;
+        }
+      }
+      NVF_ERROR(
+          found,
+          "ExprGroup not found in ",
+          (&use_def_map == &unique_definitions_) ? "unique_definitions_"
+                                                 : "unique_uses_");
+    }
+  }
+
+  // Check 4
+  for (const auto& use_def_map : {unique_definitions_, unique_uses_}) {
+    for (const auto& [val_group, expr_groups] : use_def_map) {
+      auto val_set_it = std::find(
+          disjointValSets().disjointSets().begin(),
+          disjointValSets().disjointSets().end(),
+          val_group);
+      NVF_ERROR(
+          val_set_it != disjointValSets().disjointSets().end(),
+          "Inconsistent ValGroup, ",
+          nvfuser::toString(val_group),
+          ", at addreess ",
+          val_group.get(),
+          ", not found in the disjoint Val sets.");
+      for (const ExprGroup& expr_group : expr_groups) {
+        auto expr_set_it = std::find(
+            disjointExprSets().disjointSets().begin(),
+            disjointExprSets().disjointSets().end(),
+            expr_group);
+        NVF_ERROR(
+            expr_set_it != disjointExprSets().disjointSets().end(),
+            "Inconsistent ExprGroup, ",
+            nvfuser::toString(expr_group),
+            ", at addreess ",
+            expr_group.get(),
+            ", not found in the disjoint Expr sets.");
+      }
+    }
+  }
+}
+
 } // namespace nvfuser

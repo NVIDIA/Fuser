@@ -682,6 +682,8 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
     // TODO: Revisit if we really should map domains in the exact map
     mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
   }
+
+  idGraph(IdMappingMode::EXACT).validateConsistency();
 }
 
 namespace {
@@ -765,6 +767,8 @@ void IdModel::buildAlmostExactMap() {
       }
     }
   }
+
+  almost_exact_graph.validateConsistency();
 }
 
 void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
@@ -816,6 +820,8 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
+
+  idGraph(IdMappingMode::PERMISSIVE).validateConsistency();
 }
 
 namespace {
@@ -970,6 +976,8 @@ void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
   }
 
   loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+
+  idGraph(IdMappingMode::LOOP).validateConsistency();
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
