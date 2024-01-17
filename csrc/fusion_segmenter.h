@@ -343,11 +343,15 @@ class SegmentedFusion {
     return complete_fusion_->getOutputAlias(val).first;
   }
 
+  //! Get the fusion for the segmented group
+  Fusion* getFusion(SegmentedGroup* sg);
+
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
   //! Get the fusion for the segmented group
-  Fusion* getFusion(SegmentedGroup* sg);
+  std::pair<IrCloner, std::shared_ptr<Fusion>> makeFusionWithCloner(
+      SegmentedGroup* sg);
 
   //! Make heuristics for all groups in this segmented fusion
   std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
