@@ -150,6 +150,11 @@ class FusionKernelRuntime {
   //! multithreaded. The segments in the fusion are compiled independently.
   void compileFusionParallel(KernelArgumentHolder args);
 
+  //! Make heuristics for all groups in this segmented fusion
+  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type);
+
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
   }
