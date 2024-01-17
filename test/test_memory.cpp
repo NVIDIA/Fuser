@@ -359,7 +359,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::arange(16, options).view(16, options);
+  auto t0 = at::arange(16, options).view({4, 4});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
