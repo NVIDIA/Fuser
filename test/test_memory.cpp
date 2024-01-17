@@ -370,6 +370,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   if (swizzle != MmaInputSmemSwizzle::None) {
     auto num_items_16bytes = 16 / dataTypeSize(tv0->dtype());
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    tv1->split(-1, inner_dim_size);
     tv1->split(-1, num_items_16bytes);
     tv1->split(0, 8 / swizzle_size);
     tv1->split(0, swizzle_size);
