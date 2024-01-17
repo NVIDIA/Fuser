@@ -485,11 +485,14 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
           from->getRootDomain().begin() + clear_pos + 1);
     }
 
-    // merging order matters for broadcast as well, if the inner most broadcast dimension happens to be one of the vectorization IterDomain, We'll still be able to merge its "reordered" inner iter domains.
+    // merging order matters for broadcast as well, if the inner most broadcast
+    // dimension happens to be one of the vectorization IterDomain, We'll still
+    // be able to merge its "reordered" inner iter domains.
     bool clear_pos_in_mapped_root = false;
     for (auto i : c10::irange(from_ids.size())) {
       if (clear_pos_in_mapped_root) {
-        if (auto iter = consumer_ids_to_clear.find(from_ids[i]); iter != consumer_ids_to_clear.end()) {
+        if (auto iter = consumer_ids_to_clear.find(from_ids[i]);
+            iter != consumer_ids_to_clear.end()) {
           consumer_ids_to_clear.erase(iter);
         }
       } else if (from_ids[i] == from->getRootDomain()[clear_pos]) {
