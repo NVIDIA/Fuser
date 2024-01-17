@@ -475,7 +475,6 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::RfactorReorderMap>;
+template class HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>;
 
 } // namespace nvfuser
