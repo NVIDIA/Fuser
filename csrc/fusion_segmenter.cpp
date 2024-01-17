@@ -4210,10 +4210,9 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 
 FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
     makeInitialSchedulerEntry(
+        Fusion* local_fusion,
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
-  auto local_fusion = getFusion(sg);
-
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
@@ -4229,7 +4228,9 @@ std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
     SchedulerRuntimeInfo& runtime_info) {
   auto ret = std::make_unique<FusionHeuristics>();
   for (auto g : groups()) {
-    ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
+    auto local_fusion = completeFusion();
+    FusionSegmentGuard fsg(this, g);
+    ret->emplaceBack(makeInitialSchedulerEntry(local_fusion, g, runtime_info));
   }
   return ret;
 }

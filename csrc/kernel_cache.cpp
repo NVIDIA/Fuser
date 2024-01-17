@@ -1063,7 +1063,7 @@ FusionKernelRuntime::FusionKernelRuntime(
           all_tvs_for_local_fusion,
           forced_index_type);
       heuristics_->emplaceBack(segmented_fusion_->makeInitialSchedulerEntry(
-          group_to_run, local_runtime_info));
+          fusion_to_run, group_to_run, local_runtime_info));
 
       auto group_runtime_outputs =
           executors_.at(group_to_run->groupId())
