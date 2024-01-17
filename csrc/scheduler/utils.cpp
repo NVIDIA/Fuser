@@ -2077,9 +2077,9 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
   }
   std::unordered_map<IterDomain*, int> alloc_index;
   std::unordered_map<IterDomain*, int> rfactor_index;
-  for (auto i : c10::irange(alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = static_cast<int>(i);
-    rfactor_index[maybe_rfactor_dom[i]] = static_cast<int>(i);
+  for (auto i : c10::irange((int)alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[maybe_rfactor_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
