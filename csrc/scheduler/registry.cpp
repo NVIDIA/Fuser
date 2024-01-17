@@ -374,6 +374,7 @@ void HeuristicSummary::validate() const {
         if (!*can_schedule_transpose) {
           break;
         }
+        NVF_ERROR(entry_type_map_.count(EntryType::RFACTOR_REORDER_MAP));
       }
       NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
       NVF_ERROR(entry_type_map_.count(
@@ -474,5 +475,7 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
+template class HeuristicSummaryEntry<
+    HeuristicCompileTime::RfactorReorderMap>;
 
 } // namespace nvfuser
