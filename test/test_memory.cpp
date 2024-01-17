@@ -175,6 +175,7 @@ using TMATestParams = std::tuple<MmaInputSmemSwizzle>;
 
 class TMALdstTest : public HopperTest,
                     public ::testing::WithParamInterface<TMATestParams> {
+ protected:
   MmaInputSmemSwizzle swizzle;
 
   void SetUp() override {
