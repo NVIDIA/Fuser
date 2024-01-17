@@ -203,6 +203,8 @@ class ValGraph {
   // they modify matching original inputs by the same amount.
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
+  // Check basic consistencies of val and expr groups and their
+  // mappings.
   void validateConsistency() const;
 
  public:
