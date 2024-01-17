@@ -1342,7 +1342,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = IrBuilder::create<kir::TensorIndex>(
-      ldst->in(), IrBuilder::baseAddressExpr(ldst->in()));
+      ldst->in()->as<TensorView>(),
+      IrBuilder::baseAddressExpr(ldst->in()->as<TensorView>()));
   auto out_tv = ldst->out()->as<TensorView>();
   auto out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
   auto new_ldst =
