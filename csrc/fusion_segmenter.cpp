@@ -4180,18 +4180,6 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
       sg->heuristic(), local_fusion, runtime_info, data_cache);
 }
 
-std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs,
-    SchedulerRuntimeInfo& runtime_info) {
-  auto ret = std::make_unique<FusionHeuristics>();
-  for (auto g : groups()) {
-    auto local_fusion = completeFusion();
-    FusionSegmentGuard fsg(this, g);
-    ret->emplaceBack(makeInitialSchedulerEntry(local_fusion, g, runtime_info));
-  }
-  return ret;
-}
-
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
     SegmentedGroup* group) {
   auto data_it = heuristic_summary_cache_.find(group);

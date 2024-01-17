@@ -350,11 +350,6 @@ class SegmentedFusion {
   std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
       SegmentedGroup* sg);
 
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
-      SchedulerRuntimeInfo& runtime_info);
-
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
       Fusion* local_fusion,
