@@ -318,6 +318,9 @@ class FusionKernelRuntime {
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  std::unordered_map<SegmentedGroup*, std::shared_ptr<Fusion>>
+      all_segmented_fusions;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
