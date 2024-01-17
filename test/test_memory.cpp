@@ -367,6 +367,16 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    auto num_items_16bytes = 16 / dataTypeSize(tv0->dtype());
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    tv1->split(-1, num_items_16bytes);
+    tv1->split(0, 8 / swizzle_size);
+    tv1->split(0, swizzle_size);
+    tv1->swizzle(SwizzleType::XOR, 1, -2);
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+
   tv2->axis(0)->parallelize(ParallelType::Bulk);
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
@@ -379,6 +389,39 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+   0    4
+   8   12
+  16   20
+  24   28
+  36   32
+  44   40
+  52   48
+  60   56
+  64   68
+  72   76
+  80   84
+  88   92
+ 100   96
+ 108  104
+ 116  112
+ 124  120
+ 128  132
+ 136  140
+ 144  148
+ 152  156
+ 164  160
+ 172  168
+ 180  176
+ 188  184
+ 192  196
+ 200  204
+ 208  212
+ 216  220
+ 228  224
+ 236  232
+ 244  240
+ 252  248
 
 TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   Fusion fusion;
