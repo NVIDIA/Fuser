@@ -156,8 +156,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   if (hasValidValues()) {
     invalidate();
   }
+  bindInputs(fusion_->inputs(), args);
+}
 
-  const auto& inputs = fusion_->inputs();
+void PrecomputedValues::bindInputs(
+    const std::vector<Val*>& inputs,
+    const KernelArgumentHolder& args) {
   NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 

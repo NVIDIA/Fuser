@@ -147,6 +147,11 @@ class PrecomputedValues {
   //! Bind concrete values from fusion runtime inputs
   void bindInputs(const KernelArgumentHolder& args);
 
+  //! Bind concrete values from fusion runtime inputs
+  void bindInputs(
+      const std::vector<Val*>& values,
+      const KernelArgumentHolder& args);
+
   using ParallelExtentMap =
       std::unordered_map<ParallelType, std::vector<const Val*>>;
 
