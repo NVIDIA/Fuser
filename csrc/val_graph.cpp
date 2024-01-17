@@ -764,22 +764,32 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
 
   const ExprGroup& expr_new_group = toGroup(expr0);
 
-  // Update unique uses
-  for (auto& [producer_group, use_groups] : unique_uses_) {
-    if (use_groups.has(expr0_orig_group) || use_groups.has(expr1_orig_group)) {
-      use_groups.erase(expr0_orig_group);
-      use_groups.erase(expr1_orig_group);
-      use_groups.pushBack(expr_new_group);
+   // Update unique uses of producers
+  ValGroups producers;
+  for (auto expr : std::vector<Expr*>{expr0, expr1}) {
+    for (auto input : expr->inputs()) {
+      producers.pushBack(toGroup(input));
     }
   }
 
-  // Update unique definitions
-  for (auto& [consumer_group, def_groups] : unique_definitions_) {
-    if (def_groups.has(expr0_orig_group) || def_groups.has(expr1_orig_group)) {
-      def_groups.erase(expr0_orig_group);
-      def_groups.erase(expr1_orig_group);
-      def_groups.pushBack(expr_new_group);
+  for (const ValGroup& producer_group : producers) {
+    unique_uses_.at(producer_group).erase(expr0_orig_group);
+    unique_uses_.at(producer_group).erase(expr1_orig_group);
+    unique_uses_.at(producer_group).pushBack(expr_new_group);
+  }
+
+  // Update unique definitinos of consumers
+  ValGroups consumers;
+  for (auto expr : std::vector<Expr*>{expr0, expr1}) {
+    for (auto output : expr->outputs()) {
+      consumers.pushBack(toGroup(output));
     }
+  }
+
+  for (const ValGroup& consumer_group : consumers) {
+    unique_definitions_.at(consumer_group).erase(expr0_orig_group);
+    unique_definitions_.at(consumer_group).erase(expr1_orig_group);
+    unique_definitions_.at(consumer_group).pushBack(expr_new_group);
   }
 }
 
@@ -860,92 +870,6 @@ bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
   return !ValGroups(inputGroups(expr_group))
               .computeIntersect(ValGroups(outputGroups(expr_group)))
               .empty();
-}
-
-void ValGraph::validateConsistency() const {
-  // Check the consistency of the mapping information. Specifically:
-  // 1. All ValGroup and ExprGroup sets are not empty. This may not be
-  // strictly necessary but it's often implicitly assumed as we tend
-  // to use `front()`.
-  // 2. All Val groups in disjoint_vals_ are mapped in unique_definitions_ and
-  // unique_uses_
-  // 3. All Expr groups in disjoint_exprs_ are mapped to in
-  // unique_definitions_ and unique_uses_
-  // 4. Any val and expr groups in unique_definitions_ and
-  //   unique_uses_ are found in disjoint_vals_ and disjoint_exprs_
-
-  // Check 1
-  for (const ValGroup& valg : disjointValSets().disjointSets()) {
-    NVF_ERROR(valg.get() != nullptr);
-    NVF_ERROR(!valg->empty(), "Empty Val group is not allowed");
-  }
-
-  for (const ExprGroup& exprg : disjointExprSets().disjointSets()) {
-    NVF_ERROR(exprg.get() != nullptr);
-    NVF_ERROR(!exprg->empty(), "Empty Expr group is not allowed");
-  }
-
-  // Check 2
-  for (const ValGroup& valg : disjointValSets().disjointSets()) {
-    NVF_ERROR(
-        unique_definitions_.find(valg) != unique_definitions_.end(),
-        "Definition exprs not found for ",
-        nvfuser::toString(valg));
-    NVF_ERROR(
-        unique_uses_.find(valg) != unique_uses_.end(),
-        "Use exprs not found for ",
-        nvfuser::toString(valg));
-  }
-
-  // Check 3
-  for (const ExprGroup& exprg : disjointExprSets().disjointSets()) {
-    for (const auto& use_def_map : {unique_definitions_, unique_uses_}) {
-      bool found = false;
-      for (const auto& [val_group, expr_groups] : use_def_map) {
-        if (expr_groups.has(exprg)) {
-          found = true;
-          continue;
-        }
-      }
-      NVF_ERROR(
-          found,
-          "ExprGroup not found in ",
-          (&use_def_map == &unique_definitions_) ? "unique_definitions_"
-                                                 : "unique_uses_");
-    }
-  }
-
-  // Check 4
-  for (const auto& use_def_map : {unique_definitions_, unique_uses_}) {
-    for (const auto& [val_group, expr_groups] : use_def_map) {
-      NVF_ERROR(val_group.get() != nullptr);
-      auto val_set_it = std::find(
-          disjointValSets().disjointSets().begin(),
-          disjointValSets().disjointSets().end(),
-          val_group);
-      NVF_ERROR(
-          val_set_it != disjointValSets().disjointSets().end(),
-          "Inconsistent ValGroup, ",
-          nvfuser::toString(val_group),
-          ", at addreess ",
-          val_group.get(),
-          ", not found in the disjoint Val sets.");
-      for (const ExprGroup& expr_group : expr_groups) {
-        NVF_ERROR(expr_group.get() != nullptr);
-        auto expr_set_it = std::find(
-            disjointExprSets().disjointSets().begin(),
-            disjointExprSets().disjointSets().end(),
-            expr_group);
-        NVF_ERROR(
-            expr_set_it != disjointExprSets().disjointSets().end(),
-            "Inconsistent ExprGroup, ",
-            nvfuser::toString(expr_group),
-            ", at addreess ",
-            expr_group.get(),
-            ", not found in the disjoint Expr sets.");
-      }
-    }
-  }
 }
 
 } // namespace nvfuser
