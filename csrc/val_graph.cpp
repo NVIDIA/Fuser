@@ -918,6 +918,7 @@ void ValGraph::validateConsistency() const {
   // Check 4
   for (const auto& use_def_map : {unique_definitions_, unique_uses_}) {
     for (const auto& [val_group, expr_groups] : use_def_map) {
+      NVF_ERROR(val_group.get() != nullptr);
       auto val_set_it = std::find(
           disjointValSets().disjointSets().begin(),
           disjointValSets().disjointSets().end(),
@@ -930,6 +931,7 @@ void ValGraph::validateConsistency() const {
           val_group.get(),
           ", not found in the disjoint Val sets.");
       for (const ExprGroup& expr_group : expr_groups) {
+        NVF_ERROR(expr_group.get() != nullptr);
         auto expr_set_it = std::find(
             disjointExprSets().disjointSets().begin(),
             disjointExprSets().disjointSets().end(),

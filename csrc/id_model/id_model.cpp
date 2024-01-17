@@ -752,22 +752,6 @@ void IdModel::buildAlmostExactMap() {
     }
   }
 
-  for (const auto& [id1, id2] : ids_to_map) {
-    for (const auto& [vg, egs] : almost_exact_graph.unique_uses_) {
-      for (const ExprGroup& eg : egs) {
-        NVF_ERROR(eg.get() != nullptr);
-      }
-    }
-
-    almost_exact_graph.mapVals(id1, id2);
-
-    for (const auto& [vg, egs] : almost_exact_graph.unique_uses_) {
-      for (const ExprGroup& eg : egs) {
-        NVF_ERROR(eg.get() != nullptr);
-      }
-    }
-  }
-
   almost_exact_graph.validateConsistency();
 }
 
@@ -1166,78 +1150,6 @@ void IdModel::build(
     return;
   }
 
-#if 0
-  auto debug_print = [&](IdMappingMode mode) {
-    VERBOSE() << "\n********\n**** Debug print of " << mode << std::endl;
-    for (const auto& exprg: idGraph(mode).disjointExprSets().disjointSets()) {
-      NVF_ERROR(exprg.get() != nullptr);
-      VERBOSE() << mode << " g: " << nvfuser::toString(exprg)
-                << " @ " << exprg.get()
-                << std::endl;
-    }
-    std::unordered_set<ExprGroup> egs;
-    for (const auto& [expr, exprg]: idGraph(mode).disjointExprSets().disjointSetMap()) {
-      egs.insert(exprg);
-    }
-    for (const auto& g: egs) {
-      VERBOSE() << "Map g: " << g.get() << std::endl;
-    }
-
-    std::unordered_set<ValGroup> map_gs;
-    for (const auto& [val, valg]: idGraph(mode).disjointValSets().disjointSetMap()) {
-      VERBOSE() << mode << " map g: " << nvfuser::toString(valg)
-                << " @ " << valg.get()
-                << std::endl;
-      map_gs.insert(valg);
-    }
-    std::unordered_set<ValGroup> set_gs;
-    for (const auto& valg: idGraph(mode).disjointValSets().disjointSets()) {
-      VERBOSE() << mode << " set g: " << nvfuser::toString(valg)
-                << " @ " << valg.get()
-                << std::endl;
-      set_gs.insert(valg);
-    }
-
-    for (const auto& map_g: map_gs) {
-      if (set_gs.count(map_g) == 0) {
-        VERBOSE() << "ERROR! Map group not found in set: " << nvfuser::toString(map_g) << std::endl;
-      }
-    }
-
-    for (const auto& set_g: set_gs) {
-      if (map_gs.count(set_g) == 0) {
-        VERBOSE() << "ERROR! Set group not found in map: " << nvfuser::toString(set_g) << std::endl;
-      }
-    }
-    bool found = false;
-    const auto& expr_groups = idGraph(mode).disjointExprSets().disjointSets();
-    for (const auto& valg: idGraph(mode).disjointValSets().disjointSets()) {
-      VERBOSE() << "Valg: " << nvfuser::toString(valg) << " @ " << valg.get() << std::endl;
-      for (const ExprGroup& useg : idGraph(mode).getUses(valg)) {
-        VERBOSE() << "\tuse group @ " << useg.get() << " ";
-        auto it = std::find(expr_groups.begin(), expr_groups.end(), useg);
-        if (it == expr_groups.end()) {
-          VERBOSE() << "Unknown expr group!!!!!!!\n";
-          found = true;
-        } else {
-          VERBOSE() << "Valid expr group\n";
-        }
-
-        for (Expr* usee: *useg) {
-          VERBOSE() << "\t\t: use: " << usee->name() << ", mapped: "
-                    << idGraph(mode).hasGroup(usee)
-                    << std::endl;
-          if (!idGraph(mode).hasGroup(usee)) {
-            VERBOSE() << "ERROR!!!\n";
-          }
-        }
-      }
-    }
-
-    NVF_ERROR(!found);
-  };
-#endif
-
   std::unique_ptr<IdModelValidator> validator;
 
   // A ComputeAtMap will be built inside the constructor of
@@ -1261,15 +1173,11 @@ void IdModel::build(
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // debug_print(IdMappingMode::EXACT);
-
   buildAlmostExactMap();
   if (validate) {
     validator->checkAlmostExactGraphEquivalence(
         idGraph(IdMappingMode::ALMOSTEXACT));
   }
-
-  // debug_print(IdMappingMode::ALMOSTEXACT);
 
   buildPermissiveMap(tv_exprs);
   // Validation is not implemented when compliment mapping is enabled
@@ -1277,9 +1185,6 @@ void IdModel::build(
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
-
-  // TODO: add graph sanity check
-  // debug_print(IdMappingMode::ALMOSTEXACT);
 
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions

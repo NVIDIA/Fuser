@@ -358,7 +358,6 @@ class ValGraph {
   // replays.
   std::unordered_map<ValGroup, ExprGroups> unique_definitions_;
 
- public:
   std::unordered_map<ValGroup, ExprGroups> unique_uses_;
 };
 
