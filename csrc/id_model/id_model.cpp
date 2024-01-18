@@ -408,10 +408,9 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (IterDomain* inp : new_inputs) {
-      if (const ExprGroups* uses = graph.getUses(graph.toGroup(inp)); uses) {
-        for (const ExprGroup& use_group : *uses) {
-          representative_uses.pushBack(use_group->front());
-        }
+      for (const ExprGroup& use_group : graph.getUses(graph.toGroup(inp))) {
+        NVF_ERROR(!use_group->empty());
+        representative_uses.pushBack(use_group->front());
       }
     }
 
@@ -556,13 +555,11 @@ Expr* IdModel::addExprWithReplacement(
     // Forward
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      if (const ExprGroups* uses = graph.getUses(graph.toGroup(in)); uses) {
-        for (const ExprGroup& use_group : *uses) {
-          if (use_group == replay_group) {
-            continue;
-          }
-          representative_uses.pushBack(use_group->front());
+      for (const ExprGroup& use_group : graph.getUses(graph.toGroup(in))) {
+        if (use_group == replay_group) {
+          continue;
         }
+        representative_uses.pushBack(use_group->front());
       }
     }
 
@@ -573,14 +570,12 @@ Expr* IdModel::addExprWithReplacement(
     // Backwards
     VectorOfUniqueEntries<Expr*> representative_defs;
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      if (auto definition = graph.getDefinitions(graph.toGroup(out));
-          definition) {
-        for (const ExprGroup& def_group : *definition) {
-          if (def_group == replay_group) {
-            continue;
-          }
-          representative_defs.pushBack(def_group->front());
+      for (const ExprGroup& def_group :
+           graph.getDefinitions(graph.toGroup(out))) {
+        if (def_group == replay_group) {
+          continue;
         }
+        representative_defs.pushBack(def_group->front());
       }
     }
 
@@ -1124,6 +1119,8 @@ void IdModel::build(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool validate) {
+  VERBOSE() << "*** Building all graphs ***";
+
   // Initialize the required sets as if a permissive relationship is never
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
@@ -1543,9 +1540,7 @@ void IdModel::propagatePromotionsInIELGraph(
           continue;
         }
         const auto& inp_exact_group = iel_graph.toGroup(inp_id);
-        const ExprGroups* uses = iel_graph.getUses(inp_exact_group);
-        NVF_ERROR(uses);
-        maybe_promoted_input_uses.pushBack(*uses);
+        maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_exact_group));
       }
 
       // Look for exprs that have inputs that are mapped in the IEL
@@ -1682,9 +1677,8 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    const ExprGroups* id_group_defs = graph.getDefinitions(id_group);
-    NVF_ERROR(id_group_defs);
-    if (id_group_defs->empty()) {
+    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
+    if (id_group_defs.empty()) {
       covered_ids[id_group] = {id_group};
     }
 
