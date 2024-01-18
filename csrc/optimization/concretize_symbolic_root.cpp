@@ -21,7 +21,7 @@ void concretize_symbolic_root_domain(Fusion* fusion) {
 
   const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
   // Loop over each exact root domain set
-  for (auto set_ptr : mapped_sets.disjointSets()) {
+  for (const auto& set_ptr : mapped_sets.disjointSets()) {
     // For each set, find an extent that is a const scalar
     Val* const_extent = nullptr;
     for (auto id : *set_ptr) {
