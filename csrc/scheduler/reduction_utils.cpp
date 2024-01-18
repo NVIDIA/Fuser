@@ -111,8 +111,7 @@ TensorView* scheduleReductionTV(
         (int)rparams.lparams.bdimy());
     reduction_tv->split(
         reduction_axis, rparams.batches_per_block_inner_reduction);
-    reduction_tv->axis(reduction_axis)
-        ->parallelize(rparams.grid_dim_reduction);
+    reduction_tv->axis(reduction_axis)->parallelize(rparams.grid_dim_reduction);
     // Unswitch the persistent buffer by a factor of
     // unroll_factor_redu_dom. If that is equal to the
     // persistent buffer size, unswitch the whole buffer by
@@ -122,8 +121,7 @@ TensorView* scheduleReductionTV(
         rparams.unroll_factor_redu_dom) {
       outer_unswitch(reduction_axis + 1);
     } else {
-      reduction_tv->split(
-          reduction_axis + 1, rparams.unroll_factor_redu_dom);
+      reduction_tv->split(reduction_axis + 1, rparams.unroll_factor_redu_dom);
       outer_unswitch(reduction_axis + 2);
     }
   } else if (rparams.persistent_kernel) {
@@ -154,8 +152,7 @@ TensorView* scheduleReductionTV(
       reduction_tv->axis(outer_i)->parallelize(
           rparams.block_dim_reduction_extra);
     } else {
-      reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_reduction);
+      reduction_tv->axis(outer_i)->parallelize(rparams.block_dim_reduction);
     }
 
     if (rparams.pad_inner_reduction_to_warp) {

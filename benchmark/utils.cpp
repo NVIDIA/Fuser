@@ -61,8 +61,7 @@ std::string toString(const ReductionParams& rparams) {
        << " / ";
   }
 
-  ss << (rparams.cross_grid_reduction &&
-                 rparams.split_grid_dim_reduction
+  ss << (rparams.cross_grid_reduction && rparams.split_grid_dim_reduction
              ? "split grid dimension / "
              : "")
      << (rparams.vectorize_inner_reduction ? "vectorize / " : "")
@@ -70,8 +69,7 @@ std::string toString(const ReductionParams& rparams) {
                  !rparams.vectorize_inner_reduction
              ? "unroll / "
              : "");
-  if (rparams.unroll_factor_redu_dom > 1 ||
-      rparams.vectorize_inner_reduction) {
+  if (rparams.unroll_factor_redu_dom > 1 || rparams.vectorize_inner_reduction) {
     ss << "factor " << rparams.unroll_factor_redu_dom;
   }
   return ss.str();

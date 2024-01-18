@@ -156,8 +156,7 @@ class ReductionParams : public HeuristicParams {
         other.cross_grid_reduction == cross_grid_reduction &&
         other.unroll_factor_redu_dom == unroll_factor_redu_dom &&
         other.vectorize_inner_reduction == vectorize_inner_reduction &&
-        other.split_grid_dim_reduction ==
-            split_grid_dim_reduction &&
+        other.split_grid_dim_reduction == split_grid_dim_reduction &&
         other.pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
         other.batches_per_block_inner_reduction ==
             batches_per_block_inner_reduction &&
