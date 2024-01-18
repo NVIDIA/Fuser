@@ -199,6 +199,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/concretize_symbolic_root.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
 )
 
