@@ -641,8 +641,17 @@ void IndexLowering::handleSerialGridReduction(
   //
   // The global work buffer will look just like the reduction output except
   // that it resides in global memory.
+  //
+  // Note that we create a new TensorDomain, copying the domain vectors,
+  // instead of reusing out_tv->domain() directly. This prevents corruption of
+  // this new TensorDomain in case the original is modified later.
+  auto work_buffer_domain = IrBuilder::create<TensorDomain>(
+      out_tv->domain()->root(),
+      out_tv->domain()->rfactor(),
+      out_tv->domain()->allocation(),
+      out_tv->domain()->leaf());
   auto work_buffer_tv = IrBuilder::create<TensorView>(
-      out_tv->domain(), out_tv->dtype(), MemoryType::Global);
+      work_buffer_domain, out_tv->dtype(), MemoryType::Global);
 
   Val* work_buffer_idx_val = nullptr;
   for (auto v :
