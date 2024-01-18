@@ -585,7 +585,6 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-      NVF_CHECK(rhs != 0);
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
@@ -612,22 +611,22 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
-      return {lhs == rhs};
+      return {eq(lhs, rhs)};
       break;
     case BinaryOpType::NE:
-      return {lhs != rhs};
+      return {ne(lhs, rhs)};
       break;
     case BinaryOpType::GT:
-      return {lhs > rhs};
+      return {gt(lhs, rhs)};
       break;
     case BinaryOpType::GE:
-      return {lhs >= rhs};
+      return {ge(lhs, rhs)};
       break;
     case BinaryOpType::LT:
-      return {lhs < rhs};
+      return {lt(lhs, rhs)};
       break;
     case BinaryOpType::LE:
-      return {lhs <= rhs};
+      return {le(lhs, rhs)};
       break;
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
