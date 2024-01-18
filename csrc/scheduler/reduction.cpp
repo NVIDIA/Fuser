@@ -379,9 +379,9 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 
   auto rparams = std::make_shared<ReductionParams>();
   rparams->fastest_dim = true;
-  rparams->cross_block_inner_reduction = true;
+  rparams->cross_block_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->cross_grid_inner_reduction = gridim > 1;
+  rparams->cross_grid_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
   bool pad_bdimx = bdimx > 16 &&
       bdimx * bdimy <
@@ -428,7 +428,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   // gdimx assigned to grdim. Otherwise it's helpful to pull godim into gdimx in
   // case it's larger than gdimy can hold, as not doing so can thrash the cache.
 
-  if (rparams->cross_grid_inner_reduction) {
+  if (rparams->cross_grid_reduction) {
     rparams->grid_dim_inner_reduction = ParallelType::BIDx;
     rparams->split_grid_dim_inner_reduction = true;
     gdimx = std::min(gridim, scheduler_utils::x_grid_limit);
@@ -448,7 +448,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   }
 
   if (rparams->cross_grid_outer_reduction) {
-    if (rparams->cross_block_inner_reduction) {
+    if (rparams->cross_block_reduction) {
       rparams->grid_dim_outer_reduction = ParallelType::BIDz;
       gdimz = std::min(grodim, scheduler_utils::z_grid_limit);
       rparams->split_grid_dim_outer_reduction = true;
@@ -485,13 +485,13 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   // schedule
   if (rparams->schedule_3D) {
     if (rparams->multiple_reds_per_blk &&
-        (rparams->cross_grid_inner_reduction ||
+        (rparams->cross_grid_reduction ||
          rparams->cross_grid_outer_reduction)) {
       if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
         debug() << "\n===== UNSUPPORTED REDUCTION HEURISTIC ========\n";
         debug() << rparams->multiple_reds_per_blk << ", "
                 << (rparams->unroll_factor_inner_reduction > 1) << ", "
-                << rparams->cross_grid_inner_reduction << std::endl;
+                << rparams->cross_grid_reduction << std::endl;
       }
       return innerReductionHeuristic(
           total_reduction_numel,
@@ -776,9 +776,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   const bool flip_grid = false;
   auto rparams = std::make_shared<ReductionParams>();
   // cross grid implies cross block
-  rparams->cross_block_inner_reduction = bdimy > 1 || grdim > 1;
-  rparams->cross_grid_inner_reduction = grdim > 1;
-  if (rparams->cross_grid_inner_reduction) {
+  rparams->cross_block_reduction = bdimy > 1 || grdim > 1;
+  rparams->cross_grid_reduction = grdim > 1;
+  if (rparams->cross_grid_reduction) {
     rparams->split_grid_dim_inner_reduction = true;
     rparams->grid_dim_inner_reduction =
         flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
@@ -808,7 +808,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   rparams->flip_grid = flip_grid;
 
-  if (rparams->cross_block_inner_reduction) {
+  if (rparams->cross_block_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
       rparams->block_dim_inner_reduction = ParallelType::TIDy;
     } else {
@@ -1210,7 +1210,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams.cross_grid_reduction && !rparams.fastest_dim;
   NVF_ERROR(
       !is_outer_grid_persistence,
       "is_outer_grid_persistence should be false in scheduleReduction.");

@@ -314,8 +314,8 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   rparams->persistent_kernel = true;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
-  rparams->cross_block_inner_reduction = true;
-  rparams->cross_grid_inner_reduction = true;
+  rparams->cross_block_reduction = true;
+  rparams->cross_grid_reduction = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDx;
   rparams->grid_dim_inner_reduction = ParallelType::BIDy;
   rparams->block_dim_inner_reduction = ParallelType::TIDy;
@@ -577,8 +577,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   rparams->cparams.index_type = index_type;
 
   rparams->fastest_dim = false;
-  rparams->cross_block_inner_reduction = true;
-  rparams->cross_grid_inner_reduction = false;
+  rparams->cross_block_reduction = true;
+  rparams->cross_grid_reduction = false;
   rparams->multiple_reds_per_blk = hp.bdimx.get() > 1;
 
   if (rparams->multiple_reds_per_blk) {

@@ -973,7 +973,7 @@ void scheduleInnerOuterPersistentKernel(
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams.cross_grid_reduction && !rparams.fastest_dim;
 
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.

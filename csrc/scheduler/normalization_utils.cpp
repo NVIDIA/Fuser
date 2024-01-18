@@ -1259,7 +1259,7 @@ TensorView* scheduleReductionGeneral(
   }
 
   if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
-      rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
+      rparams.cross_grid_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
   }
 
@@ -1320,7 +1320,7 @@ void schedulePersistentKernel(
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams.cross_grid_reduction && !rparams.fastest_dim;
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tvs[0],

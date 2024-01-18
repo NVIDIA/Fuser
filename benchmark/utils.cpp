@@ -51,9 +51,9 @@ std::string toString(const ReductionParams& rparams) {
   }
 
   ss << " // Inner Reduction Domain: "
-     << (rparams.cross_block_inner_reduction ? "cross block reduction / " : "")
+     << (rparams.cross_block_reduction ? "cross block reduction / " : "")
      << (rparams.pad_inner_reduction_to_warp ? "pad to warp / " : "")
-     << (rparams.cross_grid_inner_reduction ? "cross grid reduction / " : "");
+     << (rparams.cross_grid_reduction ? "cross grid reduction / " : "");
 
   if (rparams.batches_per_block_inner_reduction > 1 ||
       rparams.persistent_kernel) {
@@ -61,7 +61,7 @@ std::string toString(const ReductionParams& rparams) {
        << " / ";
   }
 
-  ss << (rparams.cross_grid_inner_reduction &&
+  ss << (rparams.cross_grid_reduction &&
                  rparams.split_grid_dim_inner_reduction
              ? "split grid dimension / "
              : "")

@@ -35,7 +35,7 @@ TensorView* scheduleReductionTV(
   const int inner_reduce_axis = rparams.schedule_3D ? 2 : has_iter_axis ? 1 : 0;
 
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams.cross_grid_reduction && !rparams.fastest_dim;
 
   NVF_ERROR(
       (int)reduction_tv->nDims() >
@@ -136,7 +136,7 @@ TensorView* scheduleReductionTV(
       inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
     }
     auto outer_i = inner_reduce_axis;
-    if (rparams.cross_grid_inner_reduction) {
+    if (rparams.cross_grid_reduction) {
       outer_parallel(outer_i++, rparams.grid_dim_inner_reduction);
     }
 
@@ -168,7 +168,7 @@ TensorView* scheduleReductionTV(
       vectorize(inner_reduce_axis, rparams.unroll_factor_inner_reduction);
     }
 
-    if (rparams.cross_block_inner_reduction) {
+    if (rparams.cross_block_reduction) {
       inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
       if (rparams.pad_inner_reduction_to_warp) {
         reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
@@ -181,7 +181,7 @@ TensorView* scheduleReductionTV(
     }
 
     inner_unswitch(inner_reduce_axis);
-    if (rparams.cross_grid_inner_reduction) {
+    if (rparams.cross_grid_reduction) {
       if (rparams.split_grid_dim_inner_reduction) {
         outer_parallel(inner_reduce_axis, rparams.grid_dim_inner_reduction);
       } else {

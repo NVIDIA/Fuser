@@ -39,9 +39,9 @@ class ReductionParams : public HeuristicParams {
   // Inner Reduction Domain:
 
   // Reduce across the block?
-  bool cross_block_inner_reduction = false;
+  bool cross_block_reduction = false;
   // Reduce across the grid?
-  bool cross_grid_inner_reduction = false;
+  bool cross_grid_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
   int64_t unroll_factor_inner_reduction = 1;
   // vectorize instead of unroll
@@ -152,8 +152,8 @@ class ReductionParams : public HeuristicParams {
         other.persistent_kernel == persistent_kernel &&
         other.project_persistent_buffers == project_persistent_buffers &&
         other.schedule_3D == schedule_3D && other.flip_grid == flip_grid &&
-        other.cross_block_inner_reduction == cross_block_inner_reduction &&
-        other.cross_grid_inner_reduction == cross_grid_inner_reduction &&
+        other.cross_block_reduction == cross_block_reduction &&
+        other.cross_grid_reduction == cross_grid_reduction &&
         other.unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
         other.vectorize_inner_reduction == vectorize_inner_reduction &&
         other.split_grid_dim_inner_reduction ==
@@ -247,18 +247,18 @@ class ReductionParams : public HeuristicParams {
 
     ss << "\nInner Reduction Domain: ";
 
-    if (cross_block_inner_reduction) {
+    if (cross_block_reduction) {
       ss << "cross block - " << block_dim_inner_reduction << " / ";
       ss << (pad_inner_reduction_to_warp ? " pad to warp / " : "");
     }
-    if (cross_grid_inner_reduction) {
+    if (cross_grid_reduction) {
       ss << "cross grid - " << grid_dim_inner_reduction << " / ";
       ss << (split_grid_dim_inner_reduction ? "split grid dim / " : "");
     }
     if (batches_per_block_inner_reduction > 1 || persistent_kernel) {
       ss << "persistent batch - " << batches_per_block_inner_reduction << " / ";
     }
-    ss << (cross_grid_inner_reduction && split_grid_dim_inner_reduction
+    ss << (cross_grid_reduction && split_grid_dim_inner_reduction
                ? "split grid dimension / "
                : "")
        << (vectorize_inner_reduction ? "vectorize / " : "")
@@ -287,8 +287,8 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(project_persistent_buffers) << (bits - 3) ^
         static_cast<size_t>(schedule_3D) << (bits - 4) ^
         static_cast<size_t>(flip_grid) << (bits - 5) ^
-        static_cast<size_t>(cross_block_inner_reduction) << (bits - 6) ^
-        static_cast<size_t>(cross_grid_inner_reduction) << (bits - 7) ^
+        static_cast<size_t>(cross_block_reduction) << (bits - 6) ^
+        static_cast<size_t>(cross_grid_reduction) << (bits - 7) ^
         static_cast<size_t>(unroll_factor_inner_reduction) << (bits - 8) ^
         static_cast<size_t>(vectorize_inner_reduction) << (bits - 9) ^
         static_cast<size_t>(split_grid_dim_inner_reduction) << (bits - 10) ^
