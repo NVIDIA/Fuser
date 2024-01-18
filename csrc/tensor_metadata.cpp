@@ -217,7 +217,7 @@ void validateAllocationSizesAndStrides(
   // Validate contiguity
   int64_t contiguous_stride = 1;
   auto contiguity_rev = contiguity.crbegin();
-  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; i--) {
+  for (auto i = (int64_t)sizes.size() - 1; i >= 0; i--) {
     if (alloc_dom_no_reductions.at(i)->isBroadcast()) {
       continue;
     }
@@ -228,10 +228,17 @@ void validateAllocationSizesAndStrides(
     auto stride = strides.at(i);
     NVF_ERROR(!contiguity.empty());
     auto last_contiguity = *contiguity_rev;
+    contiguity_rev++;
     NVF_ERROR(
         last_contiguity.has_value(),
         "I don't think this check makes sense, but unfortunately ",
         "clang-tidy is not smart enough to infer from the context that this is always true.");
+
+    // TODO(#1126):
+    if (size == 1 || stride == 0) {
+      continue;
+    }
+
     if (*last_contiguity) {
       NVF_CHECK(
           stride == contiguous_stride,
@@ -246,8 +253,8 @@ void validateAllocationSizesAndStrides(
           stride);
     }
     contiguous_stride = stride * size;
-    contiguity_rev++;
   }
+
   NVF_ERROR(
       std::none_of(
           contiguity_rev,

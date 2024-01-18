@@ -153,8 +153,12 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
       continue;
     }
     preferred_out_layout.allocation_domain.push_back(out_root_id);
-    preferred_out_layout.contiguity.push_back(
-        preferred_in_layout.contiguity[i]);
+    std::optional<bool> contiguity = preferred_in_layout.contiguity[i];
+    // TODO(#1126):
+    if (!contiguity.has_value() && !out_root_id->isBroadcast()) {
+      contiguity = true;
+    }
+    preferred_out_layout.contiguity.push_back(contiguity);
   }
   return preferred_out_layout;
 }
@@ -184,12 +188,14 @@ void AliasFinder::handle(const ViewOp* view) {
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
       PairwiseRootDomainMap(in, out).mapConsumerToProducer();
   auto has_expanded_extent = [&out_root_to_in_rfactor](IterDomain* id) -> bool {
+#if 0
     // TODO(#1174): Preserve expanded extents in `out_root` so we don't have to
     // look for expanded extents in `in_rfactor`.
     if (const auto i = out_root_to_in_rfactor.find(id);
         i != out_root_to_in_rfactor.end()) {
       id = i->second;
     }
+#endif
     return id->hasExpandedExtent();
   };
 

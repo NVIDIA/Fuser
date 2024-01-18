@@ -908,7 +908,7 @@ TEST_F(AliasTest, Broadcast) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
-TEST_F(AliasTest, MergeExpandedBroadcasts) {
+TEST_F(AliasTest, MergeTwoExpandedBroadcasts) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
