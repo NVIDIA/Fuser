@@ -12,6 +12,7 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>
@@ -400,6 +401,101 @@ std::string Asm::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
+
+Assign::Assign(
+    IrBuilderPasskey passkey,
+    LoadStoreOpType op_type,
+    Val* out,
+    Val* in,
+    CacheOp cache_op)
+    : Expr(passkey) {
+  // Pick the default cache operator.
+  if (op_type == LoadStoreOpType::CpAsync) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::AllLevels;
+    }
+    NVF_CHECK(
+        cache_op == CacheOp::Global || cache_op == CacheOp::AllLevels,
+        "cp.async only takes .ca or .cg. as cache operator");
+  } else if (op_type == LoadStoreOpType::Set) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::Streaming;
+    }
+  } else {
+    NVF_CHECK(
+        cache_op == CacheOp::Unspecified,
+        "Only Set and CpAsync take a cache operator.");
+  }
+
+  addInput(in);
+  addDataAttribute(op_type);
+  addDataAttribute(cache_op);
+  addAttribute(out);
+}
+
+std::vector<PolymorphicValue> Assign::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
+    if (out_tv->hasRFactor()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getRFactorDomain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The rfactor domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+          out_tv->toString());
+      NVF_ERROR(inputs.size() == 1);
+      at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+      at::Tensor out_tensor = in_tensor.permute(*permutation);
+      return {out_tensor};
+    }
+  }
+  return inputs;
+}
+
+std::string Assign::toString(int indent_size) const {
+  std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
+  std::string modifier = "";
+  { // Get modifier
+    TensorView* tv = dynamic_cast<TensorView*>(out());
+    if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
+      tv = ti->view();
+    }
+    if (tv != nullptr && tv->hasRFactor()) {
+      modifier = ".Permute";
+    }
+  }
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = (Assign) " << optype << modifier << "( " << in()->toString();
+  // Fusion IR does not have predicate
+  if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
+    ss << ", " << std::endl;
+    indent(ss, indent_size + 1)
+        << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
+  }
+  if (cacheOp() != CacheOp::Unspecified) {
+    ss << ", cache_op=" << cacheOp();
+  }
+  ss << " )\n";
+  return ss.str();
+}
+
+std::string Assign::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool Assign::hasInnerTranspose() const {
+  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
+    return out_tv->hasRFactor() &&
+        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
+  }
+  return false;
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Assign)
 
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

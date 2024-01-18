@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <ops/arith.h>
 
 #include <unordered_set>
 
@@ -53,45 +54,156 @@ class GridSerializationSyncInserter : kir::ExprMutator {
   using kir::ExprMutator::dispatch;
   using kir::ExprMutator::handle;
 
-  //! Record cur_expr_sync_pattern_ if this is a serial grid reduction
+  //! If this is a serial grid reduction, replace it with a sequence of IR
+  //! nodes to effect the reduction step.
   void handle(ReductionOp* rop) override {
     if (rop->serialGridReductionRequested()) {
-      ParallelTypeBitmap sync_pattern;
-      auto out = rop->out()->as<TensorView>();
-      NVF_ERROR(out != nullptr);
-      for (int i : c10::irange((int)out->nDims())) {
-        IterDomain* ax = out->axis(i);
-        if (!ax->isReduction()) {
-          continue;
-        }
-        NVF_ERROR(
-            !ax->isThreadDim(),
-            "Serial grid reduction cannot be applied with block reductions: ",
-            rop->toString());
-        if (ax->isBlockDim()) {
-          sync_pattern.set(ax->getParallelType());
-        }
-      }
+      recordSyncPattern(rop);
 
-      if (!sync_pattern.hasBID()) {
-        // Don't set cur_expr_sync_pattern_ since this is not actually a grid
-        // reduction
-        return;
-      }
+      replaceReductionOp(rop);
+    }
+  }
 
-      if (cur_expr_sync_pattern_.has_value()) {
-        NVF_ERROR(
-            cur_expr_sync_pattern_.value() == sync_pattern,
-            "Reduction op ",
-            rop->toString(),
-            " has requested serial grid reduction, but pattern ",
-            sync_pattern.toString(),
-            " conflicts with previous pattern: ",
-            cur_expr_sync_pattern_.value().toString());
-      } else {
-        cur_expr_sync_pattern_ = sync_pattern;
+  //! Record the grid sync pattern so that we can check compatibility in case
+  //! multiple serial grid reductions occur within the same non-trivial loop.
+  void recordSyncPattern(ReductionOp* rop) {
+    ParallelTypeBitmap sync_pattern;
+    auto out = rop->out()->as<TensorView>();
+    NVF_ERROR(out != nullptr);
+    for (int i : c10::irange((int)out->nDims())) {
+      IterDomain* ax = out->axis(i);
+      if (!ax->isReduction()) {
+        continue;
+      }
+      NVF_ERROR(
+          !ax->isThreadDim(),
+          "Serial grid reduction cannot be applied with block reductions: ",
+          rop->toString());
+      if (ax->isBlockDim()) {
+        sync_pattern.set(ax->getParallelType());
       }
     }
+
+    if (!sync_pattern.hasBID()) {
+      // Don't set cur_expr_sync_pattern_ since this is not actually a grid
+      // reduction
+      return;
+    }
+
+    if (cur_expr_sync_pattern_.has_value()) {
+      NVF_ERROR(
+          cur_expr_sync_pattern_.value() == sync_pattern,
+          "Reduction op ",
+          rop->toString(),
+          " has requested serial grid reduction, but pattern ",
+          sync_pattern.toString(),
+          " conflicts with previous pattern: ",
+          cur_expr_sync_pattern_.value().toString());
+    } else {
+      cur_expr_sync_pattern_ = sync_pattern;
+    }
+  }
+
+  //! Replace a serial reduction op with an IR representation of the update
+  //! step. This mimics the helper function
+  //!
+  //!   template <typename T, typename Func>
+  //!   __device__ void serialReductionStep(
+  //!       T& out,
+  //!       T in,
+  //!       T init,
+  //!       volatile T& work,
+  //!       Func reduction_op,
+  //!       bool first_step,
+  //!       bool last_step,
+  //!       bool read_pred,
+  //!       bool write_pred) {
+  //!     if (!write_pred) {
+  //!       return;
+  //!     }
+  //!     out = read_pred ? in : init;
+  //!     if (!first_step) {
+  //!       reduction_op(out, work);
+  //!     }
+  //!     if (!last_step) {
+  //!       work = out;
+  //!     }
+  //!   }
+  void replaceReductionOp(ReductionOp* rop) {
+    NVF_ERROR(rop->serialGridReductionRequested());
+    NVF_ERROR(cur_expr_sync_pattern_.has_value());
+
+    Val* is_first_step = nullptr;
+    Val* is_last_step = nullptr;
+    for (ParallelType pt : kParallelTypeBIDs) {
+      if (cur_expr_sync_pattern_.value().get(pt)) {
+        // && BID == 0
+        is_first_step = SimplifyingIrBuilder::logicalAndExpr(
+            is_first_step,
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(pt),
+                FusionGuard::getCurFusion()->zeroVal(DataType::Index)));
+        // && BID == BDIM - 1
+        is_last_step = SimplifyingIrBuilder::logicalAndExpr(
+            is_last_step,
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(pt),
+                IrBuilder::subExpr(
+                    NamedScalar::getParallelDim(pt),
+                    FusionGuard::getCurFusion()->oneVal(DataType::Index))));
+      }
+    }
+    is_first_step = GpuLower::current()->commonScalarMap().hoistScalar(
+        is_first_step, for_loops_);
+    is_last_step = GpuLower::current()->commonScalarMap().hoistScalar(
+        is_last_step, for_loops_);
+    NVF_ERROR(is_first_step != nullptr);
+    NVF_ERROR(is_last_step != nullptr);
+
+    auto in = rop->in()->as<TensorView>();
+    auto out = rop->out()->as<TensorView>();
+
+    // Create a work buffer
+    TensorView* work_buffer = IrBuilder::create<TensorView>(
+        out->domain(), out->dtype(), MemoryType::Global);
+
+    // Caching is not meant to work on kernel IR:
+    //   TensorView* loaded_work_buffer =
+    //       work_buffer->cacheAfter(LoadStoreOpType::Set, CacheOp::Global);
+    // INTERNAL ASSERT FAILED at
+    // "/opt/pytorch/nvfuser/csrc/tensor_view.cpp":1278 Function invalid for
+    // kernel container.
+    // So instead, we will load the work buffer manually with a kir::Assign
+    auto loaded_work_buffer = IrBuilder::create<TensorView>(
+        out->domain(), out->dtype(), MemoryType::Local);
+    auto work_buffer_load = IrBuilder::create<kir::Assign>(
+        LoadStoreOpType::Set, loaded_work_buffer, work_buffer, CacheOp::Global);
+
+    TensorView* in_plus_work =
+        binaryOp(rop->getReductionOpType(), in, loaded_work_buffer);
+    TensorView* result = where(is_first_step, in, in_plus_work);
+
+    auto result_store =
+        IrBuilder::create<kir::Assign>(LoadStoreOpType::Set, out, result);
+
+    // Create a kir::Assign for writing back to work_buffer
+    auto work_buffer_store = IrBuilder::create<kir::Assign>(
+        LoadStoreOpType::Set, work_buffer, result, CacheOp::Global);
+
+    // Insert expressions
+    // use with{Write}Predicate for global load and store expressions
+    registerInsertBefore(
+        rop,
+        work_buffer_load->withPredicate(IrBuilder::create<kir::Predicate>(
+            IrBuilder::logicalNotExpr(is_first_step))));
+    registerInsertBefore(rop, in_plus_work->definition());
+    registerInsertBefore(rop, result->definition());
+    registerInsertBefore(
+        rop,
+        work_buffer_store->withWritePredicate(IrBuilder::create<kir::Predicate>(
+            IrBuilder::logicalNotExpr(is_last_step))));
+    registerInsertBefore(rop, result_store);
+    registerRemove(rop);
   }
 
   void dispatch(Expr* expr) override {
@@ -173,9 +285,9 @@ class GridSerializationSyncInserter : kir::ExprMutator {
 
 } // namespace
 
-std::vector<Expr*> insertGridSerializationSyncs(
+std::vector<Expr*> translateSerialGridReduction(
     const std::vector<Expr*>& exprs) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::insertGridSerializationSyncs");
+  FUSER_PERF_SCOPE("GpuLower::Lower::translateSerialGridReduction");
   return GridSerializationSyncInserter::insert(exprs);
 }
 
