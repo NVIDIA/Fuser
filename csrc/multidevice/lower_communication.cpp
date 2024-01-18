@@ -544,10 +544,10 @@ bool isLowerableToCommunication(Expr* expr) {
     auto out_tv = out->as<TensorView>();
     std::vector<IterDomain*> reduction_axis;
     std::copy_if(
-      out_tv->getMaybeRFactorDomain().begin(),
-      out_tv->getMaybeRFactorDomain().end(),
-      std::back_inserter(reduction_axis),
-      [](IterDomain* id) { return id->isReduction(); });
+        out_tv->getMaybeRFactorDomain().begin(),
+        out_tv->getMaybeRFactorDomain().end(),
+        std::back_inserter(reduction_axis),
+        [](IterDomain* id) { return id->isReduction(); });
     // check if the reduction involves only one axis and that it is sharded
     return reduction_axis.size() == 1 && reduction_axis[0]->isDeviceDim();
   } else {
