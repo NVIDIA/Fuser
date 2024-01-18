@@ -25,7 +25,10 @@ void concretizeSymbolicRootDomain(Fusion* fusion) {
     // For each set, find an extent that is a const scalar
     Val* const_extent = nullptr;
     for (auto id : *set_ptr) {
-      if (id->isBroadcast()) {
+      // Skip broadcast.
+      // Skip non-root domain, otherwise, ConcretizeConstantExtents fails
+      // due to allocation domains included in ExactRootDomainMap.
+      if (id->isBroadcast() || id->definition()) {
         continue;
       }
       if (id->extent()->isConstScalar()) {
@@ -41,7 +44,7 @@ void concretizeSymbolicRootDomain(Fusion* fusion) {
 
     // place non-const extents and target const_extent to the replacement map
     for (auto id : *set_ptr) {
-      if (id->isBroadcast()) {
+      if (id->isBroadcast() || id->definition()) {
         continue;
       }
       if (!id->extent()->isConstScalar()) {
