@@ -15,7 +15,7 @@ namespace nvfuser::optimization {
 
 namespace {
 
-void concretize_symbolic_root_domain(Fusion* fusion) {
+void concretizeSymbolicRootDomain(Fusion* fusion) {
   // map non-const extents to const extents
   std::unordered_map<Val*, Val*> replacement_map;
 
@@ -61,7 +61,7 @@ void ConcretizeSymbolicRootDomainPass::runPass(Fusion* fusion) {
     fusion->printMath();
   }
 
-  concretize_symbolic_root_domain(fusion);
+  concretizeSymbolicRootDomain(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion after ConcretizeSymbolicRootDomainPass:" << std::endl;
