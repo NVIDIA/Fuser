@@ -123,4 +123,18 @@ void unshard(Fusion* fusion) {
   }
 }
 
+std::set<DeviceIdxType> involvedDevices(Expr* expr) {
+  std::set<DeviceIdxType> ret;
+  for (auto tvs : {expr->inputs(), expr->outputs()}) {
+    for (auto val : tvs) {
+      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
+      auto& mesh = tv->getDeviceMesh().vector();
+      std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+    }
+  }
+  return ret;
+}
+
 } // namespace nvfuser
