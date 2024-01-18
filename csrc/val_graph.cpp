@@ -677,7 +677,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         if (use_group_0 == use_group_1) {
           continue;
         }
-
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
@@ -696,7 +695,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         if (def_group_0 == def_group_1) {
           continue;
         }
-
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
