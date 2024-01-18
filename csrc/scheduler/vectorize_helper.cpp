@@ -494,9 +494,10 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       // T3[i0, i1, i2] = T1 + T2
       //
       // If the mapped ids are {i0, i2, i1}, when propagating from T3 to T1, the
-      // previous "inner most resolved broadcast" would eliminate all `i0, i1, i2`
-      // from vectorization, but the reality is that the merged axes has i1 in the
-      // inner most and we should still map it for vectorization. see issue:
+      // previous "inner most resolved broadcast" would eliminate all `i0, i1,
+      // i2` from vectorization, but the reality is that the merged axes has i1
+      // in the inner most and we should still map it for vectorization. see
+      // issue:
       // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
       bool clear_pos_in_mapped_root = false;
       for (auto i : c10::irange(from_ids.size())) {
