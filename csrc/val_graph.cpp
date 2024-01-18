@@ -697,8 +697,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
           continue;
         }
 
-        NVF_ERROR(!def_group_0->empty());
-        NVF_ERROR(!def_group_1->empty());
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
