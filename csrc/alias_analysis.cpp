@@ -184,7 +184,7 @@ void AliasFinder::handle(const ViewOp* view) {
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
       PairwiseRootDomainMap(in, out).mapConsumerToProducer();
   auto has_expanded_extent = [&out_root_to_in_rfactor](IterDomain* id) -> bool {
-    // TODO(#1174): Preserve expanded extents in `out_root` so we don't have to
+    // TODO(#1126): Preserve expanded extents in `out_root` so we don't have to
     // look for expanded extents in `in_rfactor`.
     if (const auto i = out_root_to_in_rfactor.find(id);
         i != out_root_to_in_rfactor.end()) {
@@ -233,7 +233,13 @@ void AliasFinder::handle(const ViewOp* view) {
   Layout out_rfactor_layout;
   for (auto [allocation_id, contiguity] : allocation_to_contiguity) {
     out_rfactor_layout.allocation_domain.push_back(allocation_id);
-    // TODO(#1126):
+    // TODO(#1126): Due to #1126, alias analysis sometimes is more accurate than
+    // IterType in telling whether an IterDomain is broadcast.
+    // AliasTest.MergeTwoExpandedBroadcasts is an example where alias analysis
+    // figures out the size-20 IterDomain is an expanded broadcast dimension,
+    // although its IterType says non-broadcast. When `allocation_id` is in fact
+    // a broadcast but has non-broadcast IterType, we fall back to make the
+    // contiguity `t` instead of `n`.
     if (!contiguity.has_value() && !allocation_id->isBroadcast()) {
       contiguity = true;
     }

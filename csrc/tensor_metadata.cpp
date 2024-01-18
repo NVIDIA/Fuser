@@ -234,7 +234,11 @@ void validateAllocationSizesAndStrides(
         "I don't think this check makes sense, but unfortunately ",
         "clang-tidy is not smart enough to infer from the context that this is always true.");
 
-    // TODO(#1126):
+    // TODO(#1126): Due to #1126, alias analysis sometimes is more accurate than
+    // IterType in telling whether an IterDomain is broadcast. So, some
+    // IterDommains in `alloc_dom_no_reductions` may be at runtime size-1 or
+    // stride-0 even though their `isBroadcast` returns false. When that
+    // happens, skip the stride check and don't mess up `contiguous_stride`.
     if (size == 1 || stride == 0) {
       continue;
     }
