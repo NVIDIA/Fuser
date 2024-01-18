@@ -62,14 +62,17 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   std::unordered_set<Val*> vals_to_allocate;
   std::unordered_set<Val*> vals_to_not_allocate;
   for (auto group : staged_fusion_->groups()) {
-    if (!is_resharding_[group] && should_run_[group]) {
-      for (auto input : group->inputs()) {
-        vals_to_allocate.insert(input);
+    if (is_resharding_[group]) {
+      NVF_ERROR(group->exprs().size() == 1);
+      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
+      auto val = group->exprs().at(0)->outputs().at(0);
+      NVF_ERROR(val->isA<TensorView>());
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh());
+      if (tv->getDeviceMesh().has(comm_.deviceId())) {
+        vals_to_allocate.insert(val);
       }
     }
-  }
-  for (auto val_to_not_allocate : staged_fusion_->inputs()) {
-    vals_to_allocate.erase(val_to_not_allocate);
   }
 
   auto [fusion_copy, copy_to_original_map] =
