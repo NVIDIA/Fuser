@@ -15,7 +15,7 @@ def dropout_layernorm_fwd_fusion(
     T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
     S4 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T8 = fd.ops.uniform(S3, S4, shape=T2.shape(), dtype=dtype)
+    T8 = fd.ops.uniform(S3, S4, shape=T2.shape(), dtype=DataType.Float)
     S9 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
     T10 = fd.ops.lt(T8, S9)
     if dtype in PROMOTE_DTYPES:

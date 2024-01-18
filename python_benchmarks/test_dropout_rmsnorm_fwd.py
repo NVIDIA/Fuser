@@ -18,16 +18,16 @@ def dropout_rmsnorm_fwd_fusion(
     S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
 
     V6 = T0.shape()
-    T7 = fd.ops.uniform(S2, S3, shape=V6, dtype=dtype)
+    T7 = fd.ops.uniform(S2, S3, shape=V6, dtype=DataType.Float)
     S8 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
     T9 = fd.ops.lt(T7, S8)
+    T10 = fd.ops.cast(T9, dtype=DataType.Float)
 
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
-        T1 = fd.ops.cast(T1, dtype=DataType.Float)
-        T9 = fd.ops.cast(T9, dtype=DataType.Float)
-
-    T12 = fd.ops.mul(T0, T9)
+        T1 = fd.ops.cast(T1, dtype=DataType.Float)    
+        
+    T12 = fd.ops.mul(T0, T10)
     S13 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T14 = fd.ops.mul(T12, S13)
     T15 = fd.ops.add(T0, T14)
