@@ -118,13 +118,13 @@ class ValGraph {
   // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
-  //! Returns the pointer to expressions associated with the
-  //! definitions of the provided ValGroup. Nullptr is returned otherwise.
+  //! Returns the expressions associated with the
+  //! definitions of the provided ValGroup.
   //!
-  //! The returned pointer is to a vector of vector of expressions. The
-  //! inner vector is proven to be equivalent. The
-  //! outer vector are expression groups that are not equivalent, but
-  //! produce one of the ValGroups within the same disjoint Val set.
+  //! Each ExprGroup of the returned ExprGroup vector is proven to be
+  //! equivalent. The ExprGroup vector holds expression groups that are not
+  //! equivalent, but produce one of the ValGroups within the same disjoint Val
+  //! set.
   const ExprGroups& getDefinitions(const ValGroup& val_group) const;
 
   //! Same as getDefinitions but for uses instead of
