@@ -908,6 +908,27 @@ TEST_F(AliasTest, Broadcast) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
+TEST_F(AliasTest, MergeExpandedBroadcasts) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = TensorViewBuilder()
+                       .ndims(3)
+                       .dtype(DataType::Float)
+                       .contiguity({std::nullopt, std::nullopt, std::nullopt})
+                       .shape({4, 5, 6})
+                       .expanded({true, true, true})
+                       .build();
+  fusion->addInput(in);
+  TensorView* out = reshape(in, {4, 5, 6}, {20, -1});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({1}).cuda().as_strided({4, 5, 6}, {0, 0, 0});
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
 TEST_F(AliasTest, Squeeze) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
