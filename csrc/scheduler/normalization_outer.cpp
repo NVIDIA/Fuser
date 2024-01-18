@@ -317,14 +317,14 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   rparams->cross_block_reduction = true;
   rparams->cross_grid_reduction = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDx;
-  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
-  rparams->block_dim_inner_reduction = ParallelType::TIDy;
+  rparams->grid_dim_reduction = ParallelType::BIDy;
+  rparams->block_dim_reduction = ParallelType::TIDy;
   rparams->batches_per_block_inner_reduction = pb_size;
   rparams->multiple_reds_per_blk = true;
   rparams->vectorize_iter_dom = true;
   rparams->unroll_factor_iter_dom = (int64_t)vectorize_factor;
   rparams->block_dim_iter_dom = ParallelType::TIDx;
-  rparams->unroll_factor_inner_reduction = unswitch_factor;
+  rparams->unroll_factor_redu_dom = unswitch_factor;
   rparams->split_grid_dim_iter_dom_inner =
       ceilDiv(
           total_iteration_numel / (int64_t)vectorize_factor,
@@ -590,14 +590,14 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       gdimx > scheduler_utils::x_grid_limit;
 
   if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-    rparams->block_dim_inner_reduction = ParallelType::TIDy;
+    rparams->block_dim_reduction = ParallelType::TIDy;
   } else {
-    rparams->block_dim_inner_reduction = ParallelType::TIDx;
+    rparams->block_dim_reduction = ParallelType::TIDx;
   }
 
   // Always need to mark inner reduction unroll for rfactor in outer persitent
   // kernels
-  rparams->unroll_factor_inner_reduction = hp.redu_unroll_factor.get();
+  rparams->unroll_factor_redu_dom = hp.redu_unroll_factor.get();
 
   rparams->unroll_factor_iter_dom = hp.iter_unroll_factor.get();
 

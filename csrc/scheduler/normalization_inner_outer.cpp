@@ -559,7 +559,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     }
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   } else {
-    rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+    rparams->block_dim_reduction_extra = ParallelType::TIDy;
   }
 
   // check all the parameters in InnerOuterParams are set.
@@ -574,9 +574,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
   rparams->cparams.maxrregcount = (int)getRegPerThreadGivenThreadsPerSM(
       iop.bdimx * iop.bdimy * blocks_per_sm);
-  rparams->unroll_factor_inner_reduction = iop.inner_vect;
+  rparams->unroll_factor_redu_dom = iop.inner_vect;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
-  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->block_dim_reduction = ParallelType::TIDx;
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
@@ -1028,10 +1028,10 @@ void scheduleInnerOuterPersistentKernel(
     for (auto tv : cached_gmem) {
       NVF_ERROR(
           rparams.vectorization_factor_tmp_gmem_write <=
-              rparams.unroll_factor_inner_reduction,
+              rparams.unroll_factor_redu_dom,
           "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
       if (rparams.vectorization_factor_tmp_gmem_write <
-          rparams.unroll_factor_inner_reduction) {
+          rparams.unroll_factor_redu_dom) {
         tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
       }
       tv->axis(-1)->parallelize(ParallelType::Vectorize);

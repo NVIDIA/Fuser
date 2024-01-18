@@ -43,11 +43,11 @@ class ReductionParams : public HeuristicParams {
   // Reduce across the grid?
   bool cross_grid_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
-  int64_t unroll_factor_inner_reduction = 1;
+  int64_t unroll_factor_redu_dom = 1;
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
   // Split grid dim for iteration axis in case it's too large for cuda
-  bool split_grid_dim_inner_reduction = false;
+  bool split_grid_dim_reduction = false;
   // Pad inner dimension to nearest warp
   bool pad_inner_reduction_to_warp = false;
   // Register persistent buffer size in inner dimension
@@ -56,11 +56,11 @@ class ReductionParams : public HeuristicParams {
   // Which block parallel dimension should be used for the inner reduction.
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
   // parameters, not used for equivalence/hashing.
-  ParallelType block_dim_inner_reduction = ParallelType::Serial;
+  ParallelType block_dim_reduction = ParallelType::Serial;
   // Which grid parallel dimension should be used for the inner reduction.
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
   // parameters, not used for equivalence/hashing.
-  ParallelType grid_dim_inner_reduction = ParallelType::Serial;
+  ParallelType grid_dim_reduction = ParallelType::Serial;
 
   // Iteration Domain:
 
@@ -113,7 +113,7 @@ class ReductionParams : public HeuristicParams {
   bool static_bdimy = false;
 
   bool isUnrolled() const {
-    return unroll_factor_inner_reduction > 1 || unroll_factor_iter_dom > 1 ||
+    return unroll_factor_redu_dom > 1 || unroll_factor_iter_dom > 1 ||
         unroll_factor_outer_reduction > 1;
   }
 
@@ -128,10 +128,10 @@ class ReductionParams : public HeuristicParams {
   // write
   int64_t vectorization_factor_outer = 1;
   int64_t vectorization_factor_tmp_gmem_write = 1;
-  // inner reduction axis is parallelized by block_dim_inner_reduction (usually
+  // inner reduction axis is parallelized by block_dim_reduction (usually
   // TIDx) the remaining part is further parallelized by
-  // block_dim_inner_reduction_extra (usually TIDy)
-  ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
+  // block_dim_reduction_extra (usually TIDy)
+  ParallelType block_dim_reduction_extra = ParallelType::Serial;
 
   // use shared memory for persistent buffer, if false, will use registers
   bool shared_mem_persistent_buffer = false;
@@ -154,10 +154,10 @@ class ReductionParams : public HeuristicParams {
         other.schedule_3D == schedule_3D && other.flip_grid == flip_grid &&
         other.cross_block_reduction == cross_block_reduction &&
         other.cross_grid_reduction == cross_grid_reduction &&
-        other.unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
+        other.unroll_factor_redu_dom == unroll_factor_redu_dom &&
         other.vectorize_inner_reduction == vectorize_inner_reduction &&
-        other.split_grid_dim_inner_reduction ==
-            split_grid_dim_inner_reduction &&
+        other.split_grid_dim_reduction ==
+            split_grid_dim_reduction &&
         other.pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
         other.batches_per_block_inner_reduction ==
             batches_per_block_inner_reduction &&
@@ -248,25 +248,25 @@ class ReductionParams : public HeuristicParams {
     ss << "\nInner Reduction Domain: ";
 
     if (cross_block_reduction) {
-      ss << "cross block - " << block_dim_inner_reduction << " / ";
+      ss << "cross block - " << block_dim_reduction << " / ";
       ss << (pad_inner_reduction_to_warp ? " pad to warp / " : "");
     }
     if (cross_grid_reduction) {
-      ss << "cross grid - " << grid_dim_inner_reduction << " / ";
-      ss << (split_grid_dim_inner_reduction ? "split grid dim / " : "");
+      ss << "cross grid - " << grid_dim_reduction << " / ";
+      ss << (split_grid_dim_reduction ? "split grid dim / " : "");
     }
     if (batches_per_block_inner_reduction > 1 || persistent_kernel) {
       ss << "persistent batch - " << batches_per_block_inner_reduction << " / ";
     }
-    ss << (cross_grid_reduction && split_grid_dim_inner_reduction
+    ss << (cross_grid_reduction && split_grid_dim_reduction
                ? "split grid dimension / "
                : "")
        << (vectorize_inner_reduction ? "vectorize / " : "")
-       << (unroll_factor_inner_reduction > 1 && !vectorize_inner_reduction
+       << (unroll_factor_redu_dom > 1 && !vectorize_inner_reduction
                ? "unroll / "
                : "");
-    if (unroll_factor_inner_reduction > 1) {
-      ss << "factor " << unroll_factor_inner_reduction;
+    if (unroll_factor_redu_dom > 1) {
+      ss << "factor " << unroll_factor_redu_dom;
     }
 
     if (compute_persistent_buffer_with_first_consumer) {
@@ -289,9 +289,9 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(flip_grid) << (bits - 5) ^
         static_cast<size_t>(cross_block_reduction) << (bits - 6) ^
         static_cast<size_t>(cross_grid_reduction) << (bits - 7) ^
-        static_cast<size_t>(unroll_factor_inner_reduction) << (bits - 8) ^
+        static_cast<size_t>(unroll_factor_redu_dom) << (bits - 8) ^
         static_cast<size_t>(vectorize_inner_reduction) << (bits - 9) ^
-        static_cast<size_t>(split_grid_dim_inner_reduction) << (bits - 10) ^
+        static_cast<size_t>(split_grid_dim_reduction) << (bits - 10) ^
         static_cast<size_t>(pad_inner_reduction_to_warp) << (bits - 11) ^
         static_cast<size_t>(batches_per_block_inner_reduction) << (bits - 12) ^
         static_cast<size_t>(multiple_reds_per_blk) << (bits - 13) ^

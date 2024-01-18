@@ -7745,7 +7745,7 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
-  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+  ASSERT_EQ(rparams->unroll_factor_redu_dom, 4)
       << "Unexpected vectorization factor";
 
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
@@ -7906,7 +7906,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
 
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+  ASSERT_TRUE(reduction_params->split_grid_dim_reduction)
       << "Generated reduction is not cross grid!";
   ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
       << "Generated reduction is not split iteration domain!";

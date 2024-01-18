@@ -380,7 +380,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   auto rparams = std::make_shared<ReductionParams>();
   rparams->fastest_dim = true;
   rparams->cross_block_reduction = true;
-  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->block_dim_reduction = ParallelType::TIDx;
   rparams->cross_grid_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
   bool pad_bdimx = bdimx > 16 &&
@@ -400,7 +400,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
         : bdimx + min_warp_size - bdimx % min_warp_size;
   }
 
-  rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
+  rparams->unroll_factor_redu_dom = inner_reduction_unroll_factor;
   rparams->vectorize_inner_reduction = vectorize;
 
   if (rparams->multiple_reds_per_blk) {
@@ -429,8 +429,8 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   // case it's larger than gdimy can hold, as not doing so can thrash the cache.
 
   if (rparams->cross_grid_reduction) {
-    rparams->grid_dim_inner_reduction = ParallelType::BIDx;
-    rparams->split_grid_dim_inner_reduction = true;
+    rparams->grid_dim_reduction = ParallelType::BIDx;
+    rparams->split_grid_dim_reduction = true;
     gdimx = std::min(gridim, scheduler_utils::x_grid_limit);
 
     rparams->grid_dim_iter_dom = ParallelType::BIDy;
@@ -490,7 +490,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
       if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
         debug() << "\n===== UNSUPPORTED REDUCTION HEURISTIC ========\n";
         debug() << rparams->multiple_reds_per_blk << ", "
-                << (rparams->unroll_factor_inner_reduction > 1) << ", "
+                << (rparams->unroll_factor_redu_dom > 1) << ", "
                 << rparams->cross_grid_reduction << std::endl;
       }
       return innerReductionHeuristic(
@@ -779,8 +779,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   rparams->cross_block_reduction = bdimy > 1 || grdim > 1;
   rparams->cross_grid_reduction = grdim > 1;
   if (rparams->cross_grid_reduction) {
-    rparams->split_grid_dim_inner_reduction = true;
-    rparams->grid_dim_inner_reduction =
+    rparams->split_grid_dim_reduction = true;
+    rparams->grid_dim_reduction =
         flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
     if (flip_grid) {
       gdimx = std::min(grdim, scheduler_utils::x_grid_limit);
@@ -810,13 +810,13 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->cross_block_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      rparams->block_dim_inner_reduction = ParallelType::TIDy;
+      rparams->block_dim_reduction = ParallelType::TIDy;
     } else {
-      rparams->block_dim_inner_reduction = ParallelType::TIDx;
+      rparams->block_dim_reduction = ParallelType::TIDx;
     }
   }
 
-  rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
+  rparams->unroll_factor_redu_dom = inner_reduction_unroll_factor;
 
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
   if (iter_unroll_factor > 1) {
