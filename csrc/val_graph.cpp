@@ -359,7 +359,7 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
       NVF_ERROR(!use_group_1->empty());
       for (const ExprGroup& use_group_0 : orig_uses0) {
         NVF_ERROR(use_group_0.get() != nullptr);
-        NVF_ERROR(use_group_0->empty());
+        NVF_ERROR(!use_group_0->empty());
         if (use_group_0 == use_group_1) {
           continue;
         }
