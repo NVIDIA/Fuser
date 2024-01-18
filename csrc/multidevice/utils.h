@@ -26,7 +26,7 @@ std::unordered_set<TensorView*> haveDifferentSharding(
 // Returns whether an Expr embbeds multi-device resharding
 bool isResharding(Expr* expr);
 
-// Returns the devices involved in an expr or a group of exprs
+// Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
 
 // returns the number of device indices present accross all
