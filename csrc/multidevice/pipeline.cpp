@@ -10,6 +10,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 
@@ -156,11 +157,9 @@ class PipelineBuilder final {
           // if the Val is a stage input but not a global input, it must be
           // defined by a "Set" operation
           NVF_ERROR(
-              (val->definition()->isA<LoadStoreOp>()) &&
-                  (val->definition()->as<LoadStoreOp>()->opType() ==
-                   LoadStoreOpType::Set),
+              isLowerableToCommunication(val->definition()),
               "A Val that is the input of a stage must be defined by a LoadStoreOp expression of type Set"
-              "but here the definition is " +
+              " or a Reduction but here the definition is " +
                   val->definition()->toString());
         }
       }

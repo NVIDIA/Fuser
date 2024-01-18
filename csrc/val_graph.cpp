@@ -616,7 +616,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
 const ExprGroups& ValGraph::getDefinitions(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
-  auto it = unique_definitions_.find(val_group);
+  const auto it = unique_definitions_.find(val_group);
   NVF_ERROR(
       it != unique_definitions_.end(),
       "Definition group not found for ",
@@ -626,7 +626,7 @@ const ExprGroups& ValGraph::getDefinitions(const ValGroup& val_group) const {
 
 const ExprGroups& ValGraph::getUses(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
-  auto it = unique_uses_.find(val_group);
+  const auto it = unique_uses_.find(val_group);
   NVF_ERROR(
       it != unique_uses_.end(),
       "Use group not found for ",

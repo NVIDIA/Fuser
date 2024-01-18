@@ -775,10 +775,15 @@ namespace {
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
 // {{i0, r1, b2}, {r1, b2}, {b2}}
+// Note that the reference `ref` will be reordered per `rfactor_reorder_map`
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
-    TensorView* ref) {
+    TensorView* ref,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
+  if (!rfactor_reorder_map.empty()) {
+    root_dom = TensorDomain::orderedAs(root_dom, rfactor_reorder_map);
+  }
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());
@@ -793,7 +798,8 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point) {
+    int64_t break_point,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -806,10 +812,11 @@ int64_t getVectorizationFactor(
 
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
-          data_cache, [&reference_tv]() {
+          data_cache, [&reference_tv, &rfactor_reorder_map]() {
             return std::make_unique<
                 std::vector<std::unordered_map<TensorView*, Val*>>>(
-                getTvToContigInnerSizeMapsOf(reference_tv));
+                getTvToContigInnerSizeMapsOf(
+                    reference_tv, rfactor_reorder_map));
           });
 
   if (vectorizable_inputs_outputs.empty()) {
