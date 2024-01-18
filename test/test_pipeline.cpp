@@ -394,7 +394,7 @@ TEST_P(automaticReshardingTest, setInsertion) {
        is_tv2_sharded] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = unaryOp(UnaryOpType::Exp, tv0);
+  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
   TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
   TensorView* tv3 = sum(tv2, {0});
   TensorView* tv4 = broadcast(tv3, {true, false, false});
