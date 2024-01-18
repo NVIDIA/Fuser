@@ -37,7 +37,7 @@ void IdGraphVisitor::traverse() {
           graph().disjointExprSets().disjointSets().end());
     } else {
       for (const ValGroup& id_group : all_ids) {
-        for (const ExprGroup& def : *(graph().getDefinitions(id_group))) {
+        for (const ExprGroup& def : graph().getDefinitions(id_group)) {
           if (all_exprs.has(def)) {
             continue;
           }
@@ -91,10 +91,9 @@ void IdGraphVisitor::traverse() {
   };
 
   auto is_id_ready = [&](const ValGroup& id_group) {
-    auto unique_defs = graph().getDefinitions(id_group);
-    NVF_ERROR(unique_defs);
+    const ExprGroups& unique_defs = graph().getDefinitions(id_group);
     return std::all_of(
-        unique_defs->begin(), unique_defs->end(), [&](ExprGroup expr_group) {
+        unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
           return expr_group->empty() || visited_exprs.has(expr_group) ||
               graph().isTrivialExprGroup(expr_group);
         });
@@ -145,10 +144,8 @@ void IdGraphVisitor::traverse() {
         visited_ids.pushBack(current_id_group);
 
         if (!terminating_outputs.has(current_id_group)) {
-          if (const ExprGroups* uses = graph().getUses(current_id_group);
-              uses) {
-            to_visit_exprs.pushBack(*uses);
-          }
+          const ExprGroups& uses = graph().getUses(current_id_group);
+          to_visit_exprs.pushBack(uses);
         }
       } else {
         still_to_visit_ids.pushBack(current_id_group);
