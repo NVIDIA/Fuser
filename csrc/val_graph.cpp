@@ -649,13 +649,10 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   const ValGroup orig_val_group0 = toGroup(val0);
   const ValGroup orig_val_group1 = toGroup(val1);
 
-  // Note that getDefinitions and getUses return references, which
-  // will be invalidated once unique_definitions_ and unique_uses_ are
-  // updated
-  const ExprGroups orig_defs0 = getDefinitions(orig_val_group0);
-  const ExprGroups orig_defs1 = getDefinitions(orig_val_group1);
-  const ExprGroups orig_uses0 = getUses(orig_val_group0);
-  const ExprGroups orig_uses1 = getUses(orig_val_group1);
+  const ExprGroups& orig_defs0 = getDefinitions(orig_val_group0);
+  const ExprGroups& orig_defs1 = getDefinitions(orig_val_group1);
+  const ExprGroups& orig_uses0 = getUses(orig_val_group0);
+  const ExprGroups& orig_uses1 = getUses(orig_val_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -666,23 +663,13 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   unique_definitions_[new_val_group] = orig_defs0.computeUnion(orig_defs1);
   unique_uses_[new_val_group] = orig_uses0.computeUnion(orig_uses1);
 
-  for (const auto& [vg, egs] : unique_uses_) {
-    for (const ExprGroup& eg : egs) {
-      NVF_ERROR(eg.get() != nullptr);
-    }
-  }
-
   // Propagate on uses
   if (!orig_uses0.empty() && !orig_uses1.empty()) {
     for (const ExprGroup& use_group_1 : orig_uses1) {
       for (const ExprGroup& use_group_0 : orig_uses0) {
-        NVF_ERROR(use_group_1.get() != nullptr);
-        NVF_ERROR(use_group_0.get() != nullptr);
-        if (use_group_0 == use_group_1 || use_group_1->empty() ||
-            use_group_0->empty()) {
+        if (use_group_0 == use_group_1) {
           continue;
         }
-
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
@@ -694,15 +681,9 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   if (!orig_defs0.empty() && !orig_defs1.empty()) {
     for (const ExprGroup& def_group_1 : orig_defs1) {
       for (const ExprGroup& def_group_0 : orig_defs0) {
-        NVF_ERROR(def_group_1.get() != nullptr);
-        NVF_ERROR(def_group_0.get() != nullptr);
-        if (def_group_0 == def_group_1 || def_group_0->empty() ||
-            def_group_1->empty()) {
+        if (def_group_0 == def_group_1) {
           continue;
         }
-
-        NVF_ERROR(!def_group_0->empty());
-        NVF_ERROR(!def_group_1->empty());
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
