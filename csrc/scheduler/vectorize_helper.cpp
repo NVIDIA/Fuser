@@ -487,7 +487,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
 
     // A special case is that, if the last broadcast dimension resolved in
     // consumers root domain is mapped for vectorization, then merge order in
-    // the vectorization axes matters. T0[i0, i1] T1[i0, i1, b2] = broadcast(T0)
+    // the vectorization axes matters.
+    // T0[i0, i1]
+    // T1[i0, i1, b2] = broadcast(T0)
     // T2[i0, i1, i3]
     // T3[i0, i1, i2] = T1 + T2
     //
