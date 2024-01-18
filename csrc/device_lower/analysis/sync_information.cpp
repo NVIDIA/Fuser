@@ -757,6 +757,10 @@ SyncMap::SyncMap(Fusion* fusion) {
           }
 
           raw_dims.set(producer_ptype);
+
+          if (raw_dims.hasBID()) {
+            NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
+          }
         } // end for ptypes
 
         if (raw_dims.hasBID()) {

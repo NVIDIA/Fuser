@@ -4,15 +4,16 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <kernel_cache.h>
-#include <ir/interface_nodes.h>
 #include <fusion.h>
+#include <ir/interface_nodes.h>
+#include <kernel_cache.h>
+#include <ops/all_ops.h>
 #include <test/utils.h>
 #include <test/validator.h>
-#include <ops/all_ops.h>
 
 namespace nvfuser {
 
@@ -211,7 +212,8 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   fec.profile(true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
+  at::Tensor t0 =
+      at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
   auto cg_outputs = fec.runFusionWithInputs({t0});
   EXPECT_EQ(getVecSizeForPointwise(fec), 4);
   testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
@@ -246,7 +248,8 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::empty_strided({1024, 128, 25}, {128*25, 1, 128}, options);
+  at::Tensor t0 =
+      at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
   at::Tensor t1 = at::empty_strided({1, 128, 1}, {128, 1, 128}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
@@ -275,10 +278,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
                         .contiguity({true, true, std::nullopt})
                         .shape({-1, -1, 1})
                         .build();
-  TensorView* tv1 = TensorViewBuilder()
-                        .ndims(3)
-                        .contiguity({true, true, true})
-                        .build();
+  TensorView* tv1 =
+      TensorViewBuilder().ndims(3).contiguity({true, true, true}).build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
@@ -314,10 +315,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
                         .contiguity({true, std::nullopt, true})
                         .shape({-1, 1, -1})
                         .build();
-  TensorView* tv1 = TensorViewBuilder()
-                        .ndims(3)
-                        .contiguity({true, true, true})
-                        .build();
+  TensorView* tv1 =
+      TensorViewBuilder().ndims(3).contiguity({true, true, true}).build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
@@ -397,10 +396,8 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
                         .contiguity({std::nullopt, true, true})
                         .shape({1, -1, -1})
                         .build();
-  TensorView* tv1 = TensorViewBuilder()
-                        .ndims(3)
-                        .contiguity({true, true, true})
-                        .build();
+  TensorView* tv1 =
+      TensorViewBuilder().ndims(3).contiguity({true, true, true}).build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
@@ -428,6 +425,27 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, Broadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in0 = makeContigConcreteTensor({-1, -1, -1, -1});
+  TensorView* in1 = makeContigConcreteTensor({-1, -1});
+  TensorView* out = add(in0, in1);
+
+  fusion->addInput(in0);
+  fusion->addInput(in1);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in0_tensor = at::rand({32, 32, 4096, 128}).cuda();
+  at::Tensor in1_tensor = at::rand({4096, 128}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in0_tensor, in1_tensor})[0];
+
+  testValidate(
+      fec.fusion(), {out_tensor}, {in0_tensor, in1_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
