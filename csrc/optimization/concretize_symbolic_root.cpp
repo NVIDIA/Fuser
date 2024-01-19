@@ -44,11 +44,11 @@ void concretizeSymbolicRootDomain(Fusion* fusion) {
 
     // place non-const extents and target const_extent to the replacement map
     for (auto id : *set_ptr) {
-      if (id->isBroadcast() || id->definition()) {
+      if ((id->isBroadcast() && !id->hasExpandedExtent()) || id->definition()) {
         continue;
       }
-      if (!id->extent()->isConstScalar()) {
-        replacement_map.emplace(id->extent(), const_extent);
+      if (!id->getMaybeExpandedExtent()->isConstScalar()) {
+        replacement_map.emplace(id->getMaybeExpandedExtent(), const_extent);
       }
     }
   }
