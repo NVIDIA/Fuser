@@ -145,6 +145,9 @@ static void SingleMatmulBase(
   int64_t n = benchmark_state.range(1);
   int64_t k = benchmark_state.range(2);
 
+  // inputs
+  at::manual_seed(0);
+
   // Tensor inputs
   auto inputs = matmulAtInput(m, n, k, layout);
   auto expected_output = atMatmul(
@@ -163,9 +166,6 @@ static void SingleMatmulBase(
   setupMatmul(fusion, layout, params, turing_or_later);
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(fusion);
-
-  // inputs
-  at::manual_seed(0);
 
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
