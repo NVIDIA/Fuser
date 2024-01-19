@@ -1133,6 +1133,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           d, -1, {smem_epilogue});
     }
+    if (num_splitk_dims != 0) {
+      // Now that transforms are propagated backward to smem_epilogue, which is
+      // before splitk_sum, we can vectorize the inner-most non-trivial
+      // dimension of splitk_sum
+      splitk_sum->axis(-2)->parallelize(ParallelType::Vectorize);
+    }
   } else {
     for (auto [dc, d] : cached_and_forked_outputs) {
       scheduler_utils::BoundedDirectionalTransformPropagator::forward(
