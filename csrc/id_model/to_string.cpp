@@ -308,10 +308,8 @@ std::string definitionsString(
     bool with_ptr) {
   ExprGroups all_defs;
   for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
-    if (auto definition = id_graph.getDefinitions(id_group); definition) {
-      for (const ExprGroup& expr_group : *definition) {
-        all_defs.pushBack(expr_group);
-      }
+    for (const ExprGroup& expr_group : id_graph.getDefinitions(id_group)) {
+      all_defs.pushBack(expr_group);
     }
   }
   return toString(id_graph, all_defs, indent_size, with_ptr);
@@ -323,10 +321,8 @@ std::string usesString(
     bool with_ptr) {
   ExprGroups all_uses;
   for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
-    if (const ExprGroups* uses = id_graph.getUses(id_group); uses) {
-      for (const ExprGroup& expr_group : *uses) {
-        all_uses.pushBack(expr_group);
-      }
+    for (const ExprGroup& expr_group : id_graph.getUses(id_group)) {
+      all_uses.pushBack(expr_group);
     }
   }
   return toString(id_graph, all_uses, indent_size, with_ptr);
