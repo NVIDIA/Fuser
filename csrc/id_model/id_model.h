@@ -101,6 +101,9 @@ class IdModel : public PolymorphicBase {
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
   // the Fusion that don't have expressions associated with them.
+  //
+  // All graphs are built by default. It can be disabled with
+  // build_graphs=false.
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
@@ -115,7 +118,7 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
-      bool build = true,
+      bool build_graphs = true,
       bool allow_self_mapping = false,
       bool validate = true);
 
