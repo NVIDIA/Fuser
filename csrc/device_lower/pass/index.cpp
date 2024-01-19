@@ -639,20 +639,18 @@ void IndexLowering::handleSerialGridReduction(
 
   // Allocate global work buffer TensorIndex.
   //
-  // The global work buffer will look just like the reduction output except
-  // that it resides in global memory.
-  //
-  // Note that we create a new TensorDomain, copying the domain vectors,
-  // instead of reusing out_tv->domain() directly. This prevents corruption of
-  // this new TensorDomain in case the original is modified later.
-  auto work_buffer_domain = IrBuilder::create<TensorDomain>(
-      out_tv->domain()->root(),
-      out_tv->domain()->rfactor(),
-      out_tv->domain()->allocation(),
-      out_tv->domain()->leaf());
+  // For convenience, the global work buffer is allocated like the leaf domain
+  // of the ReductionOp output. In the future, we may want the allocation
+  // domain to be different in order to enable re-use of global output buffers
+  // for in-place reduction.
+  std::vector<IterDomain*> work_buffer_root;
+  work_buffer_root.reserve(out_tv->nDims());
+  for (IterDomain* id : out_tv->getLeafDomain()) {
+    work_buffer_root.push_back(IterDomainBuilder(id).build());
+  }
+  auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
   auto work_buffer_tv = IrBuilder::create<TensorView>(
       work_buffer_domain, out_tv->dtype(), MemoryType::Global);
-
   Val* work_buffer_idx_val = nullptr;
   for (auto v :
        Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
