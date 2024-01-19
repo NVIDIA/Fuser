@@ -41,10 +41,10 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
       if (id->isBroadcast() && !id->hasExpandedExtent()) {
         continue;
       }
-      // find the const extent
-      if (id->getMaybeExpandedExtent()->isConstScalar()) {
+      // find the const extent, don't use break here as we may miss the
+      // detection of a non-root domain.
+      if (!const_extent && id->getMaybeExpandedExtent()->isConstScalar()) {
         const_extent = id->getMaybeExpandedExtent();
-        break;
       }
       // find the lowest name
       if (!lowest_val ||
