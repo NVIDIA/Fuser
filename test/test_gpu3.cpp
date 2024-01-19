@@ -8700,10 +8700,8 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
   fusion->addOutput(tv3);
 
   // tv1 is a constant tensor, and its domains are constant.
-  // During the reorder of IDs in sortAndRFactor, it's important to not treat
-  // the split output as constant. This is because it's not a constant ID for
-  // tv0, which could result in register allocation of dynamic size in this
-  // scenario.
+  // Its constant domains are used in ExactMappedExtentSubstitutionPass
+  // to substitute the domains of tv0.
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 =
       at::randn({x, y, z, w, h}, options)

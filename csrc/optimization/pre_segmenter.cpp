@@ -8,8 +8,8 @@
 #include <optimization/pre_segmenter.h>
 
 #include <optimization/add_axioms.h>
-#include <optimization/concretize_symbolic_root.h>
 #include <optimization/consecutive_cast.h>
+#include <optimization/exact_mapped_extent_substitution.h>
 #include <optimization/mark_aliases_prepare.h>
 #include <optimization/remove_empty.h>
 
@@ -22,7 +22,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
-  OptimizationPass<ConcretizeSymbolicRootDomainPass>::runPass(fusion);
+  OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::optimization

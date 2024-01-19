@@ -12,9 +12,13 @@ namespace nvfuser::optimization {
 // Fusion may have tensors with const extents and symbolic extents. This pass
 // replaces symbolic extents with const extents if they are mapped to the exact
 // same root domain set. See https://github.com/NVIDIA/Fuser/issues/1590.
-class ConcretizeSymbolicRootDomainPass
-    : public OptimizationPass<ConcretizeSymbolicRootDomainPass> {
-  friend class OptimizationPass<ConcretizeSymbolicRootDomainPass>;
+// Additionaly, if there is no const extent, it replaces all symbolic extents
+// with the one with the lowest name. This could simplify some cases where we
+// recompute expressions inside the kernel that are known to be equal, even if
+// they are not constant.
+class ExactMappedExtentSubstitutionPass
+    : public OptimizationPass<ExactMappedExtentSubstitutionPass> {
+  friend class OptimizationPass<ExactMappedExtentSubstitutionPass>;
 
  protected:
   static void runPass(Fusion* fusion);
