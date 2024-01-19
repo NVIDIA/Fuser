@@ -853,6 +853,30 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
   EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
 }
 
+TEST_F(AliasTest, OutputNotAliasedByAnotherOutputShouldNotBeSegmented) {
+  // Reproduces #1646.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+  TensorView* permute_out = permute(reshape_out, {1, 0});
+  TensorView* mul_out = mul(permute_out, permute_out);
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+  fusion->addOutput(mul_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+}
+
 TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
