@@ -251,14 +251,14 @@ MatmulParams getMatmulParams(
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
-  const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
+  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
           stage_number,
           {DataType::Half, DataType::Half, DataType::Float},
+          true,
+          true,
           false);
-  params.promote_prologue_smem_reuse = use_smem_epilogue;
-  params.use_smem_epilogue = promote_prologue_smem_reuse;
 
   return params;
 }
