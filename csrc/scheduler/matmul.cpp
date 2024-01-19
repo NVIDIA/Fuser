@@ -899,8 +899,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
-    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
     num_splitk_dims = 1;
   }
 

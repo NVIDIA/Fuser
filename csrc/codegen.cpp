@@ -1604,16 +1604,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
-    if (grop->isSerial()) {
-      generateSerialGridReduction(grop);
-      return;
-    }
-
     NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
+
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
 
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);
@@ -1693,16 +1693,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         block_flags,
         ArgumentBuilder().arg("gridDim"));
 
-    int64_t vectorize_size = ir_utils::getVectorizeSize(out->view());
-
-    ArgumentBuilder template_args;
-    template_args.arg("/*vec_size=*/").append(std::to_string(vectorize_size));
-
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg("&").append(gen(out));
-    func_args.arg("&").append(gen(grop->in()));
+    func_args.arg(gen(out));
+    func_args.arg(gen(grop->in()));
     func_args.arg(gen(grop->init()));
-    func_args.arg("&").append(gen(grop->serialReductionTensor()));
+    func_args.arg(gen(grop->serialReductionTensor()));
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
     // Whether this is the first or last step
@@ -1725,7 +1720,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(read_pred);
     }
 
-    indent() << "reduction::serialReductionStep<" << template_args << ">(\n";
+    indent() << "reduction::serialReductionStep(\n";
     indent() << kTab << func_args << ");\n";
   }
 

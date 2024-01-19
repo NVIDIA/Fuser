@@ -579,10 +579,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       }
     }
     if (has_vectorize_dim) {
-      Expr* def = tv->definition();
       NVF_ERROR(
-          def == nullptr || def->isA<LoadStoreOp>() ||
-              def->isA<SliceOp>() || (def->isA<ReductionOp>()), // && def->as<ReductionOp>()->SerialGridReductionRequested(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>() ||
+              tv->definition()->isA<SliceOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);

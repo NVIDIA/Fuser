@@ -2560,7 +2560,7 @@ TensorView* fusedMultiplySum(
     const std::vector<int>& axes,
     Val* init) {
   if (init == nullptr) {
-    init = IrBuilder::create<Val>(0.0, DataType::Float);
+    init = IrBuilder::create<Val>(0.0);
   }
 
   // TODO:

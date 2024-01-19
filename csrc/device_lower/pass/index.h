@@ -82,8 +82,6 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::AsyncWait*) final;
   void handle(const kir::AsyncCommit*) final;
-  void handle(const kir::BlockSerializeWait*) final;
-  void handle(const kir::BlockSerializeRelease*) final;
 
   void generate(const std::vector<Expr*>& exprs);
 
@@ -122,9 +120,6 @@ class IndexLowering : private OptOutConstDispatch {
 
   void handleBlockReduction(const ReductionOp* rop, Val* out, Val* in);
   void handleGridReduction(const ReductionOp* rop, Val* out, Val* in);
-  //! Called by handleGridReduction, this returns true if rop is lowered as a
-  //! serial grid reduction.
-  void handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
 
   void handleBlockReduction(
       const GroupedReductionOp* rop,

@@ -16,7 +16,6 @@
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
-#include <device_lower/pass/grid_serialization.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/inline_ptx.h>
 #include <device_lower/pass/insert_syncs.h>
@@ -265,7 +264,6 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
-           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
