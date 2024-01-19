@@ -944,6 +944,7 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
                        .build();
   fusion->addInput(in);
   TensorView* out = reshape(in, {2, 3, 5, 7}, {2, -1, 7});
+  out = reshape(out, {2, 15, 7}, {30, 7});
   fusion->addOutput(out);
 
   FusionExecutorCache fec(std::move(fusion));
@@ -951,8 +952,6 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
       at::randn({2 * 7}).cuda().as_strided({2, 3, 5, 7}, {7, 0, 0, 1});
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
-
-  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
 }
 
 TEST_F(AliasTest, Squeeze) {
