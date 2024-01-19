@@ -818,7 +818,12 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  IdModel id_model(&fusion);
+  // Validation needs to be disabled as ComputeAtMap would fail with this fusion
+  IdModel id_model(
+      &fusion,
+      /* build_graphs */ true,
+      /* allow_self_mapping */ false,
+      /* validate */ false);
 
   // All of the IDs that are generated with merge operations from the
   // root domains should be mapped to the single group.
