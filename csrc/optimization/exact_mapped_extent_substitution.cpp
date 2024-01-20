@@ -14,6 +14,17 @@
 namespace nvfuser::optimization {
 
 namespace {
+// Skip broadcast without expanded extent
+// Skip derived domains, e.g. iS11{( i0 * i2 )}rf
+// Skip domain whose extent is derived e.g. iS12{( i0 * i2 )}
+// e.g. in this set { iS11{( i0 * i2 )}rf; iS12{( i0 * i2 )}; iS14{i3} } from
+// NVFuserTest.SymbolicSqueeze, we can't substitute {i0 * i2} with {i3},
+// otherwise, ValidateDomainEquivalence fails. If we really want to substitute,
+// we may need to skip or modify ValidateDomainEquivalence.
+inline bool isNonSubstitutableID(const IterDomain* id) {
+  return (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
+      id->getMaybeExpandedExtent()->definition();
+}
 
 void exactMappedExtentSubstitution(Fusion* fusion) {
   // map non-const extents to const extents
@@ -26,25 +37,14 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
     // (2) if no const extent, pick the var with the lowest name()
     Val* const_extent = nullptr;
     Val* lowest_val = nullptr;
-    bool can_substitute = true;
     for (auto id : *set_ptr) {
-      // If one of the domains is not a root domain, we cannot substitute.
-      // e.g. in this set { iS11{( i0 * i2 )}rf; iS12{( i0 * i2 )}; iS14{i3} }
-      // we can't substitute {i0 * i2} with {i3}, otherwise,
-      // ValidateDomainEquivalence fails. If we really want to substitute, we
-      // may need to skip ValidateDomainEquivalence.
-      if (id->definition()) {
-        can_substitute = false;
-        break;
-      }
-      // Skip broadcast without expanded extent
-      if (id->isBroadcast() && !id->hasExpandedExtent()) {
+      if (isNonSubstitutableID(id)) {
         continue;
       }
-      // find the const extent, don't use break here as we may miss the
-      // detection of a non-root domain.
-      if (!const_extent && id->getMaybeExpandedExtent()->isConstScalar()) {
+      // find the const extent
+      if (id->getMaybeExpandedExtent()->isConstScalar()) {
         const_extent = id->getMaybeExpandedExtent();
+        break;
       }
       // find the lowest name
       if (!lowest_val ||
@@ -52,14 +52,10 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
         lowest_val = id->getMaybeExpandedExtent();
       }
     }
-    // skip this set if we can't substitute
-    if (!can_substitute) {
-      continue;
-    }
     // replace with const extents.
     // if no const extents, replace with the one with the lowest name.
     for (auto id : *set_ptr) {
-      if (id->isBroadcast() && !id->hasExpandedExtent()) {
+      if (isNonSubstitutableID(id)) {
         continue;
       }
       replacement_map.emplace(
