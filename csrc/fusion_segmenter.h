@@ -296,7 +296,20 @@ class FusionHeuristics {
     return heuristics_.begin()->get();
   }
 
+  Fusion* tryEmplaceSegmentedFusion(
+      SegmentedGroup* sg,
+      std::unique_ptr<Fusion>&& pt) {
+    auto&& [iter, success] =
+        all_segmented_fusions_.try_emplace(sg, std::move(pt));
+    if (!success) {
+      return nullptr;
+    }
+    return iter->second.get();
+  }
+
  private:
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
+      all_segmented_fusions_;
   std::vector<SchedulerEntryOwningPtr> heuristics_;
   bool is_segmented_ = true;
 };

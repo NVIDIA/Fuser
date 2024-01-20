@@ -1062,9 +1062,11 @@ std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
 
     auto&& result = segmented_fusion_->makeFusionWithCloner(group_to_run);
     IrCloner& complete_to_segment_map = result.first;
-    auto&& [iter, success] = all_segmented_fusions_.try_emplace(
+    Fusion* fusion_to_run = heuristics->tryEmplaceSegmentedFusion(
         group_to_run, std::move(result.second));
-    Fusion* fusion_to_run = iter->second.get();
+    NVF_ERROR(
+        fusion_to_run != nullptr,
+        "Failed to add segmented fusion to FusionHeuristics.");
 
     KernelArgumentHolder group_runtime_inputs;
     for (auto input : group_to_run->inputs()) {
