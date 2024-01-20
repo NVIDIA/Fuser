@@ -1034,8 +1034,12 @@ FusionKernelRuntime::FusionKernelRuntime(
 std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
+  // The runtime group run order is different from the segmented_fusion group
+  // order. Instead of using FusionHeuristics::emplaceBack, we initialize
+  // FusionHeuristics with the desired number of groups.
+  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   std::unique_ptr<FusionHeuristics> heuristics =
-      std::make_unique<FusionHeuristics>();
+      std::make_unique<FusionHeuristics>(num_groups);
 
   // Store metadata copy of arguments for serialization
   KernelArgumentHolder args_metadata;
@@ -1053,7 +1057,6 @@ std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
   ArgumentManager args_manager(
       args_metadata, runtime_workspace_, segmented_fusion_->inputs());
 
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1091,8 +1094,10 @@ std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
         evaluator_precomputed_values.get(),
         all_tvs_for_local_fusion,
         forced_index_type);
-    heuristics->emplaceBack(segmented_fusion_->makeInitialSchedulerEntry(
-        fusion_to_run, group_to_run, local_runtime_info));
+    heuristics->set(
+        group_to_run->groupId(),
+        segmented_fusion_->makeInitialSchedulerEntry(
+            fusion_to_run, group_to_run, local_runtime_info));
 
     auto group_runtime_outputs = executors_.at(group_to_run->groupId())
                                      .inferOutputSizes(
