@@ -251,8 +251,12 @@ class FusionHeuristics {
   //!  uses emplaceBack for inserting heuristics in order
   explicit FusionHeuristics() = default;
 
-  explicit FusionHeuristics(size_t num_heuristics)
-      : heuristics_(num_heuristics) {}
+  //! Constructor fills heuristics_ with nullptr, which allows us to create
+  //! SchedulerEntries out of order.
+  explicit FusionHeuristics(size_t num_heuristics) {
+    heuristics_.reserve(num_heuristics);
+    std::fill_n(std::back_inserter(heuristics_), num_heuristics, nullptr);
+  }
 
   //! Constructor for complete fusion case, generates the scheduler entry
   //!  for the fusion owning the given expression
@@ -268,11 +272,11 @@ class FusionHeuristics {
   FusionHeuristics(const FusionHeuristics&) = delete;
   FusionHeuristics& operator=(const FusionHeuristics&) = delete;
 
-  void set(int index, SchedulerEntryOwningPtr&& pt) {
+  SchedulerEntryOwningPtr& at(int index) {
     NVF_ERROR(is_segmented_);
     NVF_ERROR(index >= 0);
     NVF_ERROR(index < (int)heuristics_.size());
-    heuristics_.at(index) = std::move(pt);
+    return heuristics_.at(index);
   }
 
   //! Place a scheduler entry on the list. Applies to segmented fusion only.
@@ -355,11 +359,6 @@ class SegmentedFusion {
 
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
-
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Get the fusion for the segmented group
   std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(

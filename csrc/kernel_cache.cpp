@@ -1094,10 +1094,9 @@ std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
         evaluator_precomputed_values.get(),
         all_tvs_for_local_fusion,
         forced_index_type);
-    heuristics->set(
-        group_to_run->groupId(),
+    heuristics->at(group_to_run->groupId()) =
         segmented_fusion_->makeInitialSchedulerEntry(
-            fusion_to_run, group_to_run, local_runtime_info));
+            fusion_to_run, group_to_run, local_runtime_info);
 
     auto group_runtime_outputs = executors_.at(group_to_run->groupId())
                                      .inferOutputSizes(
