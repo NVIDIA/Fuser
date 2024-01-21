@@ -152,11 +152,6 @@ class FusionKernelRuntime {
   //! multithreaded. The segments in the fusion are compiled independently.
   void compileFusionParallel(KernelArgumentHolder args);
 
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type);
-
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
   }
@@ -227,7 +222,8 @@ class FusionKernelRuntime {
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type,
+      bool initial);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics

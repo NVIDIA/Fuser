@@ -110,11 +110,15 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime
+                ->getMaybeHeuristicsFor(
+                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                .has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(args);
+    runtime->getMaybeHeuristicsFor(
+        args, /*forced_index_type=*/std::nullopt, /*initial*/ false);
   }
 }
 
@@ -166,11 +170,15 @@ static void NvFuserScheduler_LayerNormForward_HeuristicCache(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime
+                ->getMaybeHeuristicsFor(
+                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                .has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(args);
+    runtime->getMaybeHeuristicsFor(
+        args, /*forced_index_type=*/std::nullopt, /*initial*/ false);
   }
 }
 
