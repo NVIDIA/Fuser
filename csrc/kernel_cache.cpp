@@ -1095,6 +1095,8 @@ std::unique_ptr<FusionHeuristics> FusionKernelRuntime::makeInitialHeuristics(
         evaluator_precomputed_values.get(),
         all_tvs_for_local_fusion,
         forced_index_type);
+
+    // Add new scheduler entry for this segmented group
     heuristics->at(group_to_run->groupId()) =
         segmented_fusion_->makeInitialSchedulerEntry(
             fusion_to_run, group_to_run, local_runtime_info);
@@ -1732,16 +1734,21 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
         all_tvs_for_local_fusion,
         forced_index_type);
 
+    // Try to get scheduler entry
     auto maybe_scheduler_entry = segmented_fusion_->getMaybeSchedulerEntry(
         fusion_to_run, group_to_run, local_runtime_info);
+    // If unavailable, then return std::nullopt
     if (!maybe_scheduler_entry.has_value()) {
       return std::nullopt;
     }
+    // Check if this scheduler entry matches the previous entry for this
+    // segmented group. If no match, then return std::nullptr
     auto scheduler_entry = std::move(maybe_scheduler_entry.value());
     if (!scheduler_entry->sameAs(
-            heuristics_->heuristicsList()[group_to_run->groupId()].get())) {
+            heuristics_->at(group_to_run->groupId()).get())) {
       return std::nullopt;
     }
+    // Add new scheduler entry for this segmented group
     ret.value()->at(group_to_run->groupId()) = std::move(scheduler_entry);
 
     auto group_runtime_outputs = executors_.at(group_to_run->groupId())
