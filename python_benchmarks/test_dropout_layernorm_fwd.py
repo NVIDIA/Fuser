@@ -24,7 +24,7 @@ def dropout_layernorm_fwd_fusion(
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
-        
+
     # Dropout + Add
     T13 = fd.ops.mul(T2, T11)
     S14 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
