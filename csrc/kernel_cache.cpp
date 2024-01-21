@@ -1648,6 +1648,8 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
         std::make_unique<PrecomputedValues>(fusion_to_run);
     evaluator_precomputed_values->bindInputs(
+        group_runtime_inputs);
+    evaluator_precomputed_values->bindInputs(
         complete_inputs_for_segment, complete_fusion_metadata_args);
     evaluator_precomputed_values->evaluate();
 
