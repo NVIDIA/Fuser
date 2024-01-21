@@ -510,7 +510,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
       exprs.size(),
       " expressions while serialization expected ",
@@ -1131,7 +1131,7 @@ void SegmentedFusion::finalize() {
   // Log the number of values and expressions. It is used as a sanity check
   // during serialization.
   initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
+  initial_exprs_size_ = complete_fusion_->unordered_exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
@@ -2489,23 +2489,6 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 }
 
 } // namespace
-
-std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
-    getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
-  FUSER_PERF_SCOPE("SegmentedGroup::getMaybeSchedulerEntry");
-  auto fusion = segmented_fusion_->completeFusion();
-  auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
-  // Here, segmentation has been completed, so insertion of cast to
-  // lower precision has also alredy been done. Just narrow the
-  // complete fusion to the segment.
-  FusionSegmentGuard fsg(fusion, getAllInputs(this), getAllOutputs(this));
-  if (!SchedulerEntry::canSchedule(
-          heuristic(), fusion, runtime_info, data_cache)) {
-    return std::nullopt;
-  }
-  return SchedulerEntry::makeEntry(
-      heuristic(), fusion, runtime_info, data_cache);
-}
 
 void SegmentedGroup::resetExprList() {
   auto input_group_vec = getAllInputs(this);
@@ -4176,6 +4159,21 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
       local_fusion, sg->heuristic(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
+  return SchedulerEntry::makeEntry(
+      sg->heuristic(), local_fusion, runtime_info, data_cache);
+}
+
+std::optional<FusionKernelRuntime::SchedulerEntryPtr> SegmentedFusion::
+    getMaybeSchedulerEntry(
+        Fusion* local_fusion,
+        SegmentedGroup* sg,
+        SchedulerRuntimeInfo& runtime_info) {
+  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
+  auto data_cache = getCachedHeuristicDataFor(sg);
+  if (!SchedulerEntry::canSchedule(
+          sg->heuristic(), local_fusion, runtime_info, data_cache)) {
+    return std::nullopt;
+  }
   return SchedulerEntry::makeEntry(
       sg->heuristic(), local_fusion, runtime_info, data_cache);
 }

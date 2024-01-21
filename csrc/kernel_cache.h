@@ -289,12 +289,6 @@ class FusionKernelRuntime {
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
 
-  //! Utility to speed up value evaluation at runtime
-  std::unique_ptr<PrecomputedValues> precomputed_values_;
-
-  //! Cache of all tensors in the complete fusion
-  std::vector<TensorView*> all_tvs_;
-
   //! store number of arguments in KernelArgumentHolder after each segment
   //! used to check if arguments are erased if not being used in the following
   //! segments
