@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -88,6 +89,31 @@ class ValGraph {
 
   // Convert Val to its ValGroup, assert that it exists.
   const ValGroup& toGroup(Val* val) const;
+
+  // Convert a vector of Val* or Expr* to their ValGroups or
+  // ExprGroups, respectively
+  template <
+      typename ContainerType,
+      typename ElementType = typename std::remove_pointer<
+          typename ContainerType::value_type>::type,
+      typename = std::enable_if_t<
+          std::is_base_of<Val, ElementType>::value ||
+          std::is_base_of<Expr, ElementType>::value>>
+  typename std::conditional<
+      std::is_base_of<Val, ElementType>::value,
+      ValGroups,
+      ExprGroups>::type
+  toGroups(const ContainerType& entries) const {
+    using RetType = typename std::conditional<
+        std::is_base_of<Val, ElementType>::value,
+        ValGroups,
+        ExprGroups>::type;
+    RetType groups;
+    for (auto entry : entries) {
+      groups.pushBack(toGroup(entry));
+    }
+    return groups;
+  }
 
   // Return output/input Val groups of provided expr
   // Note that the same ValGroup can show up multiple times, so the
