@@ -1625,6 +1625,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     NVF_ERROR(
         fusion_to_run != nullptr,
         "Failed to add segmented fusion to FusionHeuristics.");
+    FusionGuard fg(fusion_to_run);
 
     // Get input arguments for SchedulerRuntimeInfo
     KernelArgumentHolder group_runtime_inputs;
