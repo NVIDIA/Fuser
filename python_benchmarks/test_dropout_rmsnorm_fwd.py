@@ -5,13 +5,16 @@ from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
+
 def dropout_rmsnorm_fwd_fusion(
-        fd : FusionDefinition,
-        dtype: DataType,
-        dropout_p: float,
-        eps: float = 1e-5,
-    ) -> None :
-    T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False)
+    fd: FusionDefinition,
+    dtype: DataType,
+    dropout_p: float,
+    eps: float = 1e-5,
+) -> None:
+    T0 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
+    )
     T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
 
     S2 = fd.define_scalar(0.00000, dtype=DataType.Double)
@@ -25,8 +28,8 @@ def dropout_rmsnorm_fwd_fusion(
 
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
-        T1 = fd.ops.cast(T1, dtype=DataType.Float)    
-        
+        T1 = fd.ops.cast(T1, dtype=DataType.Float)
+
     T12 = fd.ops.mul(T0, T10)
     S13 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T14 = fd.ops.mul(T12, S13)
@@ -43,7 +46,7 @@ def dropout_rmsnorm_fwd_fusion(
     S26 = fd.define_scalar(eps, dtype=DataType.Double)
     T27 = fd.ops.add(T25, S26)
     T28 = fd.ops.sqrt(T27)
-    
+
     T33 = fd.ops.broadcast_in_dim(T28, shape=V6, broadcast_dims=[0, 1])
 
     T35 = fd.ops.reciprocal(T33)
@@ -53,10 +56,11 @@ def dropout_rmsnorm_fwd_fusion(
 
     if dtype in PROMOTE_DTYPES:
         T42 = fd.ops.cast(T42, dtype=dtype)
-    
+
     fd.add_output(T42)
     fd.add_output(T9)
     fd.add_output(T28)
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -78,7 +82,9 @@ def test_rmsnorm_fwd_benchmark(
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
 
     with FusionDefinition() as fd:
-        dropout_rmsnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p, eps)
+        dropout_rmsnorm_fwd_fusion(
+            fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p, eps
+        )
 
     if not disable_validation:
         x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs

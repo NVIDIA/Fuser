@@ -5,6 +5,7 @@ from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
+
 def dropout_layernorm_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float, eps: float = 1e-5
 ) -> None:
@@ -18,13 +19,14 @@ def dropout_layernorm_fwd_fusion(
     T8 = fd.ops.uniform(S3, S4, shape=T2.shape(), dtype=DataType.Float)
     S9 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
     T10 = fd.ops.lt(T8, S9)
+    T11 = fd.ops.cast(T10, dtype=DataType.Float)
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
-        T10 = fd.ops.cast(T10, dtype=DataType.Float)
+        
     # Dropout + Add
-    T13 = fd.ops.mul(T2, T10)
+    T13 = fd.ops.mul(T2, T11)
     S14 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T15 = fd.ops.mul(T13, S14)
     T16 = fd.ops.add(T2, T15)
@@ -46,10 +48,12 @@ def dropout_layernorm_fwd_fusion(
     T51 = fd.ops.add(T45, T49)
     if dtype in PROMOTE_DTYPES:
         T51 = fd.ops.cast(T51, dtype=dtype)
+
     fd.add_output(T51)
     fd.add_output(T18)
     fd.add_output(T29)
     fd.add_output(T10)
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -77,17 +81,15 @@ def test_dropout_layernorm_fwd_benchmark(
         x = inputs[0] + 1 / (1 - dropout_p) * dropout_mask * inputs[0]
         # layernorm
         eager_output = torch.nn.functional.layer_norm(
-            x,
+            x.to(torch.float),
             inputs[0].shape[1:],
-            weight=inputs[1],
-            bias=inputs[2],
+            weight=inputs[1].to(torch.float),
+            bias=inputs[2].to(torch.float),
         )
         # mean and invstd are computed for the output of dropout + add
         mean = x.to(torch.float).mean(dim=-1)
         variance = x.to(torch.float).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
-        fd.validate(
-            inputs, [eager_output.to(dtype), mean, invstd, dropout_mask]
-        )
+        fd.validate(inputs, [eager_output.to(dtype), mean, invstd, dropout_mask])
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
