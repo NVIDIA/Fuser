@@ -876,7 +876,7 @@ void IdModel::buildAllGraphs() {
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
-  if (validate_) {
+  if (!permissive_graph_map_compliment_ids_ && validate_) {
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
