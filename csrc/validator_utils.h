@@ -35,7 +35,7 @@ struct ValidationConstants {
        {1048576, 2.31576e-03}, {2097152, 3.54617e-03}}};
 
   // Tolerances generated from randn + add + sum fusion
-  // compared against double precision
+  // compared against fp32 precision
   std::array<std::array<double, 2>, 20> sum_tolerances_half = {
       {{4, 2.55661e-02},       {8, 3.88184e-02},      {16, 3.88241e-02},
        {32, 4.61884e-02},      {64, 6.26907e-02},     {128, 7.64923e-02},
@@ -45,10 +45,23 @@ struct ValidationConstants {
        {131072, 2.52466e+00},  {262144, 3.62988e+00}, {524288, 4.48608e+00},
        {1048576, 7.91895e+00}, {2097152, 9.35449e+00}}};
 
+  // Tolerances generated from randn + add + sum fusion
+  // compared against fp32 precision
+  std::array<std::array<double, 2>, 20> sum_tolerances_bfloat = {
+      {{4, 2.29774e-01},       {8, 2.38712e-01},      {16, 3.20366e-01},
+       {32, 3.81409e-01},      {64, 5.09972e-01},     {128, 6.98776e-01},
+       {256, 8.89732e-01},     {512, 1.13058e+00},    {1024, 1.76106e+00},
+       {2048, 2.31541e+00},    {4096, 3.72748e+00},   {8192, 4.65298e+00},
+       {16384, 7.46301e+00},   {32768, 8.82568e+00},  {65536, 1.45876e+01},
+       {131072, 1.71610e+01},  {262144, 2.96763e+01}, {524288, 3.55269e+01},
+       {1048576, 5.56523e+01}, {2097152, 7.13672e+01}}};
+
   double base_half_abs_tol = -1;
   double base_half_rel_tol = -1;
   double base_float_abs_tol = -1;
   double base_float_rel_tol = -1;
+  double base_bfloat_abs_tol = -1;
+  double base_bfloat_rel_tol = -1;
 };
 
 // Returns abs and relative values to use for validation
@@ -138,9 +151,9 @@ std::pair<double, double> getTolerance(
     }
     case DataType::BFloat16: {
       // Copied from float case
-      const auto& sum_tolerance_entry = tolerances.sum_tolerances_half;
-      const auto& base_abs = tolerances.base_half_abs_tol;
-      const auto& base_rel = tolerances.base_half_rel_tol;
+      const auto& sum_tolerance_entry = tolerances.sum_tolerances_bfloat;
+      const auto& base_abs = tolerances.base_bfloat_abs_tol;
+      const auto& base_rel = tolerances.base_bfloat_rel_tol;
 
       if (reduction_size <= 1) {
         // No reduction case
