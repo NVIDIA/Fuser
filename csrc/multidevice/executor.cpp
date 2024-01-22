@@ -62,14 +62,17 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   std::unordered_set<Val*> vals_to_allocate;
   std::unordered_set<Val*> vals_to_not_allocate;
   for (auto group : staged_fusion_->groups()) {
-    if (!is_resharding_[group] && should_run_[group]) {
-      for (auto input : group->inputs()) {
-        vals_to_allocate.insert(input);
+    if (is_resharding_[group]) {
+      NVF_ERROR(group->exprs().size() == 1);
+      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
+      auto val = group->exprs().at(0)->outputs().at(0);
+      NVF_ERROR(val->isA<TensorView>());
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh());
+      if (tv->getDeviceMesh().has(comm_.deviceId())) {
+        vals_to_allocate.insert(val);
       }
     }
-  }
-  for (auto val_to_not_allocate : staged_fusion_->inputs()) {
-    vals_to_allocate.erase(val_to_not_allocate);
   }
 
   auto [fusion_copy, copy_to_original_map] =
@@ -105,38 +108,13 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   staged_fusion_ = SegmentCandidateFinder::segment(std::move(fusion), options);
 
   for (auto group : staged_fusion_->groups()) {
-    // check if the group invovles inter-device communication
-    if (std::none_of(
-            group->exprs().begin(), group->exprs().end(), [](auto expr) {
-              return isResharding(expr);
-            })) {
-      // check if the segmentation is valid
-      NVF_ERROR(
-          !group->exprs().empty() && !group->exprs().at(0)->outputs().empty() &&
-              group->exprs().at(0)->outputs().at(0)->isA<TensorView>() &&
-              group->exprs()
-                  .at(0)
-                  ->outputs()
-                  .at(0)
-                  ->as<TensorView>()
-                  ->hasDeviceMesh(),
-          "invalid segmentation");
-      // set that the group does not involve inter-device comms
-      is_resharding_[group] = false;
-      // store whether the current device should run the group
-      should_run_[group] = group->exprs()
-                               .at(0)
-                               ->outputs()
-                               .at(0)
-                               ->as<TensorView>()
-                               ->getDeviceMesh()
-                               .has(comm_.deviceId());
-    } else {
-      // check that the group is comprised of one resharding expr
-      NVF_ERROR(group->exprs().size() == 1, "Communications cannot be fused");
-      // set that the group does represents inter-device comm
-      is_resharding_[group] = true;
-    }
+    NVF_ERROR(!group->exprs().empty() == 1, "invalid segmentation");
+    is_resharding_[group] = std::any_of(
+            group->exprs().begin(), group->exprs().end(),
+            [](auto expr) { return isResharding(expr); });
+    NVF_ERROR(!is_resharding_[group] || group->exprs().size() == 1, "Communications cannot be fused");
+    auto expr = group->exprs().at(0);
+    should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
   // prepare the order in which to launch the kernels/comms
   RuntimeWorkSpace workspace;
