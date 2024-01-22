@@ -41,10 +41,16 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
       if (isNonSubstitutableID(id)) {
         continue;
       }
-      // find the const extent
+      // find the const extent, if already seen, check if they are the same
       if (id->getMaybeExpandedExtent()->isConstScalar()) {
-        const_extent = id->getMaybeExpandedExtent();
-        break;
+        if (const_extent) {
+          NVF_CHECK(
+              const_extent->sameAs(id->getMaybeExpandedExtent()),
+              "Found two different const extents in the same set: ",
+              set_ptr->toString());
+        } else {
+          const_extent = id->getMaybeExpandedExtent();
+        }
       }
       // find the lowest name
       if (!lowest_val ||
@@ -73,6 +79,10 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion before exactMappedExtentSubstitutionPass:" << std::endl;
     fusion->printMath();
+    debug() << "ExactRootDomainMap before exactMappedExtentSubstitutionPass:"
+            << std::endl;
+    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    std::cout << mapped_sets.toString() << std::endl;
   }
 
   exactMappedExtentSubstitution(fusion);
@@ -80,6 +90,10 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion after exactMappedExtentSubstitutionPass:" << std::endl;
     fusion->printMath();
+    debug() << "ExactRootDomainMap after exactMappedExtentSubstitutionPass:"
+            << std::endl;
+    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    std::cout << mapped_sets.toString() << std::endl;
   }
 }
 
