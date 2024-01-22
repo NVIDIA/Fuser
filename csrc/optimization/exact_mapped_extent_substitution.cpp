@@ -93,7 +93,7 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
     debug() << "ExactRootDomainMap after exactMappedExtentSubstitutionPass:"
             << std::endl;
     const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
-    std::cout << mapped_sets.toString() << std::endl;
+    debug() << mapped_sets.toString() << std::endl;
   }
 }
 
