@@ -9,6 +9,13 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 def dropout_layernorm_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float
 ) -> None:
+    """
+    Backward pass fusion definition for computing:
+        output = layernorm (input + dropout (input p=dropout_p))
+
+    Fusion inputs: input, dropout_mask, rms, grads, weights
+    Fusion outputs: grad_input, grad_weights, grad_bias
+    """
     T1 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=DataType.Bool, is_cpu=False
     )  # mask

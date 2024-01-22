@@ -9,6 +9,13 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 def dropout_layernorm_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float, eps: float = 1e-5
 ) -> None:
+    """
+    Forward pass fusion definition for computing:
+        output = layernorm (input + dropout (input, p=dropout_p))
+
+    Fusion inputs: input, weights, bias
+    Fusion outputs: output, mean, invstd, dropout_mask
+    """
     T2 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )

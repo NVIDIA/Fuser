@@ -11,6 +11,13 @@ def dropout_rmsnorm_bwd_fusion(
     dtype: DataType,
     dropout_p: float,
 ) -> None:
+    """
+    Backward pass fusion definition for computing:
+        output = rmsnorm (input + dropout (input, p=dropout_p))
+
+    Fusion inputs: input, dropout_mask, rms, grad_output, weights
+    Fusion outputs: grad_input, grad_weights
+    """
     T5 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )  # inputs

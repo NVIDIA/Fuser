@@ -12,6 +12,13 @@ def dropout_rmsnorm_fwd_fusion(
     dropout_p: float,
     eps: float = 1e-5,
 ) -> None:
+    """
+    Forward pass fusion definition for computing:
+        output = rmsnorm (input + dropout (input, p=dropout_p))
+
+    Fusion inputs: input, weights
+    Fusion outputs: output, dropout_mask, rms
+    """
     T0 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
