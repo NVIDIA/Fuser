@@ -46,7 +46,7 @@ class MultiDeviceEnvironment : public testing::Environment {
 
 class MultiDeviceTest : public NVFuserTest {
   public:
-  static at::Tensor shardInputTensor(at::Tensor tensor, DeviceMesh& mesh, int deviceId) {
+  static at::Tensor shardInputTensor(at::Tensor tensor, const DeviceMesh& mesh, DeviceIdxType deviceId) {
     int i = 0;
     auto devices = mesh.vector();
     auto it = find (devices.begin(), devices.end(), deviceId);
