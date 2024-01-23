@@ -125,6 +125,14 @@ PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   initializeIntegerMachine();
 }
 
+PrecomputedValues::~PrecomputedValues() {
+  // Reset evaluator index to -1
+  // so we can create other PrecomputedValues objects.
+  for (Val* v : symbols()) {
+    v->setEvaluatorIndex(-1);
+  }
+}
+
 void PrecomputedValues::bindParallelExtents(
     const ParallelExtentMap& parallel_extents,
     const LaunchParams& launch_constraint) {

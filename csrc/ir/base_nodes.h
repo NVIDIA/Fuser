@@ -384,7 +384,7 @@ class Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    NVF_ERROR(evaluator_index_ == -1);
+    NVF_ERROR(evaluator_index_ == -1 || to == -1);
     evaluator_index_ = to;
   }
 

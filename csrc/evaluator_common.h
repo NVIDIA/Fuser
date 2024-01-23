@@ -141,8 +141,11 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
+  PrecomputedValues(PrecomputedValues&&) = default;
 
   explicit PrecomputedValues(Fusion* fusion);
+
+  ~PrecomputedValues();
 
   //! Bind concrete values from fusion runtime inputs
   void bindInputs(const KernelArgumentHolder& args);
