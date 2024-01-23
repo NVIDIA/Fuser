@@ -176,9 +176,13 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 }
 
 namespace {
+
 int64_t estimateRegPerThread(
     const int64_t persistent_buffer_size,
-    const int64_t threads_per_block) {
+    const int64_t threads_per_block,
+    const int64_t register_overhead,
+    const double max_adjust_fraction,
+    const double target_occupancy) {
   // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
   // register_used_on_a100  = 27,  40,  62,   73,   105
   // register_used_on_v100  = xx,  xx,  45,   62,   93
@@ -186,8 +190,7 @@ int64_t estimateRegPerThread(
   // safe for both v100 & a100
   constexpr int64_t bytes_per_register = 4;
   int64_t estimated_register_count =
-      persistent_buffer_size / bytes_per_register +
-      scheduler_utils::register_overhead;
+      persistent_buffer_size / bytes_per_register + register_overhead;
 
   const int64_t blocks_per_sm_estimated =
       getThreadsPerSMGivenRegPerThread(estimated_register_count) /
@@ -202,7 +205,6 @@ int64_t estimateRegPerThread(
   // registers with 232 bytes spill stores and 276 bytes spill loads. The
   // estimated register for this case is 104 adjusting it to 64 is too
   // aggressive.
-  constexpr double max_adjust_fraction = 0.9;
   int64_t register_count_minimum = static_cast<int64_t>(
       max_adjust_fraction * static_cast<double>(estimated_register_count));
   const int64_t blocks_per_sm_maximum =
@@ -212,10 +214,9 @@ int64_t estimateRegPerThread(
       blocks_per_sm_maximum * threads_per_block);
 
   // minimum occupancy we want to achieve
-  constexpr double occupancy_ratio = 0.4;
   const int64_t blocks_per_sm_wanted = ceilDiv(
       static_cast<int64_t>(
-          dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
+          dev_prop->maxThreadsPerMultiProcessor * target_occupancy),
       threads_per_block);
 
   // if estimated blocks is smaller than wanted and decrease register usage
@@ -711,8 +712,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         inner_reduction_unroll_factor;
     const int64_t threads_per_block =
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
-    nvrtc_register_per_thread =
-        estimateRegPerThread(persistent_buffer_size, threads_per_block);
+    // call with free parameters
+    const int64_t register_overhead = 40;
+    const double max_adjust_fraction = 0.9;
+    const double target_occupancy = 0.4;
+    nvrtc_register_per_thread = estimateRegPerThread(
+        persistent_buffer_size,
+        threads_per_block,
+        register_overhead,
+        max_adjust_fraction,
+        target_occupancy);
   }
 
   // Will be used once supporting inter-block persistence
