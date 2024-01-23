@@ -1618,13 +1618,8 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
     // Create fusion for this segmented group
-    auto&& result = segmented_fusion_->makeFusionWithCloner(group_to_run);
-    IrCloner& complete_to_segment_map = result.first;
-    Fusion* fusion_to_run = opt_heuristics.value()->tryEmplaceSegmentedFusion(
-        group_to_run, std::move(result.second));
-    NVF_ERROR(
-        fusion_to_run != nullptr,
-        "Failed to add segmented fusion to FusionHeuristics.");
+    Fusion* fusion_to_run = group_to_run->getFusion();
+    NVF_ERROR(fusion_to_run != nullptr);
     FusionGuard fg(fusion_to_run);
 
     // Get input arguments for SchedulerRuntimeInfo
@@ -1633,23 +1628,12 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
-    // Map inputs for original fusion to the segmented fusion through IrCloner
-    const std::vector<Val*>& complete_inputs =
-        segmented_fusion_->completeFusion()->inputs();
-    std::vector<Val*> complete_inputs_for_segment;
-    complete_inputs_for_segment.reserve(complete_inputs.size());
-    std::transform(
-        complete_inputs.begin(),
-        complete_inputs.end(),
-        std::back_inserter(complete_inputs_for_segment),
-        [&](Val* v) { return complete_to_segment_map.clone(v); });
-
     // Create PrecomputedValues initialized with original fusion inputs
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
         std::make_unique<PrecomputedValues>(fusion_to_run);
     evaluator_precomputed_values->bindInputs(group_runtime_inputs);
     evaluator_precomputed_values->bindInputs(
-        complete_inputs_for_segment, complete_fusion_metadata_args);
+        group_to_run->completeFusionInputs(), complete_fusion_metadata_args);
     evaluator_precomputed_values->evaluate();
 
     // Get all tensorviews for segmented fusion

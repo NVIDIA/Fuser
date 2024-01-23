@@ -138,6 +138,26 @@ void SegmentedGroup::deserialize(
   is_fusion_input_ = buffer->is_fusion_input();
 }
 
+void SegmentedGroup::makeClonedFusion() {
+  auto&& [ir_cloner, fusion_segment] =
+      segmented_fusion_->makeFusionWithCloner(this);
+  NVF_ERROR(fusion_segment != nullptr, "Failed to create segmented fusion.");
+
+  cloned_fusion_ = std::move(fusion_segment);
+
+  // Map inputs for original fusion to the segmented fusion through IrCloner
+  const std::vector<Val*>& complete_inputs =
+      segmented_fusion_->completeFusion()->inputs();
+  original_inputs_in_cloned_fusion_.reserve(complete_inputs.size());
+  std::transform(
+      complete_inputs.begin(),
+      complete_inputs.end(),
+      std::back_inserter(original_inputs_in_cloned_fusion_),
+      [&complete_to_segment_map = ir_cloner](Val* v) {
+        return complete_to_segment_map.clone(v);
+      });
+}
+
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {

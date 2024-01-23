@@ -123,6 +123,19 @@ class SegmentedGroup {
     return exprs_;
   }
 
+  //! Returns the complete fusion inputs mapped to this segmented group's fusion
+  const auto& completeFusionInputs() const {
+    return original_inputs_in_cloned_fusion_;
+  }
+
+  Fusion* getFusion() {
+    // Build cloned fusion for this segmented group
+    if (cloned_fusion_ == nullptr) {
+      makeClonedFusion();
+    }
+    return cloned_fusion_.get();
+  }
+
   //! Debug print function
   void print() const;
 
@@ -201,6 +214,9 @@ class SegmentedGroup {
   //!  no more segment merging should be done beyond
   void finalize();
 
+  //! Make the cloned fusion for this segmented group
+  void makeClonedFusion();
+
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
 
@@ -226,6 +242,12 @@ class SegmentedGroup {
 
   //! SegmentedFusion this group belongs to
   SegmentedFusion* segmented_fusion_;
+
+  //! The cloned segmented fusion
+  std::unique_ptr<Fusion> cloned_fusion_;
+
+  //! These are the complete fusion's inputs mapped to the cloned fusion
+  std::vector<Val*> original_inputs_in_cloned_fusion_;
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
@@ -286,20 +308,7 @@ class FusionHeuristics {
     return heuristics_.begin()->get();
   }
 
-  Fusion* tryEmplaceSegmentedFusion(
-      SegmentedGroup* sg,
-      std::unique_ptr<Fusion>&& pt) {
-    auto&& [iter, success] =
-        all_segmented_fusions_.try_emplace(sg, std::move(pt));
-    if (!success) {
-      return nullptr;
-    }
-    return iter->second.get();
-  }
-
  private:
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
-      all_segmented_fusions_;
   std::vector<SchedulerEntryOwningPtr> heuristics_;
   bool is_segmented_ = true;
 };
