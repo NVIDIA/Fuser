@@ -177,6 +177,7 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 
 namespace {
 
+
 int64_t estimateRegPerThread(
     const int64_t persistent_buffer_size,
     const int64_t threads_per_block,
@@ -214,6 +215,8 @@ int64_t estimateRegPerThread(
       blocks_per_sm_maximum * threads_per_block);
 
   // minimum occupancy we want to achieve
+  constexpr double occupancy_ratio = 0.4;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t blocks_per_sm_wanted = ceilDiv(
       static_cast<int64_t>(
           dev_prop->maxThreadsPerMultiProcessor * target_occupancy),
