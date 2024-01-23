@@ -843,7 +843,7 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      NVF_ERROR(false, src, "\nCUDA NVRTC compile error: ", log_buf);
+      NVF_ERROR(false, "\nCUDA NVRTC compile error: ", log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
       debug() << log_buf << std::endl;
