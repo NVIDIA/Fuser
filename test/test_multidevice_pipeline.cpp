@@ -32,6 +32,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/multidevice.h>
+#include <test/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
@@ -493,6 +494,155 @@ TEST_F(PipelineTest, matmul_summa) {
   std::cout << std::endl;
 }
 
+// 1D tensor parallel 
+// Inputs: X[N,K], A^T[M, K], B[M,0]
+// Compute: Y = Matmul(X, A), Z = Matmul(Y, B)
+// sharding: A, B are row-wise sharded (M)
+TEST_F(PipelineTest, matmuls_megatron_mlp) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator->size();
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
+
+  int N = 8;
+  int K = 12;
+  int M = num_devices;
+  int O = 5;
+
+  TensorView* tvx = makeConcreteTensor({N, K}); // (N,K)
+  TensorView* tva = makeConcreteTensor({M, K}); // (M,K) 
+  TensorView* tvb = makeConcreteTensor({M, O}); // (M,O)
+
+  // Matmul 1: tvx x tva -> y (N,M)
+  TensorView* tvx_b = broadcast(tvx, {true, false, false}); // (M,N,K)
+  TensorView* tva_b = broadcast(tva, {false, true, false}); // (M,N,K)
+  TensorView* tvxa = mul(tvx_b, tva_b); // (M,N,K)
+  TensorView* tvy = sum(tvxa, {2}); // (M,N) yT
+
+  // Matmul 2: y^T (M, N) x tvb (M, O) -> z (N,O)
+  TensorView* tvy_b = broadcast(tvy, {false, false, true}); // (M,N,O)
+  TensorView* tvb_b = broadcast(tvb, {false, true, false}); // (M,N,O)
+  TensorView* tvyb = mul(tvy_b, tvb_b); // (M,N,O)
+  TensorView* tvz = sum(tvyb, {0}); // (N,O)
+
+  // Tensor sharded along the M axis. All other tensors are replicated.
+  // TODO: propogate sharding from inputs
+  auto sharded_tvs = {tva, tvx_b, tva_b, tvxa, tvy, tvb, tvy_b, tvb_b, tvyb};
+  for (auto tv : sharded_tvs) {
+    //tensor->split(0, num_devices, false); // split outer-dimension by D
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  fusion->addInput(tvx);
+  fusion->addInput(tva);
+  fusion->addInput(tvb);
+  fusion->addOutput(tvy);
+  fusion->addOutput(tvz);
+
+  std::vector<TensorView*> tvs = {tvx, tva, tvb, tvx_b, tva_b, tvxa, tvy,
+    tvy_b, tvb_b, tvyb, tvz, };
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  auto x = at::randn({N, K}, tensor_options);
+  auto aT = at::randn({M, K}, tensor_options);
+  auto b = at::randn({M, O}, tensor_options);
+  auto myDevice = communicator->deviceId();
+  inputs = {x, shardInputTensor(aT, mesh, myDevice),
+            shardInputTensor(b, mesh, myDevice)};
+  auto y = at::matmul(x, aT.transpose(0,1));
+  auto z = at::matmul(y, b);
+  auto expected_outputs = {shardInputTensor(y.transpose(0,1), mesh, myDevice), z};
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput(inputs);
+    testValidate(
+        runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+}
+
+TEST_F(PipelineTest, matmul_megatron_attention) {
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator->size();
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
+
+  int H = num_devices; // number of attention heads
+  int S = 8; // sequence length
+  int D_model = 5;
+  int Dv = 4;
+  int Dk = 4;
+
+  TensorView* q = makeConcreteTensor({H, S, Dk}); //64
+  TensorView* k = makeConcreteTensor({H, S, Dk}); //64
+  TensorView* v = makeConcreteTensor({H, S, Dv});  //64
+  TensorView* w = makeConcreteTensor({H, Dv, D_model}); //40
+  auto tv_inputs = {q, k, v, w};
+  for (auto i : tv_inputs) {
+    fusion->addInput(i);
+  }
+
+  // scaled dot product attention
+  TensorView* q_b = broadcast(q, {false, false, true, false}); // (H, S, S, Dk)
+  TensorView* k_b = broadcast(k, {false, true, false, false}); // (H, S, S, Dk)
+  TensorView* qk_ = mul(q_b, k_b); // (H, S, S, Dk)
+  TensorView* qk = sum(qk_, {3});  // (H, S, S)
+
+  TensorView* qk_b = broadcast(qk, {false, false, false, true}); // (H, S, S, Dv)
+  TensorView* v_b = broadcast(v, {false, true, false, false}); // (H, S, S, Dv)
+  TensorView* qkv_ = mul(qk_b, v_b);
+  TensorView* qkv = sum(qkv_, {2}); // (H, S, Dv)
+
+  // linear
+  TensorView* qkv_b = broadcast(qkv, {false, false, false, true}); // (H, S, Dv, Dmodel)
+  TensorView* w_b = broadcast(w, {false, true, false, false}); // (H, S, Dv, Dmodel)
+  TensorView* y0 = mul(qkv_b, w_b); 
+  TensorView* y1 = sum(y0, {0}); // (S, Dv, Dmodel) // TODO: Reduce Dv first
+  TensorView* y = sum(y1, {1}); // (S, Dmodel)
+  fusion->addOutput(qk);
+  fusion->addOutput(qkv);
+  fusion->addOutput(y);
+
+  // All tensorviews that are sharded along the head dimension
+  auto h_sharded = {q, k, v, w, q_b, k_b, qk_b, qk_, qk, qk_b, v_b, qkv_, qkv, qkv_b, w_b, y0};
+  for (auto tv : h_sharded) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+
+  // All other tensorviews that are not sharded
+  std::vector<TensorView*> tvs = {y1, y};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+  }
+  
+  auto aten_q = at::randn({H, S, Dk}, tensor_options);
+  auto aten_k = at::randn({H, S, Dk}, tensor_options);
+  auto aten_v = at::randn({H, S, Dv}, tensor_options);
+  auto aten_w = at::randn({H, Dv, D_model}, tensor_options);
+  auto deviceId = communicator->deviceId();
+  inputs = {shardInputTensor(aten_q, mesh, deviceId),
+            shardInputTensor(aten_k, mesh, deviceId),
+            shardInputTensor(aten_v, mesh, deviceId),
+            shardInputTensor(aten_w, mesh, deviceId)};
+  auto aten_qk = at::matmul(aten_q, aten_k.permute({0, 2, 1})); // H, S, Dk x H, Dk, S -> H, S, S
+  auto aten_qkv = at::matmul(aten_qk, aten_v); // H, S, S x H, S, Dv -> H, S, Dv
+  auto aten_qkv_concat = aten_qkv.permute({1, 0, 2}).flatten(1, 2); // S, H*Dv 
+  auto aten_w_ = aten_w.flatten(0, 1); // H*Dv, Dmodel 
+  auto out = at::matmul(aten_qkv_concat, aten_w_); // S, H*Dv x H*Dv, Dmodel -> S, Dmodel
+  auto expected_outputs = {shardInputTensor(aten_qk, mesh, deviceId),
+                           shardInputTensor(aten_qkv, mesh, deviceId),
+                           out};
+  
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput(inputs);
+  testValidate(
+        runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+
+}
 } // namespace nvfuser
 
 #endif

@@ -17,17 +17,6 @@
 #include <test/validator.h>
 
 namespace nvfuser {
-namespace {
-
-inline at::Tensor shardInputTensor(at::Tensor tensor, std::vector<int64_t>& devices, int deviceId) {
-  int i = 0;
-  auto it = find (devices.begin(), devices.end(), deviceId);
-  if (it != devices.end()) {
-    i = *it;
-  }
-  return tensor.index({at::indexing::Slice(i, i+1), "..."});
-}
-} // namespace
 
 class ShardingTest
     : public MultiDeviceTest,
@@ -101,7 +90,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 
   auto x = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardInputTensor(x, devices, communicator->deviceId())};
+      shardInputTensor(x, mesh, communicator->deviceId())};
   auto ref_outputs = x * 2;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
