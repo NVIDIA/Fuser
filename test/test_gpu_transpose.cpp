@@ -1339,7 +1339,7 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
 // by segmented fusion, see issue 1659 for details
 TEST_F(TransposeTest, TrivialReductionIterDomainOnInputsIssueRepro1659) {
   auto fusion = std::make_unique<Fusion>();
-  auto fusion_ptr = fusion.get()
+  auto fusion_ptr = fusion.get();
   FusionGuard fg(fusion_ptr);
 
   auto tv0 = TensorViewBuilder()
