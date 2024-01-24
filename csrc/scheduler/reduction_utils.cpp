@@ -714,10 +714,9 @@ class PersistentBufferProjector {
       : fusion_(fusion),
         persistent_info(scheduler_utils::persistentBuffers(fusion)),
         persistent_buffers(persistent_info.persistent_buffers),
-        persistent_buffer_resolution_points(
-            persistent_info.persistent_buffer_resolution_points),
         projectable_persistent_buffers(
             persistent_info.projectable_persistent_buffers),
+        reduction_tvs_(scheduler_utils::getReductionTvs(fusion)),
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
@@ -733,10 +732,9 @@ class PersistentBufferProjector {
   Fusion* fusion_;
   const scheduler_utils::PersistentBufferInfo persistent_info;
   const std::vector<TensorView*>& persistent_buffers;
-  const std::vector<std::vector<TensorView*>>&
-      persistent_buffer_resolution_points;
   const std::vector<TensorView*>& projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;
+  std::vector<TensorView*> reduction_tvs_;
   const bool project_to_inputs_;
 
   void projectToInputs() {
@@ -821,14 +819,13 @@ class PersistentBufferProjector {
     std::vector<Val*> use_of_buffer_to_be_replaced;
     auto buffer = persistent_buffers[buffer_i];
     auto all_consumer_tvs = ir_utils::consumerValsOf(buffer);
-    auto reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
     bool skipped_a_reduction_use = false;
     for (auto tv : all_consumer_tvs) {
       // if already skipped a reduction use or this is not a use towards
       // reduction, add it to the list
       if (skipped_a_reduction_use ||
           DependencyCheck::getAllValsBetween(
-              {tv}, {reduction_tvs.begin(), reduction_tvs.end()})
+              {tv}, {reduction_tvs_.begin(), reduction_tvs_.end()})
               .empty()) {
         use_of_buffer_to_be_replaced.emplace_back(tv);
       } else {
