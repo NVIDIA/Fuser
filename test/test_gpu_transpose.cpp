@@ -1339,7 +1339,8 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
 // by segmented fusion, see issue 1659 for details
 TEST_F(TransposeTest, TrivialReductionIterDomainOnInputsIssueRepro1659) {
   auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  auto fusion_ptr = fusion.get()
+  FusionGuard fg(fusion_ptr);
 
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
@@ -1383,7 +1384,7 @@ TEST_F(TransposeTest, TrivialReductionIterDomainOnInputsIssueRepro1659) {
       heuristic1 == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic1);
-  testValidate(fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
