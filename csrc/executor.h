@@ -68,6 +68,8 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args);
 
+  //! Only a single PrecomputedValues is active for a fusion. Consequently, it
+  //! can be necessary to pass PrecomputedValues within a given scope.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
       const KernelArgumentHolder& args,

@@ -164,10 +164,10 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   if (hasValidValues()) {
     invalidate();
   }
-  bindInputs(fusion_->inputs(), args);
+  bindValues(fusion_->inputs(), args);
 }
 
-void PrecomputedValues::bindInputs(
+void PrecomputedValues::bindValues(
     const std::vector<Val*>& inputs,
     const KernelArgumentHolder& args) {
   NVF_ERROR(

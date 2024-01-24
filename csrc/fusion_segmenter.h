@@ -124,7 +124,7 @@ class SegmentedGroup {
   }
 
   //! Returns the complete fusion inputs mapped to this segmented group's fusion
-  const auto& completeFusionInputs() const {
+  const auto& getCompleteFusionInputs() const {
     return original_inputs_in_cloned_fusion_;
   }
 
@@ -372,7 +372,8 @@ class SegmentedFusion {
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
-  //! Get the fusion for the segmented group
+  //! Get the fusion for the segmented group and return the IrCloner used to
+  //! clone the complete fusion
   std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
       SegmentedGroup* sg);
 
@@ -506,13 +507,6 @@ class SegmentedFusion {
 
   //! A Copy of original full fusion
   std::unique_ptr<Fusion> complete_fusion_;
-
-  //! The segmented fusions for all segment groups
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>>
-      all_segmented_fusions_;
-
-  std::unordered_map<SegmentedGroup*, std::reference_wrapper<IrCloner>>
-      all_segmented_ir_cloners_;
 
   //! A set of intermediate tensors that need to be cast to fp16
   std::unordered_set<TensorView*> force_fp16_tv_set_;

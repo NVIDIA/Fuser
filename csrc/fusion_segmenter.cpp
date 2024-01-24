@@ -1884,7 +1884,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
 }
 
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
-  auto&& [_, fusion_segment] = makeFusionWithCloner(sg);
+  auto&& [ir_cloner, fusion_segment] = makeFusionWithCloner(sg);
   return std::move(fusion_segment);
 }
 
