@@ -4189,12 +4189,7 @@ std::optional<FusionKernelRuntime::SchedulerEntryPtr> SegmentedFusion::
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
-  // The local_fusion is a new fusion. The prior HeuristicSummary is not
-  // valid, so we construct a new one.
-  auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      local_fusion, sg->heuristic(), runtime_info);
-  auto data_cache = data_cache_ptr.get();
-  setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
+  auto data_cache = getCachedHeuristicDataFor(sg);
   if (!SchedulerEntry::canSchedule(
           sg->heuristic(), local_fusion, runtime_info, data_cache)) {
     return std::nullopt;
@@ -4215,6 +4210,7 @@ HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
 void SegmentedFusion::setCachedHeuristicDataFor(
     SegmentedGroup* group,
     std::unique_ptr<HeuristicSummary> data) {
+  NVF_ERROR(!heuristic_summary_cache_.count(group));
   heuristic_summary_cache_[group] = std::move(data);
 }
 
