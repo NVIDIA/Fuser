@@ -8,18 +8,17 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <chrono>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/executor.h>
 #include <test/utils.h>
+#include <chrono>
 
 namespace nvfuser {
 
 class MultiDeviceEnvironment : public testing::Environment {
  public:
   void SetUp() override;
-  void TearDown() override;
 
   Communicator* communicator() const {
     NVF_ERROR(communicator_ != nullptr);
@@ -46,16 +45,20 @@ class MultiDeviceEnvironment : public testing::Environment {
 };
 
 class MultiDeviceTest : public NVFuserTest {
-  public:
-    static at::Tensor shardInputTensor(at::Tensor tensor, DeviceMesh& mesh, int deviceId) {
-      int i = 0;
-      auto devices = mesh.vector();
-      auto it = find (devices.begin(), devices.end(), deviceId);
-      if (it != devices.end()) {
-        i = *it;
-      }
-      return tensor.index({at::indexing::Slice(i, i+1), "..."});
+ public:
+  static at::Tensor shardInputTensor(
+      at::Tensor tensor,
+      DeviceMesh& mesh,
+      int deviceId) {
+    int i = 0;
+    auto devices = mesh.vector();
+    auto it = find(devices.begin(), devices.end(), deviceId);
+    if (it != devices.end()) {
+      i = *it;
     }
+    return tensor.index({at::indexing::Slice(i, i + 1), "..."});
+  }
+
  protected:
   void SetUp() override;
   void TearDown() override;
@@ -66,7 +69,10 @@ class MultiDeviceTest : public NVFuserTest {
   bool debug_print;
   bool do_barrier_at_test;
   bool time_print;
-  std::vector<std::pair<const std::string, std::chrono::time_point<std::chrono::high_resolution_clock>>> times;
+  std::vector<std::pair<
+      const std::string,
+      std::chrono::time_point<std::chrono::high_resolution_clock>>>
+      times;
 };
 
 class CommunicationTest

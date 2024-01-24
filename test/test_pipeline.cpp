@@ -197,8 +197,7 @@ class automaticReshardingTest
   }
   void validate() {
     for (auto expr : fusion->exprs()) {
-      GTEST_EXPECT_TRUE(
-          !isResharding(expr) || isLowerableToCommunication(expr))
+      GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
     }
 
@@ -218,8 +217,7 @@ class automaticReshardingTest
               group->exprs().begin(),
               group->exprs().end(),
               [](auto expr) { return isResharding(expr); }) ||
-          (group->exprs().size() == 1 &&
-           isResharding(group->exprs().at(0))));
+          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
     }
     // checks that the segments are disjoints and that the graph of segment is
     // acyclic

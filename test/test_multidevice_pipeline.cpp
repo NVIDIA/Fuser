@@ -54,8 +54,8 @@ using namespace at::indexing;
 */
 
 TEST_F(PipelineTest, Pipeline) {
-  const std::vector<int64_t> input_shape1 = {3096, 1123};
-  const std::vector<int64_t> input_shape2 = {2048, 73, 81};
+  const std::vector<int64_t> input_shape1 = {6, 7};
+  const std::vector<int64_t> input_shape2 = {3, 5, 2};
   // ===========================================================
   //        FUSION
   // ===========================================================
@@ -133,7 +133,7 @@ TEST_F(PipelineTest, Pipeline) {
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
-//stage sharded?, is second
+// stage sharded?, is second
 // stage sharded?, do_reduction?)
 using PipelineTestTwoStagesParams =
     std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
@@ -175,7 +175,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   if (is_stage0_sharded) {
     sharded_input_sizes[0] = 1;
   }
-  
+
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
@@ -200,7 +200,8 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
+  inputs = {
+      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
 
   executeAndValidate();
 }
@@ -475,7 +476,7 @@ TEST_F(PipelineTest, matmul_summa) {
   d->axis(3)->parallelize(ParallelType::DIDy);
   fusion->addOutput(d);
 
-  fusion->print();
+  // fusion->print();
 
   inputs = {
       at::randn(a_extents, tensor_options),
@@ -485,16 +486,16 @@ TEST_F(PipelineTest, matmul_summa) {
   fe.compileFusion(fusion.get(), inputs);
   auto ref_outputs = fe.runFusion(inputs);
 
-  std::cout << "a (concrete inputs): \n"
-            << inputs.at(0) << "\nb (concrete inputs): \n"
-            << inputs.at(1) << std::endl;
-  for (auto t : c10::irange(ref_outputs.size())) {
-    std::cout << "\noutput " << t << ":\n" << ref_outputs.at(t);
-  }
-  std::cout << std::endl;
+  // std::cout << "a (concrete inputs): \n"
+  //           << inputs.at(0) << "\nb (concrete inputs): \n"
+  //           << inputs.at(1) << std::endl;
+  // for (auto t : c10::irange(ref_outputs.size())) {
+  //   std::cout << "\noutput " << t << ":\n" << ref_outputs.at(t);
+  // }
+  // std::cout << std::endl;
 }
 
-// 1D tensor parallel 
+// 1D tensor parallel
 // Inputs: X[N,K], A^T[M, K], B[M,0]
 // Compute: Y = Matmul(X, A), Z = Matmul(Y, B)
 // sharding: A, B are row-wise sharded (M)
@@ -512,7 +513,7 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   int O = 5;
 
   TensorView* tvx = makeConcreteTensor({N, K}); // (N,K)
-  TensorView* tva = makeConcreteTensor({M, K}); // (M,K) 
+  TensorView* tva = makeConcreteTensor({M, K}); // (M,K)
   TensorView* tvb = makeConcreteTensor({M, O}); // (M,O)
 
   // Matmul 1: tvx x tva -> y (N,M)
@@ -531,7 +532,7 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   // TODO: propogate sharding from inputs
   auto sharded_tvs = {tva, tvx_b, tva_b, tvxa, tvy, tvb, tvy_b, tvb_b, tvyb};
   for (auto tv : sharded_tvs) {
-    //tensor->split(0, num_devices, false); // split outer-dimension by D
+    // tensor->split(0, num_devices, false); // split outer-dimension by D
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
@@ -541,8 +542,19 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   fusion->addOutput(tvy);
   fusion->addOutput(tvz);
 
-  std::vector<TensorView*> tvs = {tvx, tva, tvb, tvx_b, tva_b, tvxa, tvy,
-    tvy_b, tvb_b, tvyb, tvz, };
+  std::vector<TensorView*> tvs = {
+      tvx,
+      tva,
+      tvb,
+      tvx_b,
+      tva_b,
+      tvxa,
+      tvy,
+      tvy_b,
+      tvb_b,
+      tvyb,
+      tvz,
+  };
   for (auto tv : tvs) {
     tv->setDeviceMesh(mesh);
   }
@@ -551,16 +563,19 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   auto aT = at::randn({M, K}, tensor_options);
   auto b = at::randn({M, O}, tensor_options);
   auto myDevice = communicator->deviceId();
-  inputs = {x, shardInputTensor(aT, mesh, myDevice),
-            shardInputTensor(b, mesh, myDevice)};
-  auto y = at::matmul(x, aT.transpose(0,1));
+  inputs = {
+      x,
+      shardInputTensor(aT, mesh, myDevice),
+      shardInputTensor(b, mesh, myDevice)};
+  auto y = at::matmul(x, aT.transpose(0, 1));
   auto z = at::matmul(y, b);
-  auto expected_outputs = {shardInputTensor(y.transpose(0,1), mesh, myDevice), z};
+  auto expected_outputs = {
+      shardInputTensor(y.transpose(0, 1), mesh, myDevice), z};
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-    testValidate(
-        runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
 }
 
 TEST_F(PipelineTest, matmul_megatron_attention) {
@@ -576,10 +591,10 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   int Dv = 4;
   int Dk = 4;
 
-  TensorView* q = makeConcreteTensor({H, S, Dk}); //64
-  TensorView* k = makeConcreteTensor({H, S, Dk}); //64
-  TensorView* v = makeConcreteTensor({H, S, Dv});  //64
-  TensorView* w = makeConcreteTensor({H, Dv, D_model}); //40
+  TensorView* q = makeConcreteTensor({H, S, Dk}); // 64
+  TensorView* k = makeConcreteTensor({H, S, Dk}); // 64
+  TensorView* v = makeConcreteTensor({H, S, Dv}); // 64
+  TensorView* w = makeConcreteTensor({H, Dv, D_model}); // 40
   auto tv_inputs = {q, k, v, w};
   for (auto i : tv_inputs) {
     fusion->addInput(i);
@@ -589,17 +604,20 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   TensorView* q_b = broadcast(q, {false, false, true, false}); // (H, S, S, Dk)
   TensorView* k_b = broadcast(k, {false, true, false, false}); // (H, S, S, Dk)
   TensorView* qk_ = mul(q_b, k_b); // (H, S, S, Dk)
-  TensorView* qk = sum(qk_, {3});  // (H, S, S)
+  TensorView* qk = sum(qk_, {3}); // (H, S, S)
 
-  TensorView* qk_b = broadcast(qk, {false, false, false, true}); // (H, S, S, Dv)
+  TensorView* qk_b =
+      broadcast(qk, {false, false, false, true}); // (H, S, S, Dv)
   TensorView* v_b = broadcast(v, {false, true, false, false}); // (H, S, S, Dv)
   TensorView* qkv_ = mul(qk_b, v_b);
   TensorView* qkv = sum(qkv_, {2}); // (H, S, Dv)
 
   // linear
-  TensorView* qkv_b = broadcast(qkv, {false, false, false, true}); // (H, S, Dv, Dmodel)
-  TensorView* w_b = broadcast(w, {false, true, false, false}); // (H, S, Dv, Dmodel)
-  TensorView* y0 = mul(qkv_b, w_b); 
+  TensorView* qkv_b =
+      broadcast(qkv, {false, false, false, true}); // (H, S, Dv, Dmodel)
+  TensorView* w_b =
+      broadcast(w, {false, true, false, false}); // (H, S, Dv, Dmodel)
+  TensorView* y0 = mul(qkv_b, w_b);
   TensorView* y1 = sum(y0, {0}); // (S, Dv, Dmodel) // TODO: Reduce Dv first
   TensorView* y = sum(y1, {1}); // (S, Dmodel)
   fusion->addOutput(qk);
@@ -607,7 +625,23 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   fusion->addOutput(y);
 
   // All tensorviews that are sharded along the head dimension
-  auto h_sharded = {q, k, v, w, q_b, k_b, qk_b, qk_, qk, qk_b, v_b, qkv_, qkv, qkv_b, w_b, y0};
+  auto h_sharded = {
+      q,
+      k,
+      v,
+      w,
+      q_b,
+      k_b,
+      qk_b,
+      qk_,
+      qk,
+      qk_b,
+      v_b,
+      qkv_,
+      qkv,
+      qkv_b,
+      w_b,
+      y0};
   for (auto tv : h_sharded) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
@@ -618,30 +652,33 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(mesh);
   }
-  
+
   auto aten_q = at::randn({H, S, Dk}, tensor_options);
   auto aten_k = at::randn({H, S, Dk}, tensor_options);
   auto aten_v = at::randn({H, S, Dv}, tensor_options);
   auto aten_w = at::randn({H, Dv, D_model}, tensor_options);
   auto deviceId = communicator->deviceId();
-  inputs = {shardInputTensor(aten_q, mesh, deviceId),
-            shardInputTensor(aten_k, mesh, deviceId),
-            shardInputTensor(aten_v, mesh, deviceId),
-            shardInputTensor(aten_w, mesh, deviceId)};
-  auto aten_qk = at::matmul(aten_q, aten_k.permute({0, 2, 1})); // H, S, Dk x H, Dk, S -> H, S, S
+  inputs = {
+      shardInputTensor(aten_q, mesh, deviceId),
+      shardInputTensor(aten_k, mesh, deviceId),
+      shardInputTensor(aten_v, mesh, deviceId),
+      shardInputTensor(aten_w, mesh, deviceId)};
+  auto aten_qk = at::matmul(
+      aten_q, aten_k.permute({0, 2, 1})); // H, S, Dk x H, Dk, S -> H, S, S
   auto aten_qkv = at::matmul(aten_qk, aten_v); // H, S, S x H, S, Dv -> H, S, Dv
-  auto aten_qkv_concat = aten_qkv.permute({1, 0, 2}).flatten(1, 2); // S, H*Dv 
-  auto aten_w_ = aten_w.flatten(0, 1); // H*Dv, Dmodel 
-  auto out = at::matmul(aten_qkv_concat, aten_w_); // S, H*Dv x H*Dv, Dmodel -> S, Dmodel
-  auto expected_outputs = {shardInputTensor(aten_qk, mesh, deviceId),
-                           shardInputTensor(aten_qkv, mesh, deviceId),
-                           out};
-  
+  auto aten_qkv_concat = aten_qkv.permute({1, 0, 2}).flatten(1, 2); // S, H*Dv
+  auto aten_w_ = aten_w.flatten(0, 1); // H*Dv, Dmodel
+  auto out = at::matmul(
+      aten_qkv_concat, aten_w_); // S, H*Dv x H*Dv, Dmodel -> S, Dmodel
+  auto expected_outputs = {
+      shardInputTensor(aten_qk, mesh, deviceId),
+      shardInputTensor(aten_qkv, mesh, deviceId),
+      out};
+
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-        runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
-
+      runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
 

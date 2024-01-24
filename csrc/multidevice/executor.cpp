@@ -43,8 +43,8 @@ copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
     tv->setMemoryType(MemoryType::Global);
     for (auto i : c10::irange(tv->domain()->nDims())) {
-      if (!tv->axis(i)->isDeviceDim()) {
-        tv->axis(i)->parallelize(ParallelType::Serial);
+      if (!tv->axis(static_cast<int>(i))->isDeviceDim()) {
+        tv->axis(static_cast<int>(i))->parallelize(ParallelType::Serial);
       }
     }
   }
@@ -110,9 +110,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   for (auto group : staged_fusion_->groups()) {
     NVF_ERROR(!group->exprs().empty() == 1, "invalid segmentation");
     is_resharding_[group] = std::any_of(
-            group->exprs().begin(), group->exprs().end(),
-            [](auto expr) { return isResharding(expr); });
-    NVF_ERROR(!is_resharding_[group] || group->exprs().size() == 1, "Communications cannot be fused");
+        group->exprs().begin(), group->exprs().end(), [](auto expr) {
+          return isResharding(expr);
+        });
+    NVF_ERROR(
+        !is_resharding_[group] || group->exprs().size() == 1,
+        "Communications cannot be fused");
     auto expr = group->exprs().at(0);
     should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
@@ -191,8 +194,9 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   // post and wait communications
   for (auto& communication : communications) {
     auto work = communication->post(comm_);
-    if (work)
+    if (work) {
       work->wait();
+    }
   }
 }
 
@@ -205,13 +209,15 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == staged_fusion_->inputs().size(), "Wrong number of inputs");
+      inputs.size() == staged_fusion_->inputs().size(),
+      "Wrong number of inputs");
 
   val_to_IValue_ = allocateRecvBuffers(inputs);
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] = inputs.at(input_idx);
+    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
+        inputs.at(input_idx);
   }
 
   // Run through the groups to launch kernels and comms

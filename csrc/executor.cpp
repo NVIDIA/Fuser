@@ -1537,7 +1537,7 @@ void FusionExecutor::initializeExecutorEntry(
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
-  executor_entry.intermediates = intermediates; // this where is initialized what we want
+  executor_entry.intermediates = intermediates;
   executor_entry.init = true;
 }
 

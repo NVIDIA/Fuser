@@ -8,6 +8,7 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
+#include <ir/base_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/multidevice.h>
 
