@@ -127,6 +127,23 @@ void TransposeScheduler::computeHeuristics(
 
 namespace {
 
+// propagation could miss trivial reduction iterdomain on tensor inputs, since that doesn't have any dependency and doesn't map to anything, we can naively just reorder them so they won't interfere with tiling.
+void cleanInnerNDLeafDomain(TensorView* tv, int n) {
+  if (!tv->isFusionInput()) {
+    return;
+  }
+
+  std::unordered_map<int, int>& old2new;
+
+  for (int i = 0; i < n; i++) {
+    if (tv->axis(-1-i)->isReduction()) {
+      old2new[-1-i] = i;
+    }
+  }
+
+  tv->reorder(old2new);
+}
+
 // TransposeViewPropagator doesn't propagate anything. It simply walks across
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
@@ -1236,6 +1253,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   int pos = (int)reference2->nDims() - 2;
   // [..., tile1, tile2]
+  cleanInnerNDLeafDomain(reference2, 2);
   reference2->merge(pos);
   reference2->split(pos, params.vectorize_factor2);
   reference2->split(pos, params.getThreadsPerBlock());
@@ -1321,6 +1339,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   reference1->reorder({{-2, -1}});
   // [..., tile2, tile1]
   pos = (int)reference1->nDims() - 2;
+  cleanInnerNDLeafDomain(reference1, 2);
   reference1->merge(pos);
   reference1->split(pos, params.vectorize_factor1);
   reference1->split(pos, params.getThreadsPerBlock());
