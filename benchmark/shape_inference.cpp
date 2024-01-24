@@ -115,7 +115,9 @@ void LayerNormBackward_ShapeInference_Base(
 
   NVF_ERROR(runtime
                 ->getMaybeHeuristicsFor(
-                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                    args,
+                    /*forced_index_type=*/std::nullopt,
+                    /*initial_heuristic=*/false)
                 .has_value());
 
   fec->profile(true);
@@ -192,7 +194,9 @@ void LayerNormForward_ShapeInferenceBase(
 
   NVF_ERROR(runtime
                 ->getMaybeHeuristicsFor(
-                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                    args,
+                    /*forced_index_type=*/std::nullopt,
+                    /*initial_heuristic=*/false)
                 .has_value());
 
   fec->profile(true);

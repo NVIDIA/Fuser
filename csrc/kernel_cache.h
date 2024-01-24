@@ -223,7 +223,7 @@ class FusionKernelRuntime {
   std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type,
-      bool initial);
+      bool initial_heuristics);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics

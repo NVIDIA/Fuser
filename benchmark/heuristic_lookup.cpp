@@ -114,13 +114,15 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicLookup(
 
   NVF_ERROR(runtime
                 ->getMaybeHeuristicsFor(
-                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                    args,
+                    /*forced_index_type=*/std::nullopt,
+                    /*initial_heuristic=*/false)
                 .has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
     runtime->getMaybeHeuristicsFor(
-        args, /*forced_index_type=*/std::nullopt, /*initial*/ false);
+        args, /*forced_index_type=*/std::nullopt, /*initial_heuristic=*/false);
   }
 }
 
@@ -174,13 +176,15 @@ static void NvFuserScheduler_LayerNormForward_HeuristicLookup(
 
   NVF_ERROR(runtime
                 ->getMaybeHeuristicsFor(
-                    args, /*forced_index_type=*/std::nullopt, /*initial*/ false)
+                    args,
+                    /*forced_index_type=*/std::nullopt,
+                    /*initial_heuristic=*/false)
                 .has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
     runtime->getMaybeHeuristicsFor(
-        args, /*forced_index_type=*/std::nullopt, /*initial*/ false);
+        args, /*forced_index_type=*/std::nullopt, /*initial_heuristic=*/false);
   }
 }
 
