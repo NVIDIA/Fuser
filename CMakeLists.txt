@@ -243,12 +243,10 @@ if(NOT MSVC)
 endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-target_include_directories(codegen_internal SYSTEM INTERFACE
+target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-)
-target_include_directories(codegen_internal SYSTEM PRIVATE
-  ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+	PRIVATE
   ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
   ${CUDA_INCLUDE_DIRS}
 )
