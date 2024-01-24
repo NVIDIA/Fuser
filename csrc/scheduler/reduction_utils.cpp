@@ -816,51 +816,26 @@ class PersistentBufferProjector {
     }
   }
 
-  // get all uses of the persistent buffer
-  std::vector<Val*> getPersistentUseOfBuffer(int buffer_i) {
-    std::vector<Val*> persistent_use_of_buffer;
-    // Go through the resolution points one by one. Resolution points are points
-    // in which the reduction branch meets the residual branch. These are points
-    // where the persitent buffer may no longer be needed (one point could be
-    // after another, and the buffer would be needed until the last resolution
-    // points)
+  // get all uses of the persistent buffer, allow to skip a reduction use
+  std::vector<Val*> getUseToBeReplaced(int buffer_i) {
+    std::vector<Val*> use_of_buffer_to_be_replaced;
     auto buffer = persistent_buffers[buffer_i];
-    auto resolution_points = persistent_buffer_resolution_points[buffer_i];
-    for (auto resolution_point : resolution_points) {
-      // Need to go through all paths from the persistent buffer to the
-      // resolution point
-      auto chains_to_resolution =
-          DependencyCheck::getAllDependencyChains(buffer, resolution_point);
-      for (auto chain : chains_to_resolution) {
-        auto tv_chain = ir_utils::filterByType<TensorView>(chain);
-
-        // To move the persistent buffers to the inputs, we need to recompute
-        // the persistent buffer for all branches that don't go through a
-        // reduction. If there's a reduction on the current path between the
-        // persistent buffer and resolution, continue, there's no need to
-        // replicate this use.
-        if (std::any_of(tv_chain.begin(), tv_chain.end(), [](TensorView* tv) {
-              return tv->hasReduction();
-            })) {
-          continue;
-        }
-
-        // Grab use of the buffer, chain[0] is the persistent buffer, chain[1]
-        // is its first use.
-        auto use = chain[1];
-
-        // Only grab unique uses, a persistent buffer could be used multiple
-        // times in the same expression.
-        if (std::find(
-                persistent_use_of_buffer.begin(),
-                persistent_use_of_buffer.end(),
-                use) != persistent_use_of_buffer.end()) {
-          continue;
-        }
-        persistent_use_of_buffer.emplace_back(use);
+    auto all_consumer_tvs = ir_utils::consumerValsOf(buffer);
+    auto reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
+    bool skipped_a_reduction_use = false;
+    for (auto tv : all_consumer_tvs) {
+      // if already skipped a reduction use or this is not a use towards
+      // reduction, add it to the list
+      if (skipped_a_reduction_use ||
+          DependencyCheck::getAllValsBetween(
+              {tv}, {reduction_tvs.begin(), reduction_tvs.end()})
+              .empty()) {
+        use_of_buffer_to_be_replaced.emplace_back(tv);
+      } else {
+        skipped_a_reduction_use = true;
       }
     }
-    return persistent_use_of_buffer;
+    return use_of_buffer_to_be_replaced;
   }
 
   void projectToInputOrImmediatePersistentProducer(
@@ -869,7 +844,7 @@ class PersistentBufferProjector {
     // For all uses that do not go towards the reduction operations in the
     // persistent section of the graph, recompute the persistent buffer.
     auto buffer = persistent_buffers[buffer_i];
-    for (auto use : getPersistentUseOfBuffer(buffer_i)) {
+    for (auto use : getUseToBeReplaced(buffer_i)) {
       NVF_ERROR(use->definition() != nullptr);
       auto buffer_replicate = RecomputeTv::recompute(buffer, producers);
       // Create a shortcut buffer <--> buffer_replicate for propagation.
