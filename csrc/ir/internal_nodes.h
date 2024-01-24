@@ -913,6 +913,22 @@ class ReductionOp : public Expr {
   bool isAllreduce() const {
     return attribute<bool>(2);
   }
+
+  //! Scheduling method to request that this reduction be performed as a
+  //! serial grid reduction. Note that it is an error to use this method on a
+  //! reduction whose output has any of its reduction axes parallelized with a
+  //! threadIdx, even if that parallelization occurs after this method call.
+  //!
+  //! Also note that this operation should not be inlined with other reductions
+  //! unless they use the same parallelization pattern and they are also serial
+  //! gridreductions.
+  void requestSerialGridReduction(bool value = true) {
+    attribute<bool>(3) = value;
+  }
+
+  bool serialGridReductionRequested() const {
+    return attribute<bool>(3);
+  }
 };
 
 //! Grouped reduction operation for horizontal fusions. It works like

@@ -586,7 +586,6 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-      NVF_CHECK(rhs != 0);
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
@@ -613,22 +612,22 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
-      return {lhs == rhs};
+      return {eq(lhs, rhs)};
       break;
     case BinaryOpType::NE:
-      return {lhs != rhs};
+      return {ne(lhs, rhs)};
       break;
     case BinaryOpType::GT:
-      return {lhs > rhs};
+      return {gt(lhs, rhs)};
       break;
     case BinaryOpType::GE:
-      return {lhs >= rhs};
+      return {ge(lhs, rhs)};
       break;
     case BinaryOpType::LT:
-      return {lhs < rhs};
+      return {lt(lhs, rhs)};
       break;
     case BinaryOpType::LE:
-      return {lhs <= rhs};
+      return {le(lhs, rhs)};
       break;
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
@@ -1445,6 +1444,7 @@ ReductionOp::ReductionOp(
   addAttribute(init);
   addDataAttribute(reduction_op_type);
   addDataAttribute(is_allreduce);
+  addDataAttribute(false); // serial reduction
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -3165,8 +3165,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3183,8 +3182,7 @@ TensorDomain::TensorDomain(
       leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
+                             : std::move(contiguity)) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = root_domain_.size();

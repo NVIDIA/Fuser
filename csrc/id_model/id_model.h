@@ -21,6 +21,22 @@ namespace nvfuser {
 
 class ValGraph;
 
+struct StatefulInliningInfo {
+  // All producer ids within (including dependencies of) inlined leaf domains,
+  // used for deterministic order
+  VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
+
+  // p2c mappings through the fusion within (including dependencies of) inlined
+  // leaf domains.
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
+      p2c_ca_permissive_maps;
+};
+
+StatefulInliningInfo buildStatefulInliningInfo(
+    const std::vector<Expr*>& exprs,
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph);
+
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
@@ -57,12 +73,22 @@ class ValGraph;
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
+// IdMappingMode::LOOP
+//   Subgraph of the permissive graph. Maps only CA and their
+//   dependent domains
 //
 class IdModel : public PolymorphicBase {
  public:
+  // Sometimes fusion inputs or outputs are disconnected from expressions, in
+  // those cases we still may want to send in some additional tensor views from
+  // the Fusion that don't have expressions associated with them.
+  //
+  // All graphs are built by default. It can be disabled with
+  // build_graphs=false.
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
+      bool build_graphs = true,
       bool allow_self_mapping = false);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
@@ -73,10 +99,12 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
+      bool build_graphs = true,
       bool allow_self_mapping = false,
-      bool validate = false);
+      bool validate = true);
 
-  // Returns iter domain graph of provided mode.
+  // Returns iter domain graph of provided mode. The graph must have
+  // been already built.
   const ValGraph& idGraph(IdMappingMode mode) const;
   ValGraph& idGraph(IdMappingMode mode);
 
@@ -96,42 +124,63 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
-  // TODO: Should this not be private?
- protected:
-  // Sometimes fusion inputs or outputs are disconnected from expressions, in
-  // those cases we still may want to send in some additional tensor views from
-  // the Fusion that don't have expressions associated with them.
-  void build(
-      const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs,
-      bool validate = false);
+  // Build all graphs, i.e., Exact, AlmostExact, Permissive and
+  // LOOP. This is by default called from the constructor
+  void buildAllGraphs();
 
-  // ======= START Iteration domain build process in order called =======
+  // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
+  // and first output of expr
+  void buildExactGraph();
 
-  // Fills id_uses_ and id_definitions_ for all IterDomains active in the
-  // fusion.
-  void buildIterDomainDefinitionsAndUses(
-      const std::vector<TensorView*>& all_tvs);
+  // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
+  // Exact entries, then map anything that's either merged with a size-1 or
+  // split by a size-1 dimension.
+  void buildAlmostExactGraph();
+
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Exact entries, then map through broadcasts. Build the Exact graph
+  // as well if not yet done.
+  void buildPermissiveGraph();
+
+  // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
+  // domains that are mapped in the permissive graph. Build the Exact
+  // and Permissive graphs as well if not yet done.
+  void buildLoopGraph();
+
+  // Build a graph. Dependent graphs are also built if not yet done.
+  void buildGraph(IdMappingMode mode);
+
+  // Build a graph if not already built
+  void maybeBuildGraph(IdMappingMode mode);
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
-  // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
-  // and first output of expr
-  void buildExactGraph(const std::vector<Expr*>& exprs);
+ protected:
+  // Fills id_uses_ and id_definitions_ for all IterDomains active in the
+  // fusion.
+  void buildIterDomainDefinitionsAndUses();
 
-  // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
-  // Exact entries, then map anything that's either merged with a size-1 or
-  // split by a size-1 dimension.
-  void buildAlmostExactMap();
-
-  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
-  // Exact entries, then map through broadcasts
-  void buildPermissiveMap(const std::vector<Expr*>& exprs);
+  /// Start loop map by grouping inlined iter domains
+  void initializeLoopGraph(const StatefulInliningInfo& info);
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+ protected:
+  // All tensor expressions that this model analyzes
+  std::vector<Expr*> tv_exprs_;
+
+  // All tensors that this model analyzes
+  std::vector<TensorView*> tvs_;
+
+  // Tensors should not have domains that are mapped with another
+  // domains of the same tensor. This flag disables the check
+  bool allow_self_mapping_ = false;
+
+  // If true, validate graphs by comparing them with ComputeAtMap
+  bool validate_ = false;
 
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //

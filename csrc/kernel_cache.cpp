@@ -926,7 +926,8 @@ void FusionExecutorCache::deserialize(
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
-      device_runtimes.back()->deserialize(fb_fusion_kernel_runtime);
+      device_runtimes.back()->deserialize(
+          fb_fusion_kernel_runtime, args.getDeviceIndex());
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
@@ -1058,7 +1059,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 void FusionKernelRuntime::deserialize(
-    const serde::FusionKernelRuntime* buffer) {
+    const serde::FusionKernelRuntime* buffer,
+    int8_t device_index) {
   // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
@@ -1086,6 +1088,7 @@ void FusionKernelRuntime::deserialize(
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
+        device_index,
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
         fusion_id_,

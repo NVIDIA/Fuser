@@ -68,31 +68,64 @@ void IdModel::assertNoSelfMapping() {
 IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
+    bool build_graphs,
     bool allow_self_mapping) {
-  build(exprs, additional_tvs);
+  std::copy_if(
+      exprs.begin(),
+      exprs.end(),
+      std::back_inserter(tv_exprs_),
+      [](Expr* expr) {
+        NVF_ERROR(expr != nullptr);
+        return ir_utils::isTvOp(expr);
+      });
 
-  if (!allow_self_mapping) {
-    assertNoSelfMapping();
+  auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs_);
+  all_tvs.pushBack(additional_tvs.begin(), additional_tvs.end());
+
+  tvs_ = all_tvs.vector();
+
+  // Add uses and definitions to all iter domains.
+  buildIterDomainDefinitionsAndUses();
+
+  if (build_graphs) {
+    buildAllGraphs();
   }
 }
 
-IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
-  std::vector<TensorView*> inputs_and_outputs;
+IdModel::IdModel(
+    Fusion* fusion,
+    bool build_graphs,
+    bool allow_self_mapping,
+    bool validate)
+    : allow_self_mapping_(allow_self_mapping), validate_(validate) {
+  auto all_exprs = fusion->exprs();
+  std::copy_if(
+      all_exprs.begin(),
+      all_exprs.end(),
+      std::back_inserter(tv_exprs_),
+      [](Expr* expr) {
+        NVF_ERROR(expr != nullptr);
+        return ir_utils::isTvOp(expr);
+      });
+
+  auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs_);
+
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-    inputs_and_outputs.insert(
-        inputs_and_outputs.begin(), inp_tvs.begin(), inp_tvs.end());
+    all_tvs.pushBack(inp_tvs.begin(), inp_tvs.end());
   }
   {
     auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-    inputs_and_outputs.insert(
-        inputs_and_outputs.end(), out_tvs.begin(), out_tvs.end());
+    all_tvs.pushBack(out_tvs.begin(), out_tvs.end());
   }
 
-  build(fusion->exprs(), inputs_and_outputs, validate);
+  tvs_ = all_tvs.vector();
 
-  if (!allow_self_mapping) {
-    assertNoSelfMapping();
+  // Add uses and definitions to all iter domains.
+  buildIterDomainDefinitionsAndUses();
+
+  if (build_graphs) {
+    buildAllGraphs();
   }
 }
 
@@ -108,7 +141,11 @@ const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
 
 ValGraph& IdModel::idGraph(IdMappingMode mode) {
   auto graph_it = id_graphs_.find(mode);
-  NVF_ERROR(graph_it != id_graphs_.end());
+  NVF_ERROR(
+      graph_it != id_graphs_.end(),
+      "Failed to find an IdGraph with the ",
+      mode,
+      " mode");
   return graph_it->second;
 }
 
@@ -176,7 +213,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(
     const std::vector<TensorView*>& all_tvs,
-    const IdModel& id_graph) {
+    const IdModel& id_model) {
   for (auto tv : all_tvs) {
     // For each tensor, make sure root, rfactor and leaf domains
     // should not include domains that are mapped with another domain
@@ -185,7 +222,7 @@ findFirstSelfMapping(
 
     // Root domains
     auto self_mappped_root_pair =
-        detectMappablePair(tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
+        detectMappablePair(tv->getRootDomain(), id_model, IdMappingMode::EXACT);
     if (self_mappped_root_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -197,7 +234,7 @@ findFirstSelfMapping(
     // Rfactor domains
     if (tv->hasRFactor()) {
       auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
+          tv->getRFactorDomain(), id_model, IdMappingMode::EXACT);
       if (self_mappped_rf_pair.has_value()) {
         return std::make_tuple(
             tv,
@@ -212,7 +249,7 @@ findFirstSelfMapping(
     // map. However, it should also be impossible for index map to generate a
     // case like this.
     auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->leaf(), id_graph, IdMappingMode::EXACT);
+        tv->domain()->leaf(), id_model, IdMappingMode::EXACT);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -226,9 +263,8 @@ findFirstSelfMapping(
 
 } // namespace
 
-void IdModel::buildIterDomainDefinitionsAndUses(
-    const std::vector<TensorView*>& all_tvs) {
-  for (const auto tv : all_tvs) {
+void IdModel::buildIterDomainDefinitionsAndUses() {
+  for (const auto tv : tvs_) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
         tv->getRootDomain().begin(), tv->getRootDomain().end()};
 
@@ -313,8 +349,13 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   return id_graph;
 }
 
-void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
-  for (auto expr : exprs) {
+void IdModel::buildExactGraph() {
+  // Initialize the maps with all the IterDomains used in the provded
+  // expressions.
+  NVF_ERROR(
+      id_graphs_.emplace(IdMappingMode::EXACT, initializeIdGraph()).second);
+
+  for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
     auto all_tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
@@ -360,6 +401,8 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
     // TODO: Revisit if we really should map domains in the exact map
     mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
   }
+
+  idGraph(IdMappingMode::EXACT).validateConsistency();
 }
 
 namespace {
@@ -396,9 +439,15 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
 
 } // namespace
 
-void IdModel::buildAlmostExactMap() {
+void IdModel::buildAlmostExactGraph() {
+  // Make sure the exact graph is already built
+  maybeBuildGraph(IdMappingMode::EXACT);
+
   // Build almost exact map by forwarding through broadcast axes
-  idGraph(IdMappingMode::ALMOSTEXACT) = idGraph(IdMappingMode::EXACT);
+  NVF_ERROR(
+      id_graphs_
+          .emplace(IdMappingMode::ALMOSTEXACT, idGraph(IdMappingMode::EXACT))
+          .second);
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
@@ -431,15 +480,23 @@ void IdModel::buildAlmostExactMap() {
   for (const auto& [id1, id2] : ids_to_map) {
     almost_exact_graph.mapVals(id1, id2);
   }
+
+  almost_exact_graph.validateConsistency();
 }
 
-void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
+void IdModel::buildPermissiveGraph() {
+  // Make sure the exact graph is already built
+  maybeBuildGraph(IdMappingMode::EXACT);
+
   // Use the exact map as the starting map rather than the
   // almost-exact map. Almost exact is useful for index hoisting but
   // not necessary for permissive and loop maps
-  idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::EXACT);
+  NVF_ERROR(
+      id_graphs_
+          .emplace(IdMappingMode::PERMISSIVE, idGraph(IdMappingMode::EXACT))
+          .second);
 
-  for (auto expr : exprs) {
+  for (auto expr : tv_exprs_) {
     // Multiple outputs are already mapped, we can ignore all but the first
     // consumer given they have to be replayed in the same exact way
     TensorView* c_tv = ir_utils::getTvOutput(expr);
@@ -464,75 +521,163 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
+
+  idGraph(IdMappingMode::PERMISSIVE).validateConsistency();
 }
 
-void IdModel::build(
+// Grab inlining relationships
+StatefulInliningInfo buildStatefulInliningInfo(
     const std::vector<Expr*>& exprs,
-    const std::vector<TensorView*>& additional_tvs,
-    bool validate) {
-  // Initialize the required sets as if a permissive relationship is never
-  // found, then querying an empty permissive map will fail later.
-  // Initialize disjoint sets
-  for (auto mode : kIdMappingModes) {
-    id_graphs_[mode] = ValGraph();
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph) {
+  StatefulInliningInfo info;
+  for (auto expr : exprs) {
+    for (auto producer_tv :
+         ir_utils::filterByType<TensorView>(expr->inputs())) {
+      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
+      const auto& producer_domain = producer_tv->domain()->leaf();
+
+      // Grab all iteration domains in producer that its compute at iter domains
+      // depend on.
+      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+          {producer_root.begin(), producer_root.end()},
+          {producer_domain.begin(),
+           producer_domain.begin() + producer_tv->getComputeAtPosition()});
+      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+          ca_deps_filter.begin(), ca_deps_filter.end());
+
+      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
+      // Gather info on and producer-consumer
+      // mappings of CA domains and broadcast resolution
+      for (auto consumer_tv :
+           ir_utils::filterByType<TensorView>(expr->outputs())) {
+        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
+        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+
+        auto p2c_permissive_map = permissive_graph.buildMapBetween(
+            all_producer_ids, all_consumer_ids);
+
+        for (const auto& [p_id, c_ids] : p2c_permissive_map) {
+          if (!c_ids.empty() &&
+              all_producer_ca_deps.has(p_id->as<IterDomain>())) {
+            info.p2c_ca_permissive_maps[p_id->as<IterDomain>()].pushBack(c_ids);
+          }
+        }
+      }
+    }
   }
+  return info;
+}
 
-  std::vector<Expr*> tv_exprs;
+void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
+  NVF_ERROR(
+      id_graphs_.emplace(IdMappingMode::LOOP, initializeIdGraph(false)).second);
 
-  std::copy_if(
-      exprs.begin(), exprs.end(), std::back_inserter(tv_exprs), [](Expr* expr) {
-        NVF_ERROR(expr != nullptr);
-        return ir_utils::isTvOp(expr);
-      });
-
-  auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs);
-
-  for (auto additional_tv : additional_tvs) {
-    all_tvs.pushBack(additional_tv);
+  // Make sure this is called in a deterministic order. Build all inlined
+  // relationships in loop graph.
+  for (IterDomain* p_id : info.ordered_p_ca_ids) {
+    auto entry_it = info.p2c_ca_permissive_maps.find(p_id);
+    if (entry_it != info.p2c_ca_permissive_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
+      for (Val* c_id : c_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
   }
+}
 
-  if (all_tvs.empty()) {
+void IdModel::buildLoopGraph() {
+  // Make sure the depedent graphs are already built
+  maybeBuildGraph(IdMappingMode::EXACT);
+  maybeBuildGraph(IdMappingMode::PERMISSIVE);
+
+  const StatefulInliningInfo info = buildStatefulInliningInfo(
+      tv_exprs_,
+      idGraph(IdMappingMode::EXACT),
+      idGraph(IdMappingMode::PERMISSIVE));
+
+  initializeLoopGraph(info);
+
+  idGraph(IdMappingMode::LOOP).validateConsistency();
+}
+
+void IdModel::buildAllGraphs() {
+  if (tvs_.empty()) {
     return;
   }
 
   std::unique_ptr<IdModelValidator> validator;
 
+  Fusion* fusion = tvs_.front()->fusion();
+
   // A ComputeAtMap will be built inside the constructor of
   // IdModelValidator, which may fail for some fusions that are not
   // supported currently (but work with IdModel). Make sure the
   // validator is only created when it is indeed requested
-  if (validate) {
-    validator = std::make_unique<IdModelValidator>(all_tvs.front()->fusion());
+  if (validate_) {
+    validator = std::make_unique<IdModelValidator>(fusion);
   }
 
-  FusionGuard fg(all_tvs.front()->fusion());
-  // Add uses and definitions to all iter domains.
-  buildIterDomainDefinitionsAndUses(all_tvs.vector());
+  FusionGuard fg(fusion);
 
-  // Initialize the maps with all the IterDomains used in the provded
-  // expressions.
-  idGraph(IdMappingMode::EXACT) = initializeIdGraph();
-
-  buildExactGraph(tv_exprs);
-  if (validate) {
+  buildExactGraph();
+  if (validate_) {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  buildAlmostExactMap();
-  if (validate) {
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping();
+  }
+
+  buildAlmostExactGraph();
+  if (validate_) {
     validator->checkAlmostExactGraphEquivalence(
         idGraph(IdMappingMode::ALMOSTEXACT));
   }
 
-  buildPermissiveMap(tv_exprs);
-  if (validate) {
+  buildPermissiveGraph();
+  // Validation is not implemented when compliment mapping is enabled
+  if (validate_) {
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
 
-  // Make sure there's no self mapping in TensorView's during lowering
-  // that would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(all_tvs.vector(), *this);
+  buildLoopGraph();
+}
+
+void IdModel::buildGraph(IdMappingMode mode) {
+  switch (mode) {
+    case IdMappingMode::EXACT:
+      buildExactGraph();
+      break;
+    case IdMappingMode::ALMOSTEXACT:
+      buildAlmostExactGraph();
+      break;
+    case IdMappingMode::PERMISSIVE:
+      buildPermissiveGraph();
+      break;
+    case IdMappingMode::LOOP:
+      buildLoopGraph();
+      break;
+    default:
+      NVF_ERROR(false, "Unsupported mode: ", mode);
+  }
+}
+
+void IdModel::maybeBuildGraph(IdMappingMode mode) {
+  if (id_graphs_.find(mode) != id_graphs_.end()) {
+    return;
+  } else {
+    buildGraph(mode);
+  }
 }
 
 } // namespace nvfuser

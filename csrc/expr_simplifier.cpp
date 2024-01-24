@@ -186,6 +186,45 @@ class Context {
         assumptions.push_back(bop->rhs());
       }
     }
+
+    validateConsistency();
+  }
+
+  void validateConsistency() const {
+    // Check for obvious contradictions. Could have helped debugging #1572.
+    // Let me know if there's a subquadratic way to check this. `Val*` equality
+    // was't sufficient, so I had to call `sameAs` instead.
+    for (const auto& [a, b] : getKnownLessThan()) {
+      for (const auto& [x, y] : getKnownLessThan()) {
+        // a < b && b < a is impossible.
+        NVF_ERROR(
+            !(x->sameAs(b) && y->sameAs(a)),
+            "Found two contradicting assumptions: ",
+            a->toString(),
+            " < ",
+            b->toString(),
+            " and ",
+            x->toString(),
+            " < ",
+            y->toString(),
+            " both exist.");
+      }
+
+      for (const auto& [x, y] : getKnownLessEqual()) {
+        // a < b && b <= a is impossible.
+        NVF_ERROR(
+            !(x->sameAs(b) && y->sameAs(a)),
+            "Found two contradicting assumptions: ",
+            a->toString(),
+            " <= ",
+            b->toString(),
+            " and ",
+            x->toString(),
+            " < ",
+            y->toString(),
+            " both exist.");
+      }
+    }
   }
 
   const std::vector<Val*>& variableOrder() const {
