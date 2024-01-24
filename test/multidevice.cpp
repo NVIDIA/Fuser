@@ -147,17 +147,6 @@ void PipelineTest::validate() {
     auto obtained_output = outputs.at(i);
     GTEST_EXPECT_TRUE(torch::allclose(ref_output, obtained_output)) << "Device " << communicator->deviceId() << " has unexpected output " << i << " corresponding to tv " << output_tv << ". Expected values: " << ref_output << ", obtained values: " << obtained_output;
   }
-  GTEST_ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
-  for (int i : c10::irange(runtime->fusion()->outputs().size())) {
-    GTEST_ASSERT_TRUE(runtime->fusion()->outputs().at(i)->isA<TensorView>());
-    auto output_tv = runtime->fusion()->outputs().at(i)->as<TensorView>();
-    if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
-      continue;
-    }
-    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv->getDeviceMesh(), communicator->deviceId());
-    auto obtained_output = outputs.at(i);
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, obtained_output)) << "Device " << communicator->deviceId() << " has unexpected output " << i <<", expected: " << ref_output << ", obtained: " << obtained_output;
-  }
 }
 
 // Run and validate a pipeline
