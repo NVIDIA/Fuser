@@ -124,7 +124,7 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  inputs = {
+  unsharded_inputs = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
