@@ -127,7 +127,10 @@ void TransposeScheduler::computeHeuristics(
 
 namespace {
 
-// propagation could miss trivial reduction iterdomain on tensor inputs, since that doesn't have any dependency and doesn't map to anything, we can naively just reorder them so they won't interfere with tiling.
+// propagation could miss trivial reduction iterdomain on input tensors, since
+// that doesn't have any dependency and doesn't map to anything, we can naively
+// just reorder them so they won't interfere with tiling.
+// See https://github.com/NVIDIA/Fuser/issues/1659#issuecomment-1907053830
 void cleanInnerNDLeafDomain(TensorView* tv, int n) {
   if (!tv->isFusionInput()) {
     return;
@@ -136,8 +139,8 @@ void cleanInnerNDLeafDomain(TensorView* tv, int n) {
   std::unordered_map<int, int> old2new;
 
   for (int i = 0; i < n; i++) {
-    if (tv->axis(-1-i)->isReduction()) {
-      old2new[-1-i] = i;
+    if (tv->axis(-1 - i)->isReduction()) {
+      old2new[-1 - i] = i;
     }
   }
 
