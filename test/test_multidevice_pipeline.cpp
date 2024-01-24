@@ -53,8 +53,8 @@ using namespace at::indexing;
 */
 
 TEST_F(PipelineTest, Pipeline) {
-  const std::vector<int64_t> input_shape1 = {6, 7};
-  const std::vector<int64_t> input_shape2 = {3, 5, 2};
+  const std::vector<int64_t> input_shape1 = {3096, 1123};
+  const std::vector<int64_t> input_shape2 = {2048, 73, 81};
   // ===========================================================
   //        FUSION
   // ===========================================================
