@@ -117,7 +117,7 @@ void LayerNormBackward_ShapeInference_Base(
                 ->getMaybeHeuristicsFor(
                     args,
                     /*forced_index_type=*/std::nullopt,
-                    /*initial_heuristic=*/false)
+                    /*initial_heuristics=*/false)
                 .has_value());
 
   fec->profile(true);
@@ -196,7 +196,7 @@ void LayerNormForward_ShapeInferenceBase(
                 ->getMaybeHeuristicsFor(
                     args,
                     /*forced_index_type=*/std::nullopt,
-                    /*initial_heuristic=*/false)
+                    /*initial_heuristics=*/false)
                 .has_value());
 
   fec->profile(true);
