@@ -186,6 +186,17 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
+  // After ExactMappedExtentSubstitutionPass, different inputs and outputs may
+  // have same root domain extents e.g. T1[{i0}, {i2}], T2[{i2}]. When maping
+  // {i2}, we want to use the lower labeled tensor size "T1.size[1]", instead of
+  // "T2.size[0]".
+  std::sort(
+      inputs_and_outputs.begin(),
+      inputs_and_outputs.end(),
+      [](const TensorView* a, const TensorView* b) {
+        return a->name() < b->name();
+      });
+
   // Generate map for all tensorview root domain values to map them to symbolic
   // values. i.e. T0->getRootDomain()[0] would map to a named scalar
   // "T0.size[0]". This map will be used when lowering fusion ir to kernel ir.
