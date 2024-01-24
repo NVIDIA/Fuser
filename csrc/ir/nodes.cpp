@@ -1443,6 +1443,7 @@ ReductionOp::ReductionOp(
   addAttribute(init);
   addDataAttribute(reduction_op_type);
   addDataAttribute(is_allreduce);
+  addDataAttribute(false); // serial reduction
 }
 
 std::string ReductionOp::toString(int indent_size) const {

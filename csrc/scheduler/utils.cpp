@@ -1499,10 +1499,16 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set) {
+    DisjointSets<IterDomain*>& disjoint_rfactor_set,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
   if (rfactor_dom.empty()) {
     return {};
+  }
+
+  DisjointRFactorSetInfo info;
+  if (!rfactor_reorder_map.empty()) {
+    rfactor_dom = TensorDomain::orderedAs(rfactor_dom, rfactor_reorder_map);
   }
 
   // Start naming id's based on 0 so the inner most dimension will always be
@@ -1558,7 +1564,6 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
       "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
-  DisjointRFactorSetInfo info;
   info.disjoint_sets_of_ref = disjoint_set_of_id;
   info.disjoint_set_ids = disjoint_group_ids;
   info.ref = of;
@@ -1568,7 +1573,8 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
 
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
-    DataType index_type) {
+    DataType index_type,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto fusion = reference_tv->fusion();
   FusionGuard fg(fusion);
 
@@ -1577,11 +1583,16 @@ BroadcastMultipleInformation getBroadcastMultiples(
   auto ref_root_domain =
       TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain());
 
+  if (!rfactor_reorder_map.empty()) {
+    ref_root_domain =
+        TensorDomain::orderedAs(ref_root_domain, rfactor_reorder_map);
+  }
+
   std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
   auto disjoint_rfactor_sets = disjointRFactorSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
-      fusion, reference_tv, disjoint_rfactor_sets);
+      fusion, reference_tv, disjoint_rfactor_sets, rfactor_reorder_map);
 
   auto ref_disjoint_sets = disjoint_set_information.disjoint_sets_of_ref;
   auto ref_disjoint_set_ids = disjoint_set_information.disjoint_set_ids;
@@ -2048,6 +2059,33 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
     old2new[old_pos] = new_pos;
   }
   return old2new;
+}
+
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
+    TensorView* tv) {
+  std::unordered_map<int, int> ret;
+  if (!tv->hasAllocation()) {
+    return ret;
+  }
+  const auto& alloc_dom = tv->getAllocationDomain();
+  const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
+  if (alloc_dom == maybe_rfactor_dom) {
+    return ret;
+  }
+  if (!std::is_permutation(
+          alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
+    return ret;
+  }
+  std::unordered_map<IterDomain*, int> alloc_index;
+  std::unordered_map<IterDomain*, int> rfactor_index;
+  for (auto i : c10::irange((int)alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[maybe_rfactor_dom[i]] = i;
+  }
+  for (auto iter_dom : alloc_dom) {
+    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  }
+  return ret;
 }
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {

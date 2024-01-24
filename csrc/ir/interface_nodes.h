@@ -109,10 +109,6 @@ class TensorView : public Val {
       IrBuilderPasskey passkey,
       const std::shared_ptr<c10::TensorType>& tensor_type);
 
-  explicit TensorView(
-      IrBuilderPasskey passkey,
-      const std::shared_ptr<torch::jit::Value>& jit_value);
-
   TensorView(const TensorView* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
