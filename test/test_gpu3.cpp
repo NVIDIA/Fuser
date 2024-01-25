@@ -8716,9 +8716,7 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
       executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-
-
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, UnusualResolutionPointsInPersistentBuffer) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -8734,63 +8732,42 @@ TEST_F(NVFuserTest, TMP) {
   auto tv3 = sum(tv2, {1});
   auto tv4 = broadcast(tv3, {false, true});
   auto tv5 = div(tv2, tv4);
-  auto tv6 = add(tv5, tv1);
+  auto tv6 = add(tv1, tv5);
   auto tv7 = add(tv2, tv1);
   fusion->addOutput(tv6);
   fusion->addOutput(tv7);
 
-  fusion->printMath();
+  //      |--------------------------|
+  //      |----------------|         |
+  // 0 -> 2 -> r3 -> b4 -> 5 -> 6    7
+  // 1--------------------------|    |
+  // |-------------------------------|
+  // tv2 is a persistent buffer with resolution point {5, 6, 7}
+  // tv7 is a special resolution point, since it is not on the reduction path
+  // (there is no connection from 6 to 7)
+  // why tv7 is a resolution point?
+  // Because, [tv7 = tv2 + tv1] must be computed in the post-reduction set.
+  // If it is computed with tv2 in the pre-reduction set, tv1 can't be accessed
+  // when compute tv6, unless making it persistent.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  auto& buffers = persistent_buffer_info.persistent_buffers;
+  auto& resolution = persistent_buffer_info.persistent_buffer_resolution_points;
+
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution.at(0).size() == 3);
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
   auto options_fp32 = at::TensorOptions()
-                     .dtype(data_type_to_aten(DataType::Float))
-                     .device(at::kCUDA, 0);                     
+                          .dtype(data_type_to_aten(DataType::Float))
+                          .device(at::kCUDA, 0);
   auto t0 = at::randn({batch_size, hidden_size}, options);
   auto t1 = at::randn({batch_size, hidden_size}, options_fp32);
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
 }
 
-
-
-
-TEST_F(NVFuserTest, TMP2) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  const int batch_size = 128;
-  const int hidden_size = 10240;
-  DataType input_dtype = DataType::Half;
-  auto tv0 = makeContigTensor(2, input_dtype);
-  auto tv1 = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = castOp(DataType::Float, tv0);
-  auto tv3 = exp(tv2);
-  auto tv4 = sum(tv3, {1});
-  auto tv5 = broadcast(tv4, {false, true});
-  auto tv6 = add(tv5, tv2);
-  auto tv7 = add(tv6, tv1);
-  auto tv8 = add(tv2, tv1);
-  fusion->addOutput(tv7);
-  fusion->addOutput(tv8);
-
-  fusion->printMath();
-
-  auto options = at::TensorOptions()
-                     .dtype(data_type_to_aten(input_dtype))
-                     .device(at::kCUDA, 0);
-  auto options_fp32 = at::TensorOptions()
-                     .dtype(data_type_to_aten(DataType::Float))
-                     .device(at::kCUDA, 0);                     
-  auto t0 = at::randn({batch_size, hidden_size}, options);
-  auto t1 = at::randn({batch_size, hidden_size}, options_fp32);
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
