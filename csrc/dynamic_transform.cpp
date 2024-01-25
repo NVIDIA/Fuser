@@ -965,11 +965,11 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
     NVF_ERROR(in_rfactor.size() == orig_out_root.size());
     bool has_trivial_reduction = false;
     std::vector<int> reduction_axes;
-    for (int i : c10::irange(in_rfactor.size())) {
+    for (size_t i : c10::irange(in_rfactor.size())) {
       if (!orig_out_root[i]->isReduction()) {
         continue;
       }
-      reduction_axes.push_back(i);
+      reduction_axes.push_back((int)i);
       IterDomain* in_id = in_rfactor[i];
       if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
         has_trivial_reduction = true;
@@ -987,7 +987,7 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
           reduction_axes,
           rop->init(),
           in,
-          /*keepdim=*/false,
+          /*keep_dim=*/false,
           orig_out->dtype());
       mutateAndReplaceInOutputs(orig_out, new_out);
     }
@@ -1002,11 +1002,11 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
     NVF_ERROR(in_rfactor.size() == orig_avg_root.size());
     bool has_trivial_reduction = false;
     std::vector<int> reduction_axes;
-    for (int i : c10::irange(in_rfactor.size())) {
+    for (size_t i : c10::irange(in_rfactor.size())) {
       if (!orig_avg_root[i]->isReduction()) {
         continue;
       }
-      reduction_axes.push_back(i);
+      reduction_axes.push_back((int)i);
       IterDomain* in_id = in_rfactor[i];
       if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
         has_trivial_reduction = true;
