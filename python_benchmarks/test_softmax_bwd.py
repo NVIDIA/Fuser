@@ -54,10 +54,15 @@ def softmax_bwd_fusion(
     fd.add_output(T19)
 
 
+def softmax_bwd_fn(inputs: list):  # [in_tensor, output, grads]
+    inputs[1].backward(inputs[2], retain_graph=True)
+    return inputs[0].grad
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_bwd_benchmark(
+def test_softmax_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -82,3 +87,36 @@ def test_softmax_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_softmax_bwd_eager_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+):
+    clear_cuda_cache()
+    input = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(*size, device="cuda", dtype=dtype)
+
+    output = torch.nn.functional.softmax(input, dim=reduction_axis)
+    run_benchmark(benchmark, softmax_bwd_fn, [input, output, grads])
+
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_softmax_bwd_compile_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+):
+    clear_cuda_cache()
+    input = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    output = torch.nn.functional.softmax(input, dim=reduction_axis)
+    run_benchmark(benchmark, torch.compile(softmax_bwd_fn), [input, output, grads])

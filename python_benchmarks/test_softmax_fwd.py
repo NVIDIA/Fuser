@@ -44,10 +44,14 @@ def softmax_fwd_fusion(
     fd.add_output(T27)
 
 
+def softmax_fwd_fn(inputs: list):  # [in_tensor, reduction_axis]
+    return torch.nn.functional.softmax(inputs[0], inputs[1])
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_fwd_benchmark(
+def test_softmax_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -63,8 +67,36 @@ def test_softmax_fwd_benchmark(
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     if not disable_validation:
-        eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
+        eager_output = softmax_fwd_fn([inputs[0], reduction_axis])
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_softmax_fwd_eager_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+):
+    clear_cuda_cache()
+    input = torch.randn(*size, device="cuda", dtype=dtype)
+    run_benchmark(benchmark, softmax_fwd_fn, [input, reduction_axis])
+
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_softmax_fwd_compile_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+):
+    clear_cuda_cache()
+    input = torch.randn(*size, device="cuda", dtype=dtype)
+    run_benchmark(benchmark, torch.compile(softmax_fwd_fn), [input, reduction_axis])
