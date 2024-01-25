@@ -116,12 +116,10 @@ class FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
+      CompileParams compile_params = CompileParams());
 
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
@@ -130,15 +128,7 @@ class FusionExecutor : public NonCopyable {
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
-    return runFusion(args, launch_constraints, compile_params, outputs);
-  }
-
-  std::vector<at::Tensor> runFusion(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
+    return runFusion(args, launch_constraints, compile_params);
   }
 
   // Register a post-lowering hooks that are called to modify the kernel after

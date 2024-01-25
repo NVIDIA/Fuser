@@ -1637,14 +1637,10 @@ void FusionExecutor::resetCompiledKernelProperties() {
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params,
-    std::vector<at::Tensor> outputs) {
+    CompileParams compile_params) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
-  NVF_ERROR(
-      !args.getCacheId().has_value() || outputs.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(kernel(), compile_params);
 
@@ -1652,7 +1648,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
     dumpFusionArgs(
-        fusion_id_, args, launch_constraints, compile_params, outputs);
+        fusion_id_, args, launch_constraints, compile_params, /*outputs=*/{});
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -1675,7 +1671,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         args,
         launch_constraints,
         compile_params,
-        outputs,
+        /*outputs=*/{},
         kernel()->indexType());
   }
 
@@ -1707,16 +1703,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   // only allocate outputs when not given
-  if (outputs.empty()) {
-    outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, options_.device, expr_eval);
-  } else {
-    // TODO: Use validateKernelOutputs
-    NVF_ERROR(
-        outputs.size() == fusion_->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
-  }
+  std::vector<at::Tensor> outputs = allocateOutputs(
+      kernel(), executor_entry->outputs, options_.device, expr_eval);
   args.push(outputs);
 
   for (const auto i : c10::irange(outputs.size())) {

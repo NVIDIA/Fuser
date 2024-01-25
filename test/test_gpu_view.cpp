@@ -903,12 +903,12 @@ TEST_F(GpuViewTest, FusionExpandRepro) {
   FusionExecutor fe;
   fe.compileFusion(&fusion);
   LaunchParams l_params;
-  auto outputs = fe.runFusion(aten_inputs, {}, l_params, {});
+  auto outputs = fe.runFusion(aten_inputs, l_params, {});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
   // second run to verify cached output allocation
-  outputs = fe.runFusion(aten_inputs, {}, l_params, {});
+  outputs = fe.runFusion(aten_inputs, l_params, {});
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
