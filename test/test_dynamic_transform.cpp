@@ -1444,7 +1444,8 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
           castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
           castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
       });
-  auto res = variance_mean(tv1, {0, 2, 3, 4}, /*unbiased=*/true, /*keepdim=*/false);
+  auto res =
+      variance_mean(tv1, {0, 2, 3, 4}, /*unbiased=*/true, /*keepdim=*/false);
   fusion->addOutput(res.mean);
   fusion->addOutput(res.var);
 
