@@ -13,6 +13,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -539,6 +540,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(Expr* expr) final;
+
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -941,6 +944,90 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+// Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
+// reductions.
+void DynamicTransformConcretizer::mutate(Expr* expr) {
+  const auto mutateAndReplaceInOutputs = [this](Val* old_val, Val* new_val) {
+    registerMutation(old_val, new_val);
+    if (old_val->isFusionOutput()) {
+      old_val->fusion()->replaceOutput(old_val, new_val);
+    }
+  };
+
+  if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
+    auto in = rop->in()->as<TensorView>();
+    auto orig_out = rop->out()->as<TensorView>();
+    const std::vector<IterDomain*> in_rfactor =
+        TensorDomain::noReductions(in->getMaybeRFactorDomain());
+    const std::vector<IterDomain*>& orig_out_root = orig_out->getRootDomain();
+    NVF_ERROR(in_rfactor.size() == orig_out_root.size());
+    bool has_trivial_reduction = false;
+    std::vector<int> reduction_axes;
+    for (int i : c10::irange(in_rfactor.size())) {
+      if (!orig_out_root[i]->isReduction()) {
+        continue;
+      }
+      reduction_axes.push_back(i);
+      IterDomain* in_id = in_rfactor[i];
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+    if (has_trivial_reduction) {
+      // There is at least one trivial reduction that should be squeezed. Use
+      // binaryOp to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      //
+      // Note that keepdim=false always here, since that results in downstream
+      // broadcasts which will already have been inserted.
+      TensorView* new_out = reductionOp(
+          rop->getReductionOpType(),
+          reduction_axes,
+          rop->init(),
+          in,
+          /*keepdim=*/false,
+          orig_out->dtype());
+      mutateAndReplaceInOutputs(orig_out, new_out);
+    }
+  } else if (WelfordOp* wop = dynamic_cast<WelfordOp*>(expr); wop) {
+    auto in = wop->in()->as<TensorView>();
+    auto orig_avg = wop->outAvg()->as<TensorView>();
+
+    const std::vector<IterDomain*> in_rfactor =
+        TensorDomain::noReductions(in->getMaybeRFactorDomain());
+    const std::vector<IterDomain*>& orig_avg_root = orig_avg->getRootDomain();
+
+    NVF_ERROR(in_rfactor.size() == orig_avg_root.size());
+    bool has_trivial_reduction = false;
+    std::vector<int> reduction_axes;
+    for (int i : c10::irange(in_rfactor.size())) {
+      if (!orig_avg_root[i]->isReduction()) {
+        continue;
+      }
+      reduction_axes.push_back(i);
+      IterDomain* in_id = in_rfactor[i];
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+    if (has_trivial_reduction) {
+      // There is at least one trivial reduction that should be squeezed. Use
+      // Welford to ensure this is done exactly as it is in a non-dynamic fusion
+      WelfordResult new_result = Welford(
+          in,
+          reduction_axes,
+          // init values should always be non-null
+          wop->initAvg()->as<TensorView>(),
+          wop->initVar()->as<TensorView>(),
+          wop->initN());
+      mutateAndReplaceInOutputs(orig_avg, new_result.avg);
+      mutateAndReplaceInOutputs(wop->outVar(), new_result.var_sum);
+      mutateAndReplaceInOutputs(wop->outN(), new_result.n);
+    }
+  }
+  OptOutMutator::mutate(expr);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
