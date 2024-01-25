@@ -414,6 +414,14 @@ class PersistentBufferResolution : public IterVisitor {
     if (output_is_reduction) {
       return;
     }
+    std::cout << "\n================expr: " << expr;
+    for (auto tv : on_reduction_path_) {
+      std::cout << "on_reduction_path_tvs: " << tv << std::endl;
+    }
+    std::cout << "\n";
+    for (auto tv : on_persitent_buffer_path_) {
+      std::cout << "on_persitent_buffer_path_tvs: " << tv << std::endl;
+    }
 
     bool input_on_reduction_path = std::any_of(
         expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
@@ -428,6 +436,9 @@ class PersistentBufferResolution : public IterVisitor {
     bool input_on_persistent_buffer_path =
         input_on_persitent_buffer_path_it != expr->inputs().end();
 
+    std::cout << "input_on_reduction_path: " << input_on_reduction_path
+              << ", input_on_persistent_buffer_path: "
+              << input_on_persistent_buffer_path << std::endl;
     if (input_on_reduction_path && input_on_persistent_buffer_path) {
       // Expression has inputs on both a reduction and persistent buffer path,
       // this is a resolution.
@@ -439,6 +450,7 @@ class PersistentBufferResolution : public IterVisitor {
 
       // Outputs are still on a persistent path
       for (auto out : expr->outputs()) {
+        on_reduction_path_.emplace(out);
         on_persitent_buffer_path_.emplace(out);
       }
     } else if (input_on_reduction_path) {
@@ -448,6 +460,20 @@ class PersistentBufferResolution : public IterVisitor {
       // Propagate forward the persistent path
       for (auto out : expr->outputs()) {
         on_persitent_buffer_path_.emplace(out);
+      }
+      // If the input is in the same computeAt set as other resolution points,
+      // this expression must be inlined with other resolution points. It still
+      // needs the persistent buffer and should be considered a resolution
+      // point.
+      ComputeAtRootDomainMap root_map;
+      root_map.build();      
+      for(auto inp : expr->inputs()) {
+        if(inp->isA<TensorView>() && on_persitent_buffer_path_.count(inp) == 0) {
+          auto inp_tv = inp->as<TensorView>();
+          if(inp_tv->getComputeAtPosition() == persistent_buffer_->getComputeAtPosition()) {
+            resolution_points_.emplace_back(inp_tv);
+          }
+        }
       }
     }
   }
@@ -547,7 +573,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   ComputeAtRootDomainMap root_map;
   root_map.build();
-
+  std::cout << root_map.toString() << std::endl;
+  fusion->printMath();
   auto all_tvs = ir_utils::allTvs(fusion);
 
   for (auto producer : all_tvs) {
