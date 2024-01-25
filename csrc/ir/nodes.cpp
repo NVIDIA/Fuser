@@ -2069,18 +2069,39 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   const auto& a = inputs.at(0).as<at::Tensor>();
   const auto& b = inputs.at(1).as<at::Tensor>();
   MmaLayout mma_layout = layout().value();
-  switch (mma_layout) {
+
+  NVF_CHECK(
+      a.dim() == b.dim(), "Either both or none of A and B should be batch");
+  NVF_CHECK(
+      a.dim() == 2 || a.dim() == 3,
+      "Must have either zero or one batch dimensions");
+  if (a.dim() == 3) { // bmm
+    switch (mma_layout) {
       case MmaLayout::TT:
-        return a.matmul(b);
+        return {a.transpose(0, 1).matmul(b)};
       case MmaLayout::TN:
-        return a.matmul(b.t());
+        return {a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2))};
       case MmaLayout::NT:
-        return a.t().matmul(b);
+        return {a.transpose(1, 2).matmul(b)};
       case MmaLayout::NN:
-        return a.t().matmul(b.t());
+        return {a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2))};
       default:
-        NVF_CHECK(false, "unsupported data layout.");
+        NVF_CHECK(false, "Unsupported data layout.");
     }
+  } else {
+    switch (mma_layout) {
+      case MmaLayout::TT:
+        return {a.matmul(b)};
+      case MmaLayout::TN:
+        return {a.matmul(b.t())};
+      case MmaLayout::NT:
+        return {a.t().matmul(b)};
+      case MmaLayout::NN:
+        return {a.t().matmul(b.t())};
+      default:
+        NVF_CHECK(false, "Unsupported data layout.");
+    }
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
