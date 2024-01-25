@@ -257,8 +257,8 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
-// contiguous tensors with these shapes
+// matmulAtInput2D provides batched inputs in a splitk-like ordering. It
+// provides contiguous tensors with these shapes
 //   TT: [M, B, K] [B, K, N]
 //   TN: [M, B, K] [N, B, K]
 //   NT: [B, K, M] [B, K, N]
@@ -388,8 +388,8 @@ TensorView* splitkLikeBatchedMatmul(
   return tv2;
 }
 
-// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
-// contiguous tensors with these shapes
+// matmulAtInput2D provides batched inputs in a splitk-like ordering. It
+// provides contiguous tensors with these shapes
 //   TT: [M, B, K] [B, K, N]
 //   TN: [M, B, K] [N, B, K]
 //   NT: [B, K, M] [B, K, N]
@@ -451,7 +451,7 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> matmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
     int M,
     int N,
     int K,
@@ -478,7 +478,69 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
   return std::make_pair(at::Tensor(), at::Tensor());
 }
 
-at::Tensor matmulAtInput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, 1, K}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, 1, M}, {1, K, N}};
+    case MmaLayout::NN:
+      return {{K, 1, M}, {1, N, K}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DTuring(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopper(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, M, 1}, {K, 1, N}};
+    case MmaLayout::NN:
+      return {{1, K, M}, {N, K, 1}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopper(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DTuring(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
+at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,

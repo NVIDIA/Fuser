@@ -145,7 +145,7 @@ static void SingleMatmulBase(
   int64_t k = benchmark_state.range(2);
 
   // Tensor inputs
-  auto inputs = matmulAtInput(m, n, k, layout);
+  auto inputs = matmulAtInput2D(m, n, k, layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -206,7 +206,7 @@ static void Baseline_Matmul(
   at::manual_seed(0);
 
   auto inputs =
-      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+      matmulAtInput2D(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
@@ -328,9 +328,9 @@ static void SingleMatmulPartitionedK(
 
   scheduleMatmul(fusion, params);
 
-  at::Tensor aten_a = matmulAtInput(
+  at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
-  at::Tensor aten_b = matmulAtInput(
+  at::Tensor aten_b = matmulAtInput2D(
       layout, TensorMatmulPos::B, at::kHalf, M, N, Ki, splitk_factor);
   std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
   at::Tensor expected_output = splitkLikeAtMatmul(
