@@ -42,7 +42,7 @@ class FullOp : public Expr {
  public:
   using Expr::Expr;
 
-  FullOp(IrBuilderPasskey, Val* out, Val* fill_value);
+  FullOp(IrBuilderPasskey, Val* out, Val* in, Val* fill_value);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -58,6 +58,21 @@ class FullOp : public Expr {
 
   Val* getFillValue() const {
     return inputs().back();
+  }
+
+  TensorView* inputTv() const {
+    if (!isFullLikeOp()) {
+      return nullptr;
+    }
+    return input(numDims())->as<TensorView>();
+  }
+
+  bool isFullLikeOp() const {
+    return attribute<bool>(0);
+  }
+
+  int64_t numDims() const {
+    return attribute<int64_t>(1);
   }
 };
 
@@ -691,6 +706,7 @@ class RNGOp : public Expr {
       IrBuilderPasskey,
       RNGOpType type,
       Val* out,
+      Val* in,
       DataType dtype,
       std::vector<Val*> parameters = {},
       Val* philox_seed = nullptr,
@@ -718,6 +734,10 @@ class RNGOp : public Expr {
     return attribute<Attributes>(0).num_parameters;
   }
 
+  bool isRandLikeOp() const {
+    return attribute<bool>(2);
+  }
+
   std::vector<Val*> getParameters() const {
     return {
         inputs().begin() + getOutputDims(),
@@ -731,20 +751,29 @@ class RNGOp : public Expr {
   Val* getRNGSeedVal() const {
     // Note that inputs() consists of:
     // output dims | parameters | philox seed | philox_offset
-    auto seed_index = getOutputDims() + getNumParameters();
+    auto seed_index = getOutputDims() + getNumParameters() + isRandLikeOp();
     return (inputs().size() > seed_index) ? inputs().at(seed_index) : nullptr;
   }
 
   Val* getRNGOffsetVal() const {
     // Note that inputs() consists of:
     // output dims | parameters | philox seed | philox_offset
-    auto offset_index = getOutputDims() + getNumParameters() + 1;
+    auto offset_index =
+        getOutputDims() + getNumParameters() + isRandLikeOp() + 1;
     return (inputs().size() > offset_index) ? inputs().at(offset_index)
                                             : nullptr;
   }
 
+  TensorView* getInputTv() const {
+    if (!isRandLikeOp()) {
+      return nullptr;
+    }
+    return inputs().back()->as<TensorView>();
+  }
+
   bool isDeterministic() const {
-    return inputs().size() == getOutputDims() + getNumParameters() + 2;
+    return inputs().size() ==
+        getOutputDims() + getNumParameters() + isRandLikeOp() + 2;
   }
 
   void setSeedAndOffset(Val* seed, Val* offset) {

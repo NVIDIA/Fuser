@@ -36,15 +36,6 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   return empty_axes;
 }
 
-//! Check whether a TensorView is empty. During concretization, we traverse to
-//! find a minimal set of TensorViews that have zero extents, and we then set
-//! their extents to a constant 0. Here we check for those constant zero
-//! extents.
-bool isTVEmpty(TensorView* tv) {
-  return !emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))
-              .empty();
-}
-
 //! EmptyTensorRemover performs a backward traversal of the Fusion. When it
 //! detects a TensorView that has at least one extent that is zero, we do the
 //! following:
@@ -312,6 +303,11 @@ class EmptyTensorRemover : public DeadCodeRemover {
 };
 
 } // namespace
+
+bool isTVEmpty(TensorView* tv) {
+  return !emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))
+              .empty();
+}
 
 void RemoveEmptyPass::runPass(Fusion* fusion) {
   EmptyTensorRemover(fusion).run();
