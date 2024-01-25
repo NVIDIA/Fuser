@@ -2063,6 +2063,26 @@ void MmaOp::setMacro(MmaMacro macro) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
+std::vector<PolymorphicValue> MmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& a = inputs.at(0).as<at::Tensor>();
+  const auto& b = inputs.at(1).as<at::Tensor>();
+  MmaLayout mma_layout = layout().value();
+  switch (mma_layout) {
+      case MmaLayout::TT:
+        return a.matmul(b);
+      case MmaLayout::TN:
+        return a.matmul(b.t());
+      case MmaLayout::NT:
+        return a.t().matmul(b);
+      case MmaLayout::NN:
+        return a.t().matmul(b.t());
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
 ExpandOp::ExpandOp(
