@@ -45,15 +45,18 @@ class MultiDeviceEnvironment : public testing::Environment {
 };
 
 class MultiDeviceTest : public NVFuserTest {
-  public:
-  static at::Tensor shardTensor(at::Tensor tensor, const DeviceMesh& mesh, DeviceIdxType deviceId) {
+ public:
+  static at::Tensor shardTensor(
+      at::Tensor tensor,
+      const DeviceMesh& mesh,
+      DeviceIdxType deviceId) {
     int i = 0;
     auto devices = mesh.vector();
-    auto it = find (devices.begin(), devices.end(), deviceId);
+    auto it = find(devices.begin(), devices.end(), deviceId);
     if (it != devices.end()) {
       i = std::distance(devices.begin(), it);
     }
-    return tensor.index({at::indexing::Slice(i, i+1), "..."});
+    return tensor.index({at::indexing::Slice(i, i + 1), "..."});
   }
 
  protected:
