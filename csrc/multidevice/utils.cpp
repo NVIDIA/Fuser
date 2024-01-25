@@ -20,7 +20,8 @@ bool isSharded(TensorView* tv) {
   for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
     is_sharded.push_back(id->isDeviceDim());
   }
-  // Currently, only the most external dim is allowed to be sharded and we don't allow split/merge
+  // Currently, only the most external dim is allowed to be sharded and we don't
+  // allow split/merge
   NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
@@ -60,7 +61,8 @@ std::unordered_set<TensorView*> haveDifferentSharding(
   }
 
   for (auto tv : tvs) {
-    // isSharded asserts that there are no split/merge and that only the outmost dimension is possibly sharded
+    // isSharded asserts that there are no split/merge and that only the outmost
+    // dimension is possibly sharded
     isSharded(tv);
     if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
       ret.insert(tv);
