@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <scheduler/registry.h>
-#include <scheduler/utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
 #include <contiguity.h>
@@ -349,8 +349,9 @@ class PersistentBufferResolution : public IterVisitor {
  public:
   static std::vector<TensorView*> getResolutionPointsOf(
       Fusion* fusion,
-      TensorView* persistent_buffer, const std::unordered_set<IterDomain*>& unmappable_dims) {
-    PersistentBufferResolution resolution(fusion, persistent_buffer, unmappable_dims);
+      TensorView* persistent_buffer,
+      const ComputeAtRootDomainMap& root_map) {
+    PersistentBufferResolution resolution(fusion, persistent_buffer, root_map);
 
     NVF_ERROR(
         !resolution.resolution_points_.empty(),
@@ -363,8 +364,11 @@ class PersistentBufferResolution : public IterVisitor {
   PersistentBufferResolution() = delete;
 
  private:
-  PersistentBufferResolution(Fusion* fusion, TensorView* persistent_buffer, const std::unordered_set<IterDomain*>& unmappable_dims)
-      : persistent_buffer_(persistent_buffer), unmappable_dims_(unmappable_dims) {
+  PersistentBufferResolution(
+      Fusion* fusion,
+      TensorView* persistent_buffer,
+      const ComputeAtRootDomainMap& root_map)
+      : persistent_buffer_(persistent_buffer), root_map_(root_map) {
     traverse(fusion);
   }
 
@@ -415,14 +419,6 @@ class PersistentBufferResolution : public IterVisitor {
     if (output_is_reduction) {
       return;
     }
-    std::cout << "\n================expr: " << expr;
-    for (auto tv : on_reduction_path_) {
-      std::cout << "on_reduction_path_tvs: " << tv << std::endl;
-    }
-    std::cout << "\n";
-    for (auto tv : on_persitent_buffer_path_) {
-      std::cout << "on_persitent_buffer_path_tvs: " << tv << std::endl;
-    }
 
     bool input_on_reduction_path = std::any_of(
         expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
@@ -437,9 +433,6 @@ class PersistentBufferResolution : public IterVisitor {
     bool input_on_persistent_buffer_path =
         input_on_persitent_buffer_path_it != expr->inputs().end();
 
-    std::cout << "input_on_reduction_path: " << input_on_reduction_path
-              << ", input_on_persistent_buffer_path: "
-              << input_on_persistent_buffer_path << std::endl;
     if (input_on_reduction_path && input_on_persistent_buffer_path) {
       // Expression has inputs on both a reduction and persistent buffer path,
       // this is a resolution.
@@ -462,23 +455,23 @@ class PersistentBufferResolution : public IterVisitor {
       for (auto out : expr->outputs()) {
         on_persitent_buffer_path_.emplace(out);
       }
-      // If the input is in the same computeAt set as other resolution points,
-      // this expression must be inlined with other resolution points. It still
-      // needs the persistent buffer and should be considered a resolution
-      // point.     
-      for(auto inp : expr->inputs()) {
-        if(inp->isA<TensorView>() && on_persitent_buffer_path_.count(inp) == 0) {
-          std::cout << "inp: " << inp << std::endl;
-          ComputeAtRootDomainMap root_map;
-          root_map.build();          
-          for(auto rp : resolution_points_){
-            if(registry_utils::checkPatternEquivalence(inp->as<TensorView>(), rp, root_map)){
-              std::cout << "maps with rp: " << rp << std::endl;
+      // If the computeAtRootMap of a input tv maps to one of the resolution
+      // points, this expression must be inlined with that resolution point and
+      // should be considered a resolution point since it is on the persistent
+      // path.
+      for (auto inp : expr->inputs()) {
+        if (inp->isA<TensorView>() &&
+            on_persitent_buffer_path_.count(inp) == 0) {
+          for (auto rp : resolution_points_) {
+            if (registry_utils::checkPatternEquivalence(
+                    inp->as<TensorView>(), rp, root_map_)) {
               // Add resolution point
-              auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+              auto out_tvs =
+                  ir_utils::filterByType<TensorView>(expr->outputs());
               resolution_points_.insert(
                   resolution_points_.end(), out_tvs.begin(), out_tvs.end());
-              // Add to reduction path, so following uses of output are also resolution points
+              // Add to reduction path, so following uses of output are also
+              // resolution points
               for (auto out : expr->outputs()) {
                 on_reduction_path_.emplace(out);
               }
@@ -507,7 +500,8 @@ class PersistentBufferResolution : public IterVisitor {
   std::vector<TensorView*> resolution_points_;
 
   const TensorView* persistent_buffer_;
-  const std::unordered_set<IterDomain*> unmappable_dims_;
+
+  const ComputeAtRootDomainMap& root_map_;
 };
 
 } // namespace
@@ -586,8 +580,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   ComputeAtRootDomainMap root_map;
   root_map.build();
-  std::cout << root_map.toString() << std::endl;
-  fusion->printMath();
   auto all_tvs = ir_utils::allTvs(fusion);
 
   for (auto producer : all_tvs) {
@@ -621,7 +613,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
           mappable = false;
           consumer_mappable = false;
           persistent_buffer_info.unmappable_dims.emplace(p_root_id);
-          std::cout << "unmappable dim: " << p_root_id << std::endl;
         }
       }
 
@@ -641,7 +632,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   persistent_buffer_info.persistent_buffer_resolution_points = {};
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer, persistent_buffer_info.unmappable_dims));
+        PersistentBufferResolution::getResolutionPointsOf(
+            fusion, buffer, root_map));
   }
 
   // Find projectable persistent buffers
