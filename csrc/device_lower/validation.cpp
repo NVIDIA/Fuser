@@ -1290,4 +1290,26 @@ void validateResize(Fusion* fusion) {
   }
 }
 
+void validateReductions(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(expr)) {
+      const std::vector<IterDomain*> in_rfactor = TensorDomain::noReductions(
+          rop->in()->as<TensorView>()->getMaybeRFactorDomain());
+      const std::vector<IterDomain*>& out_root =
+          rop->out()->as<TensorView>()->getRootDomain();
+
+      NVF_ERROR(in_rfactor.size() == out_root.size());
+      for (auto i : c10::irange(in_rfactor.size())) {
+        if (out_root[i]->isReduction()) {
+          IterDomain* in_id = in_rfactor[i];
+          NVF_ERROR(
+              !in_id->isBroadcast() || in_id->hasExpandedExtent(),
+              "Reductions of unexpanded broadcast domains should be ",
+              "converted to squeeze before lowering.");
+        }
+      }
+    }
+  }
+}
+
 } // namespace nvfuser
