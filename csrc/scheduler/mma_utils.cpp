@@ -1288,8 +1288,9 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
 namespace {
 
 void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
-  auto* init = IrBuilder::create<Val>(0.0);
   for (auto prop : props) {
+    auto* init =
+        IrBuilder::create<Val>(0.0, prop.insouts.out->getDataType().value());
     IrBuilder::create<MmaOp>(
         prop.insouts.out, prop.insouts.a, prop.insouts.b, init);
   }

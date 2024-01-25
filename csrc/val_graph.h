@@ -103,18 +103,18 @@ class ValGraph {
   // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
-  //! Returns the pointer to expressions associated with the
-  //! definitions of the provided ValGroup. Nullptr is returned otherwise.
+  //! Returns the expressions associated with the
+  //! definitions of the provided ValGroup.
   //!
-  //! The returned pointer is to a vector of vector of expressions. The
-  //! inner vector is proven to be equivalent. The
-  //! outer vector are expression groups that are not equivalent, but
-  //! produce one of the ValGroups within the same disjoint Val set.
-  const ExprGroups* getDefinitions(const ValGroup& val_group) const;
+  //! Each ExprGroup of the returned ExprGroup vector is proven to be
+  //! equivalent. The ExprGroup vector holds expression groups that are not
+  //! equivalent, but produce one of the ValGroups within the same disjoint Val
+  //! set.
+  const ExprGroups& getDefinitions(const ValGroup& val_group) const;
 
   //! Same as getDefinitions but for uses instead of
   //! definitions
-  const ExprGroups* getUses(const ValGroup& val_group) const;
+  const ExprGroups& getUses(const ValGroup& val_group) const;
 
   bool hasDefinitions(const ValGroup& val_group) const;
 
@@ -174,6 +174,10 @@ class ValGraph {
   // forward). Returning true means the expressions are "the same", in terms
   // they modify matching original inputs by the same amount.
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
+
+  // Check basic consistencies of val and expr groups and their
+  // mappings.
+  void validateConsistency() const;
 
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
