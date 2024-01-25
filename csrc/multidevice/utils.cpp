@@ -128,6 +128,7 @@ void reshardBefore(Expr* expr, Fusion* fusion) {
         return val->as<TensorView>();
       });
   std::vector<TensorView*> new_inputs;
+  // if the expr is not resharding, the following for loop is empty
   for (auto input : haveDifferentSharding(output, inputs)) {
     // TODO: reuse cacheAfter?
     // TODO: here we should add a mechanism to potentially reuse the inserted
@@ -148,6 +149,7 @@ void insertReshardings(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
     if (!isLowerableToCommunication(expr)) {
+      // if the expr is not resharding, reshardBefore will not modify it
       reshardBefore(expr, fusion);
     }
   }
