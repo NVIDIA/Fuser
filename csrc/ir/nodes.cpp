@@ -2101,7 +2101,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
   for (auto i : c10::irange(1, inputs.size())) {
     expanded_size.push_back((int64_t)inputs.at(i));
   }
-  return {at::expand_copy(in, expanded_size)};
+  return {in.expand(expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
