@@ -958,21 +958,21 @@ static bool hasTrivialReduction(
   // We need to map broadcasts in order to detect reductions of broadcasts
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
-  auto pos = 0;
+  int pos = -1;
   for (IterDomain* in_id :
        TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
+    ++pos;
     auto out_it = p2c.find(in_id);
     if (out_it == p2c.end()) {
       continue;
     }
     IterDomain* out_id = out_it->second;
     if (out_id->isReduction()) {
-      reduction_axes.push_back((int)pos);
+      reduction_axes.push_back(pos);
       if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
         has_trivial_reduction = true;
       }
     }
-    ++pos;
   }
   return has_trivial_reduction;
 }
