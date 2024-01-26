@@ -19,7 +19,7 @@ bool isSharded(TensorView*);
 
 // Returns the subset of tvs which elements have the same multi-device sharding
 // as ref
-template<typename TvIterator>
+template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     TvIterator tvs);
