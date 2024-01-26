@@ -328,8 +328,9 @@ void SegmentedGroup::finalize() {
 
   // alias aware segmentation. we add inputs that are aliased by output
   // generated in this SegmentedGroup
-  for (auto output : output_vals) {
-    if (auto aliased_input = segmented_fusion_->findAlias(output)) {
+  for (Val* output : output_vals) {
+    if (Val* aliased_input =
+            segmented_fusion_->completeFusion()->getOutputAlias(output).first) {
       // aliasing currently only supported as output to input
       NVF_ERROR(
           aliased_input->isFusionInput(),
