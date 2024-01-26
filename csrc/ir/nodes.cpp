@@ -2081,7 +2081,7 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // fusedMultiplySum assumes [B, M, K] [B, N, K]
   // Transpose them to aten::matmul format.
   if (in_a.dim() == 3) { // bmm
-    return {in_a.transpose(0, 1).matmul(in_b.transpose(0, 1).transpose(1, 2))};
+    return {in_a.matmul(in_b.transpose(1, 2))};
   } else {
     return {in_a.matmul(in_b.t())};
   }
