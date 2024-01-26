@@ -75,7 +75,7 @@ def test_softmax_fwd_nvf_benchmark(
 
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
-@pytest.mark.parametrize("size", [(128, 768)])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_fwd_baseline_benchmark(
