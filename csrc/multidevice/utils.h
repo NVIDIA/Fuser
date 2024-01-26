@@ -19,9 +19,10 @@ bool isSharded(TensorView*);
 
 // Returns the subset of tvs which elements have the same multi-device sharding
 // as ref
+template<typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    std::unordered_set<TensorView*> tvs);
+    TvIterator tvs);
 
 // Returns whether an Expr embbeds multi-device resharding
 bool isResharding(Expr* expr);

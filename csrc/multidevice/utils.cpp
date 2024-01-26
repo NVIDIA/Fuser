@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <compute_at_map.h>
+#include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <multidevice/lower_communication.h>
@@ -47,9 +48,10 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 
 } // namespace
 
+template<typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    std::unordered_set<TensorView*> tvs) {
+    TvIterator tvs) {
   std::unordered_set<TensorView*> ret;
 
   const auto& reference_dom = ref->getLeafDomain();
@@ -62,7 +64,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     concrete_to_reference_map[ca_id] = id;
   }
 
-  for (auto tv : tvs) {
+  for (TensorView* tv : tvs) {
     if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
       ret.insert(tv);
       continue;
@@ -112,24 +114,9 @@ void maybeReshardInputs(Expr* expr, Fusion* fusion) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "multi-output expressions are not supported");
-  NVF_ERROR(
-      expr->outputs().at(0)->isA<TensorView>(),
-      "the expression's output is not a TensorView");
-  TensorView* output = expr->outputs().at(0)->as<TensorView>();
-  std::unordered_set<TensorView*> inputs;
-  std::transform(
-      expr->inputs().begin(),
-      expr->inputs().end(),
-      std::inserter(inputs, inputs.end()),
-      [](Val* val) {
-        NVF_ERROR(
-            val->isA<TensorView>(),
-            "the expression's input is not a TensorView");
-        return val->as<TensorView>();
-      });
+  auto output = expr->outputs().at(0)->as<TensorView>();
   std::vector<TensorView*> new_inputs;
-  // if the expr is not resharding, the following for loop is empty
-  for (auto input : getTvsWithDifferentSharding(output, inputs)) {
+  for (auto input : getTvsWithDifferentSharding(output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
     // TODO: reuse cacheAfter?
     // TODO: here we should add a mechanism to potentially reuse the inserted
     // resharding accross all the consumer of the resharded tensor. This way we
@@ -149,7 +136,7 @@ void insertReshardings(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
     if (!isLowerableToCommunication(expr)) {
-      // if the expr is not resharding, maybeReshardInputs will not modify it
+      NVF_ERROR(ir_utils::isTvOp(expr), "Non-tv op is not supported yet: ", expr->toString());
       maybeReshardInputs(expr, fusion);
     }
   }
