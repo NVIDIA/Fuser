@@ -320,6 +320,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
   TensorView* tv1 = TensorViewBuilder()
                         .ndims(3)
                         .contiguity({true, true, true})
+			.strideOrder({1, 2, 0})
                         .build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -332,7 +333,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1024, 1, 2}, options);
-  at::Tensor t1 = at::randn({1024, 512, 2}, options);
+  at::Tensor t1 = at::empty_strided({1024, 512, 2}, {2, 2048, 1}, options);
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
   EXPECT_EQ(getVecSizeForPointwise(fec), 4);
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
