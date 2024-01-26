@@ -2075,6 +2075,7 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
       "Must have either zero or one batch dimensions");
 
   // Squeeze the inputs to remove the broadcasted dimensions.
+  // TODO: This is assuming the broadcast dimensions but may be variable?
   auto in_a = a.squeeze(-1);
   auto in_b = b.squeeze(0);
 
