@@ -1070,19 +1070,31 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionmap(iel_graph, inlining_info);
 
+  {
+    std::stringstream ss;
+    ss << "Step 1: Root promotion map\n";
+    for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
+      ss << "\t" << nvfuser::toString(iel_group) << " -> "
+         << promoted_id->name() << std::endl;
+    }
+    VERBOSE() << ss.str();
+  }
+
   // Step 2: Propagate the root promotions to intermediate and leaf groups.
   // At this point, the promotion may not be final as the analysis is
   // localized to IEL groups. The map is used in the next step to
   // build mappings of the loop groups.
   propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
 
-  std::stringstream ss;
-  ss << "Inline promotion map\n";
-  for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
-    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name()
-       << std::endl;
+  {
+    std::stringstream ss;
+    ss << "Step 2: IEL promotion map\n";
+    for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
+      ss << "\t" << nvfuser::toString(iel_group) << " -> "
+         << promoted_id->name() << std::endl;
+    }
+    VERBOSE() << ss.str();
   }
-  VERBOSE() << ss.str();
 
   // Step 3: Determine the promotion of each loop graph based on the
   // IEL promotion map. For each loop group, examine all the IEL
@@ -1091,6 +1103,23 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   std::unordered_map<ValGroup, IterDomain*> loop_graph_copy_promotion_map =
       projectIELPromotionToLoopGraph(
           iel_graph, iel_promotion_map, loop_graph_copy, inlining_info);
+
+  for (const auto& loop_group :
+       loop_graph_copy.disjointValSets().disjointSets()) {
+    auto it = loop_graph_copy_promotion_map.find(loop_group);
+    if (it == loop_graph_copy_promotion_map.end()) {
+      VERBOSE() << "No promotion found yet for loop group of "
+                << nvfuser::toString(loop_group) << std::endl;
+    }
+  }
+
+  {
+    VERBOSE() << "Step 3: initial loop promotion map:" << std::endl;
+    for (const auto& [loop_group, id] : loop_graph_copy_promotion_map) {
+      VERBOSE() << nvfuser::toString(loop_group) << " -> " << id->name()
+                << std::endl;
+    }
+  }
 
   // At this point, most of loop groups should have correct promoted
   // IDs. However, non-inlined loop groups may miss promotion that
@@ -1116,6 +1145,16 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       loop_graph_copy,
       loop_graph_copy_promotion_map,
       true);
+
+  {
+    std::stringstream ss;
+    ss << "Step 4: IEL promotion map\n";
+    for (const auto& [iel_group, promoted_id] : final_iel_promotion_map) {
+      ss << "\t" << nvfuser::toString(iel_group) << " -> "
+         << promoted_id->name() << std::endl;
+    }
+    VERBOSE() << ss.str();
+  }
 
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
@@ -1520,6 +1559,14 @@ bool hasUniqueOutputLoopGroups(
 // promotions are propagated. In that case, loop_graph_promotion_map
 // should be just empty.
 //
+// Propagation uses iel_promotion_map and
+// loop_graph_promotion_map. If both are available for an IEL group,
+// the former has the precedence. This is because when this function
+// is used for step 4, the given iel_promotion_map is empty and gets
+// populated during this propagation, whereas the loop promotion map
+// is not guaranteed to have the correct mappings for partially
+// inlined domains.
+//
 // The loop_graph pamameter may not be up-to-date.
 void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
@@ -1553,6 +1600,21 @@ void IdModel::propagatePromotionsInIELGraph(
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
 
+      // Even when loop promotions are given, We still could require
+      // an input promotion. We could be traversing across non-inlined
+      // groups. Meaning we have inputs that were promoted in an
+      // inlined loop group traversing through the non-inlined
+      // portions of the iel graph.
+      if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
+          inp_promo_it != iel_promotion_map.end()) {
+        maybe_promoted_inputs.push_back(inp_promo_it->second);
+        an_input_was_promoted = true;
+        VERBOSE() << "Promoted input by IEL promotion: "
+                  << nvfuser::toString(iel_inp_group) << " -> "
+                  << inp_promo_it->second->name() << std::endl;
+        continue;
+      }
+
       // Promote loops based on the loop promotion map. If the loop promotion
       // map should be used and has an entry we should use that promotion. This
       // happen when an iel expression is across a loop group boundary.
@@ -1566,20 +1628,11 @@ void IdModel::propagatePromotionsInIELGraph(
         if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
           maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
           an_input_was_promoted = true;
+          VERBOSE() << "Promoted input by loop promotion: "
+                    << nvfuser::toString(iel_inp_group) << " -> "
+                    << inp_loop_promo_it->second->name() << std::endl;
           continue;
         }
-      }
-
-      // Even when loop promotions are given, We still could require
-      // an input promotion. We could be traversing across non-inlined
-      // groups. Meaning we have inputs that were promoted in an
-      // inlined loop group traversing through the non-inlined
-      // portions of the iel graph.
-      if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
-          inp_promo_it != iel_promotion_map.end()) {
-        maybe_promoted_inputs.push_back(inp_promo_it->second);
-        an_input_was_promoted = true;
-        continue;
       }
 
       // No promotion found. Just use the non-promoted domain
@@ -1693,6 +1746,9 @@ void IdModel::propagatePromotionsInIELGraph(
     if (!promoted_expr) {
       promoted_expr = addReplayAs(maybe_promoted_inputs, iel_expr->front());
       replayed = true;
+      for (auto id : maybe_promoted_inputs) {
+        VERBOSE() << "Maybe promoted input: " << id->name() << std::endl;
+      }
       VERBOSE() << "Replayed: " << promoted_expr->toString();
     } else {
       VERBOSE() << "Reusing: " << promoted_expr->toString();
@@ -1718,6 +1774,8 @@ void IdModel::propagatePromotionsInIELGraph(
       }
       iel_promotion_map[out_groups[i]] =
           promoted_expr->output(i)->as<IterDomain>();
+      VERBOSE() << "IEL promotion: " << nvfuser::toString(out_groups[i])
+                << " -> " << promoted_expr->output(i)->name() << std::endl;
       // Explicitly map loop map since expr propagation doesn't happen
       if (replayed) {
         idGraph(IdMappingMode::LOOP)
@@ -1815,6 +1873,8 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     // Grab the iel entry
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);
 
+    // Does it still need iel_promotion_map? The loop group already has
+    // the replayed domains, so we should be able to find it.
     auto iel_promo_it = iel_promotion_map.find(iel_group);
     if (iel_promo_it == iel_promotion_map.end()) {
       // If this terminal ID doesn't have a promotion associated with it, save
