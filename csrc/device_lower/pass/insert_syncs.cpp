@@ -369,32 +369,6 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
   const std::unordered_set<Expr*>& writes_;
 };
 
-namespace {
-
-Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
-  // See the comment above for getGridCommWorkBufferSize.
-  NVF_ERROR(
-      ptb.hasBID(),
-      "Detected  needing a grid sync but no grid bits set in bitmap.");
-  Val* buffer_size = GpuLower::current()->kernel()->oneVal();
-  for (auto pt : kParallelTypeBIDs) {
-    // Synchronized within pt, so all blocks of this PT use the same
-    // sync buffer location, and thus no need to expand the sync
-    // buffer size.
-    if (ptb.get(pt)) {
-      continue;
-    }
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
-    if (pt_dim == nullptr || pt_dim->isOneInt()) {
-      continue;
-    }
-    buffer_size = IrBuilder::mulExpr(buffer_size, pt_dim);
-  }
-  return buffer_size;
-}
-
-} // namespace
-
 class ReadAfterWriteSyncs : public kir::ExprMutator {
  private:
   using kir::ExprMutator::handle;
@@ -489,7 +463,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       kir::Allocate* maybe_alloc = nullptr;
       if (sync_bitmap.hasBID()) {
         maybe_alloc = lower_utils::allocGlobalBufferForGridComm(
-            getGridSyncBufferSize(sync_bitmap), DataType::Int, true);
+            lower_utils::getGridSyncBufferSize(sync_bitmap),
+            DataType::Int,
+            true);
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {

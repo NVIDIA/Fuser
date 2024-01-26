@@ -876,10 +876,10 @@ class AllocationInfoMap : private kir::IrVisitor {
       alloc_info->outer_live_interval->markWrite(write_pos);
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
       auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markWrite(expr_pos);
+      alloc_info->inner_live_interval->markRead(expr_pos);
       auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
       auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markWrite(write_pos);
+      alloc_info->outer_live_interval->markRead(write_pos);
     }
   }
 
