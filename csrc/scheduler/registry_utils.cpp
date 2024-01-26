@@ -229,13 +229,6 @@ bool isConnectedFusionGraph(Fusion* fusion) {
     }
   }
 
-  // Map aliased outputs
-  for (Val* out : fusion->outputs()) {
-    if (Val* in = fusion->getOutputAlias(out).first; in != nullptr) {
-      component_sets.mapEntries(out, in);
-    }
-  }
-
   // Check connected-ness:
   //  If there is no independent compute flow
   // on this fusion graph, all outputs will be
