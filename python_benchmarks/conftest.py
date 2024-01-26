@@ -15,6 +15,19 @@ def pytest_addoption(parser):
         default=False,
         help="Disable benchmarking.",
     )
+    parser.addoption(
+        "--benchmark-eager",
+        action="store_true",
+        default=False,
+        help="Benchmarks torch eager mode.",
+    )
+
+    parser.addoption(
+        "--benchmark-torchcompile",
+        action="store_true",
+        default=False,
+        help="Benchmarks torch.compile mode.",
+    )
 
 
 @pytest.fixture
@@ -33,3 +46,27 @@ def pytest_make_parametrize_id(val):
 
 def pytest_benchmark_update_machine_info(config, machine_info):
     machine_info.update(DEVICE_PROPERTIES)
+
+
+def pytest_collection_modifyitems(session, config, items):
+    run_eager = config.getoption("--benchmark-eager")
+    run_torchcompile = config.getoption("--benchmark-torchcompile")
+
+    if not run_eager:
+        skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
+        for item in items:
+            # If the benchmark has compile=False parameter (eager mode), skip it.
+            if (
+                "compile" in item.callspec.params
+                and not item.callspec.params["compile"]
+            ):
+                item.add_marker(skip_eager)
+
+    if not run_torchcompile:
+        skip_torchcompile = pytest.mark.skip(
+            reason="need --benchmark-torchcompile option to run"
+        )
+        for item in items:
+            # If the benchmark has compile=True parameter (torch.compile mode), skip it.
+            if "compile" in item.callspec.params and item.callspec.params["compile"]:
+                item.add_marker(skip_torchcompile)

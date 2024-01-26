@@ -74,29 +74,21 @@ def test_softmax_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", [(128, 768)])
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_fwd_eager_benchmark(
+def test_softmax_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
+    compile: bool,
 ):
     clear_cuda_cache()
     input = torch.randn(*size, device="cuda", dtype=dtype)
-    run_benchmark(benchmark, softmax_fwd_fn, [input, reduction_axis])
-
-
-@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_fwd_compile_benchmark(
-    benchmark,
-    size: tuple,
-    dtype: torch.dtype,
-    reduction_axis: int,
-):
-    clear_cuda_cache()
-    input = torch.randn(*size, device="cuda", dtype=dtype)
-    run_benchmark(benchmark, torch.compile(softmax_fwd_fn), [input, reduction_axis])
+    run_benchmark(
+        benchmark,
+        torch.compile(softmax_fwd_fn) if compile else softmax_fwd_fn,
+        [input, reduction_axis],
+    )
