@@ -240,4 +240,126 @@ TEST_F(PointwiseTest, VectorizeAllocationDomainIssue1567) {
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(PointwiseTest, VectorizationFactorAnalysisCase0) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, std::nullopt})
+                        .shape({-1, -1, 1})
+                        .build();
+  TensorView* tv1 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, true})
+                        .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024, 2, 1}, options);
+  at::Tensor t1 = at::randn({1024, 2, 512}, options);
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(getVecSizeForPointwise(fec), 0);
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, VectorizationFactorAnalysisCase1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, std::nullopt, true})
+                        .shape({-1, 1, -1})
+                        .build();
+  TensorView* tv1 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, true})
+                        .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024, 1, 2}, options);
+  at::Tensor t1 = at::randn({1024, 512, 2}, options);
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(getVecSizeForPointwise(fec), 2);
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, std::nullopt, true})
+                        .shape({-1, 1, -1})
+                        .build();
+  TensorView* tv1 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, true})
+                        .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024, 1, 2}, options);
+  at::Tensor t1 = at::randn({1024, 512, 2}, options);
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(getVecSizeForPointwise(fec), 4);
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, VectorizationFactorAnalysisCase3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({std::nullopt, true, true})
+                        .shape({1, -1, -1})
+                        .build();
+  TensorView* tv1 = TensorViewBuilder()
+                        .ndims(3)
+                        .contiguity({true, true, true})
+                        .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1, 1024, 2}, options);
+  at::Tensor t1 = at::randn({512, 1024, 2}, options);
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(getVecSizeForPointwise(fec), 2);
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
