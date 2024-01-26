@@ -472,7 +472,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   int clear_pos = -1;
   if (to->hasBroadcast()) {
     // Find the last broadcast dimension resolved in consumers through from_ids
-    for (auto i : c10::irange(from_ids.size())) {
+    for (int i = (int)from_ids.size() - 1; i >= 0; i--) {
       auto c_id = from_ids[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
@@ -481,15 +481,13 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
         clear_pos = (int)i;
+        break;
       }
     }
   }
 
   std::vector<IterDomain*> producer_rfactor_ids;
-  for (int64_t i : c10::irange(clear_pos, from_ids.size())) {
-    if (i < clear_pos) {
-      continue;
-    }
+  for (auto i : c10::irange(clear_pos, from_ids.size())) {
     auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
