@@ -684,7 +684,7 @@ TEST_F(ExprEvalTest, MmaOp) {
     bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
     bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
 
-    int64_t M = 2, K = 3, N = 4;
+    int64_t m = 2, k = 3, n = 4;
     std::vector<int64_t> A_shape{M, K}, B_shape{N, K};
 
     if (transpose_a) {
@@ -717,9 +717,9 @@ TEST_F(ExprEvalTest, MmaOp) {
 
     fusion.addOutput(tv2);
 
-    at::Tensor in_a = at::ones({M, K}, at::kHalf).cuda();
-    at::Tensor in_b = at::ones({N, K}, at::kHalf).cuda();
-    at::Tensor out_ref = K * at::ones({M, N}, at::kHalf).cuda();
+    at::Tensor in_a = at::ones({m, k}, at::kHalf).cuda();
+    at::Tensor in_b = at::ones({n, k}, at::kHalf).cuda();
+    at::Tensor out_ref = k * at::ones({m, n}, at::kHalf).cuda();
 
     ExpressionEvaluator evaluator;
     evaluator.bind(tv0, in_a);
