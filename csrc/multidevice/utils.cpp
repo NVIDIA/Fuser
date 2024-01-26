@@ -108,7 +108,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
 }
 
-void reshardBefore(Expr* expr, Fusion* fusion) {
+void maybeReshardInputs(Expr* expr, Fusion* fusion) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "multi-output expressions are not supported");
@@ -149,8 +149,8 @@ void insertReshardings(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
     if (!isLowerableToCommunication(expr)) {
-      // if the expr is not resharding, reshardBefore will not modify it
-      reshardBefore(expr, fusion);
+      // if the expr is not resharding, maybeReshardInputs will not modify it
+      maybeReshardInputs(expr, fusion);
     }
   }
 }
