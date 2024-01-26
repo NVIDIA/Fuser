@@ -44,11 +44,12 @@ void testValidate(
         // Returns true when `out` is **not** an aliased output that's hidden
         // from integration. Hidden outputs won't show up in `fusion_outputs`
         // for us to compare, so we skip them.
-        const AliasInfo* alias_info = fusion->getOutputAlias(out).second;
-        if (alias_info == nullptr) {
+        const AllocationInfo* allocation_info =
+            fusion->getOutputAllocation(out);
+        if (allocation_info == nullptr) {
           return true;
         }
-        return !alias_info->hide_output;
+        return !allocation_info->hide_output;
       });
 
   auto expr_eval = bindInputsAndLaunchParams(fusion, aten_inputs, lparams);

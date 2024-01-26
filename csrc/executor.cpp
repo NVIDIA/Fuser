@@ -930,8 +930,7 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    Val* aliased_io,
-    const AliasInfo* alias_info,
+    const AllocastionInfo* allocation_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
@@ -939,31 +938,30 @@ at::Tensor allocateOutput(
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
-  if (aliased_io != nullptr) {
-    NVF_ERROR(
-        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
-        aliased_io->toInlineString(),
-        " is expected to be a fusion input/output. `ee.evaluate` ",
-        "an intermediate tensor may involve GPU computation to materialize it ",
-        "to global memory.");
-    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
-    NVF_ERROR(
-        aliased_io_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(aliased_io_val));
-    auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
+  if (allocation_info != nullptr) {
+    Val* aliased_io = allocation_info->aliased_io;
+    if (aliased_io != nullptr) {
+      NVF_ERROR(
+          aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
+          aliased_io->toInlineString(),
+          " is expected to be a fusion input/output. `ee.evaluate` ",
+          "an intermediate tensor may involve GPU computation to materialize it ",
+          "to global memory.");
+    }
 
-    switch (alias_info->type) {
-      case AliasType::InplaceUpdate:
+    switch (allocation_info->method) {
+      case AllocationMethod::InplaceUpdate:
         // Unlike for `AliasType::PointerArithmetic`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
+        auto aliased_io_tensor = ee.evaluate(aliased_io).as<at::Tensor>();
         return aliased_io_tensor;
 
-      case AliasType::PointerArithmetic:
-        at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
+      case AllocationMethod::Evaluate: {
+        auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
+        auto aliased_io_tensor = ee.evaluate(aliased_io).as<at::Tensor>();
         NVF_ERROR(
             out_tensor.is_alias_of(aliased_io_tensor),
             "ExpressionEvaluator failed to evaluate ",
@@ -972,6 +970,7 @@ at::Tensor allocateOutput(
             aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
+      }
     }
   }
 
@@ -1021,18 +1020,22 @@ std::vector<at::Tensor> allocateOutputs(
       sorted_outs.begin(),
       sorted_outs.end(),
       [kernel](
-          const std::pair<int64_t, Val*>& out_i,
-          const std::pair<int64_t, Val*>& out_j) {
-        return (
-            kernel->getOutputAlias(out_i.second).first == nullptr &&
-            kernel->getOutputAlias(out_j.second).first != nullptr);
+          const std::pair<int64_t, Val*>& lhs,
+          const std::pair<int64_t, Val*>& rhs) {
+        auto is_alias = [kernel](Val* out) -> bool {
+          const AllocationInfo* allocation = kernel->getOutputAllocation(out);
+          if (allocation == nullptr) {
+            return false;
+          }
+          return allocation->alias_of != nullptr;
+        };
+        return !is_alias(lhs.second) && is_alias(rhs.second);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
-    auto [aliased_io, alias_info] = kernel->getOutputAlias(out);
     at::Tensor out_tensor = allocateOutput(
-        output_info[out_index], aliased_io, alias_info, device, ee);
+        output_info[out_index], kernel->getOutputAllocation(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via

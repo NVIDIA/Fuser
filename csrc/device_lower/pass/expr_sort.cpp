@@ -1506,6 +1506,7 @@ void ExprSegmentationSorter::sort() {
   // Need this for initialization of the DAG that is processed
   std::unordered_map<Expr*, ExprGroup*> expr2group;
 
+  // FIXME
   // We skip generating code that computes only pointer-arithmetic outputs.
   // Those outputs will be computed by ExpressionEvaluator.
   std::vector<Val*> non_pointer_arithmetic_outs;
@@ -1515,9 +1516,10 @@ void ExprSegmentationSorter::sort() {
       fusion_->outputs().end(),
       std::back_inserter(non_pointer_arithmetic_outs),
       [this](Val* out) {
-        auto [in, alias_info] = fusion_->getOutputAlias(out);
-        return in == nullptr ||
-            alias_info->type != AliasType::PointerArithmetic;
+        const AllocationInfo* allocation_info =
+            fusion_->getOutputAllocation(out);
+        return allocation_info == nullptr ||
+            allocation_info->method == AllocationMethod::Evaluate;
       });
 
   // Not putting the exprs between fusion inputs and allKnownVals() here

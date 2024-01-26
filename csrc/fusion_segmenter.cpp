@@ -326,12 +326,15 @@ void SegmentedGroup::finalize() {
   insertUniquePredicated(
       output_vals, consumer_edges, [](Val* v) { return !v->isFusionOutput(); });
 
-  // alias aware segmentation. we add inputs that are aliased by output
+  // Alias aware segmentation. we add inputs that are aliased by output
   // generated in this SegmentedGroup
   for (Val* output : output_vals) {
-    if (Val* aliased_input =
-            segmented_fusion_->completeFusion()->getOutputAlias(output).first) {
-      // aliasing currently only supported as output to input
+    AllocationInfo* allocation_info =
+        segmented_fusion->completeFusion()->getOutputAllocation(output);
+    if (allocation_info != nullptr &&
+        allocation_info->method == AllocationMethod::InplaceUpdate) {
+      Val* aliased_input = allocation_info->aliased_io;
+      // In-place update aliasing currently only supported as output to input.
       NVF_ERROR(
           aliased_input->isFusionInput(),
           "Aliased input ",

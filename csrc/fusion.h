@@ -86,18 +86,19 @@ class FusionGuard {
 
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
-enum class AliasType : int {
+enum class AllocationMethod : int {
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
   // For example, the output of a ViewOp is merely a pointer arithmetic of the
   // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
   // cheaply compute the output tensor.
-  PointerArithmetic,
+  Evaluate,
 };
 
-struct AliasInfo {
-  AliasType type;
+struct AllocationInfo {
+  AllocationMethod method;
+  Val* aliased_io;
   // Whether integration should hide the output from users.
   bool hide_output;
 };
@@ -245,12 +246,13 @@ class Fusion : public IrContainer {
   // the input tensor to the section where output is produced. Currently,
   // aliases of type `PointerArithmetics` are marked after segmentation, but
   // those of type `InplaceUpdate` are marked in fusion definitions.
-  void aliasOutputToInput(Val* output, Val* input, AliasType type);
+  void aliasOutputToInput(Val* output, Val* input, AllocationMethod type);
 
+  // FIXME
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
-  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output) const;
+  const AllocationInfo* getOutputAllocation(Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -470,8 +472,9 @@ class Fusion : public IrContainer {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
+  // FIXME
   // io alias pointing from output to input
-  std::unordered_map<Val*, std::pair<Val*, AliasInfo>> io_alias_;
+  std::unordered_map<Val*, AllocationInfo> output_allocations_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation
