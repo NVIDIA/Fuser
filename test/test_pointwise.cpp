@@ -320,7 +320,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
   TensorView* tv1 = TensorViewBuilder()
                         .ndims(3)
                         .contiguity({true, true, true})
-			.strideOrder({1, 2, 0})
+    		.strideOrder({1, 2, 0})
                         .build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
