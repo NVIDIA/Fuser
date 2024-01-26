@@ -2147,6 +2147,73 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
+// Test that we convert some matmuls to two-kernel split-k i.e. bmm+sum
+TEST_F(MatmulSchedulerTest, TwoKernelSplitK) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  const int M = 128, N = 128, K = 128;
+
+  for (auto layout : kAllSupportedMmaLayout) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto tv2 = matmul(
+        tv0, tv1, layout, /*turing_or_later=*/true, /*as_mul_sum=*/false);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addOutput(tv2);
+
+    NVF_CHECK(
+        1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+        "matmul fusion must have at least one MmaOp");
+    NVF_CHECK(
+        ir_utils::getOpsOfType<MmaOp>(fusion.get())
+            .front()
+            ->layout()
+            .has_value(),
+        "input layout has not be set for MmaOp");
+    NVF_CHECK(
+        MmaLayout::TN ==
+            ir_utils::getOpsOfType<MmaOp>(fusion.get())
+                .front()
+                ->layout()
+                .value(),
+        "the MmaOp layout of Ampere MMA must always be TN");
+
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    NVF_CHECK(
+        fusion_layout.isValid(),
+        "failed to get decide matmul layout through fusion definition");
+    NVF_CHECK(
+        fusion_layout.getData() == layout,
+        "mismatch between test layout (",
+        toString(layout),
+        ") and layout inferred from fusion definition (",
+        toString(fusion_layout.getData()),
+        ")");
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    at::manual_seed(0);
+    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+    auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+    NVF_CHECK(
+        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+        "segmentation did happen");
+
+    // NOTE: increasted absolute tolerance to silence false negative
+    //  verification caused by different way of calculating reference
+    NVF_CHECK(outputs[0].allclose(t2, 0.0001, 0.0001));
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
