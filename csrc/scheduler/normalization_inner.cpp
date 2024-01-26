@@ -176,6 +176,69 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 }
 
 namespace {
+int64_t estimateRegPerThread(
+    const int64_t persistent_buffer_size,
+    const int64_t threads_per_block) {
+  // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
+  // register_used_on_a100  = 27,  40,  62,   73,   105
+  // register_used_on_v100  = xx,  xx,  45,   62,   93
+  // estimated_register_num = 42,  44,  56,   72,   104
+  // safe for both v100 & a100
+  constexpr int64_t bytes_per_register = 4;
+  int64_t estimated_register_count =
+      persistent_buffer_size / bytes_per_register +
+      scheduler_utils::register_overhead;
+
+  const int64_t blocks_per_sm_estimated =
+      getThreadsPerSMGivenRegPerThread(estimated_register_count) /
+      threads_per_block;
+  // only allow adjust to 90% of estimated_register_count to avoid too much
+  // spills. initially we used 80%, however, the drop from 160 to 128 leads to
+  // too much spills in Layer Norm with fused ops, see
+  // https://github.com/NVIDIA/Fuser/issues/335
+  // 90% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
+  // where batch = 8. With this change, however, we lost 10 % performance on
+  // Softmax_Inner_fp16/16384/4096, where the perf is best when using 64
+  // registers with 232 bytes spill stores and 276 bytes spill loads. The
+  // estimated register for this case is 104 adjusting it to 64 is too
+  // aggressive.
+  constexpr double max_adjust_fraction = 0.9;
+  int64_t register_count_minimum = static_cast<int64_t>(
+      max_adjust_fraction * static_cast<double>(estimated_register_count));
+  const int64_t blocks_per_sm_maximum =
+      getThreadsPerSMGivenRegPerThread(register_count_minimum) /
+      threads_per_block;
+  register_count_minimum = getRegPerThreadGivenThreadsPerSM(
+      blocks_per_sm_maximum * threads_per_block);
+
+  // minimum occupancy we want to achieve
+  constexpr double occupancy_ratio = 0.4;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t blocks_per_sm_wanted = ceilDiv(
+      static_cast<int64_t>(
+          dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
+      threads_per_block);
+
+  // if estimated blocks is smaller than wanted and decrease register usage
+  // can increase blocks per sm, try to decrease register usage to increase
+  // occupancy but don't go below register_count_minimum
+  int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
+  if (blocks_per_sm_estimated < blocks_per_sm_wanted &&
+      blocks_per_sm_maximum > blocks_per_sm_estimated) {
+    const int64_t register_count_occupancy = getRegPerThreadGivenThreadsPerSM(
+        blocks_per_sm_wanted * threads_per_block);
+
+    nvrtc_register_per_thread =
+        std::max(register_count_minimum, register_count_occupancy);
+  } else {
+    // recalculate estimated_register_count using blocks_per_sm_estimated
+    // this may increase estimated_register_count due to allocation
+    // granularity e.g. 104 -> 128
+    nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
+        blocks_per_sm_estimated * threads_per_block);
+  }
+  return nvrtc_register_per_thread;
+}
 
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
     const int64_t total_reduction_numel,
@@ -647,66 +710,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t persistent_buffer_size = max_persistent_buffer_size /
         inner_most_dimension_numel * batches_per_block_inner_reduction *
         inner_reduction_unroll_factor;
-
-    // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
-    // register_used_on_a100  = 27,  40,  62,   73,   105
-    // register_used_on_v100  = xx,  xx,  45,   62,   93
-    // estimated_register_num = 42,  44,  56,   72,   104
-    // safe for both v100 & a100
-    constexpr int64_t bytes_per_register = 4;
-    int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register +
-        scheduler_utils::register_overhead;
-
-    // check occupancy using blocks per sm
     const int64_t threads_per_block =
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
-    const int64_t blocks_per_sm_estimated =
-        getThreadsPerSMGivenRegPerThread(estimated_register_count) /
-        threads_per_block;
-    // only allow adjust to 90% of estimated_register_count to avoid too much
-    // spills. initially we used 80%, however, the drop from 160 to 128 leads to
-    // too much spills in Layer Norm with fused ops, see
-    // https://github.com/NVIDIA/Fuser/issues/335
-    // 90% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
-    // where batch = 8. With this change, however, we lost 10 % performance on
-    // Softmax_Inner_fp16/16384/4096, where the perf is best when using 64
-    // registers with 232 bytes spill stores and 276 bytes spill loads. The
-    // estimated register for this case is 104 adjusting it to 64 is too
-    // aggressive.
-    constexpr double max_adjust_fraction = 0.9;
-    int64_t register_count_minimum = static_cast<int64_t>(
-        max_adjust_fraction * static_cast<double>(estimated_register_count));
-    const int64_t blocks_per_sm_maximum =
-        getThreadsPerSMGivenRegPerThread(register_count_minimum) /
-        threads_per_block;
-    register_count_minimum = getRegPerThreadGivenThreadsPerSM(
-        blocks_per_sm_maximum * threads_per_block);
-
-    // minimum occupancy we want to achieve
-    constexpr double occupancy_ratio = 0.4;
-    const int64_t blocks_per_sm_wanted = ceilDiv(
-        static_cast<int64_t>(
-            dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
-        threads_per_block);
-
-    // if estimated blocks is smaller than wanted and decrease register usage
-    // can increase blocks per sm, try to decrease register usage to increase
-    // occupancy but don't go below register_count_minimum
-    if (blocks_per_sm_estimated < blocks_per_sm_wanted &&
-        blocks_per_sm_maximum > blocks_per_sm_estimated) {
-      const int64_t register_count_occupancy = getRegPerThreadGivenThreadsPerSM(
-          blocks_per_sm_wanted * threads_per_block);
-
-      nvrtc_register_per_thread =
-          std::max(register_count_minimum, register_count_occupancy);
-    } else {
-      // recalculate estimated_register_count using blocks_per_sm_estimated
-      // this may increase estimated_register_count due to allocation
-      // granularity e.g. 104 -> 128
-      nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
-          blocks_per_sm_estimated * threads_per_block);
-    }
+    nvrtc_register_per_thread =
+        estimateRegPerThread(persistent_buffer_size, threads_per_block);
   }
 
   // Will be used once supporting inter-block persistence
