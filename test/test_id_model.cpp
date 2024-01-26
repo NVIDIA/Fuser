@@ -509,4 +509,63 @@ TEST_F(IdModelTest, LoopGraphRootResolution6) {
   }
 }
 
+// Same fusion as NvFuserTest.FusionInlineBroadcastIndexing0
+TEST_F(IdModelTest, LoopGraphRootResolution7) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+  tv4->split(0, 32);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv2->inlineAt(1);
+  tv3->inlineAt(1);
+
+  tv2->split(-1, 8);
+
+  auto all_tvs = ir_utils::allTvs(&fusion);
+
+  IdModelTester tester(&fusion);
+  const auto& [iel_graph, root_resolution_map] =
+      tester.getInlineRootResolutionMap();
+
+  // Verify all tensors with broadcast have correct resolution of root
+  // broadcast domains
+  for (auto tv : all_tvs) {
+    // Skip tensors with no broadcast or non-inlined
+    if (std::none_of(
+            tv->getRootDomain().begin(),
+            tv->getRootDomain().end(),
+            [](auto id) { return id->isBroadcast(); }) ||
+        tv->getComputeAtPosition() == 0) {
+      continue;
+    }
+
+    switch (tv->name()) {
+      case 3:
+        // T3_l[ iS15{( ceilDiv(( 1 * i0 ), 32) )}, iS16{32} ] ca_pos( 1 )
+        // produce_pos( 1 ) root domain : (bS4{1}, iS5{i0})
+        validateResolution(
+            tv->getRootDomain().at(0),
+            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            iel_graph,
+            root_resolution_map);
+        break;
+      default:
+        FAIL() << "Unexpected tensor: " << tv->toString();
+    }
+  }
+}
+
 } // namespace nvfuser
