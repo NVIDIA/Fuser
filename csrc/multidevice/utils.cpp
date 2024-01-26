@@ -47,7 +47,7 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 
 } // namespace
 
-std::unordered_set<TensorView*> haveDifferentSharding(
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     std::unordered_set<TensorView*> tvs) {
   std::unordered_set<TensorView*> ret;
@@ -96,7 +96,7 @@ bool isResharding(Expr* expr) {
   }
   auto tv_ref = *tvs.begin();
   tvs.erase(tv_ref);
-  return !haveDifferentSharding(tv_ref, tvs).empty();
+  return !getTvsWithDifferentSharding(tv_ref, tvs).empty();
 }
 
 namespace {
@@ -129,7 +129,7 @@ void reshardBefore(Expr* expr, Fusion* fusion) {
       });
   std::vector<TensorView*> new_inputs;
   // if the expr is not resharding, the following for loop is empty
-  for (auto input : haveDifferentSharding(output, inputs)) {
+  for (auto input : getTvsWithDifferentSharding(output, inputs)) {
     // TODO: reuse cacheAfter?
     // TODO: here we should add a mechanism to potentially reuse the inserted
     // resharding accross all the consumer of the resharded tensor. This way we
