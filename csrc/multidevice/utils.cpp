@@ -132,11 +132,11 @@ void insertReshardings(Fusion* fusion) {
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::vector<TensorView*> new_inputs;
     for (auto input : getTvsWithDifferentSharding(
-            output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
+             output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
       // TODO: reuse cacheAfter?
       // TODO: here we should add a mechanism to potentially reuse the inserted
-      // resharding accross all the consumer of the resharded tensor. This way we
-      // could avoid wasteful resharding set insertion.
+      // resharding accross all the consumer of the resharded tensor. This way
+      // we could avoid wasteful resharding set insertion.
       TensorView* new_input = set(input);
       new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
