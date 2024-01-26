@@ -307,7 +307,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t max_persistent_buffer_size,
     const size_t vectorize_factor,
     const bool project_to_input,
-    const PrimDataType index_type) {
+    const PrimDataType index_type,
+    const bool has_rng_op,
+    const bool has_exp_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -699,13 +701,25 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         inner_reduction_unroll_factor;
     const int64_t threads_per_block =
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
-    // call estimateRegPerThread with 3 free parameters:
-    // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
-    // register_used_on_a100  = 27,  40,  62,   73,   105
-    // register_used_on_v100  = xx,  xx,  45,   62,   93
-    // estimated_register_num = 42,  44,  56,   72,   104
-    // safe for both v100 & a100
-    const int64_t register_overhead = 40;
+
+    // estimateRegPerThread needs additional 3 free parameters.
+    // These parameters should be optimzied based on the actual fusion.
+    // currently, ops considered are: rng and exp.
+    // A typical positive case is layer_norm with fused dropout, which has rng
+    // but no exp op.
+    // A typical negative case is softmax with fused dropout, which has both rng
+    // and exp.
+    bool is_has_rng_no_exp = has_rng_op && !has_exp_op;
+
+    // (1) register overhead
+    // (1.1) based on layer_norm fused with dropout on A100 & H100
+    //       24 is the best estimate (16 and 32 are also good values).
+    // (1.2) based on layer_norm on V100 & A100 & H100, 40 is a good estimate
+    //       if not fused with dropout.
+    const int64_t register_overhead = is_has_rng_no_exp ? 24l : 40l;
+
+    // TODO: revise max_adjust_fraction & target_occupancy
+    // (2) adjust register usage if occupancy ratio is lower than target
     // only allow adjust to 90% of estimated_register_count to avoid too much
     // spills. initially we used 80%, however, the drop from 160 to 128 leads to
     // too much spills in Layer Norm with fused ops, see
@@ -717,8 +731,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // estimated register for this case is 104 adjusting it to 64 is too
     // aggressive.
     const double max_adjust_fraction = 0.9;
-    // target occupancy
+
+    // (3) target occupancy
     const double target_occupancy = 0.4;
+
     nvrtc_register_per_thread = estimateRegPerThread(
         persistent_buffer_size,
         threads_per_block,
@@ -835,7 +851,9 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.max_persistent_buffer_size,
       prop.vectorize_factor,
       prop.project_persistent_buffers,
-      prop.index_type);
+      prop.index_type,
+      prop.has_rng_op,
+      prop.has_exp_op);
   return rparams;
 }
 
