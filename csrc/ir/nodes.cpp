@@ -1309,8 +1309,6 @@ SqueezeOp::SqueezeOp(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      NVF_ERROR(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
