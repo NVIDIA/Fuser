@@ -1389,7 +1389,7 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
 // properly.
 // See https://github.com/NVIDIA/Fuser/issues/1667
 TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
