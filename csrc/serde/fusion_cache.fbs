@@ -291,13 +291,7 @@ table String {
 // Data for Scalar
 table Scalar {
   dtype: long;
-  has_value: bool;
-  value_type: long;
-  bool_value: bool;
-  long_value: long;
-  double_value: double;
-  real_value: double;
-  imag_value: double;
+  value: PolymorphicValue;
 }
 
 // =====================================================================================

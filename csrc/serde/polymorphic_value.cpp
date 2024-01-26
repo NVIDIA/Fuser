@@ -281,27 +281,7 @@ nvf::PolymorphicValue deserializeLong(const PolymorphicValue* buffer) {
 
 nvf::PolymorphicValue makeScalar(const Scalar* c) {
   NVF_CHECK(c != nullptr, "serde::Scalar is nullptr.");
-  if (!c->has_value()) {
-    return {};
-  }
-  switch (mapToNvfuserDtype(c->value_type())) {
-    case nvf::PrimDataType::Bool: {
-      return nvf::PolymorphicValue(c->bool_value());
-    }
-    case nvf::PrimDataType::ComplexDouble: {
-      return nvf::PolymorphicValue(
-          std::complex<double>(c->real_value(), c->imag_value()));
-    }
-    case nvf::PrimDataType::Double: {
-      return nvf::PolymorphicValue(c->double_value());
-    }
-    case nvf::PrimDataType::Int: {
-      return nvf::PolymorphicValue(c->long_value());
-    }
-    default:
-      NVF_ERROR(
-          false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
-  }
+  return deserializePolymorphicValue(c->value());
 }
 
 template <typename T>
@@ -763,35 +743,10 @@ flatbuffers::Offset<Scalar> serializeScalarRecord(
     flatbuffers::FlatBufferBuilder& builder,
     const nvf::PolymorphicValue& v,
     nvf::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(toUnderlying(std::get<nvf::PrimDataType>(t.type)));
-  if (v.is<std::monostate>()) {
-    builder_.add_has_value(false);
-    return builder_.Finish();
-  } else if (v.is<double>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Double));
-    builder_.add_double_value(v.as<double>());
-    return builder_.Finish();
-  } else if (v.is<int64_t>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Int));
-    builder_.add_long_value(v.as<int64_t>());
-    return builder_.Finish();
-  } else if (v.is<bool>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Bool));
-    builder_.add_bool_value(v.as<bool>());
-    return builder_.Finish();
-  } else if (v.is<std::complex<double>>()) {
-    builder_.add_has_value(true);
-    auto c = v.as<std::complex<double>>();
-    builder_.add_value_type(toUnderlying(nvf::PrimDataType::ComplexDouble));
-    builder_.add_real_value(std::real(c));
-    builder_.add_imag_value(std::imag(c));
-    return builder_.Finish();
-  }
-  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to Scalar.");
+  return serde::CreateScalar(
+      builder,
+      toUnderlying(std::get<nvf::PrimDataType>(t.type)),
+      serializeBasicPolymorphicValue(builder, v));
 }
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
