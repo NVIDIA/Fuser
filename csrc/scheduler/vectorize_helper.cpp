@@ -486,7 +486,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   }
 
   std::vector<IterDomain*> producer_rfactor_ids;
-  for (auto i : c10::irange(from_ids.size())) {
+  for (int64_t i : c10::irange(from_ids.size())) {
     if (i < clear_pos) {
       continue;
     }
