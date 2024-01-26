@@ -1079,6 +1079,7 @@ TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
   at::Tensor t2 = at::randn({128, 65}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
+  // Make a copy of `t0` because `t0` will be in-place updated.
   at::Tensor original_t0 = t0.clone();
   std::vector<at::Tensor> outputs =
       executor_cache.runFusionWithInputs({t0, t1, t2});
