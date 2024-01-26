@@ -1354,12 +1354,20 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
   NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
+  at::Tensor out = in;
   for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
-    if (!is_squeeze_dims[i]) {
+    if (is_squeeze_dims[i]) {
+      if (in.stride(i) == 0) {
+        // If the input dimension is expanded in this dimension, undo the expand
+        // by slicing. This ensures that any broadcast dimensions will be
+        // unexpanded when we do the final call to view()
+        out = out.slice(i, 0, 1);
+      }
+    } else {
       out_shape.push_back(in.sizes()[i]);
     }
   }
-  return {in.view(out_shape)};
+  return {out.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
