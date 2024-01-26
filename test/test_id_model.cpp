@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <test/utils.h>
+#include <test/validator.h>
 
 #include <fusion.h>
 #include <id_model/id_model.h>
@@ -67,7 +68,7 @@ class IdModelTester : public IdModel {
         idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
     std::unordered_map<ValGroup, IterDomain*> root_promotion_map =
-        buildInlineRootResolutionmap(iel_graph, inlining_info);
+        buildInlineRootResolutionMap(iel_graph, inlining_info);
 
     return {std::move(iel_graph), std::move(root_promotion_map)};
   }
@@ -101,11 +102,50 @@ void validateResolution(
   }
 }
 
+// Create a simple fusion with outer split. Currently invalid code
+// will be generated.
+//
+// Used as Example 1 in the design doc about Loop
+// Promotion Analysis.
+std::unique_ptr<Fusion> createFusionWithInlinedOuterSplit() {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  // [i0, i1]
+  tv4->merge(0);
+  // [i0*i1]
+  tv4->split(0, 4, false); // outer split
+  // [4, i0*i1/4]
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  for (auto tv: ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(-2);
+  }
+
+  return fusion_ptr;
+}
+
 // Create a fusion where we're missing a valid concrete id so the compute at map
 // processing will fail. We need to be able to create the concrete ID not just
 // look for one. It is not yet possible to lower this fusion as the
 // current indexing cannot generate correct indices. Also used in
-// FusionIndeixing19
+// FusionIndeixing19 as well as Example 2 in the design doc about Loop
+// Promotion Analysis.
 std::unique_ptr<Fusion> createFusionWithMultipleResolutionPaths() {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -286,8 +326,9 @@ TEST_F(IdModelTest, LoopGraphRootResolution3) {
       tv2->getRootDomain().at(3), nullptr, iel_graph, root_resolution_map);
 }
 
+// Test root resolution with a fusion with outer split
 TEST_F(IdModelTest, LoopGraphRootResolution4) {
-  auto fusion = createFusionWithMultipleResolutionPaths();
+  auto fusion = createFusionWithInlinedOuterSplit();
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
   fusion->print();
@@ -299,13 +340,51 @@ TEST_F(IdModelTest, LoopGraphRootResolution4) {
   // Verify all tensors with broadcast have correct resolution of root
   // broadcast domains
   for (auto tv : ir_utils::allTvs(fusion.get())) {
-    // Skip tensors with no broadcast
+    // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
             tv->getRootDomain().begin(),
             tv->getRootDomain().end(),
-            [](auto id) { return id->isBroadcast(); })) {
+            [](auto id) { return id->isBroadcast(); }) ||
+        tv->getComputeAtPosition() == 0) {
       continue;
     }
+
+    switch (tv->name()) {
+      case 2:
+        // T2_l[ iS20{4}, iS21{( ceilDiv(( 1 * 4 ), 4) )} ] ca_pos( 1 )
+        //  root domain : (bS4{1}, iS5{4})
+        validateResolution(
+            tv->getRootDomain().at(0),
+            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            iel_graph,
+            root_resolution_map);
+        break;
+      default:
+        FAIL() << "Unexpected tensor: " << tv->toString();
+    }
+  }
+}
+
+TEST_F(IdModelTest, LoopGraphRootResolution5) {
+  auto fusion = createFusionWithMultipleResolutionPaths();
+  auto all_tvs = ir_utils::allTvs(fusion.get());
+
+  IdModelTester tester(fusion.get());
+  const auto& [iel_graph, root_resolution_map] =
+      tester.getInlineRootResolutionMap();
+
+  // Verify all tensors with broadcast have correct resolution of root
+  // broadcast domains
+  for (auto tv : ir_utils::allTvs(fusion.get())) {
+    // Skip tensors with no broadcast or non-inlined
+    if (std::none_of(
+            tv->getRootDomain().begin(),
+            tv->getRootDomain().end(),
+            [](auto id) { return id->isBroadcast(); }) ||
+        tv->getComputeAtPosition() == 0) {
+      continue;
+    }
+
 
     switch (tv->name()) {
       case 2:
