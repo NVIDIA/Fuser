@@ -673,4 +673,59 @@ TEST_F(ExprEvalTest, SumDiv) {
   evaluator.evaluate(out);
 }
 
+TEST_F(ExprEvalTest, MmaOp) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<MmaLayout> all_mma_layouts{
+      MmaLayout::NT, MmaLayout::NN, MmaLayout::TT, MmaLayout::TN};
+
+  for (auto layout : all_mma_layouts) {
+    bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
+    bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
+
+    int64_t M = 2, K = 3, N = 4;
+    std::vector<int64_t> A_shape{M, K}, B_shape{N, K};
+
+    if (transpose_a) {
+      std::swap(A_shape[0], A_shape[1]);
+    }
+    if (transpose_b) {
+      std::swap(B_shape[0], B_shape[1]);
+    }
+
+    auto tv0 = makeConcreteTensor(A_shape, DataType::Half);
+    auto tv1 = makeConcreteTensor(B_shape, DataType::Half);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    // [M, K]
+    if (transpose_a) {
+      tv0 = transpose(tv0, 0, 1);
+    }
+
+    // [N, K]
+    if (transpose_b) {
+      tv1 = transpose(tv1, 0, 1);
+    }
+
+    // [M, N, K]
+    auto tv0b = broadcast(tv0, {false, true, false});
+    auto tv1b = broadcast(tv1, {true, false, false});
+
+    auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+    fusion.addOutput(tv2);
+
+    at::Tensor in_a = at::ones({M, K}, at::kHalf).cuda();
+    at::Tensor in_b = at::ones({N, K}, at::kHalf).cuda();
+    at::Tensor out_ref = K * at::ones({M, N}, at::kHalf).cuda();
+
+    ExpressionEvaluator evaluator;
+    evaluator.bind(tv0, in_a);
+    evaluator.bind(tv1, in_b);
+    at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
+    NVF_CHECK(out_ref.equal(out));
+  }
+}
 } // namespace nvfuser

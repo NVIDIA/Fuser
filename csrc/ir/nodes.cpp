@@ -2066,41 +2066,26 @@ void MmaOp::setMacro(MmaMacro macro) {
 std::vector<PolymorphicValue> MmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& a = inputs.at(0).as<at::Tensor>();
-  const auto& b = inputs.at(1).as<at::Tensor>();
-  MmaLayout mma_layout = layout().value();
+  // MmaOp is preceded by broadcast. For aten::matmul use the non-broadcasted
+  // inputs.
+  const auto& a =
+      ee.evaluate(input(0)->definition()->input(0)).as<at::Tensor>();
+  const auto& b =
+      ee.evaluate(input(1)->definition()->input(0)).as<at::Tensor>();
 
   NVF_CHECK(
       a.dim() == b.dim(), "Either both or none of A and B should be batch");
   NVF_CHECK(
       a.dim() == 2 || a.dim() == 3,
       "Must have either zero or one batch dimensions");
+
+  // The inputs to broadcast will be in the TN format.
+  // (M, B, K) x (N, B, K) or (M, K) x (N, K).
+  // Transpose them to aten::matmul format.
   if (a.dim() == 3) { // bmm
-    switch (mma_layout) {
-      case MmaLayout::TT:
-        return {a.transpose(0, 1).matmul(b)};
-      case MmaLayout::TN:
-        return {a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2))};
-      case MmaLayout::NT:
-        return {a.transpose(1, 2).matmul(b)};
-      case MmaLayout::NN:
-        return {a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2))};
-      default:
-        NVF_CHECK(false, "Unsupported data layout.");
-    }
+    return {a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2))};
   } else {
-    switch (mma_layout) {
-      case MmaLayout::TT:
-        return {a.matmul(b)};
-      case MmaLayout::TN:
-        return {a.matmul(b.t())};
-      case MmaLayout::NT:
-        return {a.t().matmul(b)};
-      case MmaLayout::NN:
-        return {a.t().matmul(b.t())};
-      default:
-        NVF_CHECK(false, "Unsupported data layout.");
-    }
+    return {a.matmul(b.t())};
   }
 }
 
