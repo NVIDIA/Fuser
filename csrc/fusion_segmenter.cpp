@@ -1866,6 +1866,15 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
     SchedulerRuntimeInfo& runtime_info) {
+  if (MatmulScheduler::maybeRewriteForTwoKernelSplitK(
+          fusion.get(), runtime_info)) {
+    if (C10_UNLIKELY(isDebugDumpEnabled(DebugDumpOption::FusionSegmenterLog))) {
+      debug()
+          << "***Runtime***: Translated mm to bmm+sum for two-kernel split-K. New complete fusion:\n";
+      fusion->printMath();
+    }
+  }
+
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
         "***Runtime***: Try to schedule fusion un-segmented:\n");

@@ -37,6 +37,12 @@ class MatmulScheduler : public SchedulerEntry {
     return ScheduleHeuristic::Matmul;
   }
 
+  //! Possibly transforms MmaOp by rfactoring to mma+sum, depending on problem
+  //! size. Returns whether any translations were performed.
+  static bool maybeRewriteForTwoKernelSplitK(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info);
+
  private:
   void computeHeuristics(
       Fusion* fusion,

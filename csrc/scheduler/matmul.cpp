@@ -1154,4 +1154,54 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 }
 
+bool MatmulScheduler::maybeRewriteForTwoKernelSplitK(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info) {
+  bool modified = false;
+
+  for (Expr* expr : fusion->exprs()) {
+    if (auto mma = dynamic_cast<MmaOp*>(expr)) {
+      auto A = mma->inA()->as<TensorView>();
+      auto B = mma->inB()->as<TensorView>();
+      auto out = mma->out()->as<TensorView>();
+      const mma_utils::ProblemIterDomainsOpt ids_opt =
+          mma_utils::getProblemIterDomains({A, B, out});
+      NVF_ERROR(ids_opt.isValid());
+      const mma_utils::ProblemIterDomains ids = ids_opt.getData();
+      // IterDomains in out leaf corresponding to M, N, K
+      const IterDomain* m_id = ids[(size_t)MatmulDomain::M];
+      const IterDomain* n_id = ids[(size_t)MatmulDomain::N];
+      const IterDomain* k_id = ids[(size_t)MatmulDomain::K];
+      const int64_t m = runtime_info.expressionEvaluator()
+                            .evaluate(m_id->extent())
+                            .as<int64_t>();
+      const int64_t n = runtime_info.expressionEvaluator()
+                            .evaluate(n_id->extent())
+                            .as<int64_t>();
+      const int64_t k = runtime_info.expressionEvaluator()
+                            .evaluate(k_id->extent())
+                            .as<int64_t>();
+
+      // TODO: replace this simple condition with heuristic
+      const int two_kernel_splitk_factor =
+          m == 128 && n == 128 && k == 128 ? 3 : 1;
+
+      if (two_kernel_splitk_factor > 1) {
+        // Split the K dimension. Note that this is a non-divisible split.
+        int k_pos = -1;
+        for (auto i : c10::irange(out->getLeafDomain().size())) {
+          if (out->axis((int)i) == k_id) {
+            k_pos = i;
+          }
+        }
+        NVF_ERROR(k_pos >= 0);
+        out->split(k_pos, two_kernel_splitk_factor, /*inner*/ false);
+        out->rFactor({k_pos + 1})->cacheAfter(LoadStoreOpType::SegmenterSet);
+      }
+      modified = true;
+    }
+  }
+  return modified;
+}
+
 } // namespace nvfuser
