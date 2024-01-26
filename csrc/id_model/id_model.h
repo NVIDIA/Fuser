@@ -190,7 +190,7 @@ class IdModel : public PolymorphicBase {
   // Helper function for buildLoopPromotionMap. Returns a map of
   // root broadcast ValGroups in the IEL graph to a representative
   // IterDomain picked from its IEL group.
-  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionmap(
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionMap(
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 

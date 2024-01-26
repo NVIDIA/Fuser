@@ -701,7 +701,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // Step 1: Build a map of the IEL groups of root broadcast domains
   // to resolving domains.
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
-      buildInlineRootResolutionmap(iel_graph, inlining_info);
+      buildInlineRootResolutionMap(iel_graph, inlining_info);
 
   // This is not a right map to return but just a placeholder since
   // the loop promotion map is not yet completely merged. It will be
@@ -709,7 +709,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   return iel_promotion_map;
 }
 
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionmap(
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
     const ValGraph& iel_graph,
     const StatefulInliningInfo& info) {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
