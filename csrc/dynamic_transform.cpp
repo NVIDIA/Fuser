@@ -600,6 +600,13 @@ void DynamicTransformConcretizer::concretize() {
     }
     OptOutMutator::dispatchMutate(stmt);
   }
+
+  for (Val* outp : info_->fusion()->outputs()) {
+    Val* new_outp = maybeMutated(outp);
+    if (new_outp != outp) {
+      info_->fusion()->replaceOutput(outp, new_outp);
+    }
+  }
 }
 
 void DynamicTransformConcretizer::concretizeEmptyExtents() {
@@ -980,13 +987,6 @@ static bool hasTrivialReduction(
 // Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
 // reductions.
 void DynamicTransformConcretizer::mutate(Expr* expr) {
-  const auto mutateAndReplaceInOutputs = [this](Val* old_val, Val* new_val) {
-    registerMutation(old_val, new_val);
-    if (old_val->isFusionOutput()) {
-      old_val->fusion()->replaceOutput(old_val, new_val);
-    }
-  };
-
   if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
     auto* in = rop->in()->as<TensorView>();
     auto* orig_out = rop->out()->as<TensorView>();
@@ -1005,7 +1005,7 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
           in,
           /*keep_dim=*/false,
           orig_out->dtype());
-      mutateAndReplaceInOutputs(orig_out, new_out);
+      registerConcretization(orig_out, new_out);
     }
   } else if (WelfordOp* wop = dynamic_cast<WelfordOp*>(expr); wop) {
     auto in = wop->in()->as<TensorView>();
@@ -1025,9 +1025,9 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
           dynamic_cast<TensorView*>(wop->initAvg()),
           dynamic_cast<TensorView*>(wop->initVar()),
           wop->initN());
-      mutateAndReplaceInOutputs(orig_avg, new_result.avg);
-      mutateAndReplaceInOutputs(wop->outVar(), new_result.var_sum);
-      mutateAndReplaceInOutputs(wop->outN(), new_result.n);
+      registerConcretization(orig_avg, new_result.avg);
+      registerConcretization(wop->outVar(), new_result.var_sum);
+      registerConcretization(wop->outN(), new_result.n);
     }
   }
   OptOutMutator::mutate(expr);
