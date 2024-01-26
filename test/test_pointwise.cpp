@@ -206,7 +206,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
 // broadcast IterDomain on tv1, which is tricky for vectorization analysis to
 // figure out which axes should be excluded from the computation of
 // vectorization factor.
-TEST_F(PointwiseTest, VectorizeAllocationDomainIssue1567) {
+TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -240,7 +240,7 @@ TEST_F(PointwiseTest, VectorizeAllocationDomainIssue1567) {
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizationFactorAnalysisCase0) {
+TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -277,7 +277,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase0) {
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizationFactorAnalysisCase1) {
+TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -307,7 +307,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase1) {
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
+TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -339,7 +339,7 @@ TEST_F(PointwiseTest, VectorizationFactorAnalysisCase2) {
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizationFactorAnalysisCase3) {
+TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
