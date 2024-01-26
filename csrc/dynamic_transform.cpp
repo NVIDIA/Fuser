@@ -946,6 +946,37 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   registerConcretization(td, mutated_val);
 }
 
+//! Returns whether a reduction has any trivial partial reductions. Modifies
+//! reduction_axes in place to insert indices of non-trivial reduction axes,
+//! relative to squeezed input.
+static bool hasTrivialReduction(
+    TensorView* in,
+    TensorView* out,
+    std::vector<int>& reduction_axes) {
+  bool has_trivial_reduction = false;
+  PairwiseRootDomainMap p2c_map(in, out);
+  // We need to map broadcasts in order to detect reductions of broadcasts
+  p2c_map.mapBroadcast(true);
+  auto p2c = p2c_map.mapProducerToConsumer();
+  auto pos = 0;
+  for (IterDomain* in_id :
+       TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
+    auto out_it = p2c.find(in_id);
+    if (out_it == p2c.end()) {
+      continue;
+    }
+    IterDomain* out_id = out_it->second;
+    if (out_id->isReduction()) {
+      reduction_axes.push_back((int)pos);
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+    ++pos;
+  }
+  return has_trivial_reduction;
+}
+
 // Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
 // reductions.
 void DynamicTransformConcretizer::mutate(Expr* expr) {
@@ -957,25 +988,10 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
   };
 
   if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
-    auto in = rop->in()->as<TensorView>();
-    auto orig_out = rop->out()->as<TensorView>();
-    const std::vector<IterDomain*> in_rfactor =
-        TensorDomain::noReductions(in->getMaybeRFactorDomain());
-    const std::vector<IterDomain*>& orig_out_root = orig_out->getRootDomain();
-    NVF_ERROR(in_rfactor.size() == orig_out_root.size());
-    bool has_trivial_reduction = false;
+    auto* in = rop->in()->as<TensorView>();
+    auto* orig_out = rop->out()->as<TensorView>();
     std::vector<int> reduction_axes;
-    for (size_t i : c10::irange(in_rfactor.size())) {
-      if (!orig_out_root[i]->isReduction()) {
-        continue;
-      }
-      reduction_axes.push_back((int)i);
-      IterDomain* in_id = in_rfactor[i];
-      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
-        has_trivial_reduction = true;
-      }
-    }
-    if (has_trivial_reduction) {
+    if (hasTrivialReduction(in, orig_out, reduction_axes)) {
       // There is at least one trivial reduction that should be squeezed. Use
       // binaryOp to ensure this is done exactly as it is in a non-dynamic
       // fusion
@@ -995,32 +1011,19 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
     auto in = wop->in()->as<TensorView>();
     auto orig_avg = wop->outAvg()->as<TensorView>();
 
-    const std::vector<IterDomain*> in_rfactor =
-        TensorDomain::noReductions(in->getMaybeRFactorDomain());
-    const std::vector<IterDomain*>& orig_avg_root = orig_avg->getRootDomain();
-
-    NVF_ERROR(in_rfactor.size() == orig_avg_root.size());
-    bool has_trivial_reduction = false;
     std::vector<int> reduction_axes;
-    for (size_t i : c10::irange(in_rfactor.size())) {
-      if (!orig_avg_root[i]->isReduction()) {
-        continue;
-      }
-      reduction_axes.push_back((int)i);
-      IterDomain* in_id = in_rfactor[i];
-      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
-        has_trivial_reduction = true;
-      }
-    }
-    if (has_trivial_reduction) {
-      // There is at least one trivial reduction that should be squeezed. Use
-      // Welford to ensure this is done exactly as it is in a non-dynamic fusion
+    if (hasTrivialReduction(in, orig_avg, reduction_axes)) {
+      // Use Welford to ensure this is done exactly as it is in a non-dynamic
+      // fusion
       WelfordResult new_result = Welford(
           in,
           reduction_axes,
-          // init values should always be non-null
-          wop->initAvg()->as<TensorView>(),
-          wop->initVar()->as<TensorView>(),
+          // For avg and variance to be default initialized, they should be
+          // given as nullptr. In that case, this constructor actually sets them
+          // as a scalar 0. Here we use that to detect whether they are
+          // initialized or not.
+          dynamic_cast<TensorView*>(wop->initAvg()),
+          dynamic_cast<TensorView*>(wop->initVar()),
           wop->initN());
       mutateAndReplaceInOutputs(orig_avg, new_result.avg);
       mutateAndReplaceInOutputs(wop->outVar(), new_result.var_sum);
