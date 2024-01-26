@@ -2066,26 +2066,24 @@ void MmaOp::setMacro(MmaMacro macro) {
 std::vector<PolymorphicValue> MmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // MmaOp is preceded by broadcast. For aten::matmul use the non-broadcasted
-  // inputs.
-  const auto& a =
-      ee.evaluate(input(0)->definition()->input(0)).as<at::Tensor>();
-  const auto& b =
-      ee.evaluate(input(1)->definition()->input(0)).as<at::Tensor>();
-
+  auto& a = inputs.at(0).as<at::Tensor>();
+  auto& b = inputs.at(1).as<at::Tensor>();
   NVF_CHECK(
       a.dim() == b.dim(), "Either both or none of A and B should be batch");
   NVF_CHECK(
       a.dim() == 2 || a.dim() == 3,
       "Must have either zero or one batch dimensions");
 
-  // The inputs to broadcast will be in the TN format.
-  // (M, B, K) x (N, B, K) or (M, K) x (N, K).
+  // Squeeze the inputs to remove the broadcasted dimensions.
+  auto in_a = a.squeeze(-1);
+  auto in_b = b.squeeze(0);
+
+  // fusedMultiplySum assumes [B, M, K] [B, N, K]
   // Transpose them to aten::matmul format.
-  if (a.dim() == 3) { // bmm
-    return {a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2))};
+  if (in_a.dim() == 3) { // bmm
+    return {in_a.transpose(0, 1).matmul(in_b.transpose(0, 1).transpose(1, 2))};
   } else {
-    return {a.matmul(b.t())};
+    return {in_a.matmul(in_b.t())};
   }
 }
 
