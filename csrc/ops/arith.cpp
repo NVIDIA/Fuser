@@ -1299,17 +1299,20 @@ TensorView* reductionOp(
   //   Add -> multiplication by i0
   //   Mul -> raise to power i0
   //   Min/Max -> squeeze
-  //   {Logical,Bitwise}{And,Or,Xor} -> squeeze
+  //   {Logical,Bitwise}{And,Or} -> squeeze
+  //   BitwiseXor -> 0 if i0 is even, else squeeze
   //   Eq -> squeeze
   //   Gcd -> squeeze
   // Other op-types are non-commutative, so we ignore them here as they should
-  // not be used in reductions. We can see that the only two that require
-  // special consideration are Add and Mul. We treat all others as trivial (i.e.
+  // not be used in reductions. We can see that the only two common ops that
+  // require special consideration are Add and Mul. Currently Xor is not
+  // supported for expanded reduction. We treat all others as trivial (i.e.
   // squeeze).
   std::vector<int> reduction_axes;
   std::vector<bool> is_broadcast_reduction(ndims, false);
   bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
-      reduction_op_type != BinaryOpType::Mul;
+      reduction_op_type != BinaryOpType::Mul &&
+      reduction_op_type != BinaryOpType::BitwiseXor;
   int offset = 0;
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
