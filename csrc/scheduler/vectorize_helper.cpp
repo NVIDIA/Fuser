@@ -469,7 +469,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
   std::unordered_set<IterDomain*> consumer_ids_to_clear;
-  int clear_pos = -1;
+  size_t clear_pos = 0;
   if (to->hasBroadcast()) {
     // Find the last broadcast dimension resolved in consumers through from_ids
     for (int i = (int)from_ids.size() - 1; i >= 0; i--) {
@@ -480,7 +480,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       }
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
-        clear_pos = (int)i;
+        clear_pos = (size_t)i + 1;
         break;
       }
     }
