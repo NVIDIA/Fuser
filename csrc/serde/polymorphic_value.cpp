@@ -202,7 +202,7 @@ nvf::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const ScalarCpu* scalar_cpu = buffer->data_as_ScalarCpu();
   NVF_ERROR(scalar_cpu != nullptr, "serde::ScalarCpu is nullptr.");
-  auto scalar = makeScalar(scalar_cpu->scalar_value());
+  auto scalar = deserializePolymorphicValue(scalar_cpu->scalar_value());
   return nvf::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
@@ -650,8 +650,7 @@ flatbuffers::Offset<PolymorphicValue> serializeTensor(
     const at::Tensor& tensor) {
   if (tensor.is_cpu() && tensor.numel() == 1) {
     // CPU Scalar
-    auto fb_scalar_data = serializeScalarCpu(builder, tensor);
-    auto data = CreateScalarCpu(builder, fb_scalar_data);
+    auto data = CreateScalarCpu(builder, serializeScalarCpu(builder, tensor));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::ScalarCpu, data.Union());
   } else {
@@ -681,7 +680,7 @@ flatbuffers::Offset<PolymorphicValue> serializeTensor(
   }
 }
 
-flatbuffers::Offset<Scalar> serializeScalarCpu(
+flatbuffers::Offset<PolymorphicValue> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor) {
   NVF_ERROR(
@@ -691,20 +690,20 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
   switch (tensor.scalar_type()) {
     case at::ScalarType::Bool: {
       nvf::PolymorphicValue pv(*tensor.data_ptr<bool>());
-      return serializeScalarRecord(builder, pv, nvf::DataType::Bool);
+      return serializeScalar(builder, pv);
     }
     case at::ScalarType::Double: {
       nvf::PolymorphicValue pv(*tensor.data_ptr<double>());
-      return serializeScalarRecord(builder, pv, nvf::DataType::Double);
+      return serializeScalar(builder, pv);
     }
     case at::ScalarType::Long: {
       nvf::PolymorphicValue pv(*tensor.data_ptr<int64_t>());
-      return serializeScalarRecord(builder, pv, nvf::DataType::Int);
+      return serializeScalar(builder, pv);
     }
     case at::ScalarType::ComplexDouble: {
       auto at_complex = *tensor.data_ptr<c10::complex<double>>();
       nvf::PolymorphicValue pv((std::complex<double>)at_complex);
-      return serializeScalarRecord(builder, pv, nvf::DataType::ComplexDouble);
+      return serializeScalar(builder, pv);
     }
     default:
       NVF_ERROR(false, "Unsupported scalar type.");

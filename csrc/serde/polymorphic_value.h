@@ -66,7 +66,7 @@ flatbuffers::Offset<PolymorphicValue> serializeTensor(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);
 
-flatbuffers::Offset<Scalar> serializeScalarCpu(
+flatbuffers::Offset<PolymorphicValue> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);
 

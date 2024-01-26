@@ -299,7 +299,7 @@ table Scalar {
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
-  scalar_value: Scalar;
+  scalar_value: PolymorphicValue;
 }
 
 // Data of TensorArg.
