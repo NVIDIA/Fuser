@@ -133,7 +133,7 @@ std::unique_ptr<Fusion> createFusionWithInlinedOuterSplit() {
   TransformPropagator propagator(tv4);
   MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
 
-  for (auto tv: ir_utils::allTvs(&fusion)) {
+  for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
   }
 
@@ -331,15 +331,13 @@ TEST_F(IdModelTest, LoopGraphRootResolution4) {
   auto fusion = createFusionWithInlinedOuterSplit();
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
-  fusion->print();
-
   IdModelTester tester(fusion.get());
   const auto& [iel_graph, root_resolution_map] =
       tester.getInlineRootResolutionMap();
 
   // Verify all tensors with broadcast have correct resolution of root
   // broadcast domains
-  for (auto tv : ir_utils::allTvs(fusion.get())) {
+  for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
             tv->getRootDomain().begin(),
@@ -365,17 +363,50 @@ TEST_F(IdModelTest, LoopGraphRootResolution4) {
   }
 }
 
+// Test root resolution with the same fusion as Indexing1
 TEST_F(IdModelTest, LoopGraphRootResolution5) {
-  auto fusion = createFusionWithMultipleResolutionPaths();
-  auto all_tvs = ir_utils::allTvs(fusion.get());
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  IdModelTester tester(fusion.get());
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = broadcast(tv2, {true, false, false, false});
+  auto tv4 = add(tv3, tv1);
+
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+  tv4->merge(0);
+  tv4->merge(0);
+
+  tv4->split(0, 128);
+  tv4->split(0, 4);
+
+  tv2->computeAt(tv4, 1);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unroll);
+  tv4->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(1)->parallelize(ParallelType::Unroll);
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto all_tvs = ir_utils::allTvs(&fusion);
+
+  IdModelTester tester(&fusion);
   const auto& [iel_graph, root_resolution_map] =
       tester.getInlineRootResolutionMap();
 
   // Verify all tensors with broadcast have correct resolution of root
   // broadcast domains
-  for (auto tv : ir_utils::allTvs(fusion.get())) {
+  for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
             tv->getRootDomain().begin(),
@@ -385,6 +416,43 @@ TEST_F(IdModelTest, LoopGraphRootResolution5) {
       continue;
     }
 
+    switch (tv->name()) {
+      case 3:
+        // T3_l[ iS30{( ceilDiv(( ceilDiv(( ( ( 1 * i0 ) * i2 ) * i3 ), 128) ),
+        // 4) )}, iUR31{4}, ithreadIdx.x29{128} ] ca_pos( 1 ) produce_pos( 1 )
+        //  root domain : (bS10{1}, iS11{i0}, iS12{i2}, iS13{i3})
+        validateResolution(
+            tv->getRootDomain().at(0),
+            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            iel_graph,
+            root_resolution_map);
+        break;
+      default:
+        FAIL() << "Unexpected tensor: " << tv->toString();
+    }
+  }
+}
+
+// Test root resolution with the same fusion as Indexing19
+TEST_F(IdModelTest, LoopGraphRootResolution6) {
+  auto fusion = createFusionWithMultipleResolutionPaths();
+  auto all_tvs = ir_utils::allTvs(fusion.get());
+
+  IdModelTester tester(fusion.get());
+  const auto& [iel_graph, root_resolution_map] =
+      tester.getInlineRootResolutionMap();
+
+  // Verify all tensors with broadcast have correct resolution of root
+  // broadcast domains
+  for (auto tv : all_tvs) {
+    // Skip tensors with no broadcast or non-inlined
+    if (std::none_of(
+            tv->getRootDomain().begin(),
+            tv->getRootDomain().end(),
+            [](auto id) { return id->isBroadcast(); }) ||
+        tv->getComputeAtPosition() == 0) {
+      continue;
+    }
 
     switch (tv->name()) {
       case 2:
