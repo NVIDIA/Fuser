@@ -138,9 +138,10 @@ void cleanInnerNDLeafDomain(TensorView* tv, int n) {
 
   std::unordered_map<int, int> old2new;
 
+  int target = 0;
   for (int i = 0; i < n; i++) {
     if (tv->axis(-1 - i)->isReduction()) {
-      old2new[-1 - i] = i;
+      old2new[-1 - i] = target++;
     }
   }
 
