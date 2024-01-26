@@ -2066,6 +2066,7 @@ void MmaOp::setMacro(MmaMacro macro) {
 std::vector<PolymorphicValue> MmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+
   auto& a = inputs.at(0).as<at::Tensor>();
   auto& b = inputs.at(1).as<at::Tensor>();
   NVF_CHECK(
@@ -2075,7 +2076,9 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
       "Must have either zero or one batch dimensions");
 
   // Squeeze the inputs to remove the broadcasted dimensions.
-  // TODO: This is assuming the broadcast dimensions but may be variable?
+  // TODO: This is assuming the broadcast dimensions to be the last dim for the first operand
+  //      and the first dim for the second operand. If this is variable, using the inputs of the
+  //      broadcast instead of the immediate inputs may be better.
   auto in_a = a.squeeze(-1);
   auto in_b = b.squeeze(0);
 
