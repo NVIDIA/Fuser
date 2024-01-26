@@ -571,6 +571,7 @@ class NVF_API TensorView : public Val {
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   bool is_double_buffered_ = false;
+  unsigned int gpu_at_pos_ = 0;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;
