@@ -1291,22 +1291,24 @@ void validateResize(Fusion* fusion) {
 }
 
 void validateReductions(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    if (auto rop = dynamic_cast<ReductionOp*>(expr)) {
-      const std::vector<IterDomain*> in_rfactor = TensorDomain::noReductions(
-          rop->in()->as<TensorView>()->getMaybeRFactorDomain());
-      const std::vector<IterDomain*>& out_root =
-          rop->out()->as<TensorView>()->getRootDomain();
-
-      NVF_ERROR(in_rfactor.size() == out_root.size());
-      for (auto i : c10::irange(in_rfactor.size())) {
-        if (out_root[i]->isReduction()) {
-          IterDomain* in_id = in_rfactor[i];
-          NVF_ERROR(
-              !in_id->isBroadcast() || in_id->hasExpandedExtent(),
-              "Reductions of unexpanded broadcast domains should be ",
-              "converted to squeeze before lowering.");
-        }
+  for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
+    auto in = rop->in()->as<TensorView>();
+    auto out = rop->out()->as<TensorView>();
+    PairwiseRootDomainMap c2p_map(in, out);
+    c2p_map.mapBroadcast(true);
+    auto c2p = c2p_map.mapConsumerToProducer();
+    for (auto out_id : out->getRootDomain()) {
+      if (out_id->isReduction()) {
+        auto in_it = c2p.find(out_id);
+        NVF_ERROR(
+            in_it != c2p.end(),
+            "Could not find producer IterDomain mapped to ",
+            out_id->toString());
+        IterDomain* in_id = in_it->second;
+        NVF_ERROR(
+            !in_id->isBroadcast() || in_id->hasExpandedExtent(),
+            "Reductions of unexpanded broadcast domains should be ",
+            "converted to squeeze before lowering.");
       }
     }
   }
