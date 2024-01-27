@@ -1131,7 +1131,11 @@ TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
   tv4->merge(0);
   tv4->split(0, 32);
 
-  tv0->computeAt(tv4, 1);
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv2->inlineAt(1);
+  tv3->inlineAt(1);
 
   tv2->split(-1, 8);
 
