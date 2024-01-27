@@ -522,9 +522,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   NVF_ERROR(fusion->outputs().size() == outputs.size());
   size_t new_size = 0;
   for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
-    const AliasInfo* alias_info =
-        fusion->getOutputAlias(fusion->outputs()[out_index]).second;
-    if (alias_info == nullptr || !alias_info->hide_output) {
+    if (fusion->getOutputAlias(fusion->outputs()[out_index]).hide_output) {
       outputs[new_size] = outputs[out_index];
       new_size++;
     }
