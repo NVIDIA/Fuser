@@ -84,22 +84,6 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
   return disjoint_set_it->second;
 }
 
-ExprGroups ValGraph::toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const {
-  ExprGroups expr_groups;
-  for (auto expr : exprs) {
-    expr_groups.pushBack(toGroup(expr));
-  }
-  return expr_groups;
-}
-
-ValGroups ValGraph::toGroups(const VectorOfUniqueEntries<Val*>& vals) const {
-  ValGroups val_groups;
-  for (auto val : vals) {
-    val_groups.pushBack(toGroup(val));
-  }
-  return val_groups;
-}
-
 std::vector<ValGroup> ValGraph::outputGroups(const ExprGroup& expr) const {
   std::vector<ValGroup> output_groups;
   for (auto output : expr->front()->outputs()) {

@@ -1067,7 +1067,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // Step 1: Build a map of the IEL groups of root broadcast domains
   // to resolving domains.
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
-      buildInlineRootResolutionmap(iel_graph, inlining_info);
+      buildInlineRootResolutionMap(iel_graph, inlining_info);
 
   {
     std::stringstream ss;
@@ -1176,198 +1176,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   return final_loop_promotion_map;
 }
 
-// TODO: Reenable after reenabling parallel propagation.
-//        propagateLoopPTypes
-void IdModel::validatePTypes(const std::vector<TensorView*>& all_tvs) const {
-  // VectorOfUniqueEntries<IterDomain*> leaf_ids;
-  // for (auto tv : all_tvs) {
-  //   leaf_ids.pushBack(tv->domain()->leaf());
-  // }
-
-  // for (const auto& disjoint_set :
-  //      idGraph(IdMappingMode::EXACT).disjointValSets().disjointSets()) {
-  //   for (auto id : disjoint_set->vector()) {
-  //     auto id_ptype = id->getParallelType();
-
-  //     NVF_ERROR(
-  //         leaf_ids.has(id) || id_ptype == ParallelType::Serial,
-  //         "Invalid parallelization of non leaf iter domain: ",
-  //         id->toString());
-  //   }
-  // }
-}
-
-void IdModel::propagateLoopPTypes() const {
-  for (const auto& loop_disjoint_set :
-       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    ParallelType common_ptype = ParallelType::Serial;
-    for (auto id : loop_disjoint_set->vector()) {
-      auto id_ptype = id->as<IterDomain>()->getParallelType();
-
-      NVF_ERROR(
-          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
-              common_ptype == ParallelType::Serial,
-          "Issue validating parallel type disjoint ptype is, ",
-          common_ptype,
-          " but found in the set the id: ",
-          id->toString());
-
-      common_ptype =
-          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
-    }
-
-    for (auto id : loop_disjoint_set->vector()) {
-      id->as<IterDomain>()->parallelize(common_ptype);
-    }
-  }
-}
-
-void IdModel::buildAllGraphs() {
-  VERBOSE() << "*** Building all graphs ***";
-
-  if (tvs_.empty()) {
-    return;
-  }
-
-  std::unique_ptr<IdModelValidator> validator;
-
-  Fusion* fusion = tvs_.front()->fusion();
-
-  // A ComputeAtMap will be built inside the constructor of
-  // IdModelValidator, which may fail for some fusions that are not
-  // supported currently (but work with IdModel). Make sure the
-  // validator is only created when it is indeed requested
-  if (validate_) {
-    validator = std::make_unique<IdModelValidator>(fusion);
-  }
-
-  FusionGuard fg(fusion);
-
-  buildExactGraph();
-  if (validate_) {
-    validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
-  }
-
-  // Make sure there's no self mapping in the Exact graph as that
-  // would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
-  if (!allow_self_mapping_) {
-    assertNoSelfMapping();
-  }
-
-  buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
-  }
-
-  buildPermissiveGraph();
-  // Validation is not implemented when compliment mapping is enabled
-  if (validate_ && !permissive_graph_map_compliment_ids_) {
-    validator->checkPermissiveGraphEquivalence(
-        idGraph(IdMappingMode::PERMISSIVE));
-  }
-
-  // Permissive graph needs the trivial exprs from the almost exact graph to
-  // build correctly. Once built though we can remove the trivial expressions
-  // from the almost exact graph.
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
-
-  buildLoopGraph();
-}
-
-void IdModel::buildGraph(IdMappingMode mode) {
-  switch (mode) {
-    case IdMappingMode::EXACT:
-      buildExactGraph();
-      break;
-    case IdMappingMode::ALMOSTEXACT:
-      buildAlmostExactGraph();
-      break;
-    case IdMappingMode::PERMISSIVE:
-      buildPermissiveGraph();
-      break;
-    case IdMappingMode::LOOP:
-      buildLoopGraph();
-      break;
-    default:
-      NVF_ERROR(false, "Unsupported mode: ", mode);
-  }
-}
-
-void IdModel::maybeBuildGraph(IdMappingMode mode) {
-  if (id_graphs_.find(mode) != id_graphs_.end()) {
-    return;
-  } else {
-    buildGraph(mode);
-  }
-}
-
-VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
-    const StatefulInliningInfo& info) {
-  VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
-  for (const ValGroup& group :
-       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    if (group->size() == 1) {
-      terminal_loop_ids.pushBack(group->front()->as<IterDomain>());
-    }
-
-    // Don't select producer iter domains
-    for (auto loop_id : *group) {
-      if (info.p2c_ca_permissive_maps.find(loop_id->as<IterDomain>()) !=
-          info.p2c_ca_permissive_maps.end()) {
-        continue;
-      }
-
-      auto uses_it = id_uses_.find(loop_id->as<IterDomain>());
-      if (uses_it == id_uses_.end()) {
-        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
-        continue;
-      }
-
-      // If there's an output group that is not in the same group, then it's id
-      // consumer terminal. Also if there's no output groups it's id consumer
-      // terminal.
-      bool all_outs_in_loop_group = uses_it->second.empty() ? false : true;
-      for (auto use : uses_it->second) {
-        for (auto out_id : ir_utils::filterByType<IterDomain>(use->outputs())) {
-          if (group != idGraph(IdMappingMode::LOOP).toGroup(out_id)) {
-            all_outs_in_loop_group = false;
-          }
-        }
-      }
-
-      if (!all_outs_in_loop_group) {
-        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
-      }
-    }
-  }
-  return terminal_loop_ids;
-}
-
-ValGraph IdModel::buildIntersection(
-    const ValGraph& graph0,
-    const ValGraph& graph1,
-    bool propagate_exprs) {
-  ValGraph intersection = initializeIdGraph(propagate_exprs);
-  for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
-    auto set_size = group0->size();
-    for (auto id0_i : c10::irange(set_size)) {
-      Val* id0 = group0->vector()[id0_i];
-      for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
-        Val* id1 = group0->vector()[id1_i];
-        // id0 and id1 map in group0. If they also map in the group1,
-        // add the mapping to the intersection.
-        if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
-          intersection.mapVals(id0, id1);
-        }
-      }
-    }
-  }
-  return intersection;
-}
-
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionmap(
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
     const ValGraph& iel_graph,
     const StatefulInliningInfo& info) {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
@@ -1497,6 +1306,197 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionmap(
   }
 
   return iel_promotion_map;
+}
+
+// TODO: Reenable after reenabling parallel propagation.
+//        propagateLoopPTypes
+void IdModel::validatePTypes(const std::vector<TensorView*>& all_tvs) const {
+  // VectorOfUniqueEntries<IterDomain*> leaf_ids;
+  // for (auto tv : all_tvs) {
+  //   leaf_ids.pushBack(tv->domain()->leaf());
+  // }
+
+  // for (const auto& disjoint_set :
+  //      idGraph(IdMappingMode::EXACT).disjointValSets().disjointSets()) {
+  //   for (auto id : disjoint_set->vector()) {
+  //     auto id_ptype = id->getParallelType();
+
+  //     NVF_ERROR(
+  //         leaf_ids.has(id) || id_ptype == ParallelType::Serial,
+  //         "Invalid parallelization of non leaf iter domain: ",
+  //         id->toString());
+  //   }
+  // }
+}
+
+void IdModel::propagateLoopPTypes() const {
+  for (const auto& loop_disjoint_set :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    ParallelType common_ptype = ParallelType::Serial;
+    for (auto id : loop_disjoint_set->vector()) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : loop_disjoint_set->vector()) {
+      id->as<IterDomain>()->parallelize(common_ptype);
+    }
+  }
+}
+
+void IdModel::buildAllGraphs() {
+  VERBOSE() << "*** Building all graphs ***";
+
+  if (tvs_.empty()) {
+    return;
+  }
+
+  std::unique_ptr<IdModelValidator> validator;
+
+  Fusion* fusion = tvs_.front()->fusion();
+
+  // A ComputeAtMap will be built inside the constructor of
+  // IdModelValidator, which may fail for some fusions that are not
+  // supported currently (but work with IdModel). Make sure the
+  // validator is only created when it is indeed requested
+  if (validate_) {
+    validator = std::make_unique<IdModelValidator>(fusion);
+  }
+
+  FusionGuard fg(fusion);
+
+  buildExactGraph();
+  if (validate_) {
+    validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
+  }
+
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping();
+  }
+
+  buildAlmostExactGraph();
+  if (validate_) {
+    validator->checkAlmostExactGraphEquivalence(
+        idGraph(IdMappingMode::ALMOSTEXACT));
+  }
+
+  buildPermissiveGraph();
+  // Validation is not implemented when compliment mapping is enabled
+  if (!permissive_graph_map_compliment_ids_ && validate_) {
+    validator->checkPermissiveGraphEquivalence(
+        idGraph(IdMappingMode::PERMISSIVE));
+  }
+
+  // Permissive graph needs the trivial exprs from the almost exact graph to
+  // build correctly. Once built though we can remove the trivial expressions
+  // from the almost exact graph.
+  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
+
+  buildLoopGraph();
+}
+
+void IdModel::buildGraph(IdMappingMode mode) {
+  switch (mode) {
+    case IdMappingMode::EXACT:
+      buildExactGraph();
+      break;
+    case IdMappingMode::ALMOSTEXACT:
+      buildAlmostExactGraph();
+      break;
+    case IdMappingMode::PERMISSIVE:
+      buildPermissiveGraph();
+      break;
+    case IdMappingMode::LOOP:
+      buildLoopGraph();
+      break;
+    default:
+      NVF_ERROR(false, "Unsupported mode: ", mode);
+  }
+}
+
+void IdModel::maybeBuildGraph(IdMappingMode mode) {
+  if (id_graphs_.find(mode) != id_graphs_.end()) {
+    return;
+  } else {
+    buildGraph(mode);
+  }
+}
+
+ValGraph IdModel::buildIntersection(
+    const ValGraph& graph0,
+    const ValGraph& graph1,
+    bool propagate_exprs) {
+  ValGraph intersection = initializeIdGraph(propagate_exprs);
+  for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
+    auto set_size = group0->size();
+    for (auto id0_i : c10::irange(set_size)) {
+      Val* id0 = group0->vector()[id0_i];
+      for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
+        Val* id1 = group0->vector()[id1_i];
+        // id0 and id1 map in group0. If they also map in the group1,
+        // add the mapping to the intersection.
+        if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
+          intersection.mapVals(id0, id1);
+        }
+      }
+    }
+  }
+  return intersection;
+}
+
+VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
+    const StatefulInliningInfo& info) {
+  VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
+  for (const ValGroup& group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    if (group->size() == 1) {
+      terminal_loop_ids.pushBack(group->front()->as<IterDomain>());
+    }
+
+    // Don't select producer iter domains
+    for (auto loop_id : *group) {
+      if (info.p2c_ca_permissive_maps.find(loop_id->as<IterDomain>()) !=
+          info.p2c_ca_permissive_maps.end()) {
+        continue;
+      }
+
+      auto uses_it = id_uses_.find(loop_id->as<IterDomain>());
+      if (uses_it == id_uses_.end()) {
+        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
+        continue;
+      }
+
+      // If there's an output group that is not in the same group, then it's id
+      // consumer terminal. Also if there's no output groups it's id consumer
+      // terminal.
+      bool all_outs_in_loop_group = uses_it->second.empty() ? false : true;
+      for (auto use : uses_it->second) {
+        for (auto out_id : ir_utils::filterByType<IterDomain>(use->outputs())) {
+          if (group != idGraph(IdMappingMode::LOOP).toGroup(out_id)) {
+            all_outs_in_loop_group = false;
+          }
+        }
+      }
+
+      if (!all_outs_in_loop_group) {
+        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
+      }
+    }
+  }
+  return terminal_loop_ids;
 }
 
 namespace {

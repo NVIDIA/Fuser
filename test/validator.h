@@ -18,6 +18,11 @@ namespace nvfuser {
 // larger than that this approach might not hold.
 // If aten_outputs is empty, then infer the expected outputs from the fusion
 // using expr evaluator.
+//
+// `fusion_outputs` is the return value of
+// `FusionExecutorCache::runFusionWithInputs(aten_inputs)`. It's not always
+// `fusion->outputs().size()` because `runFusionWithInputs` hides outputs
+// that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
@@ -30,26 +35,48 @@ void testValidate(
     const ValidationConstants& tolerances = ValidationConstants()) {
   FusionGuard fg(fusion);
 
+  std::vector<Val*> non_hidden_outputs;
+  std::copy_if(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      std::back_inserter(non_hidden_outputs),
+      [fusion](Val* out) {
+        // Returns true when `out` is **not** an aliased output that's hidden
+        // from integration. Hidden outputs won't show up in `fusion_outputs`
+        // for us to compare, so we skip them.
+        const AliasInfo* alias_info = fusion->getOutputAlias(out).second;
+        if (alias_info == nullptr) {
+          return true;
+        }
+        return !alias_info->hide_output;
+      });
+
   auto expr_eval = bindInputsAndLaunchParams(fusion, aten_inputs, lparams);
 
   auto reduction_sizes =
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
   if (aten_outputs.empty()) {
-    for (auto v : fusion->outputs()) {
-      aten_outputs.emplace_back(expr_eval.evaluate(v).as<at::Tensor>());
+    for (Val* out : non_hidden_outputs) {
+      aten_outputs.emplace_back(expr_eval.evaluate(out).as<at::Tensor>());
     }
   }
 
   NVF_ERROR(
       fusion_outputs.size() == aten_outputs.size(),
-      "Number of outputs don't match.");
+      "Number of outputs don't match: ",
+      fusion_outputs.size(),
+      " vs ",
+      aten_outputs.size());
 
   NVF_ERROR(
       fusion->inputs().size() == aten_inputs.size(),
-      "Number of inputs don't match.");
+      "Number of inputs don't match: ",
+      fusion->inputs().size(),
+      " vs ",
+      aten_inputs.size());
 
-  for (size_t i = 0; i < fusion->inputs().size(); i++) {
+  for (auto i : c10::irange(fusion->inputs().size())) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
       NVF_ERROR(aten_inputs[i].isTensor(), "Mismatch of tensor inputs.");
 
@@ -65,39 +92,31 @@ void testValidate(
     }
   }
 
-  size_t j = 0;
-  for (Val* fusion_output : fusion->outputs()) {
-    const AliasInfo* alias_info = fusion->getOutputAlias(fusion_output).second;
-    if (alias_info != nullptr && alias_info->hide_output) {
-      // This is an aliased output that's hidden from integration.
-      // Let's not check this.
-      continue;
-    }
+  for (auto i : c10::irange(non_hidden_outputs.size())) {
+    Val* out = non_hidden_outputs[i];
+    NVF_ERROR(out->isA<TensorView>());
+    TensorView* out_tv = out->as<TensorView>();
 
-    NVF_ERROR(fusion_output->isA<TensorView>());
-    TensorView* fusion_output_tv = fusion_output->as<TensorView>();
-
-    auto fusion_output_tensor = fusion_outputs[j];
-    auto aten_output_tensor = aten_outputs[j];
+    const at::Tensor& fusion_output_tensor = fusion_outputs[i];
+    const at::Tensor& aten_output_tensor = aten_outputs[i];
 
     NVF_ERROR(
-        reduction_sizes.count(fusion_output_tv),
+        reduction_sizes.count(out_tv),
         "Missed reduction size count on fusion output: ",
-        fusion_output_tv->toString());
+        out_tv->toString());
 
-    int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
+    int64_t reduction_size = reduction_sizes.at(out_tv);
 
     NVF_ERROR(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
-            fusion_outputs[j].dim() ==
+            fusion_outputs[i].dim() ==
                 static_cast<int64_t>(
-                    TensorDomain::noReductions(
-                        fusion_output_tv->getMaybeRFactorDomain())
+                    TensorDomain::noReductions(out_tv->getMaybeRFactorDomain())
                         .size()),
         "Dimensionality mismatch in outputs.");
 
-    auto tolerance_values = getTolerance(
-        fusion_output_tv->getDataType().value(), reduction_size, tolerances);
+    auto tolerance_values =
+        getTolerance(out_tv->getDataType().value(), reduction_size, tolerances);
 
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {
@@ -110,7 +129,7 @@ void testValidate(
           "\n",
           err_msg,
           "\nValidation error in output ",
-          j,
+          i,
           " on line ",
           line_number,
           " in file ",
@@ -132,14 +151,13 @@ void testValidate(
           "\n",
           err_msg,
           ".\n  Validation error in output ",
-          j,
+          i,
           " on line ",
           line_number,
           " in file ",
           file_name,
           ".\n Values are not equal and are not a floating type.");
     }
-    j++;
   }
 }
 

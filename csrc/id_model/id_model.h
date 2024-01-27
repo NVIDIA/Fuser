@@ -174,6 +174,13 @@ class IdModel : public PolymorphicBase {
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
+  // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
+  // graph1.
+  ValGraph buildIntersection(
+      const ValGraph& graph0,
+      const ValGraph& graph1,
+      bool propagate_exprs = true);
+
   const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;
   }
@@ -195,7 +202,7 @@ class IdModel : public PolymorphicBase {
   // Helper function for buildLoopPromotionMap. Returns a map of
   // root broadcast ValGroups in the IEL graph to a representative
   // IterDomain picked from its IEL group.
-  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionmap(
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionMap(
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
@@ -261,13 +268,6 @@ class IdModel : public PolymorphicBase {
   // 2) Don't have a direct IterDomain consumer within the group
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
       const StatefulInliningInfo& info);
-
-  // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
-  // graph1.
-  ValGraph buildIntersection(
-      const ValGraph& graph0,
-      const ValGraph& graph1,
-      bool propagate_exprs = true);
 
   // !! END Helper functions to build loop promotion and index map!!
 
@@ -343,6 +343,10 @@ class IdModel : public PolymorphicBase {
   // If true, validate graphs by comparing them with ComputeAtMap
   bool validate_ = false;
 
+  // By default, the permissive graph should map compliment domains as
+  // well. See the design doc for more details
+  bool permissive_graph_map_compliment_ids_ = true;
+
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
@@ -373,10 +377,6 @@ class IdModel : public PolymorphicBase {
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
-
-  // By default, the permissive graph should map compliment domains as
-  // well. See the design doc for more details
-  bool permissive_graph_map_compliment_ids_ = true;
 };
 
 } // namespace nvfuser

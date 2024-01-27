@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -89,19 +90,30 @@ class ValGraph {
   // Convert Val to its ValGroup, assert that it exists.
   const ValGroup& toGroup(Val* val) const;
 
-  // Convert unique vector of expressions to unique vector of its groups
-  ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
-
-  // Convert unique vector of IterDomain to unique vector of its groups
-  ValGroups toGroups(const VectorOfUniqueEntries<Val*>& ids) const;
-
-  template <typename EntryType>
-  ValGroups toGroups(const VectorOfUniqueEntries<EntryType>& vals) const {
-    ValGroups val_groups;
-    for (auto val : vals) {
-      val_groups.pushBack(toGroup(val));
+  // Convert a vector-like container of Val* or Expr* to their
+  // ValGroups or ExprGroups. The vector-like container type must
+  // define the element type as value_type
+  template <
+      typename ContainerType,
+      typename ElementType = typename std::remove_pointer<
+          typename ContainerType::value_type>::type,
+      typename = std::enable_if_t<
+          std::is_base_of<Val, ElementType>::value ||
+          std::is_base_of<Expr, ElementType>::value>>
+  typename std::conditional<
+      std::is_base_of<Val, ElementType>::value,
+      ValGroups,
+      ExprGroups>::type
+  toGroups(const ContainerType& entries) const {
+    using RetType = typename std::conditional<
+        std::is_base_of<Val, ElementType>::value,
+        ValGroups,
+        ExprGroups>::type;
+    RetType groups;
+    for (auto entry : entries) {
+      groups.pushBack(toGroup(entry));
     }
-    return val_groups;
+    return groups;
   }
 
   // Return output/input Val groups of provided expr
