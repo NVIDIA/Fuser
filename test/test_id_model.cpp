@@ -568,4 +568,91 @@ TEST_F(IdModelTest, LoopGraphRootResolution7) {
   }
 }
 
+// Same fusion as NvFuserTest.FusionIndexing20
+TEST_F(IdModelTest, LoopGraphRootResolution8) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+
+  // [5]
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  // [1, 5]
+  auto tv3 = makeConcreteTensor({3, 5});
+  fusion.addInput(tv3);
+  auto tv4 = add(tv3, tv2);
+  // [3, 5]
+
+  auto tv5 = broadcast(tv4, {false, false, true});
+  // [3, 5, 1]
+  auto tv6 = makeConcreteTensor({3, 5, 7});
+  fusion.addInput(tv6);
+  auto tv7 = add(tv5, tv6);
+  // [3, 5, 7]
+  fusion.addOutput(tv7);
+
+  tv4->merge(0)->split(0, 2, false);
+  // [3, 5]
+  // [3, 3*5//2]
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv1->inlineAt(1);
+  tv2->inlineAt(1);
+  tv4->inlineAt(1);
+
+  // [2, 3*5//2]
+  tv5->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*1//4]
+  tv7->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*7//4]
+  tv5->inlineAt(2);
+
+  auto all_tvs = ir_utils::allTvs(&fusion);
+
+  IdModelTester tester(&fusion);
+  const auto& [iel_graph, root_resolution_map] =
+      tester.getInlineRootResolutionMap();
+
+  // Verify all tensors with broadcast have correct resolution of root
+  // broadcast domains
+  for (auto tv : all_tvs) {
+    // Skip tensors with no broadcast or non-inlined
+    if (std::none_of(
+            tv->getRootDomain().begin(),
+            tv->getRootDomain().end(),
+            [](auto id) { return id->isBroadcast(); }) ||
+        tv->getComputeAtPosition() == 0) {
+      continue;
+    }
+
+    switch (tv->name()) {
+      case 2:
+        // T2_l[ iS21{2}, iS22{( ceilDiv(( 1 * 5 ), 2) )} ] ca_pos( 1 )
+        // produce_pos( 1 ) root domain : (bS2{1}, iS3{5})
+        validateResolution(
+            tv->getRootDomain().at(0),
+            findTensorByName(all_tvs, 7)->getRootDomain().at(0),
+            iel_graph,
+            root_resolution_map);
+        break;
+      case 5:
+        // T5_l[ iS27{2}, iS40{4}, iS41{( ceilDiv(( ( ceilDiv(( 3 * 5 ), 2) ) *
+        // 1 ), 4) )} ] ca_pos( 2 ) produce_pos( 1 ) root domain : (iS8{3},
+        // iS9{5}, bS10{1})
+        validateResolution(
+            tv->getRootDomain().at(2),
+            findTensorByName(all_tvs, 7)->getRootDomain().at(2),
+            iel_graph,
+            root_resolution_map);
+        break;
+      default:
+        FAIL() << "Unexpected tensor: " << tv->toString();
+    }
+  }
+}
+
 } // namespace nvfuser
