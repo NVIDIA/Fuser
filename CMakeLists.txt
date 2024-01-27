@@ -117,6 +117,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
@@ -198,6 +199,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/exact_mapped_extent_substitution.cpp
   ${NVFUSER_SRCS_DIR}/optimization/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp

@@ -122,7 +122,8 @@ class IdModel : public PolymorphicBase {
       bool allow_self_mapping = false,
       bool validate = true);
 
-  // Returns iter domain graph of provided mode.
+  // Returns iter domain graph of provided mode. The graph must have
+  // been already built.
   const ValGraph& idGraph(IdMappingMode mode) const;
   ValGraph& idGraph(IdMappingMode mode);
 
@@ -142,7 +143,8 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
-  // Build all graphs. This is by default called from the constructor
+  // Build all graphs, i.e., Exact, AlmostExact, Permissive and
+  // LOOP. This is by default called from the constructor
   void buildAllGraphs();
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
@@ -328,9 +330,17 @@ class IdModel : public PolymorphicBase {
   IterDomain* cloneIterDomain(IterDomain* id);
 
  protected:
+  // All tensor expressions that this model analyzes
   std::vector<Expr*> tv_exprs_;
+
+  // All tensors that this model analyzes
   std::vector<TensorView*> tvs_;
+
+  // Tensors should not have domains that are mapped with another
+  // domains of the same tensor. This flag disables the check
   bool allow_self_mapping_ = false;
+
+  // If true, validate graphs by comparing them with ComputeAtMap
   bool validate_ = false;
 
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
