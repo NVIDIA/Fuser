@@ -298,9 +298,13 @@ bool isScalarExpr(Expr* expr);
 //!  IterDomain object.
 bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 
-// Get the uint32_t index of a scalar TensorView. This is usually used for
-// indexing special items in shared memory, like mbarrier.
+//! Get the uint32_t index of a scalar TensorView. This is usually used for
+//! indexing special items in shared memory, like mbarrier.
 Val* u32IndexScalarSmemTv(TensorView* tv);
+
+//! Get the size of a global sync buffer needed to perform a grid reduction for
+//! each axis in bitmap.
+Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 
 } // namespace lower_utils
 
