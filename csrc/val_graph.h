@@ -90,8 +90,9 @@ class ValGraph {
   // Convert Val to its ValGroup, assert that it exists.
   const ValGroup& toGroup(Val* val) const;
 
-  // Convert a vector of Val* or Expr* to their ValGroups or
-  // ExprGroups, respectively
+  // Convert a vector-like container of Val* or Expr* to their
+  // ValGroups or ExprGroups. The vector-like container type must
+  // define the element type as value_type
   template <
       typename ContainerType,
       typename ElementType = typename std::remove_pointer<
