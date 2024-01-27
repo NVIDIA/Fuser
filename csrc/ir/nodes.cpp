@@ -2066,23 +2066,34 @@ void MmaOp::setMacro(MmaMacro macro) {
 std::vector<PolymorphicValue> MmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  // Assumptions:
+  //    Currently, the evaluate method assumes that the MmaOp is preceded by a
+  //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
+  //    first operand and the first dim for the second operand.
 
-  auto& a = inputs.at(0).as<at::Tensor>();
-  auto& b = inputs.at(1).as<at::Tensor>();
-  NVF_CHECK(
-      a.dim() == b.dim(), "Either both or none of A and B should be batch");
-  NVF_CHECK(
-      a.dim() == 2 || a.dim() == 3,
-      "Must have either zero or one batch dimensions");
+  NVF_CHECK(input(0)->definition()->isA<BroadcastOp>(), 
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_CHECK(input(1)->definition()->isA<BroadcastOp>(), 
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
+  NVF_CHECK(inA()->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+      "Expected last dimension to be broadcasted for first operand.");
+  NVF_CHECK(inB()->as<TensorView>()->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
 
   // Squeeze the inputs to remove the broadcasted dimensions.
-  // TODO: This is assuming the broadcast dimensions to be the last dim for the first operand
-  //      and the first dim for the second operand. If this is variable, using the inputs of the
-  //      broadcast instead of the immediate inputs may be better.
-  auto in_a = a.squeeze(-1);
-  auto in_b = b.squeeze(0);
+  const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
+  const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
 
-  // fusedMultiplySum assumes [B, M, K] [B, N, K]
+  NVF_CHECK(
+      in_a.dim() == in_b.dim(), 
+      "Either both or none of A and B should be batch");
+  NVF_CHECK(
+      in_a.dim() == 2 || in_a.dim() == 3,
+      "Must have either zero or one batch dimensions");
+
+  // After removing the broadcast dimensions, the format should be
+  // [B, M, K] x [B, N, K] or [M, K] x [N, K].
   // Transpose them to aten::matmul format.
   if (in_a.dim() == 3) { // bmm
     return {in_a.matmul(in_b.transpose(1, 2))};
