@@ -210,7 +210,7 @@ TensorView* findTensorByName(
 } // namespace
 
 // Testing root resolution with a simple broadcast pattern
-TEST_F(IdModelTest, LoopGraphRootResolution1) {
+TEST_F(IdModelTest, LoopPromotion1) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -250,7 +250,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution1) {
 }
 
 // Test with a fusion with progressive broadcasting
-TEST_F(IdModelTest, LoopGraphRootResolution2) {
+TEST_F(IdModelTest, LoopPromotion2) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -285,7 +285,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution2) {
 }
 
 // Multiple inlined and non-inlined broadcast domains
-TEST_F(IdModelTest, LoopGraphRootResolution3) {
+TEST_F(IdModelTest, LoopPromotion3) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -327,7 +327,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution3) {
 }
 
 // Test root resolution with a fusion with outer split
-TEST_F(IdModelTest, LoopGraphRootResolution4) {
+TEST_F(IdModelTest, LoopPromotion4) {
   auto fusion = createFusionWithInlinedOuterSplit();
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
@@ -364,7 +364,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution4) {
 }
 
 // Test root resolution with the same fusion as Indexing1
-TEST_F(IdModelTest, LoopGraphRootResolution5) {
+TEST_F(IdModelTest, LoopPromotion5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -434,7 +434,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution5) {
 }
 
 // Test root resolution with the same fusion as Indexing19
-TEST_F(IdModelTest, LoopGraphRootResolution6) {
+TEST_F(IdModelTest, LoopPromotion6) {
   auto fusion = createFusionWithMultipleResolutionPaths();
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
@@ -510,7 +510,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution6) {
 }
 
 // Same fusion as NvFuserTest.FusionInlineBroadcastIndexing0
-TEST_F(IdModelTest, LoopGraphRootResolution7) {
+TEST_F(IdModelTest, LoopPromotion7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -569,7 +569,7 @@ TEST_F(IdModelTest, LoopGraphRootResolution7) {
 }
 
 // Same fusion as NvFuserTest.FusionIndexing20
-TEST_F(IdModelTest, LoopGraphRootResolution8) {
+TEST_F(IdModelTest, LoopPromotion8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
