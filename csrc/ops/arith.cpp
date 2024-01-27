@@ -2559,19 +2559,6 @@ TensorView* fusedMultiplySum(
     TensorView* tv_b,
     const std::vector<int>& axes,
     Val* init) {
-  if (init == nullptr) {
-    init = IrBuilder::create<Val>(0.0);
-  }
-
-  // TODO:
-  //  We will want to support initialize and rfactor with
-  //  mma as well, for maybe fusing bias in prolog.
-  // TODO: check init type if given a tv,
-  //  not supported currently though.
-  NVF_CHECK(
-      init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
-
   // TODO:
   //  Validate axis relationships between a and b
   NVF_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
@@ -2596,6 +2583,21 @@ TensorView* fusedMultiplySum(
       canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
+
+  if (init == nullptr) {
+    init = IrBuilder::create<Val>(0.0, out->dtype());
+  }
+
+  // TODO:
+  //  We will want to support initialize and rfactor with
+  //  mma as well, for maybe fusing bias in prolog.
+  NVF_CHECK(
+      init->isConstScalar(),
+      "Cannot create a reduction operation where the initial value is not a const scalar.");
+  NVF_CHECK(
+      init->dtype() == out->dtype(),
+      "Init value dtype for fusedMultiplySum must match output.");
+
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
 
   return out;

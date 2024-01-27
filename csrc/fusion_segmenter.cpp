@@ -1877,6 +1877,8 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     }
   }
   if (fusion) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Has segment hints, try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
     NVF_ERROR(false, "unreachable!");

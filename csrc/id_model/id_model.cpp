@@ -1010,7 +1010,6 @@ void IdModel::buildLoopGraph() {
     VERBOSE() << ss.str();
   }
 
-  // Gather broadcast resolution and inlining information
   const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
       tv_exprs_,
       idGraph(IdMappingMode::EXACT),
@@ -1249,8 +1248,8 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // Make sure there's no self mapping in TensorView's during lowering
-  // that would invalidate lowering assumptions.
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
   self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
   if (!allow_self_mapping_) {
     assertNoSelfMapping();

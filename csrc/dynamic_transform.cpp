@@ -13,6 +13,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -539,6 +540,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(Expr* expr) final;
+
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -596,6 +599,13 @@ void DynamicTransformConcretizer::concretize() {
       continue;
     }
     OptOutMutator::dispatchMutate(stmt);
+  }
+
+  for (Val* outp : info_->fusion()->outputs()) {
+    Val* new_outp = maybeMutated(outp);
+    if (new_outp != outp) {
+      info_->fusion()->replaceOutput(outp, new_outp);
+    }
   }
 }
 
@@ -941,6 +951,86 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+//! Returns whether a reduction has any trivial partial reductions. Modifies
+//! reduction_axes in place to insert indices of non-trivial reduction axes,
+//! relative to squeezed input.
+static bool hasTrivialReduction(
+    TensorView* in,
+    TensorView* out,
+    std::vector<int>& reduction_axes) {
+  bool has_trivial_reduction = false;
+  PairwiseRootDomainMap p2c_map(in, out);
+  // We need to map broadcasts in order to detect reductions of broadcasts
+  p2c_map.mapBroadcast(true);
+  auto p2c = p2c_map.mapProducerToConsumer();
+  int pos = -1;
+  for (IterDomain* in_id :
+       TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
+    ++pos;
+    auto out_it = p2c.find(in_id);
+    if (out_it == p2c.end()) {
+      continue;
+    }
+    IterDomain* out_id = out_it->second;
+    if (out_id->isReduction()) {
+      reduction_axes.push_back(pos);
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+  }
+  return has_trivial_reduction;
+}
+
+// Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
+// reductions.
+void DynamicTransformConcretizer::mutate(Expr* expr) {
+  if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
+    auto* in = rop->in()->as<TensorView>();
+    auto* orig_out = rop->out()->as<TensorView>();
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_out, reduction_axes)) {
+      // There is at least one trivial reduction that should be squeezed. Use
+      // binaryOp to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      //
+      // Note that keepdim=false always here, since that results in downstream
+      // broadcasts which will already have been inserted.
+      TensorView* new_out = reductionOp(
+          rop->getReductionOpType(),
+          reduction_axes,
+          rop->init(),
+          in,
+          /*keep_dim=*/false,
+          orig_out->dtype());
+      registerConcretization(orig_out, new_out);
+    }
+  } else if (WelfordOp* wop = dynamic_cast<WelfordOp*>(expr); wop) {
+    auto in = wop->in()->as<TensorView>();
+    auto orig_avg = wop->outAvg()->as<TensorView>();
+
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_avg, reduction_axes)) {
+      // Use Welford to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      WelfordResult new_result = Welford(
+          in,
+          reduction_axes,
+          // For avg and variance to be default initialized, they should be
+          // given as nullptr. In that case, this constructor actually sets them
+          // as a scalar 0. Here we use that to detect whether they are
+          // initialized or not.
+          dynamic_cast<TensorView*>(wop->initAvg()),
+          dynamic_cast<TensorView*>(wop->initVar()),
+          wop->initN());
+      registerConcretization(orig_avg, new_result.avg);
+      registerConcretization(wop->outVar(), new_result.var_sum);
+      registerConcretization(wop->outN(), new_result.n);
+    }
+  }
+  OptOutMutator::mutate(expr);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
