@@ -102,44 +102,6 @@ void validateResolution(
   }
 }
 
-// Create a simple fusion with outer split. Currently invalid code
-// will be generated.
-//
-// Used as Example 1 in the design doc about Loop
-// Promotion Analysis.
-std::unique_ptr<Fusion> createFusionWithInlinedOuterSplit() {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigConcreteTensor({1, 4});
-  fusion.addInput(tv0);
-  auto tv1 = makeContigConcreteTensor({3, 4});
-  fusion.addInput(tv1);
-
-  auto tv2 = set(tv0);
-  auto tv3 = set(tv1);
-  auto tv4 = add(tv2, tv3);
-  fusion.addOutput(tv4);
-
-  fusion.printMath();
-
-  // [i0, i1]
-  tv4->merge(0);
-  // [i0*i1]
-  tv4->split(0, 4, false); // outer split
-  // [4, i0*i1/4]
-
-  TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
-
-  for (auto tv : ir_utils::allTvs(&fusion)) {
-    tv->inlineAt(-2);
-  }
-
-  return fusion_ptr;
-}
-
 // Create a fusion where we're missing a valid concrete id so the compute at map
 // processing will fail. We need to be able to create the concrete ID not just
 // look for one. It is not yet possible to lower this fusion as the
@@ -326,18 +288,45 @@ TEST_F(IdModelTest, LoopPromotion3) {
       tv2->getRootDomain().at(3), nullptr, iel_graph, root_resolution_map);
 }
 
-// Test root resolution with a fusion with outer split
+// Test root resolution with a fusion with outer split.
+// Currently invalid code will be generated.
+//
+// Used as Example 1 in the design doc about Loop
+// Promotion Analysis.
 TEST_F(IdModelTest, LoopPromotion4) {
-  auto fusion = createFusionWithInlinedOuterSplit();
-  auto all_tvs = ir_utils::allTvs(fusion.get());
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  IdModelTester tester(fusion.get());
+  auto tv0 = makeContigConcreteTensor({1, 4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // [i0, i1]
+  tv4->merge(0);
+  // [i0*i1]
+  tv4->split(0, 4, false); // outer split
+  // [4, i0*i1/4]
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(-2);
+  }
+
+  IdModelTester tester(&fusion);
   const auto& [iel_graph, root_resolution_map] =
       tester.getInlineRootResolutionMap();
 
   // Verify all tensors with broadcast have correct resolution of root
   // broadcast domains
-  for (auto tv : all_tvs) {
+  for (auto tv : ir_utils::allTvs(&fusion)) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
             tv->getRootDomain().begin(),
@@ -353,7 +342,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
         //  root domain : (bS4{1}, iS5{4})
         validateResolution(
             tv->getRootDomain().at(0),
-            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            tv4->getRootDomain().at(0),
             iel_graph,
             root_resolution_map);
         break;
@@ -423,7 +412,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
         //  root domain : (bS10{1}, iS11{i0}, iS12{i2}, iS13{i3})
         validateResolution(
             tv->getRootDomain().at(0),
-            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            tv4->getRootDomain().at(0),
             iel_graph,
             root_resolution_map);
         break;
@@ -558,7 +547,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
         // produce_pos( 1 ) root domain : (bS4{1}, iS5{i0})
         validateResolution(
             tv->getRootDomain().at(0),
-            findTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            tv4->getRootDomain().at(0),
             iel_graph,
             root_resolution_map);
         break;
@@ -635,7 +624,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // produce_pos( 1 ) root domain : (bS2{1}, iS3{5})
         validateResolution(
             tv->getRootDomain().at(0),
-            findTensorByName(all_tvs, 7)->getRootDomain().at(0),
+            tv7->getRootDomain().at(0),
             iel_graph,
             root_resolution_map);
         break;
@@ -645,7 +634,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // iS9{5}, bS10{1})
         validateResolution(
             tv->getRootDomain().at(2),
-            findTensorByName(all_tvs, 7)->getRootDomain().at(2),
+            tv7->getRootDomain().at(2),
             iel_graph,
             root_resolution_map);
         break;
