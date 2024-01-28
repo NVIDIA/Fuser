@@ -1887,7 +1887,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
       outputBytesProcessed(outputs);
 
-      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
+      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+          isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
         double gb_per_s =
             ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
