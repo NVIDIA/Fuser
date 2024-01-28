@@ -1385,4 +1385,79 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
   testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// Test that dynamic reductions that should result in squeezes are handled
+// properly.
+// See https://github.com/NVIDIA/Fuser/issues/1667
+TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+      });
+  auto tv2 = sum(tv1, {0, 2, 3, 4});
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Same as above but for Welford ops
+// See https://github.com/NVIDIA/Fuser/issues/1667
+TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+      });
+  auto res =
+      variance_mean(tv1, {0, 2, 3, 4}, /*unbiased=*/true, /*keepdim=*/false);
+  fusion->addOutput(res.mean);
+  fusion->addOutput(res.var);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -173,15 +173,6 @@ TensorView::TensorView(
   domain_ = IrBuilder::create<TensorDomain>(sizes, contig_info);
 }
 
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<torch::jit::Value>& jit_value)
-    : TensorView(passkey, jit_value->type()->cast<c10::TensorType>()) {
-  NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-}
-
 NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
