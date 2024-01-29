@@ -519,9 +519,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 }
 
 bool isLowerableToCommunication(Expr* expr) {
-  NVF_ERROR(ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
+  NVF_ERROR(
+      ir_utils::isTvOp(expr),
+      "Non-tv op is not supported yet: ",
+      expr->toString());
   if (expr->isA<ReductionOp>()) {
     auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
     auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
