@@ -85,10 +85,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   // TODO: put this into ir_cloner instead
-  for (const auto& entry : from->io_alias_) {
-    Val* copied_output = ir_cloner.clone(entry.first);
-    Val* copied_input = ir_cloner.clone(entry.second.first);
-    to->io_alias_[copied_output] = {copied_input, entry.second.second};
+  for (const auto& [output, alias_info] : from->io_alias_) {
+    Val* copied_output = ir_cloner.clone(output);
+    Val* copied_input = ir_cloner.clone(alias_info.aliased_io);
+    to->io_alias_[copied_output] = {
+        .type = alias_info.type,
+        .aliased_io = copied_input,
+        .hide_output = alias_info.hide_output};
   }
 
   to->permuted_input_map_ = from->permuted_input_map_;
@@ -766,6 +769,10 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
 }
 
 void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
+  NVF_CHECK(
+      type != AliasType::NoAlias,
+      "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
+
   if (type == AliasType::InplaceUpdate) {
     // `input` can be a cast of a fusion input.
     if (!input->isFusionInput()) {
@@ -793,7 +800,10 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
-  io_alias_[output] = {input, AliasInfo{type, !output->isFusionOutput()}};
+  io_alias_[output] = AliasInfo{
+      .type = type,
+      .aliased_io = input,
+      .hide_output = !output->isFusionOutput()};
 
   // TODO: output should be marked at the end of fusion definition #1488
   if (!output->isFusionOutput()) {
@@ -801,12 +811,13 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) const {
+const AliasInfo& Fusion::getOutputAlias(Val* output) const {
+  static AliasInfo no_alias_info{
+      .type = AliasType::NoAlias, .aliased_io = nullptr, .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
-    return {in_val_and_info.first, &in_val_and_info.second};
+    return search->second;
   }
-  return {nullptr, nullptr};
+  return no_alias_info;
 }
 
 bool Fusion::hasDynamicTransform() {
