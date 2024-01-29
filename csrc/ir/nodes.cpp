@@ -2066,30 +2066,37 @@ void MmaOp::setMacro(MmaMacro macro) {
 std::vector<PolymorphicValue> MmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  
   const auto tv_a = inA()->as<TensorView>();
   const auto tv_b = inB()->as<TensorView>();
   NVF_CHECK(
-    tv_a->nDims() == tv_b->nDims(), 
-    "Either both or none of A and B should be batch");
-  // Verify that the broadcasted size is 3. 
+
+      tv_a->nDims() == tv_b->nDims(),
+      "Either both or none of A and B should be batch");
+  // Verify that the broadcasted size is 3.
   NVF_CHECK(
-    tv_a->nDims() == 3,
-    "MmaOp::evaluate is not implemented for size: ", tv_a->nDims());
+      tv_a->nDims() == 3,
+      "MmaOp::evaluate is not implemented for size: ",
+      tv_a->nDims());
 
   // Assumptions:
   //    Currently, the evaluate method assumes that the MmaOp is preceded by a
   //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
   //    first operand and the first dim for the second operand.
   //    The inputs here will be [M, K, 1] x [1, K, N].
-  NVF_CHECK(input(0)->definition() != nullptr && input(0)->definition()->isA<BroadcastOp>(), 
+  NVF_CHECK(
+      input(0)->definition() != nullptr &&
+          input(0)->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_CHECK(input(1)->definition() != nullptr && input(1)->definition()->isA<BroadcastOp>(), 
+  NVF_CHECK(
+      input(1)->definition() != nullptr &&
+          input(1)->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
 
-  NVF_CHECK(tv_a->getRootDomain().back()->isBroadcast(),
+  NVF_CHECK(
+      tv_a->getRootDomain().back()->isBroadcast(),
       "Expected last dimension to be broadcasted for first operand.");
-  NVF_CHECK(tv_b->getRootDomain().front()->isBroadcast(),
+  NVF_CHECK(
+      tv_b->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
 
   // Squeeze the inputs to remove the broadcasted dimensions.
@@ -2099,7 +2106,6 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // After removing the broadcast dimensions, the format should be
   // [M, K] x [K, N] compatible with aten::matmul format.
   return {in_a.matmul(in_b)};
-
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)

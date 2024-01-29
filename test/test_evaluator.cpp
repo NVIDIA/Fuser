@@ -677,7 +677,7 @@ TEST_F(ExprEvalTest, MmaOp) {
   int64_t m = 2, k = 3, n = 4;
 
   Fusion fusion;
-  FusionGuard fg(&fusion);    
+  FusionGuard fg(&fusion);
 
   // The matmul API will expect inputs in the shape [M,K] x [K,N].
   // This is compatible with PyTorch,
@@ -703,5 +703,5 @@ TEST_F(ExprEvalTest, MmaOp) {
   evaluator.bind(tv1, in_b);
   at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
   NVF_CHECK(out_ref.equal(out));
-  } 
+}
 } // namespace nvfuser
