@@ -169,7 +169,7 @@ class PrecomputedValues {
   void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
-  bool ready() {
+  bool hasValidValues() {
     return has_valid_values_;
   }
 
@@ -233,10 +233,6 @@ class PrecomputedValues {
   //!  infer instructions from the workspace.
   void initializeIntegerMachine() {
     value_machine_ = std::make_unique<NaiveValueMachine>(*this);
-  }
-
-  bool hasValidValues() {
-    return has_valid_values_;
   }
 
   //! Iterate through all the named scalars corresponding
