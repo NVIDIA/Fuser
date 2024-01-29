@@ -674,49 +674,34 @@ TEST_F(ExprEvalTest, SumDiv) {
 }
 
 TEST_F(ExprEvalTest, MmaOp) {
-  std::vector<bool> has_batch_dim {false};
-  int64_t b = 5, m = 2, k = 3, n = 4;
+  int64_t m = 2, k = 3, n = 4;
 
-  for (bool is_bmm: has_batch_dim){
-    Fusion fusion;
-    FusionGuard fg(&fusion);    
+  Fusion fusion;
+  FusionGuard fg(&fusion);    
 
-    // int ndims = is_bmm ? 3 : 2;
-    std::vector<int64_t> a_shape, b_shape, out_shape;
-    if (is_bmm){
-      a_shape = {b, n, k};
-      b_shape = {b, n, k};
-      out_shape = {b, m, n};
-    } else {
-      a_shape = {m, k};
-      b_shape = {n, k};
-      out_shape = {m, n};
-    }
+  // The matmul API will expect inputs in the shape [M,K] x [K,N].
+  // This is compatible with PyTorch,
+  std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
 
-    auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
-    auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
 
-    std::vector<bool> bcast_dima (tv0->nDims() + 1, false);
-    std::vector<bool> bcast_dimb (tv1->nDims() + 1, false);
-    bcast_dima.at(bcast_dima.size() - 1) = true;
-    bcast_dimb.at(bcast_dimb.size() - 3) = true;
-    auto tv0b = broadcast(tv0, bcast_dima);
-    auto tv1b = broadcast(tv1, bcast_dimb);
-    auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
+  auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
 
-    fusion.addOutput(tv2);
+  fusion.addOutput(tv2);
 
-    at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
-    at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
-    at::Tensor out_ref = k * at::ones(out_shape, at::kHalf).cuda();
+  at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
+  at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = k * at::ones(out_shape, at::kHalf).cuda();
 
-    ExpressionEvaluator evaluator;
-    evaluator.bind(tv0, in_a);
-    evaluator.bind(tv1, in_b);
-    at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
-    NVF_CHECK(out_ref.equal(out));
-    }
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, in_a);
+  evaluator.bind(tv1, in_b);
+  at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
+  NVF_CHECK(out_ref.equal(out));
   } 
 } // namespace nvfuser
