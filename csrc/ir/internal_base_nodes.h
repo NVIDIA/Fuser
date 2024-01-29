@@ -242,6 +242,10 @@ class NVF_API IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
+  bool isCPUDim() const {
+    return getParallelType() == ParallelType::CPU;
+  }
+
   void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {

@@ -840,6 +840,9 @@ ForLoop::ForLoop(
   if (start == nullptr && iter_domain->isThread()) {
     start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
   }
+  if (start == nullptr && iter_domain->isCPUDim()) {
+    start = FusionGuard::getCurFusion()->oneVal();
+  }
   if (step == nullptr) {
     if (iter_domain->isThread()) {
       step = NamedScalar::getParallelDim(iter_domain->getParallelType());
@@ -925,7 +928,7 @@ bool ForLoop::isUnrollable() const {
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
       !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
-      !iter_domain()->isBroadcast() && !vectorize();
+      !iter_domain()->isBroadcast() && !vectorize() && !iter_domain()->isCPUDim();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -999,7 +1002,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() || iter_domain()->isCPUDim()) {
     return true;
   }
 

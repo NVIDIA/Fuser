@@ -165,7 +165,7 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto id : maybe_rfactor_domain) {
       if (id->isReduction() || id->isStride()) {
         continue;
-      } else if (id->isBroadcast() || id->isDeviceDim()) {
+      } else if (id->isBroadcast() || id->isDeviceDim() || id->isCPUDim()) {
         // No matter whether this broadcast is expanded or not, we always
         // allocate size 1
         // Allocate devices axes as size 1
@@ -339,7 +339,7 @@ class AllocationInserter : public kir::ExprMutator {
       // Don't use reduction/stride/broadcast/device axis in the
       // allocation computation
       if (local_id->isReduction() || local_id->isStride() ||
-          local_id->isBroadcast() || local_id->isDeviceDim()) {
+          local_id->isBroadcast() || local_id->isDeviceDim() || local_id->isCPUDim()) {
         continue;
       }
 
