@@ -112,17 +112,11 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicLookup(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime
-                ->getMaybeHeuristicsFor(
-                    args,
-                    /*forced_index_type=*/std::nullopt,
-                    /*initial_heuristics=*/false)
-                .has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(
-        args, /*forced_index_type=*/std::nullopt, /*initial_heuristics=*/false);
+    runtime->getMaybeHeuristicsFor(args);
   }
 }
 
@@ -174,17 +168,11 @@ static void NvFuserScheduler_LayerNormForward_HeuristicLookup(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime
-                ->getMaybeHeuristicsFor(
-                    args,
-                    /*forced_index_type=*/std::nullopt,
-                    /*initial_heuristics=*/false)
-                .has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(
-        args, /*forced_index_type=*/std::nullopt, /*initial_heuristics=*/false);
+    runtime->getMaybeHeuristicsFor(args);
   }
 }
 
