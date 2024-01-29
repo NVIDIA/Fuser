@@ -647,8 +647,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
     // like it would have if we had used a static reshape instead.
-    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+    auto old_rfactor =
+        TensorDomain::noReductions(incomplete_out_tv->getMaybeRFactorDomain());
+    auto new_rfactor = TensorDomain::noReductions(
+        concrete_reshape_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
