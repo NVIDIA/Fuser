@@ -147,10 +147,11 @@ class PrecomputedValues {
 
   ~PrecomputedValues();
 
-  //! Bind concrete values from fusion runtime inputs
+  //! Bind a list of concrete values to the fusion's runtime inputs.
   void bindInputs(const KernelArgumentHolder& args);
 
-  //! Bind concrete values to a group of fusion values
+  //! Bind a list of concrete values to a list of fusion values. The two lists
+  //! must have the same size.
   void bindValues(
       const std::vector<Val*>& values,
       const KernelArgumentHolder& args);
