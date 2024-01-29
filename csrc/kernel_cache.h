@@ -273,7 +273,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
-  std::unique_ptr<FusionHeuristics> heuristics_;
+  HeuristicsPtr heuristics_;
 
   // Checks if this runtime instance is for a single-kernel fusion (false) or a
   //  segmented fusion (true).

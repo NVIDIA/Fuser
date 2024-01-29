@@ -1613,7 +1613,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       args_metadata, runtime_workspace_, segmented_fusion_->inputs());
 
   // Follow group run order
-  for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
+  for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
     // Create fusion for this segmented group
@@ -1628,7 +1628,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Create PrecomputedValues initialized with original fusion inputs
-    std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+    auto evaluator_precomputed_values =
         std::make_unique<PrecomputedValues>(fusion_to_run);
     evaluator_precomputed_values->bindInputs(group_runtime_inputs);
     evaluator_precomputed_values->bindValues(

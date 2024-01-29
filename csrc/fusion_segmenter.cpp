@@ -1845,9 +1845,9 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
 
 std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
     makeFusionWithCloner(SegmentedGroup* sg) {
-  std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
+  auto fusion_segment = std::make_unique<Fusion>();
 
-  auto complete_to_segment_map =
+  IrCloner complete_to_segment_map =
       Fusion::copy(completeFusion(), fusion_segment.get());
 
   std::vector<Val*> input_list(
