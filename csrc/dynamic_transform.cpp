@@ -647,6 +647,32 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
     // like it would have if we had used a static reshape instead.
+    //
+    // Note that Reduction IterDomains might be present in the concretized
+    // reshape. For example, suppose we are given the following dynamic Fusion
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T2[ ?S4{i2} ] = view(T1[ iS2{i0} rS3{i1} ])
+    //   T3[ ?S4{i2} ] = -T2[ ?S4{i2} ]
+    //
+    // Then we will concretize this as
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
+    //
+    // Notice here that the ViewOp is gone since we recognized that there is no
+    // transformation to perform. Instead, T1 is used directly in place of T2.
+    // We also replace the extent i2 from the dynamic reshape output T2 with i0,
+    // which is what the code below implements. Since T1 includes a Reduction
+    // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
     auto old_rfactor =
         TensorDomain::noReductions(incomplete_out_tv->getMaybeRFactorDomain());
     auto new_rfactor = TensorDomain::noReductions(
