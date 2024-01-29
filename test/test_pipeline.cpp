@@ -13,7 +13,6 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
-#include <multidevice/lower_resharding_expr.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
@@ -197,8 +196,7 @@ class automaticReshardingTest
   }
   void validate() {
     for (auto expr : fusion->exprs()) {
-      GTEST_EXPECT_TRUE(
-          !isResharding(expr) || isLowerableToCommunication(expr))
+      GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
     }
 
@@ -240,7 +238,7 @@ TEST_P(automaticReshardingTest, setInsertion) {
        is_tv2_sharded] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = unaryOp(UnaryOpType::Exp, tv0);
+  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
   TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
   TensorView* tv3 = sum(tv2, {0});
   TensorView* tv4 = broadcast(tv3, {true, false, false});

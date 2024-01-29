@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/multidevice.h>
 
@@ -19,9 +20,10 @@ bool isSharded(TensorView*);
 
 // Returns the subset of tvs which elements have the same multi-device sharding
 // as ref
-std::unordered_set<TensorView*> haveDifferentSharding(
+template <typename TvIterator>
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    std::unordered_set<TensorView*> tvs);
+    TvIterator tvs);
 
 // Returns whether an Expr embbeds multi-device resharding
 bool isResharding(Expr* expr);
@@ -35,4 +37,9 @@ int64_t requestedNumberOfDevices(Fusion*);
 
 void unshard(Fusion*);
 void unshard(TensorView*);
+// Runs through the fusion and inserts a resharding Set Op before any resharding
+// Expr that is not directly lowerable to a series of communications
+// TODO: add an option to rather insert the Set AFTER the resharding Expr
+void insertReshardings(Fusion* fusion);
+
 } // namespace nvfuser

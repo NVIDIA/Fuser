@@ -339,10 +339,6 @@ class SegmentedFusion {
     return complete_fusion_->outputs();
   }
 
-  Val* findAlias(Val* val) const {
-    return complete_fusion_->getOutputAlias(val).first;
-  }
-
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
