@@ -2071,9 +2071,9 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
   //    first operand and the first dim for the second operand.
 
-  NVF_CHECK(input(0)->definition()->isA<BroadcastOp>(), 
+  NVF_CHECK(input(0)->definition() != nullptr && input(0)->definition()->isA<BroadcastOp>(), 
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_CHECK(input(1)->definition()->isA<BroadcastOp>(), 
+  NVF_CHECK(input(1)->definition() != nullptr && input(1)->definition()->isA<BroadcastOp>(), 
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
 
   NVF_CHECK(inA()->as<TensorView>()->getRootDomain().back()->isBroadcast(),
