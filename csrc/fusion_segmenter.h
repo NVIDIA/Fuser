@@ -286,8 +286,6 @@ class FusionHeuristics {
 
   SchedulerEntryOwningPtr& at(int index) {
     NVF_ERROR(is_segmented_);
-    NVF_ERROR(index >= 0);
-    NVF_ERROR(index < (int)heuristics_.size());
     return heuristics_.at(index);
   }
 
