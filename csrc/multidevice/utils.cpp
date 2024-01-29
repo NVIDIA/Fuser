@@ -7,9 +7,13 @@
 // clang-format on
 
 #include <compute_at_map.h>
+#include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
+#include <ops/all_ops.h>
+#include <scheduler/utils.h>
 
 #include <c10/util/irange.h>
 
@@ -45,9 +49,10 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 
 } // namespace
 
-std::unordered_set<TensorView*> haveDifferentSharding(
+template <typename TvIterator>
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    std::unordered_set<TensorView*> tvs) {
+    TvIterator tvs) {
   std::unordered_set<TensorView*> ret;
   // isSharded asserts that there are no split/merge and that only the outmost
   // dimension is possibly sharded
@@ -62,7 +67,7 @@ std::unordered_set<TensorView*> haveDifferentSharding(
     concrete_to_reference_map[ca_id] = id;
   }
 
-  for (auto tv : tvs) {
+  for (TensorView* tv : tvs) {
     isSharded(tv);
     if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
       ret.insert(tv);
@@ -97,7 +102,47 @@ bool isResharding(Expr* expr) {
   }
   auto tv_ref = *tvs.begin();
   tvs.erase(tv_ref);
-  return !haveDifferentSharding(tv_ref, tvs).empty();
+  return !getTvsWithDifferentSharding(tv_ref, tvs).empty();
+}
+
+namespace {
+
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(ref->getDeviceMesh());
+  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+}
+
+} // namespace
+
+void insertReshardings(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  for (auto expr : exprs) {
+    if (isLowerableToCommunication(expr)) {
+      continue;
+    }
+    NVF_ERROR(
+        ir_utils::isTvOp(expr),
+        "Non-tv op is not supported yet: ",
+        expr->toString());
+    NVF_ERROR(
+        expr->outputs().size() == 1,
+        "multi-output expressions are not supported");
+    auto output = expr->outputs().at(0)->as<TensorView>();
+    std::vector<TensorView*> new_inputs;
+    for (auto input : getTvsWithDifferentSharding(
+             output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
+      // TODO: reuse cacheAfter?
+      // TODO: here we should add a mechanism to potentially reuse the inserted
+      // resharding accross all the consumer of the resharded tensor. This way
+      // we could avoid wasteful resharding set insertion.
+      TensorView* new_input = set(input);
+      new_inputs.push_back(new_input);
+      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+    }
+    shardAllLike(output, new_inputs);
+  }
 }
 
 } // namespace nvfuser
