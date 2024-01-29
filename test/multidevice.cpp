@@ -33,26 +33,19 @@ void MultiDeviceEnvironment::SetUp() {
   }
 }
 
-void MultiDeviceEnvironment::TearDown() {
-  if (communicator_->is_available()) {
-    communicator_->barrier();
-  }
-  communicator_.reset();
-}
-
 void MultiDeviceTest::SetUp() {
   NVFuserTest::SetUp();
   communicator = multidevice_env->communicator();
+  debug_print = multidevice_env->debugPrint();
+  do_barrier_at_test =
+      multidevice_env->doBarrierAtTest() && communicator->is_available();
+  time_print = multidevice_env->timePrint() && communicator->is_available();
   if (!communicator->is_available() || communicator->size() < 2 ||
       torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test =
-      multidevice_env->doBarrierAtTest() && communicator->is_available();
-  time_print = multidevice_env->timePrint() && communicator->is_available();
   recordEvent("init");
 }
 
@@ -69,19 +62,24 @@ void MultiDeviceTest::TearDown() {
 }
 
 void MultiDeviceTest::recordEvent(const std::string name) {
-  times.push_back(std::make_pair(name, std::chrono::high_resolution_clock::now()));
+  times.push_back(
+      std::make_pair(name, std::chrono::high_resolution_clock::now()));
 }
 
 void MultiDeviceTest::printTimes() {
   std::stringstream ss;
   auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-  ss << "Rank " << communicator->deviceId()
-     << " -- test " << test_info->test_suite_name() << "." << test_info->name()
+  ss << "Rank " << communicator->deviceId() << " -- test "
+     << test_info->test_suite_name() << "." << test_info->name()
      << " -- Timestamps: {\n";
-  for (auto i: c10::irange(times.size() - 1)) {
+  for (auto i : c10::irange(times.size() - 1)) {
     auto [event_name, time] = times[i];
-    auto [_, next_time] = times[i+1];
-    ss << "  " << event_name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(next_time - time).count() << " ms\n";
+    auto [_, next_time] = times[i + 1];
+    ss << "  " << event_name << ": "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(
+              next_time - time)
+              .count()
+       << " ms\n";
   }
   ss << "}";
   std::cout << ss.str() << std::endl;

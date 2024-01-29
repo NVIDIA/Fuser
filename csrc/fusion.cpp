@@ -274,6 +274,7 @@ void Fusion::addOutput(Val* output) {
       output->isA<TensorView>(),
       "Non-TensorView outputs are not supported at this point: ",
       output->toString());
+  output->as<TensorView>()->setMemoryType(MemoryType::Global);
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);

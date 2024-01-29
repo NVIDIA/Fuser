@@ -7,9 +7,9 @@
 // clang-format on
 
 #pragma once
+#include <ATen/ATen.h>
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#include <ATen/ATen.h>
 
 namespace nvfuser {
 
@@ -41,8 +41,8 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
-  bool operator== (const DeviceMesh& other) const {
-    return vector() == other.vector(); 
+  bool operator==(const DeviceMesh& other) const {
+    return vector() == other.vector();
   }
 
   void reshape(at::IntArrayRef shape) {
@@ -55,7 +55,10 @@ class DeviceMesh final {
     NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),
         "device mesh has duplicates");
-    tensor_ = at::from_blob(vector_.data(), vector_.size(), at::TensorOptions().dtype(at::kInt));
+    tensor_ = at::from_blob(
+        vector_.data(),
+        static_cast<long>(vector_.size()),
+        at::TensorOptions().dtype(at::kInt));
   }
 
   // stores the list of device indices
