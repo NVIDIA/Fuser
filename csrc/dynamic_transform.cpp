@@ -673,8 +673,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // We also replace the extent i2 from the dynamic reshape output T2 with i0,
     // which is what the code below implements. Since T1 includes a Reduction
     // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
-    auto old_rfactor =
-        TensorDomain::noReductions(incomplete_out_tv->getMaybeRFactorDomain());
+    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
     auto new_rfactor = TensorDomain::noReductions(
         concrete_reshape_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(
