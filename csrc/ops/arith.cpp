@@ -1309,7 +1309,7 @@ TensorView* reductionOp(
   // supported for expanded reduction. We treat all others as trivial (i.e.
   // squeeze).
   std::vector<int> reduction_axes;
-  std::vector<bool> is_broadcast_reduction(ndims, false);
+  std::vector<bool> is_squeeze(ndims, false);
   bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
       reduction_op_type != BinaryOpType::Mul &&
       reduction_op_type != BinaryOpType::BitwiseXor;
@@ -1317,7 +1317,7 @@ TensorView* reductionOp(
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
     if (id->isBroadcast()) {
-      is_broadcast_reduction[axis] = true;
+      is_squeeze[axis] = true;
       offset--;
     } else {
       reduction_axes.push_back((int)axis + offset);
@@ -1327,7 +1327,7 @@ TensorView* reductionOp(
   TensorView* squeezed = tv;
   if (offset < 0) {
     // There are some broadcast dims being reduced. We squeeze them all first.
-    squeezed = squeeze(tv, is_broadcast_reduction, /*squeeze_expanded=*/true);
+    squeezed = squeeze(tv, is_squeeze, /*squeeze_expanded=*/true);
   }
 
   TensorView* out = squeezed;
