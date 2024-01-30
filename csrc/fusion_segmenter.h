@@ -373,7 +373,6 @@ class SegmentedFusion {
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      Fusion* local_fusion,
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 
@@ -385,7 +384,6 @@ class SegmentedFusion {
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
   std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
-      Fusion* local_fusion,
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 

@@ -4174,32 +4174,30 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 
 FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
     makeInitialSchedulerEntry(
-        Fusion* local_fusion,
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      local_fusion, sg->heuristic(), runtime_info);
+      runtime_info.fusion(), sg->heuristic(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
   return SchedulerEntry::makeEntry(
-      sg->heuristic(), local_fusion, runtime_info, data_cache);
+      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
 }
 
 std::optional<FusionKernelRuntime::SchedulerEntryPtr> SegmentedFusion::
     getMaybeSchedulerEntry(
-        Fusion* local_fusion,
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
   auto data_cache = getCachedHeuristicDataFor(sg);
   if (!SchedulerEntry::canSchedule(
-          sg->heuristic(), local_fusion, runtime_info, data_cache)) {
+          sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeEntry(
-      sg->heuristic(), local_fusion, runtime_info, data_cache);
+      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
 }
 
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
