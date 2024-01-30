@@ -528,6 +528,7 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
+  bool only_segment_resharding_exprs = false;
 };
 
 //!  SegmentCandidateFinder
@@ -578,6 +579,19 @@ class SegmentCandidateFinder {
     return std::move(scf.segmented_fusion_);
   }
 
+  // Perform segmentation on and take ownership of the given fusion
+  static std::unique_ptr<SegmentedFusion> segment(
+      std::unique_ptr<Fusion> fusion,
+      SegmentCandidateFinderOptions options) {
+    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
+      fusion->printMath();
+    }
+    SegmentCandidateFinder scf(std::move(fusion), options);
+    return std::move(scf.segmented_fusion_);
+  }
+
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
@@ -594,6 +608,10 @@ class SegmentCandidateFinder {
   SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options);
+
+  SegmentCandidateFinder(
+      std::unique_ptr<Fusion> fusion,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -637,11 +655,13 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    return runtime_info_;
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+    return runtime_info_.value();
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    return runtime_info_.expressionEvaluator();
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+    return runtime_info_->expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
@@ -751,7 +771,7 @@ class SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
-  SchedulerRuntimeInfo runtime_info_;
+  std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
@@ -769,7 +789,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder& runtime_inputs_;
+  std::optional<KernelArgumentHolder> runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

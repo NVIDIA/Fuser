@@ -14,6 +14,7 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -3548,7 +3549,19 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group1, group2);
+  if (options_.only_segment_resharding_exprs) {
+    for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
+        if (isResharding(expr)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+  auto h =
+      tryMerge(segmented_fusion_.get(), runtime_info_.value(), group1, group2);
   return h.has_value();
 }
 
@@ -3556,7 +3569,10 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
     SegmentedGroup* group) {
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group);
+  if (!runtime_info_.has_value()) {
+    return ScheduleHeuristic::None;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtime_info_.value(), group);
   NVF_ERROR(
       h.has_value(), "Can not find a scheduler to schedule fusion segment");
   return h.value();
@@ -3564,11 +3580,20 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
+    SegmentCandidateFinderOptions options)
+    : options_(options) {
+  segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+  findSegments();
+}
+
+SegmentCandidateFinder::SegmentCandidateFinder(
+    std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs),
-      runtime_inputs_(inputs) {
+      runtime_info_(
+          std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
+      runtime_inputs_(std::make_optional<KernelArgumentHolder>(inputs)) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
@@ -3687,8 +3712,9 @@ void SegmentCandidateFinder::findSegments() {
       ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
   if (options_.run_translate_welford && has_welford_ops) {
+    NVF_ERROR(runtime_inputs_.has_value());
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), runtime_inputs_)) {
+            segmented_fusion_.get(), runtime_inputs_.value())) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();
