@@ -1448,6 +1448,10 @@ class NVF_API MmaOp : public Expr {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
