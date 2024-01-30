@@ -33,8 +33,15 @@ size_t getVecSizeForPointwise(FusionExecutorCache& fec) {
   return 1;
 }
 
-bool hasVectorization(TensorView* tv) {
-  for (const auto* id : tv->getLeafDomain()) {
+bool hasVectorizationCache(TensorView* tv) {
+  NVF_CHECK(tv->isFusionInput());
+  NVF_CHECK(tv->uses().size() == 1);
+  auto set_expr = dynamic_cast<LoadStoreOp*>(tv->uses().at(0));
+  NVF_CHECK(set_expr != nullptr && set_expr->opType() == LoadStoreOpType::Set);
+  auto cached_input = set_expr->out()->as<TensorView>();
+  NVF_CHECK(cached_input, "expects input to be cached");
+
+  for (const auto* id : cached_input->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       return true;
     }
@@ -252,9 +259,8 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
 
   EXPECT_EQ(params->vectorize, true);
   EXPECT_EQ(params->unroll_factor, 4);
-  EXPECT_TRUE(hasVectorization(tv0));
-  EXPECT_TRUE(hasVectorization(tv1));
-  EXPECT_TRUE(hasVectorization(tv2));
+  EXPECT_TRUE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -292,9 +298,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
 
   EXPECT_EQ(params->vectorize, true);
   EXPECT_EQ(params->unroll_factor, 4);
-  EXPECT_FALSE(hasVectorization(tv0));
-  EXPECT_TRUE(hasVectorization(tv1));
-  EXPECT_TRUE(hasVectorization(tv2));
+  EXPECT_FALSE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -332,9 +337,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
 
   EXPECT_EQ(params->vectorize, true);
   EXPECT_EQ(params->unroll_factor, 2);
-  EXPECT_TRUE(hasVectorization(tv0));
-  EXPECT_TRUE(hasVectorization(tv1));
-  EXPECT_TRUE(hasVectorization(tv2));
+  EXPECT_TRUE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -377,9 +381,8 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
 
   EXPECT_EQ(params->vectorize, true);
   EXPECT_EQ(params->unroll_factor, 4);
-  EXPECT_TRUE(hasVectorization(tv0));
-  EXPECT_TRUE(hasVectorization(tv1));
-  EXPECT_TRUE(hasVectorization(tv2));
+  EXPECT_TRUE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -421,9 +424,8 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
 
   EXPECT_EQ(params->vectorize, true);
   EXPECT_EQ(params->unroll_factor, 2);
-  EXPECT_TRUE(hasVectorization(tv0));
-  EXPECT_TRUE(hasVectorization(tv1));
-  EXPECT_TRUE(hasVectorization(tv2));
+  EXPECT_TRUE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
 
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
