@@ -1327,7 +1327,7 @@ TensorView* reductionOp(
   TensorView* squeezed = tv;
   if (offset < 0) {
     // There are some broadcast dims being reduced. We squeeze them all first.
-    squeezed = squeeze(tv, is_broadcast_reduction);
+    squeezed = squeeze(tv, is_broadcast_reduction, /*squeeze_expanded=*/true);
   }
 
   TensorView* out = squeezed;
@@ -1809,7 +1809,7 @@ WelfordResult Welford(
 
   TensorView* squeezed = tv;
   if (offset < 0) {
-    squeezed = squeeze(tv, is_trivial_reduction);
+    squeezed = squeeze(tv, is_trivial_reduction, /*squeeze_expanded=*/true);
   }
 
   if (!reduction_axes.empty()) {
