@@ -148,6 +148,16 @@ class SegmentedGroup {
   //!  segmented group after updating the group boundary.
   void resetExprList();
 
+  //! Try to get a scheduler entry for this group with
+  //!  the given runtime info.
+  //! Returns a new scheduler with the same heuristics
+  //!  for this group if possible.
+  //!  Note that the schedule params can be different.
+  //! Returns a nullopt if this group cannot be scheduled
+  //!  with the same heuristics.
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+      SchedulerRuntimeInfo& runtime_info);
+
   //! Query if this is a group for a fusion input
   bool isFusionInputGroup() const;
 
@@ -373,17 +383,6 @@ class SegmentedFusion {
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
-
-  //! Try to get a scheduler entry for this group with
-  //!  the given runtime info.
-  //! Returns a new scheduler with the same heuristics
-  //!  for this group if possible.
-  //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
-  //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 

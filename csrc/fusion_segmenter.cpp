@@ -2514,6 +2514,18 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
+std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
+    getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
+  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
+  auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
+  if (!SchedulerEntry::canSchedule(
+          heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
+    return std::nullopt;
+  }
+  return SchedulerEntry::makeEntry(
+      heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+}
+
 void SegmentedGroup::resetExprList() {
   auto input_group_vec = getAllInputs(this);
   std::unordered_set<Val*> input_group_set(
@@ -4182,20 +4194,6 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
       runtime_info.fusion(), sg->heuristic(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
-  return SchedulerEntry::makeEntry(
-      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
-}
-
-std::optional<FusionKernelRuntime::SchedulerEntryPtr> SegmentedFusion::
-    getMaybeSchedulerEntry(
-        SegmentedGroup* sg,
-        SchedulerRuntimeInfo& runtime_info) {
-  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
-  auto data_cache = getCachedHeuristicDataFor(sg);
-  if (!SchedulerEntry::canSchedule(
-          sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
-    return std::nullopt;
-  }
   return SchedulerEntry::makeEntry(
       sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
 }

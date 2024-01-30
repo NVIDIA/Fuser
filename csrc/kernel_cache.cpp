@@ -1653,8 +1653,8 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
               group_to_run, fusion_to_run_info);
     } else {
       // Try to get scheduler entry
-      auto maybe_scheduler_entry = segmented_fusion_->getMaybeSchedulerEntry(
-          group_to_run, fusion_to_run_info);
+      auto maybe_scheduler_entry =
+          group_to_run->getMaybeSchedulerEntry(fusion_to_run_info);
       // If unavailable, then return std::nullopt
       if (!maybe_scheduler_entry.has_value()) {
         return std::nullopt;
