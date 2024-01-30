@@ -127,15 +127,14 @@ void TransposeScheduler::computeHeuristics(
 
 namespace {
 
-// propagation could miss reduction iterdomain on input tensors, which could
-// happen for segmented fusion. Since reduction iterdomains on inputs don't have
-// any dependency and doesn't map to anything, we can naively just reorder them
-// so they won't interfere with tiling. See
+// If a fusion is segmented, the segmenter will create fusions whose inputs
+// contain reduction IterDomains. These reduction IterDomains on input
+// TensorViews does not have any meaning, and should just be left untouched. See
 // https://github.com/NVIDIA/Fuser/issues/1659#issuecomment-1907053830
 //
 // This function checks the inner `n` iterdomain and reorder reduction
 // iterdomain to the beginning.
-void cleanInnerLeafDomain(TensorView* tv, int n) {
+void moveReductionsOut(TensorView* tv, int n) {
   if (!tv->isFusionInput()) {
     return;
   }
@@ -1261,7 +1260,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   int pos = (int)reference2->nDims() - 2;
   // [..., tile1, tile2]
-  cleanInnerLeafDomain(reference2, 2);
+  moveReductionsOut(reference2, 2);
   reference2->merge(pos);
   reference2->split(pos, params.vectorize_factor2);
   reference2->split(pos, params.getThreadsPerBlock());
@@ -1347,7 +1346,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   reference1->reorder({{-2, -1}});
   // [..., tile2, tile1]
   pos = (int)reference1->nDims() - 2;
-  cleanInnerLeafDomain(reference1, 2);
+  moveReductionsOut(reference1, 2);
   reference1->merge(pos);
   reference1->split(pos, params.vectorize_factor1);
   reference1->split(pos, params.getThreadsPerBlock());
