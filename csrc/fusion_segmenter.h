@@ -579,19 +579,6 @@ class SegmentCandidateFinder {
     return std::move(scf.segmented_fusion_);
   }
 
-  // Perform segmentation on and take ownership of the given fusion
-  static std::unique_ptr<SegmentedFusion> segment(
-      std::unique_ptr<Fusion> fusion,
-      SegmentCandidateFinderOptions options) {
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion), options);
-    return std::move(scf.segmented_fusion_);
-  }
-
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
@@ -608,10 +595,6 @@ class SegmentCandidateFinder {
   SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options);
-
-  SegmentCandidateFinder(
-      std::unique_ptr<Fusion> fusion,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -789,7 +772,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  std::optional<KernelArgumentHolder> runtime_inputs_;
+  const KernelArgumentHolder& runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

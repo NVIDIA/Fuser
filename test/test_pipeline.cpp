@@ -7,6 +7,7 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <executor_kernel_arg.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
@@ -405,8 +406,9 @@ class automaticReshardingTest
         .run_final_merge = true,
         .only_segment_resharding_exprs = true};
 
+    KernelArgumentHolder dummy_inputs;
     auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion), options);
+        SegmentCandidateFinder::segment(std::move(fusion), dummy_inputs, options);
 
     for (auto group : segmented_fusion->groups()) {
       GTEST_EXPECT_TRUE(
