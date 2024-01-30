@@ -558,4 +558,18 @@ bool isLowerableToCommunication(Expr* expr) {
 
 } // namespace nvfuser
 
+#else // USE_DISTRIBUTED
+
+#include <ir/base_nodes.h>
+
+namespace nvfuser {
+
+// This is just here so that things can compile even when/if USE_DISTRIBUTED is
+// not defined. The code paths aren't intended to be hit ever in such cases, so
+// the implementation is unimportant.
+bool isLowerableToCommunication(Expr*) {
+  return false;
+}
+
+} // namespace nvfuser
 #endif
