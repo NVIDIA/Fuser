@@ -407,8 +407,8 @@ class automaticReshardingTest
         .only_segment_resharding_exprs = true};
 
     KernelArgumentHolder dummy_inputs;
-    auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion), dummy_inputs, options);
+    auto segmented_fusion = SegmentCandidateFinder::segment(
+        std::move(fusion), dummy_inputs, options);
 
     for (auto group : segmented_fusion->groups()) {
       GTEST_EXPECT_TRUE(

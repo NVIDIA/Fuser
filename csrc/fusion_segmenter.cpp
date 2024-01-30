@@ -3559,8 +3559,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     }
     return true;
   }
-  auto h =
-      tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
   return h.has_value();
 }
 
@@ -3582,8 +3581,10 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_( inputs.empty() ? std::nullopt :
-          std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
+      runtime_info_(
+          inputs.empty()
+              ? std::nullopt
+              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
       runtime_inputs_(inputs) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
