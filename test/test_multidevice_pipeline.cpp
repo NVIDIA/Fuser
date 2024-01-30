@@ -124,7 +124,7 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  inputs = {
+  unsharded_inputs = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
@@ -170,10 +170,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   std::vector<int64_t> unsharded_input_sizes = {
       first_axis_extent, second_axis_extent, 3, 5};
-  std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
-  if (is_stage0_sharded) {
-    sharded_input_sizes[0] = 1;
-  }
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
@@ -199,8 +195,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {
-      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
   executeAndValidate();
 }
@@ -562,14 +557,10 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   auto aT = at::randn({M, K}, tensor_options);
   auto b = at::randn({M, O}, tensor_options);
   auto myDevice = communicator->deviceId();
-  inputs = {
-      x,
-      shardInputTensor(aT, mesh, myDevice),
-      shardInputTensor(b, mesh, myDevice)};
+  inputs = {x, shardTensor(aT, mesh, myDevice), shardTensor(b, mesh, myDevice)};
   auto y = at::matmul(x, aT.transpose(0, 1));
   auto z = at::matmul(y, b);
-  auto expected_outputs = {
-      shardInputTensor(y.transpose(0, 1), mesh, myDevice), z};
+  auto expected_outputs = {shardTensor(y.transpose(0, 1), mesh, myDevice), z};
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
@@ -658,10 +649,10 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   auto aten_w = at::randn({H, Dv, D_model}, tensor_options);
   auto deviceId = communicator->deviceId();
   inputs = {
-      shardInputTensor(aten_q, mesh, deviceId),
-      shardInputTensor(aten_k, mesh, deviceId),
-      shardInputTensor(aten_v, mesh, deviceId),
-      shardInputTensor(aten_w, mesh, deviceId)};
+      shardTensor(aten_q, mesh, deviceId),
+      shardTensor(aten_k, mesh, deviceId),
+      shardTensor(aten_v, mesh, deviceId),
+      shardTensor(aten_w, mesh, deviceId)};
   auto aten_qk = at::matmul(
       aten_q, aten_k.permute({0, 2, 1})); // H, S, Dk x H, Dk, S -> H, S, S
   auto aten_qkv = at::matmul(aten_qk, aten_v); // H, S, S x H, S, Dv -> H, S, Dv
@@ -670,8 +661,8 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   auto out = at::matmul(
       aten_qkv_concat, aten_w_); // S, H*Dv x H*Dv, Dmodel -> S, Dmodel
   auto expected_outputs = {
-      shardInputTensor(aten_qk, mesh, deviceId),
-      shardInputTensor(aten_qkv, mesh, deviceId),
+      shardTensor(aten_qk, mesh, deviceId),
+      shardTensor(aten_qkv, mesh, deviceId),
       out};
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);

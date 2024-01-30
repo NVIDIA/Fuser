@@ -85,7 +85,7 @@ TEST_F(ShardingTest, ShardGlobalInput) {
 
   auto x = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardInputTensor(x, mesh, communicator->deviceId())};
+      shardTensor(x, mesh, communicator->deviceId())};
   auto ref_outputs = x * 2;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
