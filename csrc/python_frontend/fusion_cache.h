@@ -118,7 +118,7 @@ struct TrieNode {
 class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
-  FusionCache(size_t max_fusions);
+  FusionCache(size_t max_fusions, std::optional<int64_t> selected_device);
 
  public:
   //! Copy and Assignment of the FusionCache is not supported
@@ -131,9 +131,12 @@ class FusionCache {
   //! Gets a pointer to the singleton and creates a new one if necessary
   static FusionCache* get(
       size_t max_fusions = 8192,
+      std::optional<int64_t> selected_device = std::nullopt,
       bool load_from_default_workspace = true);
   //! Number of fusions cached
   size_t numFusions() const;
+  //! Get device associated with this FusionCache
+  int64_t deviceId() const;
   //! print cache contents
   void print(std::ostream& os) const;
   //! print cache stats
@@ -184,6 +187,9 @@ class FusionCache {
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_;
+  //! A separate process is created for each device in a distributed setting.
+  //! Each FusionCache becomes associated with a device.
+  int64_t device_id_;
   //! The root (start) of the prefix tree to start a cache look up of a given
   //! fusion definition.
   std::unique_ptr<TrieNode> root_;

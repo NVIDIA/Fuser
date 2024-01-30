@@ -42,14 +42,18 @@ std::string getSerdeTmpFile() {
   return ss.str();
 }
 
-std::string getSerdeFile() {
-  auto device_prop = at::cuda::getCurrentDeviceProperties();
+std::string getSerdeFile(int64_t device_id) {
+  auto device_prop = (device_id >= 0) ? at::cuda::getDeviceProperties(device_id)
+                                      : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
   NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
 
   std::stringstream ss;
   ss << "nvf_serde";
+  if (device_id >= 0) {
+    ss << "_rank" << device_id;
+  }
   ss << "_device" << device_prop->major << "_" << device_prop->minor;
   ss << "_cuda" << cuda_major << "_" << cuda_minor;
   return ss.str();
@@ -90,7 +94,9 @@ BinaryBuffer openFusionCache(std::string filename) {
 }
 
 // This check function only throws errors if strict flag is enabled.
-const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
+const serde::FusionCache* verifyFusionCache(
+    const BinaryBuffer& buffer,
+    int64_t device_id) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
@@ -106,7 +112,8 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
       "Failed to verify the schema version of the FusionCache buffer");
 
   // Check device major and minor versions
-  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  auto device_prop = (device_id >= 0) ? at::cuda::getDeviceProperties(device_id)
+                                      : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
           device_prop->minor == fusion_cache_buffer->device_minor(),
@@ -151,7 +158,8 @@ void serialize() {
   // Files replaced through this process should remain extant if they are being
   // read because of UNIX filesystem properties, but this behavior is
   // unverified.
-  auto file_path = getSerdeFilePath(getSerdeFile());
+  auto file_path =
+      getSerdeFilePath(getSerdeFile(FusionCache::get()->deviceId()));
   std::error_code rename_ec;
   fs::rename(tmp_file_path, file_path, rename_ec);
 
@@ -230,14 +238,16 @@ flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
 
 FusionCache* FusionCache::get(
     size_t max_fusions,
+    std::optional<int64_t> selected_device,
     bool load_from_default_workspace) {
   FUSER_PERF_SCOPE("FusionCache::get");
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, selected_device);
 
     // Deserialize cache hierarchy from common workspace automatically
-    auto file_path = getSerdeFilePath(getSerdeFile()).native();
+    auto file_path =
+        getSerdeFilePath(getSerdeFile(singleton_->deviceId())).native();
     if (load_from_default_workspace && fs::exists(file_path)) {
       try {
         singleton_->deserialize(file_path);
@@ -270,7 +280,7 @@ FusionCache* FusionCache::get(
 
         // Reset FusionCache if there is an issue with the current workspace.
         delete singleton_;
-        singleton_ = new FusionCache(max_fusions);
+        singleton_ = new FusionCache(max_fusions, selected_device);
       }
     }
   }
@@ -283,6 +293,10 @@ FusionCache* FusionCache::get(
 
 size_t FusionCache::numFusions() const {
   return fusions_.size();
+}
+
+int64_t FusionCache::deviceId() const {
+  return device_id_;
 }
 
 void FusionCache::print(std::ostream& os) const {
@@ -346,14 +360,18 @@ void FusionCache::stats(std::ostream& os) const {
 void FusionCache::reset() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ != nullptr) {
-    auto max_fusions = singleton_->max_fusions_;
+    size_t max_fusions = singleton_->max_fusions_;
+    int64_t device_id = singleton_->device_id_;
     delete singleton_;
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, device_id);
   }
 }
 
-FusionCache::FusionCache(size_t max_fusions)
+FusionCache::FusionCache(
+    size_t max_fusions,
+    std::optional<int64_t> selected_device)
     : max_fusions_(max_fusions),
+      device_id_(selected_device.has_value() ? selected_device.value() : -1),
       root_(nullptr),
       fusions_(),
       terminal_nodes_(),
@@ -598,7 +616,8 @@ void FusionCache::deserialize(std::string filename) {
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
   const BinaryBuffer& buffer = openFusionCache(filename);
-  const serde::FusionCache* fusion_cache_buffer = verifyFusionCache(buffer);
+  const serde::FusionCache* fusion_cache_buffer =
+      verifyFusionCache(buffer, device_id_);
 
   // See table definition for FusionCache in serde/fusion_cache.fbs
   FUSER_PERF_SCOPE("FusionCache::deserialize");
