@@ -45,6 +45,11 @@ def pytest_benchmark_update_machine_info(config, machine_info):
 
 
 def pytest_collection_modifyitems(session, config, items):
+    """
+    The baseline benchmarks use `compile` parameter:
+        compile = false: Eager mode benchmark
+        compile = true: torch.compile benchmark
+    """
     run_eager = config.getoption("--benchmark-eager")
     run_torchcompile = config.getoption("--benchmark-torchcompile")
 
