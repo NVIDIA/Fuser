@@ -6,26 +6,22 @@ def pytest_addoption(parser):
     parser.addoption(
         "--disable-validation",
         action="store_true",
-        default=False,
         help="Disable output validation in benchmarks.",
     )
     parser.addoption(
         "--disable-benchmarking",
         action="store_true",
-        default=False,
         help="Disable benchmarking.",
     )
     parser.addoption(
         "--benchmark-eager",
         action="store_true",
-        default=False,
         help="Benchmarks torch eager mode.",
     )
 
     parser.addoption(
         "--benchmark-torchcompile",
         action="store_true",
-        default=False,
         help="Benchmarks torch.compile mode.",
     )
 
