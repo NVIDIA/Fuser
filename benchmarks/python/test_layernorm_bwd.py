@@ -91,6 +91,11 @@ def layernorm_bwd_fusion(
     fd.add_output(T28)
 
 
+def unary_bwd_torch(inputs: list): #[in_tensor, output, grads, weight, bias]
+    inputs[1].backward(inputs[2], retain_graph=True)
+    return [inputs[0].grad, inputs[3].grad, inputs[4].grad]
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_layernorm_bwd_benchmark(
@@ -130,3 +135,30 @@ def test_layernorm_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_layernorm_bwd_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    
+    output = torch.nn.functional.layer_norm(
+            inputs,
+            inputs.shape[1:],
+            weight=weights,
+            bias=bias,
+        )
+    
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [inputs, output, grads, weights, bias],
+    )
