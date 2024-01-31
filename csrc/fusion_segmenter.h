@@ -643,8 +643,7 @@ class SegmentCandidateFinder {
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_->expressionEvaluator();
+    return runtimeInfo().expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
