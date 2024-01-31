@@ -752,6 +752,15 @@ bool isSelectInput(TensorView* tv) {
   return false;
 }
 
+bool isSliceInput(TensorView* tv) {
+  for (auto expr : tv->uses()) {
+    if (expr->isA<SliceOp>()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {

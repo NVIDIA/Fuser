@@ -443,6 +443,9 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv);
 // Check if the given tv is an input of SelectOp
 bool isSelectInput(TensorView* tv);
 
+// Check if the given tv is an input of SliceOp
+bool isSliceInput(TensorView* tv);
+
 // Check if the given tv is first argment of index_select(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
