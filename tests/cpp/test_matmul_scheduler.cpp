@@ -3075,4 +3075,39 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+TEST_F(MatmulSchedulerTest, WrongResultOnSmallDimensionSizes) {
+  constexpr int m = 2;
+  constexpr int k = 5;
+  constexpr int n = 3;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(2, DataType::Half);
+  fusion->addInput(a);
+  TensorView* b = makeContigTensor(2, DataType::Half);
+  fusion->addInput(b);
+
+  a = broadcast(a, {false, false, true});
+  b = broadcast(b, {true, false, false});
+  TensorView* c = fusedMultiplySum(a, b, {1});
+  c = castOp(DataType::Half, c);
+  fusion->addOutput(c);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor a_tensor = at::randn({m, k}, options);
+  at::Tensor b_tensor = at::randn({k, n}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({a_tensor, b_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {a_tensor, b_tensor},
+      {a_tensor.matmul(b_tensor)},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
