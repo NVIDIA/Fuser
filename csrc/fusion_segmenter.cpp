@@ -3586,6 +3586,12 @@ SegmentCandidateFinder::SegmentCandidateFinder(
               ? std::nullopt
               : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
       runtime_inputs_(inputs) {
+  NVF_ERROR(
+      !options_.only_segment_resharding_exprs ||
+          (!options_.run_translate_welford &&
+           !options_.run_combine_reductions && options_.run_herrmann_merge &&
+           options_.run_final_merge),
+      "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
