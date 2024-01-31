@@ -4,6 +4,12 @@ from nvfuser import DataType
 from .core import DEVICE_PROPERTIES
 import numpy as np
 import itertools
+import os
+
+# BENCHMARK_MODE = weekly/nightly.
+BENCHMARK_MODE = os.getenv("BENCHMARK_MODE")
+if not BENCHMARK_MODE:
+    BENCHMARK_MODE = "nightly"
 
 # Datatypes to benchmark
 FLOAT_DTYPES = [torch.float32]
@@ -51,12 +57,16 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     for dim in dims:
         if dim == 2:
             input_ranges = []
-            step_size = 256
 
+            step_size = 256
             # max_batch_range: set according to max size that fits in GPU memory
             batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
-            # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
 
+            if BENCHMARK_MODE == "weekly":
+                step_size = 8
+                batch_range = [32, 1024, 2048]
+
+            # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
             # NOTE: Numpy arrays are not JSON serializable so convert them to enable storing benchmark data.
             hidden_range = np.arange(
                 D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size
