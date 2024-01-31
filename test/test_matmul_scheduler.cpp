@@ -2147,6 +2147,41 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
+TEST_F(MatmulSchedulerTest, SegmentBroadcastMatmul) {
+  constexpr int m = 504;
+  constexpr int k = 248;
+  constexpr int n = 136;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(2, DataType::Half);
+  fusion->addInput(a);
+  TensorView* b = makeContigTensor(2, DataType::Half);
+  fusion->addInput(b);
+
+  TensorView* c = matmul(
+      a, b, MmaLayout::TT, /*turing_or_later=*/true, /*as_mul_sum=*/false);
+  c = segment_set(c);
+  c = castOp(DataType::Half, c);
+  fusion->addOutput(c);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor a_tensor = at::randn({m, n}, options);
+  at::Tensor b_tensor = at::randn({n, k}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({a_tensor, b_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {a_tensor, b_tensor},
+      {a_tensor.matmul(b_tensor)},
+      __LINE__,
+      __FILE__);
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
