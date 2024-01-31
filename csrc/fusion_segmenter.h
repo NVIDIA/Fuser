@@ -559,7 +559,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     return segment(std::move(fusion_copy), inputs, options);
@@ -568,7 +568,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
@@ -581,7 +581,7 @@ class SegmentCandidateFinder {
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -594,7 +594,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -773,7 +773,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder& runtime_inputs_;
+  const KernelArgumentHolder* runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

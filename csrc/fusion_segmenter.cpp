@@ -1867,7 +1867,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -1876,7 +1876,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
   }
   if (fusion) {
@@ -3580,13 +3580,13 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
       runtime_info_(
-          inputs.empty()
+          inputs == nullptr
               ? std::nullopt
-              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
+              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), *inputs)),
       runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
@@ -3713,7 +3713,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), runtime_inputs_)) {
+            segmented_fusion_.get(), *runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();

@@ -987,7 +987,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
