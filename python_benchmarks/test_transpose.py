@@ -34,6 +34,10 @@ def transpose_fusion(
 
     fd.add_output(T9)
 
+def transpose_fwd_fn(inputs: list): #[input1, input2, dim0, dim1]
+    return torch.nn.functional.relu(
+            torch.transpose(inputs[0] + inputs[1], inputs[3], inputs[4])
+        )
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -60,10 +64,30 @@ def test_transpose_benchmark(
         transpose_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), permute_axes)
 
     if not disable_validation:
-        eager_output = torch.nn.functional.relu(
-            torch.transpose(input1 + input2, axes[0], axes[1])
-        )
+        eager_output = transpose_fwd_fn([input1, input2, axes[0], axes[1]])
         fd.validate([input1, input2], [eager_output])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [input1, input2])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=['eager', 'compile'])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=3))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
+def test_transpose_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    axes: list,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    input1 = torch.randn(*size, device="cuda", dtype=dtype)
+    input2 = torch.randn(*size, device="cuda", dtype=dtype)
+    run_benchmark(
+        benchmark,
+        torch.compile(transpose_fwd_fn) if compile else transpose_fwd_fn,
+        [input1, input2, axes[0], axes[1]],
+    )
