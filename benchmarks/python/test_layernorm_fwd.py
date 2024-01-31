@@ -94,7 +94,7 @@ def test_layernorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_layernorm_fwd_nvf_benchmark(
+def test_layernorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,

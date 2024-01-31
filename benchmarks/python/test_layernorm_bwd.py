@@ -98,7 +98,7 @@ def unary_bwd_torch(inputs: list): #[in_tensor, output, grads, weight, bias]
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_layernorm_bwd_benchmark(
+def test_layernorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -139,7 +139,7 @@ def test_layernorm_bwd_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_layernorm_bwd_benchmark(
+def test_layernorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
