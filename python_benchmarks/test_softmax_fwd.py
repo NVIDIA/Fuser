@@ -61,7 +61,7 @@ def test_softmax_fwd_nvf_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
+    inputs = [torch.randn(size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
@@ -86,7 +86,7 @@ def test_softmax_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
-    input = torch.randn(*size, device="cuda", dtype=dtype)
+    input = torch.randn(size, device="cuda", dtype=dtype)
     run_benchmark(
         benchmark,
         torch.compile(softmax_fwd_fn) if compile else softmax_fwd_fn,
