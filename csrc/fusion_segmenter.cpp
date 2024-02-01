@@ -3567,7 +3567,9 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
     SegmentedGroup* group) {
-  if (!runtime_info_.has_value()) {
+  if (options_.only_segment_resharding_exprs) {
+    // We don't need to generate a heuristic for multidevice segments at this
+    // moment
     return ScheduleHeuristic::None;
   }
   auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);

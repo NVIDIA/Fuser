@@ -753,6 +753,8 @@ class SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
+  // This is allowed to be null in the multidevice case where the segmenter is
+  // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   //! Note:
