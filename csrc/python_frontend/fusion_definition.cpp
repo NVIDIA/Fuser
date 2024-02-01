@@ -10,6 +10,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <multidevice/communicator.h>
 #include <scheduler/heuristic_types.h>
 #include <utils.h>
 #include <validator_utils.h>
