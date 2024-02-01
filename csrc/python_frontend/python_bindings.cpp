@@ -418,7 +418,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def_static(
           "get",
           &FusionCache::get,
-          py::arg("max_fusions") = int(8192),
+          py::arg("max_fusions") = int(16384),
           py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
