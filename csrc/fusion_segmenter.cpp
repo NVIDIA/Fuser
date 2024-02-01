@@ -14,6 +14,7 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -1866,7 +1867,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -1875,7 +1876,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
   }
   if (fusion) {
@@ -3548,7 +3549,17 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group1, group2);
+  if (options_.only_segment_resharding_exprs) {
+    for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
+        if (isResharding(expr)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
   return h.has_value();
 }
 
@@ -3556,7 +3567,12 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
     SegmentedGroup* group) {
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group);
+  if (options_.only_segment_resharding_exprs) {
+    // We don't need to generate a heuristic for multidevice segments at this
+    // moment
+    return ScheduleHeuristic::None;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
       h.has_value(), "Can not find a scheduler to schedule fusion segment");
   return h.value();
@@ -3564,11 +3580,21 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs),
+      runtime_info_(
+          inputs == nullptr ? std::nullopt
+                            : std::make_optional<SchedulerRuntimeInfo>(
+                                  fusion.get(),
+                                  *inputs)),
       runtime_inputs_(inputs) {
+  NVF_ERROR(
+      !options_.only_segment_resharding_exprs ||
+          (!options_.run_translate_welford &&
+           !options_.run_combine_reductions && options_.run_herrmann_merge &&
+           options_.run_final_merge),
+      "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
@@ -3688,7 +3714,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), runtime_inputs_)) {
+            segmented_fusion_.get(), *runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();

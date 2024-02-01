@@ -7,7 +7,9 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
@@ -396,6 +398,28 @@ class automaticReshardingTest
       GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
     }
+
+    SegmentCandidateFinderOptions options{
+        .run_translate_welford = false,
+        .run_combine_reductions = false,
+        .run_herrmann_merge = true,
+        .run_final_merge = true,
+        .only_segment_resharding_exprs = true};
+
+    auto segmented_fusion =
+        SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+
+    for (SegmentedGroup* group : segmented_fusion->groups()) {
+      GTEST_EXPECT_TRUE(
+          std::none_of(
+              group->exprs().begin(),
+              group->exprs().end(),
+              [](auto expr) { return isResharding(expr); }) ||
+          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
+    }
+    // checks that the segments are disjoints and that the graph of segment is
+    // acyclic
+    segmented_fusion->validate();
   }
 
   std::unique_ptr<Fusion> fusion;

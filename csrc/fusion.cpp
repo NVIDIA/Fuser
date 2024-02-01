@@ -63,7 +63,7 @@ void swap(Fusion& a, Fusion& b) noexcept {
 std::unique_ptr<SegmentedFusion> Fusion::segment(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("Segment Fusion");
-  return SegmentCandidateFinder::segment(this, args);
+  return SegmentCandidateFinder::segment(this, &args);
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
