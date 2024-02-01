@@ -405,6 +405,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
 
+  //! ParallelType used for scheduling
+  //! Note that we are only using this for multidevice at this point
+  py::enum_<ParallelType>(nvfuser, "ParallelType")
+      .value("DIDx", ParallelType::DIDx)
+      .value("DIDy", ParallelType::DIDy)
+      .value("DIDz", ParallelType::DIDz);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -471,6 +478,20 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+
+  py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
+  device_mesh_class
+      .def(
+          "__repr__",
+	  [](DeviceMesh& self) {
+            return self.toString();
+          })
+      .def(
+          "reshape",;
+	  [](DeviceMesh& self, std::vector<int64_t> new_shape) {
+	    self.reshape(new_shape);
+          },
+          py::arg("new_shape"));
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -2730,6 +2751,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  nvf_sched.def(
+      "create_device_mesh",
+      [](FusionDefinition::SchedOperators& self, std::vector<int64_t> devices) {
+        FUSER_PERF_SCOPE("SchedOperators.create_device_mesh");
+	return DeviceMesh(devices);
+      },
+      py::arg("devices"),
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "set_device_mesh",
+      [](FusionDefinition::SchedOperators& self, Tensor arg, DeviceMesh mesh) {
+        FUSER_PERF_SCOPE("SchedOperators.set_device_mesh");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        tv->setDeviceMesh(mesh);
+      },
+      py::arg("arg"),
+      py::arg("mesh"));
+  nvf_sched.def(
+      [](FusionDefinition::SchedOperators& self,
+          Tensor arg,
+	  int axis,
+	  ParallelType parallel_type) {
+        FUSER_PERF_SCOPE("SchedOperators.merge");
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        tv->axis(axis)->parallelize(parallel_type);
+	},
+      py::arg("arg"),
+      py::arg("axis"),
+      py::arg("parallel_type"));
   nvf_sched.def(
       "merge",
       [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
