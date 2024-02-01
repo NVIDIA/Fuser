@@ -48,7 +48,6 @@ std::vector<V> convertContainer(
 flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const std::unordered_map<Val*, int64_t>& vals_to_id_map,
-    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
     const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
   FUSER_PERF_SCOPE("SegmentedGroup::serialize");
@@ -64,8 +63,17 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
   std::vector<int64_t> output_vals_fb =
       convertContainer<Val*, int64_t>(vals_to_id_map, output_vals);
 
+  std::vector<Expr*> sorted_exprs =
+      segmented_fusion_->completeFusion()->exprs();
+  std::unordered_map<Expr*, int64_t> sorted_exprs_map;
+  sorted_exprs_map.reserve(sorted_exprs.size());
+  std::transform(
+      sorted_exprs.begin(),
+      sorted_exprs.end(),
+      std::insert_iterator(sorted_exprs_map, sorted_exprs_map.end()),
+      [&](Expr* e) { return std::make_pair(e, sorted_exprs_map.size()); });
   std::vector<int64_t> exprs_fb =
-      convertContainer<Expr*, int64_t>(exprs_to_id_map, exprs_);
+      convertContainer<Expr*, int64_t>(sorted_exprs_map, exprs_);
 
   // -1 corresponds with a nullptr value
   int64_t merge_with_segmented_group = -1;
@@ -99,7 +107,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
 void SegmentedGroup::deserialize(
     const serde::SegmentedGroup* buffer,
     const std::deque<Val*>& vals,
-    const std::deque<Expr*>& exprs,
+    const std::vector<Expr*>& exprs,
     const std::vector<SegmentedGroup*>& groups,
     const std::vector<SegmentedEdge*>& edges) {
   FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
@@ -458,8 +466,6 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   FUSER_PERF_SCOPE("SegmentedFusion::serialize");
   const std::unordered_map<Val*, int64_t>& vals_to_id_map =
       completeFusion()->deterministic_vals_map();
-  const std::unordered_map<Expr*, int64_t>& exprs_to_id_map =
-      completeFusion()->deterministic_exprs_map();
   const std::unordered_map<SegmentedGroup*, int64_t>& groups_map =
       impl_.groups_map();
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
@@ -474,8 +480,8 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   std::vector<flatbuffers::Offset<serde::SegmentedGroup>> groups_fb;
   groups_fb.reserve(groups_.size());
   for (SegmentedGroup* sg : groups_) {
-    groups_fb.push_back(sg->serialize(
-        builder, vals_to_id_map, exprs_to_id_map, groups_map, edges_map));
+    groups_fb.push_back(
+        sg->serialize(builder, vals_to_id_map, groups_map, edges_map));
   }
 
   std::vector<int64_t> force_fp16_tv_fb;
@@ -503,7 +509,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
-  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
+  const std::vector<Expr*>& exprs = complete_fusion_->exprs();
   NVF_ERROR(
       complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
@@ -3678,7 +3684,6 @@ void SegmentCandidateFinder::trySetUpMerge(
 
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
-
   buildInitialSegments();
 
   segmented_fusion_->validateIfDebug();

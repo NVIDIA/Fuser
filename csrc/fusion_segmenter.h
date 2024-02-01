@@ -75,7 +75,6 @@ class SegmentedGroup {
   flatbuffers::Offset<serde::SegmentedGroup> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const std::unordered_map<Val*, int64_t>& vals_map,
-      const std::unordered_map<Expr*, int64_t>& exprs_map,
       const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
       const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
 
@@ -83,7 +82,7 @@ class SegmentedGroup {
   void deserialize(
       const serde::SegmentedGroup* buffer,
       const std::deque<Val*>& vals,
-      const std::deque<Expr*>& exprs,
+      const std::vector<Expr*>& exprs,
       const std::vector<SegmentedGroup*>& groups,
       const std::vector<SegmentedEdge*>& edges);
 
