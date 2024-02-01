@@ -162,6 +162,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool override_user_schedule,
     bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
+  static std::unique_ptr<Communicator> comm = nullptr;
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -169,6 +170,20 @@ std::vector<at::Tensor> FusionDefinition::execute(
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (!multidevice.has_value()) {
+
+  }
+  if (multidevice.value()) {
+    if (comm == nullptr) {
+      comm = std::make_unique<Communicator>();
+    }
+    if (multi_device_executor == nullptr) {
+      // NOTE: we are always using cache and it's bad.
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), *communicator);
+    }
+    return multi_device_executor.runWithInput(inputs);
+  }
 
   std::vector<at::Tensor> outputs;
 
@@ -369,6 +384,9 @@ void FusionDefinition::printMathIr() {
 
 State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
+}
+
+Communicator* FusionDefinition::getCommunicator() const {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
