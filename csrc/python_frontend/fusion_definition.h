@@ -184,6 +184,9 @@ class FusionDefinition : public FusionState {
 
   //! Experimental API we'll redo this later!
   // Communicator* getCommunicator() const;
+  void setMultiDevice() {
+    multidevice_flag = true;
+  }
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
@@ -247,7 +250,7 @@ class FusionDefinition : public FusionState {
   //! DO NOT COMMIT TO THESE CHANGES!
   //! The reason we have these is due to the lack of cache for multidevice
   //! executor
-  mutable std::optional<bool> multidevice = std::nullopt;
+  bool multidevice_flag = false;
   //! DO NOT COMMIT TO THESE CHANGES!
   //! The reason we have these is due to the lack of cache for multidevice
   //! executor
