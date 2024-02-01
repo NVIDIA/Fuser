@@ -184,7 +184,6 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API State recordingState(size_t index) const;
 
   //! Experimental API we'll redo this later!
-  // Communicator* getCommunicator() const;
   void setMultiDevice() {
     multidevice_flag = true;
   }
