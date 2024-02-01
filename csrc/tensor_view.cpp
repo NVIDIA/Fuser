@@ -1285,9 +1285,9 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
       "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
 
   NVF_CHECK(
-      !ir_utils::isTvUsedByOpsOfType<SelectOp>(this) &&
+      !ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(this) &&
           !ir_utils::isIndexSelectLookupTv(this),
-      "Right now, caching tensors that are input to the select op is not allowed as they must be in global memory.")
+      "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
