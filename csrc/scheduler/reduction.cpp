@@ -686,6 +686,20 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
   bdimx = roundUpPow2OrMultipleOf(bdimx, niceValue);
 
+
+  if (char* user_vec_env = std::getenv("VEC")) {
+      iter_unroll_factor = atoi(user_vec_env);
+      std::cout << "VEC: " << iter_unroll_factor << std::endl;
+      vectorize = iter_unroll_factor > 1;
+  }
+
+  if (char* user_bdimx_env = std::getenv("BDX")) {
+      int user_bdimx = atoi(user_bdimx_env);
+      std::cout << "BDX: " << user_bdimx << std::endl;
+      bdimx = user_bdimx;
+  }
+
+
   // Fill bdimy with left over threads
   bdimy = std::min(
       scheduler_utils::safeDiv(target_threads_in_block, bdimx),
@@ -703,11 +717,17 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         scheduler_utils::lastPow2(inner_reduction_unroll_factor);
   }
 
+
+  if (char* user_unroll_env = std::getenv("UNROLL")) {
+      inner_reduction_unroll_factor = atoi(user_unroll_env);
+      std::cout << "UNROLL: " << inner_reduction_unroll_factor << std::endl;
+  }
+
   gidim = iDimAvail();
 
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-
+  std::cout << "target_blocks: " << target_blocks  << ", gidim: " << gidim  << ", initial_grdim: " << grdim << std::endl;
   // // Extend to go to target blocks, but keep 16 iterations per thread
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
@@ -764,6 +784,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       grdim = new_grdim;
     }
   }
+  std::cout << "target_blocks: " << target_blocks  << ", gidim: " << gidim  << ", optmized_grdim: " << grdim << std::endl;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
