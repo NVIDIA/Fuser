@@ -8742,31 +8742,22 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   auto tv6 = div(tv3, tv5);
 
   // reshape t1 to [8, 512*20]
-  auto tv7 = reshape(
-      tv1,
-      {
-          IrBuilder::create<Val>(eight, DataType::Index),
-          IrBuilder::create<Val>(fiveTwelve * twenty, DataType::Index)),
-      });
+  auto val_8 = IrBuilder::create<Val>(eight, DataType::Index);
+  auto val_512x20 =
+      IrBuilder::create<Val>(fiveTwelve * twenty, DataType::Index);
+  auto tv7 = reshape(tv1, {val_8, val_512x20});
 
   // slice-1 reshape to hidden size
+  auto val_4096 = IrBuilder::create<Val>(hidden_size, DataType::Index);
   auto tv8 = slice(tv7, {0, 0}, {eight, fiveTwelve});
-  auto tv9 = reshape(
-      tv8,
-      {castOp(
-          DataType::Index,
-          IrBuilder::create<Val>(hidden_size, DataType::Int))});
+  auto tv9 = reshape(tv8, {val_4096});
   auto tv10 = broadcast(tv9, {true, false});
   auto tv11 = castOp(DataType::Float, tv10);
   fusion->addOutput(tv11);
 
   // slice-2  reshape to hidden size and link with inner persistent
   auto tv12 = slice(tv7, {0, fiveTwelve * 3}, {eight, fiveTwelve * 4});
-  auto tv13 = reshape(
-      tv12,
-      {castOp(
-          DataType::Index,
-          IrBuilder::create<Val>(hidden_size, DataType::Int))});
+  auto tv13 = reshape(tv12, {val_4096});
   auto tv14 = broadcast(tv13, {true, false});
   auto tv15 = castOp(DataType::Float, tv14);
   auto tv16 = mul(tv6, tv15);
