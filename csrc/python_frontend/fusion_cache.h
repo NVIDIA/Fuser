@@ -11,6 +11,7 @@
 
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
+#include <multidevice/executor.h>
 
 #include <memory>
 #include <mutex>
