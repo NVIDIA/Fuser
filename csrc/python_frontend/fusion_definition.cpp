@@ -172,16 +172,13 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
-  if (!multidevice.has_value()) {
-
-  }
-  if (multidevice.value()) {
+  if (multidevice_flag) {
     if (comm == nullptr) {
       comm = std::make_unique<Communicator>();
     }
     if (multi_device_executor == nullptr) {
       // NOTE: we are always using cache and it's bad.
-      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), *communicator);
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), comm.get());
     }
     return multi_device_executor.runWithInput(inputs);
   }

@@ -2766,6 +2766,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
+	fd->setMultiDevice();
         auto tv =
             fd->getFusionState(arg.index)->template as<TensorView>();
         tv->setDeviceMesh(mesh);
