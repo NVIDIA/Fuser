@@ -275,6 +275,14 @@ class VectorOfUniqueEntries {
     return vector_.end();
   }
 
+  T& at(size_t pos) {
+    return vector_.at(pos);
+  }
+
+  const T& at(size_t pos) const {
+    return vector_.at(pos);
+  }
+
   std::string toString() const {
     std::stringstream ss;
     ss << "{ ";

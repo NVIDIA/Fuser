@@ -20,6 +20,7 @@
 #include <inlining.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
@@ -841,6 +842,74 @@ TEST_F(IdModelTest, LoopPromotion8) {
       iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
       iel_promotion_map);
+}
+
+namespace {
+
+// Check the results of ValGraphStmtSort
+void checkSortingResults(
+    const ValGraph& graph,
+    const ExprGroups& sorted_expr_groups,
+    const ValGroups& sorted_val_groups,
+    const std::vector<Expr*>& ref_expr_order) {
+  ASSERT_EQ(sorted_expr_groups.size(), ref_expr_order.size())
+      << "Expected " << ref_expr_order.size() << " expr group(s) but received "
+      << sorted_expr_groups.size() << " group(s)";
+
+  for (const auto i : c10::irange(sorted_expr_groups.size())) {
+    auto ref_expr = ref_expr_order.at(i);
+    const ExprGroup& eg = sorted_expr_groups.at(i);
+    ASSERT_TRUE(eg->has(ref_expr))
+        << "Unexpected ordering of expr groups detected at " << i
+        << "-th group: " << nvfuser::toString(eg) << ": "
+        << eg->front()->toString();
+  }
+
+  // Checking the order of the expr groups should be likely just
+  // sufficient. Just make sure the sorted val groups cover all the
+  // val groups in the graph.
+  const std::unordered_set<ValGroup>& ref_val_group_set{
+      graph.disjointValSets().disjointSets().begin(),
+      graph.disjointValSets().disjointSets().end()};
+
+  std::unordered_set<ValGroup> sorted_val_group_set{
+      sorted_val_groups.begin(), sorted_val_groups.end()};
+
+  ASSERT_EQ(sorted_val_group_set, ref_val_group_set) << "Mismatched ValGroups.";
+}
+
+} // namespace
+
+// Sorting test with a trivial fusion
+TEST_F(IdModelTest, ValGraphStmtSort1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->merge(0)->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  IdModel id_model(&fusion);
+
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  ValGraphStmtSort vg_stmt_sort(vg);
+  const ExprGroups& sorted_exprs = vg_stmt_sort.exprs();
+
+  // Reference expr order: merge, split
+  std::vector<Expr*> ref_sorted_exprs{
+      tv2->axis(0)->definition()->input(0)->definition(),
+      tv2->axis(0)->definition()};
+
+  checkSortingResults(
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
 }
 
 } // namespace nvfuser
