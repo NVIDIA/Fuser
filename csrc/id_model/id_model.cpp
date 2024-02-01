@@ -1575,7 +1575,7 @@ void IdModel::propagatePromotionsInIELGraph(
     bool require_loop_mapped_promotion) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
-  IdGraphStmtSort iel_stmt_sort(iel_graph);
+  ValGraphStmtSort iel_stmt_sort(iel_graph);
 
   // TODO-NM: The ordering might be non-deterministic
 
@@ -1827,7 +1827,7 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     }
   }
 
-  IdGraphStmtSort exact_stmt_sort(graph);
+  ValGraphStmtSort exact_stmt_sort(graph);
 
   for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
     std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);

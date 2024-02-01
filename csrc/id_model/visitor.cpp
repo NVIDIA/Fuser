@@ -9,20 +9,20 @@
 
 namespace nvfuser {
 
-void IdGraphVisitor::traverse() {
-  ValGroups all_ids;
+void ValGraphVisitor::traverse() {
+  ValGroups all_vals;
   ExprGroups all_exprs;
   {
-    // Initialize IDs to traverse. If sub_selection is provided, only
-    // traverse IDs that are included in the set are traversed.
+    // Initialize Vals to traverse. If sub_selection is provided, only
+    // traverse Vals that are included in the set are traversed.
     if (sub_selection_.empty()) {
-      all_ids = ValGroups(
+      all_vals = ValGroups(
           graph().disjointValSets().disjointSets().begin(),
           graph().disjointValSets().disjointSets().end());
     } else {
-      for (auto id : sub_selection_) {
-        if (graph().hasGroup(id)) {
-          all_ids.pushBack(graph().toGroup(id));
+      for (auto val : sub_selection_) {
+        if (graph().hasGroup(val)) {
+          all_vals.pushBack(graph().toGroup(val));
         }
       }
     }
@@ -36,22 +36,22 @@ void IdGraphVisitor::traverse() {
           graph().disjointExprSets().disjointSets().begin(),
           graph().disjointExprSets().disjointSets().end());
     } else {
-      for (const ValGroup& id_group : all_ids) {
-        for (const ExprGroup& def : graph().getDefinitions(id_group)) {
+      for (const ValGroup& val_group : all_vals) {
+        for (const ExprGroup& def : graph().getDefinitions(val_group)) {
           if (all_exprs.has(def)) {
             continue;
           }
           auto inp_groups = ValGroups(graph().inputGroups(def));
           auto out_groups = ValGroups(graph().outputGroups(def));
-          if (inp_groups.computeSubtract(all_ids).empty() &&
-              out_groups.computeSubtract(all_ids).empty()) {
+          if (inp_groups.computeSubtract(all_vals).empty() &&
+              out_groups.computeSubtract(all_vals).empty()) {
             all_exprs.pushBack(def);
           }
         }
       }
     }
   }
-  // There could be IterDomains in from or to that are between other from and
+  // There could be Vals in from or to that are between other from and
   // to nodes. Make sure to clear those out.
   ValGroups terminating_inputs;
   ValGroups terminating_outputs;
@@ -69,11 +69,9 @@ void IdGraphVisitor::traverse() {
       not_outputs.pushBack(graph().inputGroups(expr_group));
     }
 
-    terminating_inputs =
-        ValGroups(all_ids.begin(), all_ids.end()).computeSubtract(not_inputs);
+    terminating_inputs = all_vals.computeSubtract(not_inputs);
 
-    terminating_outputs =
-        ValGroups(all_ids.begin(), all_ids.end()).computeSubtract(not_outputs);
+    terminating_outputs = all_vals.computeSubtract(not_outputs);
   }
 
   ValGroups to_visit_ids = terminating_inputs;
@@ -82,7 +80,7 @@ void IdGraphVisitor::traverse() {
   ExprGroups to_visit_exprs;
   ExprGroups visited_exprs;
 
-  auto is_expr_ready = [&](const ExprGroup& expr_group) {
+  auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
     auto inp_groups = graph().inputGroups(expr_group);
     return std::all_of(
         inp_groups.begin(), inp_groups.end(), [&](ValGroup id_group) {
@@ -90,8 +88,8 @@ void IdGraphVisitor::traverse() {
         });
   };
 
-  auto is_id_ready = [&](const ValGroup& id_group) {
-    const ExprGroups& unique_defs = graph().getDefinitions(id_group);
+  auto is_val_ready = [&](const ValGroup& val_group) -> bool {
+    const ExprGroups& unique_defs = graph().getDefinitions(val_group);
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
           return expr_group->empty() || visited_exprs.has(expr_group) ||
@@ -100,8 +98,8 @@ void IdGraphVisitor::traverse() {
   };
 
   while (!to_visit_ids.empty() || !to_visit_exprs.empty()) {
-    // Process expressions first as all definitions of iter domains have to be
-    // processed before we can process that iter domain.
+    // Process expressions first as all definitions of vals have to be
+    // processed before we can process that val.
 
     // Detect if nothing has been processed which would put us in an infinite
     // loop
@@ -137,7 +135,7 @@ void IdGraphVisitor::traverse() {
         continue;
       }
 
-      if (is_id_ready(current_id_group)) {
+      if (is_val_ready(current_id_group)) {
         handle(current_id_group);
 
         something_was_processed = true;
@@ -159,4 +157,5 @@ void IdGraphVisitor::traverse() {
         "Infinite loop entered.");
   }
 }
+
 } // namespace nvfuser
