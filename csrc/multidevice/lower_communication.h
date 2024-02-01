@@ -28,4 +28,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
 } // namespace nvfuser
 
+#else
+
+namespace nvfuser {
+
+bool isLowerableToCommunication(Expr*);
+
+}
+
 #endif
