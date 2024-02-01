@@ -176,7 +176,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
       // NOTE: we are always using cache and it's bad.
       multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), comm.get());
     }
-    return multi_device_executor.runWithInput(inputs);
+    return multi_device_executor->runWithInput(inputs);
   }
 
   std::vector<at::Tensor> outputs;
@@ -378,9 +378,6 @@ void FusionDefinition::printMathIr() {
 
 State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
-}
-
-Communicator* FusionDefinition::getCommunicator() const {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(

@@ -183,7 +183,6 @@ class FusionDefinition : public FusionState {
   State recordingState(size_t index) const;
 
   //! Experimental API we'll redo this later!
-  // Communicator* getCommunicator() const;
   void setMultiDevice() {
     multidevice_flag = true;
   }
