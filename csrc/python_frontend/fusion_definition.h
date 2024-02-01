@@ -181,6 +181,9 @@ class FusionDefinition : public FusionState {
   //! Gets a Record State object
   State recordingState(size_t index) const;
 
+  //! Experimental API we'll redo this later!
+  // Communicator* getCommunicator() const;
+
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;

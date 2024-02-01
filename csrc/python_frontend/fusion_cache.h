@@ -200,6 +200,15 @@ class FusionCache {
   // NOTE: I would prefer this be per FusionSchedules object but the container
   // is not allowed to be copied or moved.
   InputsIdLookup user_def_input_encodings_;
+
+  //! DO NOT COMMIT TO THESE CHANGES!
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor
+  std::optional<bool> multidevice = std::nullopt;
+  //! DO NOT COMMIT TO THESE CHANGES!
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor
+  std::unique_ptr<MultiDeviceExecutor> multi_device_executor = nullptr;
 };
 
 //! Serialize Fusion Cache to common workspace
