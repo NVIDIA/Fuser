@@ -3151,6 +3151,26 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         # self.assertEqual(nvf_out[0], t24)
 
+    # Test that expanded dimensions can be reduced properly
+    # See https://github.com/NVIDIA/Fuser/issues/1678
+    def test_expanded_reduction(self):
+        inputs = [torch.tensor(1.0, device="cuda").as_strided((2, 3), (0, 0))]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.ops.sum(T0, axes=[0], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(nvf_out[0], inputs[0].sum(dim=0))
+
 
 if __name__ == "__main__":
     run_tests()
