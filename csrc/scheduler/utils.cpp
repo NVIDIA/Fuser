@@ -1123,8 +1123,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
-        ir_utils::isSelectInput(tv) || ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isSliceInput(tv)) {
+        ir_utils::isIndexSelectLookupTv(tv) ||
+        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp>(tv)) {
       // Right now, tensors that are input to the select op can't be cached as
       // they must be in global memory.
       continue;

@@ -743,24 +743,6 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
-bool isSelectInput(TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SelectOp>()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool isSliceInput(TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SliceOp>()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
