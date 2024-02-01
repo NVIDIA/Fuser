@@ -130,7 +130,7 @@ class FusionCache {
 
   //! Gets a pointer to the singleton and creates a new one if necessary
   static FusionCache* get(
-      size_t max_fusions = 8192,
+      size_t max_fusions = 16384,
       bool load_from_default_workspace = true);
   //! Number of fusions cached
   size_t numFusions() const;
