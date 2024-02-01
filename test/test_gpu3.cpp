@@ -8745,10 +8745,8 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   auto tv7 = reshape(
       tv1,
       {
-          castOp(DataType::Index, IrBuilder::create<Val>(eight, DataType::Int)),
-          castOp(
-              DataType::Index,
-              IrBuilder::create<Val>(fiveTwelve * twenty, DataType::Int)),
+          IrBuilder::create<Val>(eight, DataType::Index),
+          IrBuilder::create<Val>(fiveTwelve * twenty, DataType::Index)),
       });
 
   // slice-1 reshape to hidden size
