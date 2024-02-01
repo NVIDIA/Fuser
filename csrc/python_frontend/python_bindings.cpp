@@ -409,8 +409,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! Note that we are only using this for multidevice at this point
   py::enum_<ParallelType>(nvfuser, "ParallelType")
       .value("DIDx", ParallelType::DIDx)
-      .value("DIDy", ParallelType::DIDy)
-      .value("DIDz", ParallelType::DIDz);
+      .value("DIDy", ParallelType::DIDy);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -487,7 +486,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return self.toString();
           })
       .def(
-          "reshape",;
+          "reshape",
 	  [](DeviceMesh& self, std::vector<int64_t> new_shape) {
 	    self.reshape(new_shape);
           },
@@ -2774,6 +2773,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("mesh"));
   nvf_sched.def(
+      "parallelize",
       [](FusionDefinition::SchedOperators& self,
           Tensor arg,
 	  int axis,
