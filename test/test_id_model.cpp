@@ -846,36 +846,72 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
 namespace {
 
-// Check the results of ValGraphStmtSort
+// Check the results of ValGraphStmtSort. Ordering check is only
+// implemented for ExprGroups for now as it's likely sufficient.
+//
+// ref_expr_orders: a list of expr pairs. Each pair indicates the
+// first expr must show up before the second expr.
 void checkSortingResults(
     const ValGraph& graph,
     const ExprGroups& sorted_expr_groups,
     const ValGroups& sorted_val_groups,
-    const std::vector<Expr*>& ref_expr_order) {
-  ASSERT_EQ(sorted_expr_groups.size(), ref_expr_order.size())
-      << "Expected " << ref_expr_order.size() << " expr group(s) but received "
-      << sorted_expr_groups.size() << " group(s)";
+    const std::vector<std::pair<Expr*, Expr*>>& ref_expr_orders) {
 
-  for (const auto i : c10::irange(sorted_expr_groups.size())) {
-    auto ref_expr = ref_expr_order.at(i);
-    const ExprGroup& eg = sorted_expr_groups.at(i);
-    ASSERT_TRUE(eg->has(ref_expr))
-        << "Unexpected ordering of expr groups detected at " << i
-        << "-th group: " << nvfuser::toString(eg) << ": "
-        << eg->front()->toString();
+  {
+    std::cerr << "Sorted EG:\n";
+    for (const auto& eg: sorted_expr_groups) {
+      std::cerr << nvfuser::toString(eg) << ": " << eg->front()->toString();
+    }
+    std::cerr << "All EGs:\n";
+    for (const auto& eg: graph.disjointExprSets().disjointSets()) {
+      std::cerr << nvfuser::toString(eg) << ": " << eg->front()->toString();
+    }
   }
 
-  // Checking the order of the expr groups should be likely just
-  // sufficient. Just make sure the sorted val groups cover all the
-  // val groups in the graph.
+  // Make sure sorted_val_groups cover all Expr groups
+  const std::unordered_set<ExprGroup>& ref_expr_group_set{
+      graph.disjointExprSets().disjointSets().begin(),
+      graph.disjointExprSets().disjointSets().end()};
+  std::unordered_set<ExprGroup> sorted_expr_group_set{
+      sorted_expr_groups.begin(), sorted_expr_groups.end()};
+  ASSERT_EQ(sorted_expr_group_set, ref_expr_group_set) << "Mismatched ExprGroups.";
+
+  // Make sure sorted_val_groups covers all Val groups
   const std::unordered_set<ValGroup>& ref_val_group_set{
       graph.disjointValSets().disjointSets().begin(),
       graph.disjointValSets().disjointSets().end()};
-
   std::unordered_set<ValGroup> sorted_val_group_set{
       sorted_val_groups.begin(), sorted_val_groups.end()};
-
   ASSERT_EQ(sorted_val_group_set, ref_val_group_set) << "Mismatched ValGroups.";
+
+  // Convert the expr order to an ExprGroup order. Maps ExprGroup to
+  // its dependent ExprGroups that must show up before
+  std::unordered_map<ExprGroup, ExprGroups> ref_dependencies;
+
+  for (const auto& [expr1, expr2]: ref_expr_orders) {
+    // expr1 must show up before expr2
+    const ExprGroup& eg1 = graph.toGroup(expr1);
+    const ExprGroup& eg2 = graph.toGroup(expr2);
+    ref_dependencies[eg2].pushBack(eg1);
+  }
+
+  ExprGroups visited_expr_groups;
+  for (const ExprGroup& eg: sorted_expr_groups) {
+    std::cerr << "Visiting " << nvfuser::toString(eg) << std::endl;
+    if (auto it = ref_dependencies.find(eg);
+        it != ref_dependencies.end()) {
+      const ExprGroups& dep_expr_groups = it->second;
+      // Make sure all dep_expr_groups have been visited
+      for (const ExprGroup& dep_expr_group : dep_expr_groups) {
+        ASSERT_TRUE(visited_expr_groups.has(dep_expr_group))
+            << "Invalid ordering detected at "
+            << nvfuser::toString(eg)
+            << ". Dependent expr group not visited yet: "
+            << nvfuser::toString(dep_expr_group);
+      }
+    }
+    visited_expr_groups.pushBack(eg);
+  }
 }
 
 } // namespace
@@ -892,24 +928,142 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   auto tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
+  // No ID expr yet
+  {
+    IdModel id_model(&fusion);
+    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    ValGraphStmtSort vg_stmt_sort(vg);
+    checkSortingResults(
+        vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
+  }
+
   tv2->merge(0)->split(0, 4);
 
   TransformPropagator propagator(tv2);
   MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
+  {
+    IdModel id_model(&fusion);
+
+    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    ValGraphStmtSort vg_stmt_sort(vg);
+    // Reference expr order: merge, split
+    std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
+      {tv2->axis(0)->definition()->input(0)->definition(),
+       tv2->axis(0)->definition()}};
+    checkSortingResults(
+        vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+  }
+}
+
+// Sorting test wth a disconnected graph
+TEST_F(IdModelTest, ValGraphStmtSort2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv2 = makeSymbolicTensor(2);
+  fusion.addInput(tv2);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Note that the two groups of tensors, {tv0, tv1} and {tv2, tv3},
+  // are not connected
+
+  for (auto tv: ir_utils::allTvs(&fusion)) {
+    tv->merge(0)->split(0, 4);
+  }
+
   IdModel id_model(&fusion);
 
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   ValGraphStmtSort vg_stmt_sort(vg);
-  const ExprGroups& sorted_exprs = vg_stmt_sort.exprs();
 
   // Reference expr order: merge, split
-  std::vector<Expr*> ref_sorted_exprs{
-      tv2->axis(0)->definition()->input(0)->definition(),
-      tv2->axis(0)->definition()};
-
+  std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
+    {tv3->axis(0)->definition()->input(0)->definition(),
+     tv3->axis(0)->definition()},
+    {tv1->axis(0)->definition()->input(0)->definition(),
+     tv1->axis(0)->definition()}
+  };
   checkSortingResults(
       vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+
+  // Since there's no dependency between tv1 and tv3, the reverse
+  // should be valid too
+  std::reverse(ref_sorted_exprs.begin(), ref_sorted_exprs.end());
+  checkSortingResults(
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+}
+
+// Sorting with trivial ExprGroup, i.e., ExprGroup whose input and
+// output are mapped as the same ValGroup. It's effectively a cyclic
+// dependency and the graph is no longer a DAG.
+TEST_F(IdModelTest, ValGraphStmtSort3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = makeSymbolicTensor(1);
+  fusion.addInput(tv3);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+
+  // In addition to the same schedules as done in the prior tests,
+  // does a split by one and later map the split input and the outer
+  // output as they should have the same extent. This is in fact done
+  // in the AlmostExact graph
+  for (auto tv: {tv0, tv1, tv2}) {
+    tv->merge(0)->split(0, 4);
+    tv->split(0, 1);
+  }
+
+  // Also test an isolated trivial expr. Note that tv3 and tv4 are not
+  // connected with tv0, tv1 and tv2.
+  tv4->split(0, 1);
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+  ValGraph vg = id_model.idGraph(IdMappingMode::EXACT);
+
+  // Map the split-by-1 input and output
+  vg.mapVals(tv2->axis(0), tv2->axis(0)->definition()->input(0));
+  vg.mapVals(tv4->axis(0), tv4->axis(0)->definition()->input(0));
+
+  ValGraphStmtSort vg_stmt_sort(vg);
+
+  checkSortingResults(
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
+
+#if 0
+  // Reference expr order: merge, split
+  std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
+    {tv3->axis(0)->definition()->input(0)->definition(),
+     tv3->axis(0)->definition()},
+    {tv1->axis(0)->definition()->input(0)->definition(),
+     tv1->axis(0)->definition()}
+  };
+  checkSortingResults(
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+
+  // Since there's no dependency between tv1 and tv3, the reverse
+  // should be valid too
+  std::reverse(ref_sorted_exprs.begin(), ref_sorted_exprs.end());
+  checkSortingResults(
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+#endif
 }
 
 } // namespace nvfuser
