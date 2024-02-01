@@ -3584,9 +3584,10 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     SegmentCandidateFinderOptions options)
     : options_(options),
       runtime_info_(
-          inputs == nullptr
-              ? std::nullopt
-              : std::make_optional<SchedulerRuntimeInfo>(fusion.get(), *inputs)),
+          inputs == nullptr ? std::nullopt
+                            : std::make_optional<SchedulerRuntimeInfo>(
+                                  fusion.get(),
+                                  *inputs)),
       runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
