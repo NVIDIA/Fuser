@@ -174,9 +174,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
     if (multi_device_executor == nullptr) {
       // NOTE: we are always using cache and it's bad.
-      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), comm.get());
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), *comm.get());
     }
-    return multi_device_executor->runWithInput(inputs);
+    return multi_device_executor->runWithInput(inputs.vec());
   }
 
   std::vector<at::Tensor> outputs;
