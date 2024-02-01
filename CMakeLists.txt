@@ -85,7 +85,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/visitor.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
@@ -204,6 +203,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
 )
 
 # We don't link CUPTI for MSVC

@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/visitor.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 

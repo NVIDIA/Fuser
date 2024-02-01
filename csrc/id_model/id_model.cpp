@@ -10,7 +10,6 @@
 #include <id_model/transform_replay.h>
 #include <id_model/utils.h>
 #include <id_model/validation_utils.h>
-#include <id_model/visitor.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/lower2device.h>
@@ -19,6 +18,7 @@
 #include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <memory>
 #include <tuple>
