@@ -569,7 +569,7 @@ bool isLowerableToCommunication(Expr* expr) {
 
 } // namespace nvfuser
 
-#else // USE_DISTRIBUTED && NVFUSER_DISTRIBUTED
+#else // NVFUSER_DISTRIBUTED
 
 #include <ir/base_nodes.h>
 

@@ -28,7 +28,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
 } // namespace nvfuser
 
-#else // USE_DISTRIBTED && NVFUSER_DISTRIBUTED
+#else // NVFUSER_DISTRIBUTED
 
 namespace nvfuser {
 
