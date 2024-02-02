@@ -130,11 +130,13 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
 
-  user_sched_->executor->compileFusion(
-      user_sched_->schedule.get(),
-      inputs,
-      user_sched_->fusion_id_,
-      user_sched_->device_id_);
+  if (!multidevice_flag) {
+    user_sched_->executor->compileFusion(
+        user_sched_->schedule.get(),
+        inputs,
+        user_sched_->fusion_id_,
+        user_sched_->device_id_);
+  }
   user_sched_ = nullptr;
 }
 
@@ -174,7 +176,11 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
     if (multi_device_executor == nullptr) {
       // NOTE: we are always using cache and it's bad.
-      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*scheds->preschedFusion()), *comm.get());
+      auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+      NVF_CHECK(user_sched_id.has_value());
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
     }
     return multi_device_executor->runWithInput(inputs.vec());
   }
@@ -196,8 +202,10 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-      inputs, std::nullopt, selected_device);
+  if (outputs.empty()) {
+    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+        inputs, std::nullopt, selected_device);
+  }
 
   if (capture_debug_output) {
     debug_output_ = debug_ss.str();
