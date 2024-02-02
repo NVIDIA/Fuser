@@ -47,6 +47,17 @@ TEST_F(IdModelTest, DetectSelfMapping) {
 
 namespace {
 
+// Get n-th parent expr traversing through the first input of each
+// parent
+Expr* getParentExpr(Val* val, int n) {
+  for (int i = 0; i < n - 1; ++i) {
+    NVF_ERROR(val->definition() != nullptr);
+    val = val->definition()->input(0);
+  }
+  NVF_ERROR(val->definition() != nullptr);
+  return val->definition();
+};
+
 // Helper class to test IdModel
 class IdModelTester : public IdModel {
  public:
@@ -846,28 +857,18 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
 namespace {
 
-// Check the results of ValGraphStmtSort. Ordering check is only
-// implemented for ExprGroups for now as it's likely sufficient.
+// Check the results of ValGraphStmtSort. Only the ordering of
+// ExprGroups is checked for now as it's likely sufficient.
 //
-// ref_expr_orders: a list of expr pairs. Each pair indicates the
-// first expr must show up before the second expr.
+// ref_order: The order must be exactly the
+// same as indicated by this list. While there can be different
+// order that still satisfy the topologial ordering, we also need
+// deterministic ordering, so the results should be always the same.
 void checkSortingResults(
     const ValGraph& graph,
     const ExprGroups& sorted_expr_groups,
     const ValGroups& sorted_val_groups,
-    const std::vector<std::pair<Expr*, Expr*>>& ref_expr_orders) {
-
-  {
-    std::cerr << "Sorted EG:\n";
-    for (const auto& eg: sorted_expr_groups) {
-      std::cerr << nvfuser::toString(eg) << ": " << eg->front()->toString();
-    }
-    std::cerr << "All EGs:\n";
-    for (const auto& eg: graph.disjointExprSets().disjointSets()) {
-      std::cerr << nvfuser::toString(eg) << ": " << eg->front()->toString();
-    }
-  }
-
+    const std::vector<Expr*>& ref_order) {
   // Make sure sorted_val_groups cover all Expr groups
   const std::unordered_set<ExprGroup>& ref_expr_group_set{
       graph.disjointExprSets().disjointSets().begin(),
@@ -884,33 +885,16 @@ void checkSortingResults(
       sorted_val_groups.begin(), sorted_val_groups.end()};
   ASSERT_EQ(sorted_val_group_set, ref_val_group_set) << "Mismatched ValGroups.";
 
-  // Convert the expr order to an ExprGroup order. Maps ExprGroup to
-  // its dependent ExprGroups that must show up before
-  std::unordered_map<ExprGroup, ExprGroups> ref_dependencies;
-
-  for (const auto& [expr1, expr2]: ref_expr_orders) {
-    // expr1 must show up before expr2
-    const ExprGroup& eg1 = graph.toGroup(expr1);
-    const ExprGroup& eg2 = graph.toGroup(expr2);
-    ref_dependencies[eg2].pushBack(eg1);
-  }
-
-  ExprGroups visited_expr_groups;
-  for (const ExprGroup& eg: sorted_expr_groups) {
-    std::cerr << "Visiting " << nvfuser::toString(eg) << std::endl;
-    if (auto it = ref_dependencies.find(eg);
-        it != ref_dependencies.end()) {
-      const ExprGroups& dep_expr_groups = it->second;
-      // Make sure all dep_expr_groups have been visited
-      for (const ExprGroup& dep_expr_group : dep_expr_groups) {
-        ASSERT_TRUE(visited_expr_groups.has(dep_expr_group))
-            << "Invalid ordering detected at "
-            << nvfuser::toString(eg)
-            << ". Dependent expr group not visited yet: "
-            << nvfuser::toString(dep_expr_group);
-      }
-    }
-    visited_expr_groups.pushBack(eg);
+  // Check the ordering
+  ASSERT_EQ(sorted_expr_groups.size(), ref_order.size());
+  for (const auto i : c10::irange(ref_order.size())) {
+    Expr* ref_expr = ref_order.at(i);
+    const ExprGroup& eg = sorted_expr_groups.at(i);
+    ASSERT_TRUE(eg->has(ref_expr))
+        << "Expected: "
+        << nvfuser::toString(graph.toGroup(ref_expr))
+        << ". Actual: "
+        << nvfuser::toString(eg);
   }
 }
 
@@ -947,12 +931,14 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
 
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
     ValGraphStmtSort vg_stmt_sort(vg);
+
     // Reference expr order: merge, split
-    std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
-      {tv2->axis(0)->definition()->input(0)->definition(),
-       tv2->axis(0)->definition()}};
+    std::vector<Expr*> ref_order;
+    ref_order.push_back(getParentExpr(tv2->axis(0), 2));
+    ref_order.push_back(getParentExpr(tv2->axis(0), 1));
+
     checkSortingResults(
-        vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+        vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
   }
 }
 
@@ -983,21 +969,14 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   ValGraphStmtSort vg_stmt_sort(vg);
 
-  // Reference expr order: merge, split
-  std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
-    {tv3->axis(0)->definition()->input(0)->definition(),
-     tv3->axis(0)->definition()},
-    {tv1->axis(0)->definition()->input(0)->definition(),
-     tv1->axis(0)->definition()}
-  };
-  checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+  std::vector<Expr*> ref_order;
+  ref_order.push_back(getParentExpr(tv1->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv3->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv1->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv3->axis(0), 1));
 
-  // Since there's no dependency between tv1 and tv3, the reverse
-  // should be valid too
-  std::reverse(ref_sorted_exprs.begin(), ref_sorted_exprs.end());
   checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
 }
 
 // Sorting with trivial ExprGroup, i.e., ExprGroup whose input and
@@ -1014,26 +993,19 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
   auto tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  auto tv3 = makeSymbolicTensor(1);
+  auto tv3 = makeSymbolicTensor(2);
   fusion.addInput(tv3);
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
 
-
-  // In addition to the same schedules as done in the prior tests,
-  // does a split by one and later map the split input and the outer
-  // output as they should have the same extent. This is in fact done
-  // in the AlmostExact graph
+  // Merge adn split by one. The split input and output will be mapped.
   for (auto tv: {tv0, tv1, tv2}) {
-    tv->merge(0)->split(0, 4);
-    tv->split(0, 1);
+    tv->merge(0)->split(0, 1);
   }
 
   // Also test an isolated trivial expr. Note that tv3 and tv4 are not
   // connected with tv0, tv1 and tv2.
-  tv4->split(0, 1);
-
-  fusion.print();
+  tv4->merge(0)->split(0, 1);
 
   IdModel id_model(&fusion);
   ValGraph vg = id_model.idGraph(IdMappingMode::EXACT);
@@ -1044,26 +1016,92 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
 
   ValGraphStmtSort vg_stmt_sort(vg);
 
-  checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
+  std::vector<Expr*> ref_order;
+  ref_order.push_back(getParentExpr(tv2->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv4->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv2->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv4->axis(0), 1));
 
-#if 0
-  // Reference expr order: merge, split
-  std::vector<std::pair<Expr*, Expr*>> ref_sorted_exprs{
-    {tv3->axis(0)->definition()->input(0)->definition(),
-     tv3->axis(0)->definition()},
-    {tv1->axis(0)->definition()->input(0)->definition(),
-     tv1->axis(0)->definition()}
-  };
   checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
+}
 
-  // Since there's no dependency between tv1 and tv3, the reverse
-  // should be valid too
-  std::reverse(ref_sorted_exprs.begin(), ref_sorted_exprs.end());
+// Sorting test with the same fusion as Indexing19
+TEST_F(IdModelTest, ValGraphStmtSort4) {
+  auto fusion = createFusionWithMultipleResolutionPaths();
+  FusionGuard fg(fusion.get());
+  auto all_tvs = ir_utils::allTvs(fusion.get());
+
+  IdModel id_model(fusion.get(), true, false, false);
+
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+
+  ValGraphStmtSort vg_stmt_sort(vg);
+
+  auto tv1 = findTensorByName(all_tvs, 1);
+  auto tv2 = findTensorByName(all_tvs, 2);
+  auto tv4 = findTensorByName(all_tvs, 4);
+  auto tv5 = findTensorByName(all_tvs, 5);
+  auto tv6 = findTensorByName(all_tvs, 6);
+  auto tv8 = findTensorByName(all_tvs, 8);
+  auto tv9 = findTensorByName(all_tvs, 9);
+  auto tv10 = findTensorByName(all_tvs, 10);
+
+  // Expected reference order:
+  //
+  // exprg{39}: Merge: iS2{7} and bS3{1} -> iS46{( 7 * 1 )}
+  // exprg{57}: Merge: iS11{7} and bS12{1} -> iS61{( 7 * 1 )}
+  // exprg{17}: Merge: iS17{7} and bS18{1} -> iS29{( 7 * 1 )}
+  // exprg{69 73 89}: Split: iS1{7} by factor 5 -> iS71{( ceilDiv(7, 5) )}, iS72{5}, start offset: 0, stop offset: 0
+  // exprg{51 63 93}: Merge: iS15{7} and iS16{13} -> iS56{( 7 * 13 )}
+  // exprg{9 25 33 45 91 95}: Merge: iS20{7} and iS21{11} -> iS23{( 7 * 11 )}
+  // exprg{27}: Merge: iS35{( 7 * 11 )} and bS10{1} -> iS36{( ( 7 * 11 ) * 1 )}
+  // exprg{19}: Merge: iS29{( 7 * 1 )} and iS19{13} -> iS30{( ( 7 * 1 ) * 13 )}
+  // exprg{11 77 79 99}: Merge: iS23{( 7 * 11 )} and iS22{13} -> iS24{( ( 7 * 11 ) * 13 )}
+  // exprg{41}: Split: iS46{( 7 * 1 )} by factor 5 -> iS47{( ceilDiv(( 7 * 1 ), 5) )}, iS48{5}, start offset: 0, stop offset: 0
+  // exprg{59}: Split: iS61{( 7 * 1 )} by factor 5 -> iS62{( ceilDiv(( 7 * 1 ), 5) )}, iS63{5}, start offset: 0, stop offset: 0
+  // exprg{71 75 101}: Split: iS71{( ceilDiv(7, 5) )} by factor 3 -> iS73{( ceilDiv(( ceilDiv(7, 5) ), 3) )}, iS74{3}, start offset: 0, stop offset: 0
+  // exprg{53 65 109}: Split: iS56{( 7 * 13 )} by factor 5 -> iS57{( ceilDiv(( 7 * 13 ), 5) )}, iS58{5}, start offset: 0, stop offset: 0
+  // exprg{35 47 105}: Split: iS41{( 7 * 11 )} by factor 5 -> iS42{( ceilDiv(( 7 * 11 ), 5) )}, iS43{5}, start offset: 0, stop offset: 0
+  // exprg{29}: Split: iS36{( ( 7 * 11 ) * 1 )} by factor 5 -> iS37{( ceilDiv(( ( 7 * 11 ) * 1 ), 5) )}, iS38{5}, start offset: 0, stop offset: 0
+  // exprg{21}: Split: iS30{( ( 7 * 1 ) * 13 )} by factor 5 -> iS31{( ceilDiv(( ( 7 * 1 ) * 13 ), 5) )}, iS32{5}, start offset: 0, stop offset: 0
+  // exprg{13 81 83 97 103 107 111 115 117 119 121}: Split: iS24{( ( 7 * 11 ) * 13 )} by factor 5 -> iS25{( ceilDiv(( ( 7 * 11 ) * 13 ), 5) )}, iS26{5}, start offset: 0, stop offset: 0
+  // exprg{43}: Split: iS47{( ceilDiv(( 7 * 1 ), 5) )} by factor 3 -> iS49{( ceilDiv(( ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS50{3}, start offset: 0, stop offset: 0
+  // exprg{61}: Split: iS62{( ceilDiv(( 7 * 1 ), 5) )} by factor 3 -> iS64{( ceilDiv(( ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS65{3}, start offset: 0, stop offset: 0
+  // exprg{55 67 129}: Split: iS57{( ceilDiv(( 7 * 13 ), 5) )} by factor 3 -> iS59{( ceilDiv(( ceilDiv(( 7 * 13 ), 5) ), 3) )}, iS60{3}, start offset: 0, stop offset: 0
+  // exprg{37 49 125}: Split: iS42{( ceilDiv(( 7 * 11 ), 5) )} by factor 3 -> iS44{( ceilDiv(( ceilDiv(( 7 * 11 ), 5) ), 3) )}, iS45{3}, start offset: 0, stop offset: 0
+  // exprg{31}: Split: iS37{( ceilDiv(( ( 7 * 11 ) * 1 ), 5) )} by factor 3 -> iS39{( ceilDiv(( ceilDiv(( ( 7 * 11 ) * 1 ), 5) ), 3) )}, iS40{3}, start offset: 0, stop offset: 0
+  // exprg{23}: Split: iS31{( ceilDiv(( ( 7 * 1 ) * 13 ), 5) )} by factor 3 -> iS33{( ceilDiv(( ceilDiv(( ( 7 * 1 ) * 13 ), 5) ), 3) )}, iS34{3}, start offset: 0, stop offset: 0
+  // exprg{15 85 87 113 123 127 131 133 135 137 139}: Split: iS25{( ceilDiv(( ( 7 * 11 ) * 13 ), 5) )} by factor 3 -> iS27{( ceilDiv(( ceilDiv(( ( 7 * 11 ) * 13 ), 5) ), 3) )}, iS28{3}, start offset: 0, stop offset: 0
+
+  std::vector<Expr*> ref_order;
+  ref_order.push_back(getParentExpr(tv2->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv6->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 4));
+  ref_order.push_back(getParentExpr(tv1->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv8->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 4));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv2->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv6->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv1->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv8->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv4->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv2->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv6->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv8->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv4->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 1));
+
   checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_sorted_exprs);
-#endif
+      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
 }
 
 } // namespace nvfuser
