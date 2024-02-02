@@ -16,9 +16,6 @@ namespace nvfuser {
 // Iterates through a Val Graph in topological order, calling handle on
 // all Val and all Expr groups in a forward topological order.
 //
-// Warning: Expr groups that have an input and output in the same ValGroup are
-// ignored.
-//
 // Warning: This is not a great iterator if there's a desire to minimize paths
 // traveled to simply visit all ValGroups in order. See ExprsBetween to see how
 // we might minimize paths.
@@ -33,12 +30,7 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
-  // If sub_selection is assumed to be a set of vals by which form a
-  // sub-regrion of the ValGraph provided. Only that sub-region will be visited.
-  ValGraphVisitor(
-      const ValGraph& val_graph,
-      const VectorOfUniqueEntries<Val*> sub_selection = {})
-      : val_graph_(val_graph), sub_selection_(sub_selection) {}
+  ValGraphVisitor(const ValGraph& val_graph) : val_graph_(val_graph) {}
 
   ValGraphVisitor(const ValGraphVisitor& other) = default;
 
@@ -55,16 +47,12 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
-  const VectorOfUniqueEntries<Val*> sub_selection_;
 };
 
 // Statement sorting based on ValGraphVisitor, see warnings to ValGraph Visitor.
 class ValGraphStmtSort : public ValGraphVisitor {
  public:
-  ValGraphStmtSort(
-      const ValGraph& val_graph,
-      const VectorOfUniqueEntries<Val*> sub_selection = {})
-      : ValGraphVisitor(val_graph, sub_selection) {
+  ValGraphStmtSort(const ValGraph& val_graph) : ValGraphVisitor(val_graph) {
     ValGraphVisitor::traverse();
   }
 

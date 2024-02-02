@@ -100,42 +100,16 @@ std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
   return input_groups;
 }
 
-ValGroups ValGraph::getTerminatingInputs(const VectorOfUniqueEntries<Val*>& sub_selection) const {
-  // Initialize vals to traverse. If sub_selection is provided, only
-  // include the Val groups of the Vals in sub_selection
-  ValGroups all_vals;
-  if (sub_selection.empty()) {
-      all_vals = ValGroups(
+ValGroups ValGraph::getTerminatingInputs() const {
+  // Initialize vals to traverse
+  ValGroups all_vals{
           disjointValSets().disjointSets().begin(),
-          disjointValSets().disjointSets().end());
-  } else {
-    all_vals = toGroups(sub_selection);
-  }
+          disjointValSets().disjointSets().end()};
 
-  // Initialize exprs to traverse. If sub_selection is provided,
-  // only traverse exprs that are strictly contained within the provided
-  // sub_selection. Exprs are excluded if any of inputs or outputs
-  // is not in sub_selection.
-  ExprGroups all_exprs;
-  if (sub_selection.empty()) {
-    all_exprs = ExprGroups(
+  // Initialize exprs to traverse
+  ExprGroups all_exprs{
         disjointExprSets().disjointSets().begin(),
-        disjointExprSets().disjointSets().end());
-  } else {
-    for (const ValGroup& val_group : all_vals) {
-      for (const ExprGroup& def : getDefinitions(val_group)) {
-        if (all_exprs.has(def)) {
-          continue;
-        }
-        auto inp_groups = ValGroups(inputGroups(def));
-        auto out_groups = ValGroups(outputGroups(def));
-        if (inp_groups.computeSubtract(all_vals).empty() &&
-            out_groups.computeSubtract(all_vals).empty()) {
-          all_exprs.pushBack(def);
-        }
-      }
-    }
-  }
+        disjointExprSets().disjointSets().end()};
 
   // Grab all vals that are not input, i.e., having a defining expr
   // within all_exprs.

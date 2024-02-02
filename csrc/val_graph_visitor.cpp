@@ -12,11 +12,15 @@
 namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
-  ValGroups to_visit_ids = graph().getTerminatingInputs(sub_selection_);
+  ValGroups to_visit_ids = graph().getTerminatingInputs();
   ValGroups visited_ids;
 
   ExprGroups to_visit_exprs;
   ExprGroups visited_exprs;
+
+  for (const auto& idg : to_visit_ids) {
+    std::cerr << "Initial IDs: " << nvfuser::toString(idg) << std::endl;
+  }
 
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
     const auto inp_groups = graph().inputGroups(expr_group);
@@ -66,6 +70,9 @@ void ValGraphVisitor::traverse() {
       if (is_expr_ready(current_expr_group)) {
         handle(current_expr_group);
 
+        std::cerr << "EG: " << nvfuser::toString(current_expr_group)
+                  << std::endl;
+
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
 
@@ -88,11 +95,16 @@ void ValGraphVisitor::traverse() {
       if (is_val_ready(current_id_group)) {
         handle(current_id_group);
 
+        std::cerr << "IDG: " << nvfuser::toString(current_id_group)
+                  << std::endl;
+
         something_was_processed = true;
         visited_ids.pushBack(current_id_group);
 
         to_visit_exprs.pushBack(graph().getUses(current_id_group));
       } else {
+        std::cerr << "NOT READY IDG: " << nvfuser::toString(current_id_group)
+                  << std::endl;
         still_to_visit_ids.pushBack(current_id_group);
       }
     }
