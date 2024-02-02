@@ -1592,9 +1592,9 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using FusionHeuristics::emplaceBack, we initialize
   // FusionHeuristics with the desired number of groups.
-  std::optional<FusionKernelRuntime::HeuristicsPtr> opt_heuristics;
+  FusionKernelRuntime::HeuristicsPtr heuristics;
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  opt_heuristics = std::make_unique<FusionHeuristics>(num_groups);
+  heuristics = std::make_unique<FusionHeuristics>(num_groups);
 
   // Store metadata copy of arguments for ArgumentManager
   KernelArgumentHolder args_metadata;
@@ -1648,7 +1648,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
 
     if (initial_heuristics) {
       // Add new scheduler entry for this segmented group
-      opt_heuristics.value()->at(group_to_run->groupId()) =
+      heuristics->at(group_to_run->groupId()) =
           segmented_fusion_->makeInitialSchedulerEntry(
               group_to_run, fusion_to_run_info);
     } else {
@@ -1667,8 +1667,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
         return std::nullopt;
       }
       // Add new scheduler entry for this segmented group
-      opt_heuristics.value()->at(group_to_run->groupId()) =
-          std::move(scheduler_entry);
+      heuristics->at(group_to_run->groupId()) = std::move(scheduler_entry);
     }
 
     // Generate metadata for the fusion's outputs
@@ -1680,7 +1679,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }
-  return opt_heuristics;
+  return heuristics;
 }
 
 } // namespace nvfuser
