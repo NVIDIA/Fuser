@@ -207,6 +207,8 @@ static void Baseline_Matmul(
       benchmark_state.range(1),
       benchmark_state.range(2)};
 
+  bool allow_half_reduction = (bool)benchmark_state.range(3);
+
   at::manual_seed(0);
 
   auto inputs =
@@ -214,7 +216,7 @@ static void Baseline_Matmul(
 
   // Disable reduced-precision reduction for fair comparison since we do not use
   // it in nvFuser
-  at::globalContext().setAllowFP16ReductionCuBLAS(false);
+  at::globalContext().setAllowFP16ReductionCuBLAS(allow_half_reduction);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
@@ -588,6 +590,20 @@ static std::vector<std::tuple<T, T, T>> sizeProduct(
 // Use this to apply shape arguments to a benchmark without additional
 // NVFuser-specific args. Used for eager benchmarks to avoid redundant
 // benchmarks for combinations of num_warps and num_stages
+static void MatmulShapeEager(
+    benchmark::internal::Benchmark* b,
+    std::vector<std::tuple<long int, long int, long int>> sizes) {
+  b->ArgNames({"M", "N", "K", "FP16Reduction"});
+  for (auto [m, n, k] : sizes) {
+    for (bool allow_half_reduction : {false, true}) {
+      b->Args({m, n, k, allow_half_reduction});
+    }
+  }
+}
+
+// Use this to apply shape arguments to a benchmark without additional
+// NVFuser-specific args. Used for eager benchmarks to avoid redundant
+// benchmarks for combinations of num_warps and num_stages
 static void MatmulShape(
     benchmark::internal::Benchmark* b,
     std::vector<std::tuple<long int, long int, long int>> sizes) {
@@ -650,7 +666,7 @@ static void MatmulShapeWarpStageSpecificSplitK(
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(                                                \
+        return MatmulShapeEager(                                           \
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));       \
       });                                                                  \
   BENCHMARK_CAPTURE(                                                       \
@@ -658,14 +674,14 @@ static void MatmulShapeWarpStageSpecificSplitK(
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(b, TIMMShapes);                                 \
+        return MatmulShapeEager(b, TIMMShapes);                            \
       });                                                                  \
   BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_splitkshapes_##layout, MmaLayout::layout) \
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(                                                \
+        return MatmulShapeEager(                                           \
             b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));     \
       });
 
