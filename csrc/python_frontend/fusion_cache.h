@@ -130,7 +130,7 @@ class FusionCache {
 
   //! Gets a pointer to the singleton and creates a new one if necessary
   static FusionCache* get(
-      size_t max_fusions = 8192,
+      size_t max_fusions = 16384,
       std::optional<int64_t> selected_device = std::nullopt,
       bool load_from_default_workspace = true);
   //! Number of fusions cached

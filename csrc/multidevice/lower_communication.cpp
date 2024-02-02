@@ -6,6 +6,7 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <device_lower/utils.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
@@ -538,18 +539,28 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 }
 
 bool isLowerableToCommunication(Expr* expr) {
+  NVF_ERROR(
+      ir_utils::isTvOp(expr),
+      "Non-tv op is not supported yet: ",
+      expr->toString());
   if (expr->isA<ReductionOp>()) {
-    auto out = expr->as<ReductionOp>()->out();
-    NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
-    auto out_tv = out->as<TensorView>();
+    auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
+    auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
+    // get the reduced axis
     std::vector<IterDomain*> reduction_axis;
     std::copy_if(
-        out_tv->getMaybeRFactorDomain().begin(),
-        out_tv->getMaybeRFactorDomain().end(),
+        out->getRootDomain().begin(),
+        out->getRootDomain().end(),
         std::back_inserter(reduction_axis),
         [](IterDomain* id) { return id->isReduction(); });
-    // check if the reduction involves only one axis and that it is sharded
-    return reduction_axis.size() == 1 && reduction_axis[0]->isDeviceDim();
+    // check whether the reduction involves only one axis
+    if (reduction_axis.size() != 1) {
+      return false;
+    }
+    // We check whether the reduced axis is sharded on the input
+    const auto c2p_map = PairwiseRootDomainMap(in, out).mapConsumerToProducer();
+    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
+    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else {
     return expr->isA<LoadStoreOp>() &&
         (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
@@ -558,4 +569,18 @@ bool isLowerableToCommunication(Expr* expr) {
 
 } // namespace nvfuser
 
+#else // USE_DISTRIBUTED
+
+#include <ir/base_nodes.h>
+
+namespace nvfuser {
+
+// This is just here so that things can compile even when/if USE_DISTRIBUTED is
+// not defined. The code paths aren't intended to be hit ever in such cases, so
+// the implementation is unimportant.
+bool isLowerableToCommunication(Expr*) {
+  return false;
+}
+
+} // namespace nvfuser
 #endif
