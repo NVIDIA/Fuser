@@ -410,4 +410,19 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   testValidate(fusion.get(), cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
+TEST_F(TensorFactoryTest, NoInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(16);
+  Val* fill_value = IrBuilder::create<Val>(1.0);
+  TensorView* out = full({size}, fill_value, DataType::Float);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto out_tensors = executor_cache.runFusionWithInputs({});
+  testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
