@@ -87,6 +87,7 @@ class FusionGuard {
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
 enum class AliasType : int {
+  NoAlias,
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
@@ -98,7 +99,9 @@ enum class AliasType : int {
 
 struct AliasInfo {
   AliasType type;
-  // Whether integration should hide the output from users.
+  Val* aliased_io;
+  // Whether integration should hide the output from users. This is currently
+  // only used for InplaceUpdate.
   bool hide_output;
 };
 
@@ -250,7 +253,7 @@ class Fusion : public IrContainer {
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
-  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output) const;
+  const AliasInfo& getOutputAlias(Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -471,7 +474,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, std::pair<Val*, AliasInfo>> io_alias_;
+  std::unordered_map<Val*, AliasInfo> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

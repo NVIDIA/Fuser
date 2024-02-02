@@ -122,6 +122,9 @@ class ValGraph {
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
 
+  // Return Val groups that have no definition.
+  ValGroups getTerminatingInputs() const;
+
   // Recursively traverses uses of the IdGroups in 'of' and returns all
   // ExprGroups that have a use in their definition of provided of IdGroups.
   ExprGroups allUsesOf(const ValGroups& of) const;
@@ -225,6 +228,11 @@ class ValGraph {
   // when the forward parameter is true. This should
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
+
+  // Returns if the expression group has an input id group that matches an
+  // output id group. This means traversing on this expression doesn't actually
+  // do anything.
+  bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
   // Can't back prop through merge without making sure one input actually
   // matches. This can be done on a map or extent basis.
