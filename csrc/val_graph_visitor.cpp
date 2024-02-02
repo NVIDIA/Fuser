@@ -12,15 +12,12 @@
 namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
-  ValGroups to_visit_ids = graph().getTerminatingInputs();
+  const ValGroups terminating_inputs = graph().getTerminatingInputs();
+  ValGroups to_visit_ids = terminating_inputs;
   ValGroups visited_ids;
 
   ExprGroups to_visit_exprs;
   ExprGroups visited_exprs;
-
-  for (const auto& idg : to_visit_ids) {
-    std::cerr << "Initial IDs: " << nvfuser::toString(idg) << std::endl;
-  }
 
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
     const auto inp_groups = graph().inputGroups(expr_group);
@@ -30,24 +27,32 @@ void ValGraphVisitor::traverse() {
         });
   };
 
-  auto is_output_mapped_with_all_inputs =
-      [&](const ValGroup& output_group, const ExprGroup& expr_group) -> bool {
-    const auto inp_groups = graph().inputGroups(expr_group);
-    return std::all_of(
-        inp_groups.begin(), inp_groups.end(), [&](const ValGroup& inp_group) {
-          return inp_group == output_group;
-        });
-  };
-
+  // If any input of the def expr is mapped with the val
+  // group itself, i.e., a trivial expr, allow visiting the
+  // val group first. The trivial expr group will be visited
+  // after the val group.
+  //
+  // Example:
+  //
+  // [i0, 1]
+  // merge
+  // [i0*1]
+  // map i0 and i0*1
+  // ValGroups: {{i0, i0*1}, {1}}
+  //
+  // Then, {i0, i0*1} and {1} would be visited first, then the merge
+  // expr group would be visited. {i0, i0*1} is also an output group
+  // of the merge but since it's already in the visited set, it would
+  // not be visited again.
+  //
+  // See also IdModelTest.ValGraphStmtSort3 for a concrete example.
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
-
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
-          // If all the inputs of the def expr are mapped with the val
-          // group itself, it should be ready to visit.
           return expr_group->empty() || visited_exprs.has(expr_group) ||
-              is_output_mapped_with_all_inputs(val_group, expr_group);
+              terminating_inputs.has(val_group) ||
+              graph().isTrivialExprGroup(expr_group);
         });
   };
 
@@ -69,9 +74,6 @@ void ValGraphVisitor::traverse() {
 
       if (is_expr_ready(current_expr_group)) {
         handle(current_expr_group);
-
-        std::cerr << "EG: " << nvfuser::toString(current_expr_group)
-                  << std::endl;
 
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
@@ -95,16 +97,11 @@ void ValGraphVisitor::traverse() {
       if (is_val_ready(current_id_group)) {
         handle(current_id_group);
 
-        std::cerr << "IDG: " << nvfuser::toString(current_id_group)
-                  << std::endl;
-
         something_was_processed = true;
         visited_ids.pushBack(current_id_group);
 
         to_visit_exprs.pushBack(graph().getUses(current_id_group));
       } else {
-        std::cerr << "NOT READY IDG: " << nvfuser::toString(current_id_group)
-                  << std::endl;
         still_to_visit_ids.pushBack(current_id_group);
       }
     }
