@@ -373,13 +373,9 @@ class SegmentedFusion {
     return complete_fusion_->outputs();
   }
 
-  //! Make a clone of the group and convert to fusion
-  std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
-
   //! Get the fusion for the segmented group and return the IrCloner used to
   //! clone the complete fusion
-  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
-      SegmentedGroup* sg);
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(

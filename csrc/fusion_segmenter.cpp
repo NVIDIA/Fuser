@@ -140,8 +140,7 @@ void SegmentedGroup::deserialize(
 }
 
 void SegmentedGroup::makeClonedFusion() {
-  auto&& [ir_cloner, fusion_segment] =
-      segmented_fusion_->makeFusionWithCloner(this);
+  auto&& [ir_cloner, fusion_segment] = segmented_fusion_->makeFusion(this);
   NVF_ERROR(fusion_segment != nullptr, "Failed to create segmented fusion.");
 
   cloned_fusion_ = std::move(fusion_segment);
@@ -1844,8 +1843,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
-std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
-    makeFusionWithCloner(SegmentedGroup* sg) {
+std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
+    SegmentedGroup* sg) {
   auto fusion_segment = std::make_unique<Fusion>();
 
   IrCloner complete_to_segment_map =
@@ -1884,11 +1883,6 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::
   convertInputRfactorsToRoots(fusion_segment.get());
 
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
-}
-
-std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
-  auto&& [ir_cloner, fusion_segment] = makeFusionWithCloner(sg);
-  return std::move(fusion_segment);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
