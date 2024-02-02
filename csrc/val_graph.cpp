@@ -100,6 +100,83 @@ std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
   return input_groups;
 }
 
+ValGroups ValGraph::getTerminatingInputs(const VectorOfUniqueEntries<Val*>& sub_selection) const {
+  // Initialize vals to traverse. If sub_selection is provided, only
+  // include the Val groups of the Vals in sub_selection
+  ValGroups all_vals;
+  if (sub_selection.empty()) {
+      all_vals = ValGroups(
+          disjointValSets().disjointSets().begin(),
+          disjointValSets().disjointSets().end());
+  } else {
+    all_vals = toGroups(sub_selection);
+  }
+
+  // Initialize exprs to traverse. If sub_selection is provided,
+  // only traverse exprs that are strictly contained within the provided
+  // sub_selection. Exprs are excluded if any of inputs or outputs
+  // is not in sub_selection.
+  ExprGroups all_exprs;
+  if (sub_selection.empty()) {
+    all_exprs = ExprGroups(
+        disjointExprSets().disjointSets().begin(),
+        disjointExprSets().disjointSets().end());
+  } else {
+    for (const ValGroup& val_group : all_vals) {
+      for (const ExprGroup& def : getDefinitions(val_group)) {
+        if (all_exprs.has(def)) {
+          continue;
+        }
+        auto inp_groups = ValGroups(inputGroups(def));
+        auto out_groups = ValGroups(outputGroups(def));
+        if (inp_groups.computeSubtract(all_vals).empty() &&
+            out_groups.computeSubtract(all_vals).empty()) {
+          all_exprs.pushBack(def);
+        }
+      }
+    }
+  }
+
+  // Grab all vals that are not input, i.e., having a defining expr
+  // within all_exprs.
+  //
+  // Note that an input Val group may be mapped with an output
+  // group. For example, the AlmostExact graph maps an input of split
+  // with the outer output if the split factor is one. Such a Val
+  // group is considered a terminating input as long as the input has
+  // no defining expression. This is for the use case of
+  // ValGraphVisitor.
+  //
+  // Example:
+  //
+  // [i0, i1]
+  // split by 1
+  // [i0/1, 1, i1]
+  // merge
+  // [i0/1, 1*i1]
+  //
+  // Here, i0 and i0/1 would create a Val group of {i0, i0/1} in the
+  // AlmostExact graph. This group has a defining expression of the
+  // split, but since it's a cyclic dependency, we ignore the
+  // expression and consider the Val group a terminating input.
+
+  ValGroups not_inputs;
+  for (const ExprGroup& expr_group : all_exprs) {
+    const std::vector<ValGroup> input_groups = inputGroups(expr_group);
+    const std::vector<ValGroup> output_groups = outputGroups(expr_group);
+    std::unordered_set<ValGroup> input_set{input_groups.begin(), input_groups.end()};
+
+    for (const ValGroup& output_group: output_groups) {
+      if (input_set.count(output_group)) {
+        continue;
+      }
+      not_inputs.pushBack(output_group);
+    }
+  }
+
+  return all_vals.computeSubtract(not_inputs);
+}
+
 ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
   for (const ValGroup& of_val_group : of) {

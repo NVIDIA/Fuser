@@ -122,6 +122,10 @@ class ValGraph {
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
 
+  // Return Val groups that have no definition exprs. If a set of Vals
+  // are provided, only the Vals in the set are considered.
+  ValGroups getTerminatingInputs(const VectorOfUniqueEntries<Val*>& sub_selection = {}) const;
+
   // Recursively traverses uses of the IdGroups in 'of' and returns all
   // ExprGroups that have a use in their definition of provided of IdGroups.
   ExprGroups allUsesOf(const ValGroups& of) const;

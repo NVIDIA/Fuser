@@ -7,74 +7,12 @@
 // clang-format on
 #include <val_graph_visitor.h>
 
+#include <id_model/to_string.h>
+
 namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
-  ValGroups all_vals;
-  ExprGroups all_exprs;
-  {
-    // Initialize Vals to traverse. If sub_selection is provided, only
-    // traverse Vals that are included in the set are traversed.
-    if (sub_selection_.empty()) {
-      all_vals = ValGroups(
-          graph().disjointValSets().disjointSets().begin(),
-          graph().disjointValSets().disjointSets().end());
-    } else {
-      for (auto val : sub_selection_) {
-        if (graph().hasGroup(val)) {
-          all_vals.pushBack(graph().toGroup(val));
-        }
-      }
-    }
-
-    // Initialize exprs to traverse. If sub_selection is provided,
-    // only traverse exprs that are strictly contained within the provided
-    // sub_selection. Exprs are excluded if any of inputs or outputs
-    // is not in sub_selection.
-    if (sub_selection_.empty()) {
-      all_exprs = ExprGroups(
-          graph().disjointExprSets().disjointSets().begin(),
-          graph().disjointExprSets().disjointSets().end());
-    } else {
-      for (const ValGroup& val_group : all_vals) {
-        for (const ExprGroup& def : graph().getDefinitions(val_group)) {
-          if (all_exprs.has(def)) {
-            continue;
-          }
-          auto inp_groups = ValGroups(graph().inputGroups(def));
-          auto out_groups = ValGroups(graph().outputGroups(def));
-          if (inp_groups.computeSubtract(all_vals).empty() &&
-              out_groups.computeSubtract(all_vals).empty()) {
-            all_exprs.pushBack(def);
-          }
-        }
-      }
-    }
-  }
-  // There could be Vals in from or to that are between other from and
-  // to nodes. Make sure to clear those out.
-  ValGroups terminating_inputs;
-  ValGroups terminating_outputs;
-
-  {
-    ValGroups not_inputs;
-    ValGroups not_outputs;
-    for (const ExprGroup& expr_group : all_exprs) {
-      if (graph().isTrivialExprGroup(expr_group)) {
-        // Expression is just a loop to its current group, ignore
-        continue;
-      }
-
-      not_inputs.pushBack(graph().outputGroups(expr_group));
-      not_outputs.pushBack(graph().inputGroups(expr_group));
-    }
-
-    terminating_inputs = all_vals.computeSubtract(not_inputs);
-
-    terminating_outputs = all_vals.computeSubtract(not_outputs);
-  }
-
-  ValGroups to_visit_ids = terminating_inputs;
+  ValGroups to_visit_ids = graph().getTerminatingInputs(sub_selection_);
   ValGroups visited_ids;
 
   ExprGroups to_visit_exprs;
@@ -141,7 +79,8 @@ void ValGraphVisitor::traverse() {
         something_was_processed = true;
         visited_ids.pushBack(current_id_group);
 
-        if (!terminating_outputs.has(current_id_group)) {
+        //if (true || !terminating_outputs.has(current_id_group)) {
+        if (true) {
           const ExprGroups& uses = graph().getUses(current_id_group);
           to_visit_exprs.pushBack(uses);
         }
