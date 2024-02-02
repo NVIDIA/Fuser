@@ -80,4 +80,7 @@ void validateLookupTV(Fusion* fusion);
 //! Validate resize usage
 void validateResize(Fusion* fusion);
 
+//! Check that there are no reductions over unexpanded broadcasts
+void validateReductions(Fusion* fusion);
+
 } // namespace nvfuser

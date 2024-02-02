@@ -436,6 +436,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_root_ids_;
+  // When we propagate, we should check the resolved broadcast in the order of
+  // mapped from_ids.
+  //
   // If we have a case where we have a concretized broadcast that's being
   // tracked in a consumer but not concretized in the producer we should break
   // off the dimensions connected to the left of that dimension. So if we have:
@@ -445,49 +448,47 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // T3[i0, i1, i2] = T1 + T2
   // and we're propogating from T3 with {i0, i1, i2}
   // When we go from T3 to T0, we don't have any mechanism to understand that i0
-  // and i2 are not contiguous in the original domain of T3. It's not ideal with
-  // transpose, but when this happens we'll clear all dimensions mapped left of
-  // the concretized broadcast.
-  // So if we have:
-  // T0[i1, i2]
-  // T1[b0, i1, i2] = broadcast(T0)
-  // T2[i1, b0, i2] = transpose(T1)
-  // T3[i1, i0, i2]
-  // T4[i1, i0, i2] = T2 + T3
-  // T5[i0, i1, i2] = transpose(T4)
-  // Then i1 and i2 are contiguous in both T0 and T5, but due to the realization
-  // of the broadcast on T4 we will have removed i1 from the mapped set.
+  // and i2 are not contiguous in the original domain of T3.
+  //
+  // Another example is that, if the last broadcast dimension resolved in
+  // consumers root domain is mapped for vectorization, the merge order in
+  // the vectorization axes matters.
+  //
+  // T0[i0, i1]
+  // T1[i0, i1, b2] = broadcast(T0)
+  // T2[i0, i1, i3]
+  // T3[i0, i1, i2] = T1 + T2
+  //
+  // If the mapped ids are {i0, i2, i1}, when propagating from T3 to T1, the
+  // resolved broadcast iterdomain is `i2`/`b2`, which would give clear_pos=1.
+  // So we'll skip all from_ids with index < clear_pos. see issue:
+  // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
   PairwiseRootDomainMap root_map(to, from);
   auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
   std::unordered_set<IterDomain*> consumer_ids_to_clear;
+  size_t clear_pos = 0;
   if (to->hasBroadcast()) {
-    // Find the last broadcast dimension resolved in consumers root domain
-    int clear_pos = -1;
-    for (auto i : c10::irange(from->getRootDomain().size())) {
-      auto c_id = from->getRootDomain()[i];
+    // Find the last broadcast dimension resolved in consumers through from_ids
+    for (int i = (int)from_ids.size() - 1; i >= 0; i--) {
+      auto c_id = from_ids[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
         continue;
       }
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
-        clear_pos = (int)i;
+        clear_pos = (size_t)i + 1;
+        break;
       }
-    }
-    // Clear everything to the left of the inner most resolved broadcast
-    // dimension, including the broadcasted domain.
-    if (clear_pos >= 0) {
-      consumer_ids_to_clear.insert(
-          from->getRootDomain().begin(),
-          from->getRootDomain().begin() + clear_pos + 1);
     }
   }
 
   std::vector<IterDomain*> producer_rfactor_ids;
-  for (auto from_id : from_ids) {
+  for (auto i : c10::irange(clear_pos, from_ids.size())) {
+    auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
         consumer_ids_to_clear.find(c2p_it->first) ==
