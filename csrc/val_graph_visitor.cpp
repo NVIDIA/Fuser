@@ -19,19 +19,31 @@ void ValGraphVisitor::traverse() {
   ExprGroups visited_exprs;
 
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
-    auto inp_groups = graph().inputGroups(expr_group);
+    const auto inp_groups = graph().inputGroups(expr_group);
     return std::all_of(
         inp_groups.begin(), inp_groups.end(), [&](ValGroup id_group) {
           return visited_ids.has(id_group) || id_group->empty();
         });
   };
 
+  auto is_output_mapped_with_all_inputs =
+      [&](const ValGroup& output_group, const ExprGroup& expr_group) -> bool {
+    const auto inp_groups = graph().inputGroups(expr_group);
+    return std::all_of(
+        inp_groups.begin(), inp_groups.end(), [&](const ValGroup& inp_group) {
+          return inp_group == output_group;
+        });
+  };
+
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
+
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
+          // If all the inputs of the def expr are mapped with the val
+          // group itself, it should be ready to visit.
           return expr_group->empty() || visited_exprs.has(expr_group) ||
-              graph().isTrivialExprGroup(expr_group);
+              is_output_mapped_with_all_inputs(val_group, expr_group);
         });
   };
 
@@ -79,15 +91,12 @@ void ValGraphVisitor::traverse() {
         something_was_processed = true;
         visited_ids.pushBack(current_id_group);
 
-        //if (true || !terminating_outputs.has(current_id_group)) {
-        if (true) {
-          const ExprGroups& uses = graph().getUses(current_id_group);
-          to_visit_exprs.pushBack(uses);
-        }
+        to_visit_exprs.pushBack(graph().getUses(current_id_group));
       } else {
         still_to_visit_ids.pushBack(current_id_group);
       }
     }
+
     std::swap(to_visit_ids, still_to_visit_ids);
 
     NVF_ERROR(
