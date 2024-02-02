@@ -172,7 +172,9 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   auto tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  // No ID expr yet
+  // No ID expr yet. checkSortingResults validates the exprssion
+  // order, but since there's no expr, it just makes sure exprs() and
+  // vals() return all the val and expr groups.
   {
     IdModel id_model(&fusion);
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
@@ -180,11 +182,14 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
   }
 
+  // Add ID exprs. Just apply a merge-and-split pattern to all
+  // tensors.
   tv2->merge(0)->split(0, 4);
-
   TransformPropagator propagator(tv2);
   MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
+  // The exact graph should just map all IDs of the tensors. Ther
+  // ordering of the exprs should be the merge and then the split.
   {
     IdModel id_model(&fusion);
 
@@ -222,6 +227,21 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->merge(0)->split(0, 4);
   }
+
+  // Since the two tensors are disconnected, there's no ordering
+  // between the ID exprs of the two tensor groups. So, the correct
+  // ordering should have the merge exprs before the split exprs, but
+  // there's no order between the tv1 and tv3 exprs. For example,
+  // these are all valid:
+  //
+  // tv1 merge -> tv3 merge -> tv1 split -> tv3 split
+  // tv1 merge -> tv1 split -> tv3 merge -> tv3 split
+  // tv3 merge -> tv3 split -> tv1 merge -> tv1 split
+  // tv3 merge -> tv1 merge -> tv3 split -> tv1 split
+  //
+  // Here, the actual order returned by ValGraphStmtSort is the first
+  // one. Since it should be deterministic, we check if the returned
+  // expr vector is indeed ordered that way.
 
   IdModel id_model(&fusion);
 
@@ -289,6 +309,8 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
   FusionGuard fg(fusion.get());
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
+  // Since this fusion is not supported by ComputeAtMap, the
+  // validation flag must be false
   IdModel id_model(fusion.get(), true, false, false);
 
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
