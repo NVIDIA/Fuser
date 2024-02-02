@@ -180,8 +180,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
     if (multi_device_executor == nullptr) {
       // NOTE: we are always using cache and it's bad.
+      auto device = getCommonDeviceCUDA(inputs, selected_device);
       auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
-      NVF_CHECK(user_sched_id.has_value());
+      NVF_CHECK(user_sched_id.has_value() && device.has_value());
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
