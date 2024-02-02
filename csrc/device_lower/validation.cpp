@@ -477,7 +477,12 @@ class VectorizeValidator : public OptInDispatch {
           tv, (int)vector_word_size);
     }
 
-    auto producer_tv = tv->definition()->inputs().at(0)->as<TensorView>();
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+    auto producer_tv = tv_def->inputs().at(0)->as<TensorView>();
     auto producer_word_size_it =
         GpuLower::current()->vectorizedAccesses().find(producer_tv);
     if (producer_word_size_it !=
@@ -1289,6 +1294,30 @@ void validateResize(Fusion* fusion) {
         "Invalid use of resize detected with ",
         tv->toString(),
         ". Resize may only be used as part of rfactor transformations.");
+  }
+}
+
+void validateReductions(Fusion* fusion) {
+  for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
+    auto in = rop->in()->as<TensorView>();
+    auto out = rop->out()->as<TensorView>();
+    PairwiseRootDomainMap c2p_map(in, out);
+    c2p_map.mapBroadcast(true);
+    auto c2p = c2p_map.mapConsumerToProducer();
+    for (auto out_id : out->getRootDomain()) {
+      if (out_id->isReduction()) {
+        auto in_it = c2p.find(out_id);
+        NVF_ERROR(
+            in_it != c2p.end(),
+            "Could not find producer IterDomain mapped to ",
+            out_id->toString());
+        IterDomain* in_id = in_it->second;
+        NVF_ERROR(
+            !in_id->isBroadcast() || in_id->hasExpandedExtent(),
+            "Reductions of unexpanded broadcast domains should be ",
+            "converted to squeeze before lowering.");
+      }
+    }
   }
 }
 

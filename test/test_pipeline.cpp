@@ -7,9 +7,12 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -21,6 +24,26 @@
 namespace nvfuser {
 
 using namespace at::indexing;
+
+std::string sortByLine(const std::string& input) {
+  auto ss = std::stringstream(input);
+  std::vector<std::string> lines;
+  std::string line;
+  while (std::getline(ss, line, '\n')) {
+    lines.push_back(line);
+  }
+  std::sort(lines.begin(), lines.end());
+  std::stringstream output;
+  bool first = true;
+  for (auto line : lines) {
+    if (!first) {
+      output << std::endl;
+    }
+    first = false;
+    output << line;
+  }
+  return output.str();
+}
 
 TEST_F(NVFuserTest, Pipeline_CUDA) {
   // Fusion definition
@@ -82,7 +105,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
       " PipelineVal representing Val T0_g[ iS0{i0}, iS1{i2} ] on stage " +
       std::to_string(stage0.unique_id) +
       "\n"
-      " PipelineVal representing Val T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ] on stage " +
+      " PipelineVal representing Val T4_g[ iS6{i15}, iS7{i16}, iS8{i17} ] on stage " +
       std::to_string(stage2.unique_id) +
       "\n"
       "}\n"
@@ -106,98 +129,96 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
       ".Inputs={T2_l[ iS4{i2} ], }. Outputs={T3_g[ rS5{i2} ], }.\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage2.unique_id) +
-      ".Inputs={T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ], }. Outputs={T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ], }.\n"
-      "  PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
+      ".Inputs={T4_g[ iS6{i15}, iS7{i16}, iS8{i17} ], }. Outputs={T5_l[ rS9{i15}, iS10{i16}, iS11{i17} ], }.\n"
+      "  PipelineVal representing Val T5_l[ rS9{i15}, iS10{i16}, iS11{i17} ] on stage " +
       std::to_string(stage2.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i15}, iS10{i16}, iS11{i17} ] on stage " +
       std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
+      " to PipelineVal representing Val T6_l[ iS12{i16}, iS13{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
+      "  PipelineVal representing Val T6_l[ iS12{i16}, iS13{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage3.unique_id) +
-      ".Inputs={T6_l[ iS12{i14}, iS13{i15} ], }. Outputs={T7_l[ iS14{i14}, iS15{i15} ], T8_l[ rS16{i14}, iS17{i15} ], }.\n"
-      "  PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
+      ".Inputs={T6_l[ iS12{i16}, iS13{i17} ], }. Outputs={T7_l[ iS14{i16}, iS15{i17} ], T8_l[ rS16{i16}, iS17{i17} ], }.\n"
+      "  PipelineVal representing Val T7_l[ iS14{i16}, iS15{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T7_l[ iS14{i16}, iS15{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
+      " to PipelineVal representing Val T12_l[ iS24{i16}, iS25{i17} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
-      "  PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
+      "  PipelineVal representing Val T12_l[ iS24{i16}, iS25{i17} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage5.unique_id) +
-      ".Inputs={T12_l[ iS24{i14}, iS25{i15} ], }. Outputs={T13_g[ rS26{i14}, iS27{i15} ], }.\n"
-      "  PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
+      ".Inputs={T12_l[ iS24{i16}, iS25{i17} ], }. Outputs={T13_g[ rS26{i16}, iS27{i17} ], }.\n"
+      "  PipelineVal representing Val T8_l[ rS16{i16}, iS17{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T8_l[ rS16{i16}, iS17{i17} ] on stage " +
       std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
+      " to PipelineVal representing Val T14_l[ iS28{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
+      "  PipelineVal representing Val T14_l[ iS28{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i15}, iS10{i16}, iS11{i17} ] on stage " +
       std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
+      " to PipelineVal representing Val T9_l[ iS18{i16}, iS19{i17} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
-      "  PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
+      "  PipelineVal representing Val T9_l[ iS18{i16}, iS19{i17} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage4.unique_id) +
-      ".Inputs={T9_l[ iS18{i14}, iS19{i15} ], }. Outputs={T11_l[ rS22{i14}, iS23{i15} ], }.\n"
-      "  PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
+      ".Inputs={T9_l[ iS18{i16}, iS19{i17} ], }. Outputs={T11_l[ rS22{i16}, iS23{i17} ], }.\n"
+      "  PipelineVal representing Val T11_l[ rS22{i16}, iS23{i17} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T11_l[ rS22{i16}, iS23{i17} ] on stage " +
       std::to_string(stage4.unique_id) +
-      " to PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
+      " to PipelineVal representing Val T15_l[ iS29{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
+      "  PipelineVal representing Val T15_l[ iS29{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T13_g[ rS26{i16}, iS27{i17} ] on stage " +
       std::to_string(stage5.unique_id) +
-      " to PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
+      " to PipelineVal representing Val T16_l[ iS30{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
+      "  PipelineVal representing Val T16_l[ iS30{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage6.unique_id) +
-      ".Inputs={T14_l[ iS28{i15} ], T15_l[ iS29{i15} ], T16_l[ iS30{i15} ], }. Outputs={T19_g[ rS33{i15} ], }.\n"
+      ".Inputs={T14_l[ iS28{i17} ], T15_l[ iS29{i17} ], T16_l[ iS30{i17} ], }. Outputs={T19_g[ rS33{i17} ], }.\n"
       "}\n"
       "Pipeline's outputs:{\n"
       " PipelineVal representing Val T3_g[ rS5{i2} ] on stage " +
       std::to_string(stage1.unique_id) +
       "\n"
-      " PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
+      " PipelineVal representing Val T13_g[ rS26{i16}, iS27{i17} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
-      " PipelineVal representing Val T19_g[ rS33{i15} ] on stage " +
+      " PipelineVal representing Val T19_g[ rS33{i17} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
       "}"};
 
-  // We sort the string so it doesn't depend on the order of the Pipeline's DAG
-  // traversal
-
-  // TODO: we should sort on lines, not on characters
-  std::sort(obtained_string.begin(), obtained_string.end());
-  std::sort(ref_string.begin(), ref_string.end());
+  // We sort the string by line so it doesn't depend on the order of the
+  // Pipeline's DAG traversal
+  obtained_string = sortByLine(obtained_string);
+  ref_string = sortByLine(ref_string);
 
   EXPECT_EQ(obtained_string, ref_string);
 }
@@ -360,5 +381,111 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(!isResharding(tv25->definition()));
   GTEST_EXPECT_TRUE(isResharding(tv26->definition()));
 }
+
+using automaticSetInsertionTestParams =
+    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
+
+class automaticReshardingTest
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
+ protected:
+  void SetUp() override {
+    fusion = std::make_unique<Fusion>();
+    fg = std::make_unique<FusionGuard>(fusion.get());
+  }
+  void validate() {
+    for (auto expr : fusion->exprs()) {
+      GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
+          << "on expr=" << expr;
+    }
+
+    SegmentCandidateFinderOptions options{
+        .run_translate_welford = false,
+        .run_combine_reductions = false,
+        .run_herrmann_merge = true,
+        .run_final_merge = true,
+        .only_segment_resharding_exprs = true};
+
+    auto segmented_fusion =
+        SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+
+    for (SegmentedGroup* group : segmented_fusion->groups()) {
+      GTEST_EXPECT_TRUE(
+          std::none_of(
+              group->exprs().begin(),
+              group->exprs().end(),
+              [](auto expr) { return isResharding(expr); }) ||
+          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
+    }
+    // checks that the segments are disjoints and that the graph of segment is
+    // acyclic
+    segmented_fusion->validate();
+  }
+
+  std::unique_ptr<Fusion> fusion;
+  std::unique_ptr<FusionGuard> fg;
+};
+
+TEST_P(automaticReshardingTest, setInsertion) {
+  auto
+      [mesh0,
+       mesh1,
+       mesh2,
+       is_tv0_tv3_tv5_sharded,
+       is_tv1_tv4_sharded,
+       is_tv2_sharded] = GetParam();
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
+  TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
+  TensorView* tv3 = sum(tv2, {0});
+  TensorView* tv4 = broadcast(tv3, {true, false, false});
+  TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
+
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh1);
+  tv2->setDeviceMesh(mesh2);
+  tv3->setDeviceMesh(mesh0);
+  tv4->setDeviceMesh(mesh1);
+  tv5->setDeviceMesh(mesh0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv5);
+
+  if (is_tv0_tv3_tv5_sharded) {
+    tv0->axis(0)->parallelize(ParallelType::DIDx);
+    tv3->axis(0)->parallelize(ParallelType::DIDx);
+    tv5->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  if (is_tv1_tv4_sharded) {
+    tv1->axis(0)->parallelize(ParallelType::DIDx);
+    tv4->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  if (is_tv2_sharded) {
+    tv2->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  insertReshardings(fusion.get());
+  validate();
+}
+
+namespace {
+
+DeviceMesh Mesh0({0});
+DeviceMesh Mesh1({1, 2});
+DeviceMesh Mesh2({0, 1, 2, 3});
+
+} // namespace
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    automaticReshardingTest,
+    ::testing::Combine(
+        ::testing::Values(Mesh0, Mesh2),
+        ::testing::Values(Mesh1, Mesh2),
+        ::testing::Values(Mesh2),
+        ::testing::Bool(),
+        ::testing::Bool(),
+        ::testing::Bool()));
 
 } // namespace nvfuser
