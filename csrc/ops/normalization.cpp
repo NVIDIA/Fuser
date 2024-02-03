@@ -8,6 +8,7 @@
 #include <ir/builder.h>
 #include <ops/arith.h>
 #include <ops/normalization.h>
+#include <ops/utils.h>
 
 namespace nvfuser {
 
@@ -124,7 +125,7 @@ VarMeanResult variance_mean(
 
   if (keepdim) {
     std::vector<bool> is_broadcast(kNumberOfDims, false);
-    for (auto dim : dims) {
+    for (auto dim : ops::canonicalizeAxes(dims, kNumberOfDims)) {
       is_broadcast[dim] = true;
     }
     var = broadcast(var, is_broadcast);
