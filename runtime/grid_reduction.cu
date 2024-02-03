@@ -667,4 +667,62 @@ __device__ void serialReductionStep(
   }
 }
 
+// Same as above, but cast to lower precision for work buffer IO
+template <int64_t vec_size, typename Twork, typename Func>
+__device__ void serialReductionStep(
+    float* out,
+    float* in,
+    float init,
+    volatile Twork* work,
+    Func reduction_op,
+    bool first_step,
+    bool last_step,
+    bool read_pred,
+    bool write_pred) {
+  static_assert(
+      std::is_same<Twork, __half>::value ||
+          std::is_same<Twork, __bfloat>::value,
+      "Twork template type must be either __half or __bfloat");
+  if (!write_pred) {
+    return;
+  }
+  if (read_pred) {
+    loadGeneric<float, vec_size>(out, in);
+  } else {
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      out[i] = init;
+    }
+  }
+  Twork work_reg[vec_size];
+  if (!first_step) {
+    loadGlobalToLocal<Twork, vec_size, true, CacheOp::Global>(work_reg, work);
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      float work_float = NAN;
+      if constexpr (std::is_same<Twork, __half>::value) {
+        work_float = __half2float(work_reg[i]);
+      } else if constexpr (std::is_same<Twork, __bfloat>::value) {
+        work_float = __bfloat2float(work_reg[i]);
+      } else {
+        // static_assert(false);
+      }
+      reduction_op(out[i], work_float);
+    }
+  }
+  if (!last_step) {
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      if constexpr (std::is_same<Twork, __half>::value) {
+        work_reg[i] = __float2half(out[i]);
+      } else if constexpr (std::is_same<Twork, __bfloat>::value) {
+        work_reg[i] = __float2bfloat(out[i]);
+      } else {
+        // static_assert(false);
+      }
+    }
+    loadLocalToGlobal<Twork, vec_size, true>(work, work_reg);
+  }
+}
+
 } // namespace reduction

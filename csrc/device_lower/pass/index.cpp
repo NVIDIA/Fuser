@@ -650,7 +650,7 @@ void IndexLowering::handleSerialGridReduction(
   }
   auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
   auto work_buffer_tv = IrBuilder::create<TensorView>(
-      work_buffer_domain, out_tv->dtype(), MemoryType::Global);
+      work_buffer_domain, DataType::Half, MemoryType::Global);
   Val* work_buffer_idx_val = nullptr;
   for (auto v :
        Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
