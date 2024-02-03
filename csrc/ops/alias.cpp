@@ -235,7 +235,8 @@ TensorView* squeeze(
     // If a squeeze is attempted on a non-broadcast dimension
     // just don't do it!  This conforms with Pytorch.
     IterDomain* id = x_dom[dim];
-    to_squeeze[dim] = id->isBroadcast() && !id->hasExpandedExtent();
+    to_squeeze[dim] =
+        id->isSymbolic() || (id->isBroadcast() && !id->hasExpandedExtent());
   }
 
   return squeeze(x, to_squeeze, squeeze_expanded);
