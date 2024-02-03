@@ -16,6 +16,7 @@
 #include <inlining.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <options.h>
@@ -169,6 +170,72 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
   std::vector<at::Tensor> actual_outputs = fe.runFusion({a, b});
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, PointwiseReference_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int M = 64, N = 128;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto output = add(tv0, tv1);
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({M, N}, options);
+  at::Tensor at_tv1 = at::randn({M, N}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_tv0, at_tv1});
+
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      executor_cache.fusion(),
+      outputs,
+      {at_tv0, at_tv1},
+      {at_output},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(NVFuserTest, NormalizeReference_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int M = 64, N = 128;
+  constexpr int64_t correction = 1;
+  constexpr bool keepdim = true;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto var_mean = variance_mean(tv0, {-1}, correction, keepdim);
+  auto output = div(sub(tv0, var_mean.mean), sqrt(var_mean.var));
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({M, N}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_tv0});
+
+  auto at_var_mean = at::var_mean(at_tv0, {-1}, correction, keepdim);
+  auto at_var = std::get<0>(at_var_mean);
+  auto at_mean = std::get<1>(at_var_mean);
+  auto at_output = (at_tv0 - at_mean) / sqrt(at_var);
+
+  testValidate(
+      executor_cache.fusion(),
+      outputs,
+      {at_tv0},
+      {at_output},
+      __LINE__,
+      __FILE__);
 }
 
 class TMATest : public NVFuserTest {
