@@ -203,6 +203,85 @@ TEST_F(NVFuserTest, PointwiseReference_CUDA) {
       __FILE__);
 }
 
+TEST_F(NVFuserTest, PointwiseTMA_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  // constexpr int M = 64, N = 128;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto output = add(tv0, tv1);
+  fusion->addOutput(output);
+
+  // Create cache_tvs
+  auto tv2 = tv0->cacheAfter();
+  auto tv3 = tv1->cacheAfter();
+
+  // Do not schedule cache operations because
+  // MaybeRfactorDomain == LeafDomain for TMA Bulk ParallelType
+  // TMA input tv0
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->axis(-2)->parallelize(ParallelType::Bulk);
+
+  // TMA input tv1
+  tv3->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv3->axis(-1)->parallelize(ParallelType::Bulk);
+  tv3->axis(-2)->parallelize(ParallelType::Bulk);
+
+  auto reference_tv = output;
+
+  // Schedule reference_tv
+  //   root domain: [I1, I2]
+  //         merge: [I1*I2]
+  reference_tv->merge(0);
+  //         split: [(I1*I2)/32, 32]
+  reference_tv->split(-1, 32);
+
+  // Parallelize reference_tv
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(-1)->parallelize(ParallelType::TIDx);
+
+  /*
+  Transform Operations between cache operations and output reference
+  TransformPropagator propagator(reference_tv);
+  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+  inlineMost();
+  */
+
+  fusion->printMath();
+  fusion->printKernel();
+
+  /*
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({M, N}, options);
+  at::Tensor at_tv1 = at::randn({M, N}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {at_tv0, at_tv1});
+  auto outputs = fe.runFusion({at_tv0, at_tv1});
+
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(),
+      outputs,
+      {at_tv0, at_tv1},
+      {at_output},
+      __LINE__,
+      __FILE__);
+  */
+}
+
 TEST_F(NVFuserTest, NormalizeReference_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
