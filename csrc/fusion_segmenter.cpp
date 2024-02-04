@@ -43,6 +43,188 @@ std::vector<V> convertContainer(
   return result;
 }
 
+//! Duplicate and add all exprs producing the used
+//!  scalar values in group
+void resolveScalarsInGroup(SegmentedGroup* group) {
+  std::vector<Val*> to_visit;
+  std::unordered_set<Val*> visited;
+
+  const auto processTV = [&to_visit](TensorView* tv) {
+    for (auto id : TensorDomain::noReductions(tv->getRootDomain())) {
+      to_visit.push_back(id->getMaybeExpandedExtent());
+    }
+    if (tv->domain()->hasRFactor()) {
+      // traverse from root to rfactor and inspect all Expr attrs and outputs
+      std::vector<Val*> all_vals;
+      for (const auto id_expr : StmtSort::getExprsBetween(
+               {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+               {tv->getMaybeRFactorDomain().begin(),
+                tv->getMaybeRFactorDomain().end()})) {
+        all_vals.insert(
+            all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
+        all_vals.insert(
+            all_vals.end(),
+            id_expr->outputs().begin(),
+            id_expr->outputs().end());
+        for (const auto attr : id_expr->attributes()) {
+          if (attr && attr->isVal()) {
+            all_vals.push_back(attr->asVal());
+          }
+        }
+        for (const auto val : all_vals) {
+          if (val->isScalar()) {
+            to_visit.push_back(val);
+          } else if (const auto id = dynamic_cast<IterDomain*>(val)) {
+            to_visit.push_back(id->getMaybeExpandedExtent());
+          }
+        }
+      }
+    }
+  };
+
+  // Segment TensorView inputs will have their rfactor extents available, so we
+  // avoid adding them as separate scalar inputs.
+  for (auto e : group->producer_edges) {
+    if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
+      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+        visited.insert(id->getMaybeExpandedExtent());
+      }
+    }
+  }
+
+  // Collect all scalar uses in the group
+  for (auto expr : group->exprs()) {
+    for (auto input : expr->inputs()) {
+      if (input->isScalar()) {
+        to_visit.push_back(input);
+      } else if (auto tv = dynamic_cast<TensorView*>(input); tv &&
+                 std::none_of(group->producer_edges.begin(),
+                              group->producer_edges.end(),
+                              [&tv](SegmentedEdge* e) {
+                                return e->val == tv;
+                              })) {
+        // Intermediate group inputs (producer edges) will have their rfactor
+        // domain reassigned as the root domain, so there is no need to process
+        // them. Tensors computed inside this group will need processing,
+        // however, as their root->rfactor transforms must be computed in this
+        // group.
+        processTV(tv);
+      }
+    }
+    for (auto attr : expr->attributes()) {
+      auto attr_val = dynamic_cast<Val*>(attr);
+      if (!attr_val) {
+        continue;
+      }
+      if (attr_val->isScalar()) {
+        to_visit.push_back(attr_val);
+      } else if (auto tv = dynamic_cast<TensorView*>(attr_val)) {
+        processTV(tv);
+      }
+    }
+    for (auto output : expr->outputs()) {
+      // We must be able to compute output extents for expression, so here we
+      // ensure the scalars involved are all available to this group
+      if (auto tv = dynamic_cast<TensorView*>(output)) {
+        processTV(tv);
+      }
+    }
+  }
+
+  // Keep track of composite fusion inputs used in this group
+  std::unordered_set<Val*> input_set;
+  for (auto inp : group->input_vals) {
+    input_set.insert(inp);
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      for (IterDomain* id :
+           TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+        // Extents of inputs will already be bound. This prevents adding them
+        // as redundant inputs.
+        input_set.insert(id->getMaybeExpandedExtent());
+      }
+    }
+  }
+
+  // Record and append all missing scalar exprs at the end.
+  std::vector<Expr*> exprs_to_add;
+
+  // Do a stack based traversal of the scalar ops to avoid
+  //  combinatorial duplication of exprs.
+  while (!to_visit.empty()) {
+    auto stack_top_val = to_visit.back();
+    if (visited.count(stack_top_val)) {
+      to_visit.pop_back();
+    } else if (stack_top_val->definition() == nullptr) {
+      // A scalar without def can be a scalar, a tensor dim,
+      //  or a composite fusion input
+      // The first two cases are handled in finalize(),
+      //  the last case needs to add new input_val to this group.
+      visited.insert(stack_top_val);
+      // If this is a composite fusion scalar input, make sure this group has it
+      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
+        group->input_vals.push_back(stack_top_val);
+        input_set.insert(stack_top_val);
+      }
+      to_visit.pop_back();
+    } else {
+      // A scalar with an actual definition
+      auto definition_expr = stack_top_val->definition();
+      bool all_inputs_visited = true;
+      // If any of the inputs are not visited, visit them first
+      for (auto input : definition_expr->inputs()) {
+        if (!visited.count(input)) {
+          all_inputs_visited = false;
+          to_visit.push_back(input);
+        }
+      }
+      // This node is ready to be visited
+      if (all_inputs_visited) {
+        // Collect the defining expr to insert into group
+        exprs_to_add.push_back(definition_expr);
+        visited.insert(stack_top_val);
+        to_visit.pop_back();
+      }
+    }
+  }
+
+  // Add all the defining expr to the group
+  for (auto expr : exprs_to_add) {
+    group->exprs_.push_back(expr);
+  }
+}
+
+//! Duplicate and add all exprs from "inputs" in the group, to complete
+//! inputs. These expressions are simply unary ops of inputs that we want to
+//! recompute for each segment, instead of computing and producing a segmented
+//! val. For example if we have:
+//! tv1 = tv0 * 2;
+//! tv3 = tv1 + tv2;
+//! tv4 = tv1 + tv4
+//! If we segmented on tv1, we would be producing an output for tv1 for 2
+//! groups that have tv3 or tv4, instead we could easily recompute tv1 from
+//! tv0.
+void resolveInputsInGroup(SegmentedGroup* group) {
+  std::vector<Val*> to_visit;
+  std::unordered_set<Val*> visited;
+
+  // Collect all inputs to group that are not inputs of fusion
+  for (auto input : group->inputs()) {
+    if (!input->isFusionInput()) {
+      to_visit.push_back(input);
+    }
+  }
+
+  // Reset group inputs to real inputs
+  group->input_vals = IterVisitor::getInputsTo(group->inputs());
+
+  // Grab all expressions needed to produce to_visit
+  auto input_exprs = StmtSort::getExprsTo(to_visit);
+
+  // Insert those expressions at the beginning of the group
+  group->exprs_.insert(
+      group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
+}
+
 } // namespace
 
 flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
@@ -72,8 +254,12 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       sorted_exprs.end(),
       std::insert_iterator(sorted_exprs_map, sorted_exprs_map.end()),
       [&](Expr* e) { return std::make_pair(e, sorted_exprs_map.size()); });
-  std::vector<int64_t> exprs_fb =
-      convertContainer<Expr*, int64_t>(sorted_exprs_map, exprs_);
+  std::vector<int64_t> exprs_fb;
+  for (Expr* e : exprs_) {
+    if (sorted_exprs_map.count(e) > 0) {
+      exprs_fb.push_back(sorted_exprs_map.at(e));
+    }
+  }
 
   // -1 corresponds with a nullptr value
   int64_t merge_with_segmented_group = -1;
@@ -104,7 +290,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       is_fusion_input_);
 }
 
-void SegmentedGroup::deserialize(
+bool SegmentedGroup::deserialize(
     const serde::SegmentedGroup* buffer,
     const std::deque<Val*>& vals,
     const std::vector<Expr*>& exprs,
@@ -127,7 +313,15 @@ void SegmentedGroup::deserialize(
 
   heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
 
-  exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
+  // exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
+  bool any_skipped = false;
+  for (int64_t key : *buffer->exprs()) {
+    if (key < (int64_t)exprs.size()) {
+      exprs_.push_back(exprs.at(key));
+    } else {
+      any_skipped = true;
+    }
+  }
 
   level_ = buffer->level();
   visited_ = buffer->visited();
@@ -144,6 +338,7 @@ void SegmentedGroup::deserialize(
 
   merged_ = buffer->merged();
   is_fusion_input_ = buffer->is_fusion_input();
+  return any_skipped;
 }
 
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
@@ -546,7 +741,12 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // Deserialize segmented groups
   for (auto idx : c10::irange(buffer->groups()->size())) {
     auto sg_fb = buffer->groups()->Get(idx);
-    groups_.at(idx)->deserialize(sg_fb, vals, exprs, groups_, edges_);
+    bool any_skipped =
+        groups_.at(idx)->deserialize(sg_fb, vals, exprs, groups_, edges_);
+    if (any_skipped) {
+      resolveScalarsInGroup(groups_.at(idx));
+      resolveInputsInGroup(groups_.at(idx));
+    }
   }
 
   for (auto idx : *buffer->force_fp16_tv_set()) {
@@ -3925,176 +4125,6 @@ void SegmentCandidateFinder::finalMerge() {
       mergeNodes();
     }
   }
-}
-
-void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
-  std::vector<Val*> to_visit;
-  std::unordered_set<Val*> visited;
-
-  const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getRootDomain())) {
-      to_visit.push_back(id->getMaybeExpandedExtent());
-    }
-    if (tv->domain()->hasRFactor()) {
-      // traverse from root to rfactor and inspect all Expr attrs and outputs
-      std::vector<Val*> all_vals;
-      for (const auto id_expr : StmtSort::getExprsBetween(
-               {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-               {tv->getMaybeRFactorDomain().begin(),
-                tv->getMaybeRFactorDomain().end()})) {
-        all_vals.insert(
-            all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
-        all_vals.insert(
-            all_vals.end(),
-            id_expr->outputs().begin(),
-            id_expr->outputs().end());
-        for (const auto attr : id_expr->attributes()) {
-          if (attr && attr->isVal()) {
-            all_vals.push_back(attr->asVal());
-          }
-        }
-        for (const auto val : all_vals) {
-          if (val->isScalar()) {
-            to_visit.push_back(val);
-          } else if (const auto id = dynamic_cast<IterDomain*>(val)) {
-            to_visit.push_back(id->getMaybeExpandedExtent());
-          }
-        }
-      }
-    }
-  };
-
-  // Segment TensorView inputs will have their rfactor extents available, so we
-  // avoid adding them as separate scalar inputs.
-  for (auto e : group->producer_edges) {
-    if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-        visited.insert(id->getMaybeExpandedExtent());
-      }
-    }
-  }
-
-  // Collect all scalar uses in the group
-  for (auto expr : group->exprs()) {
-    for (auto input : expr->inputs()) {
-      if (input->isScalar()) {
-        to_visit.push_back(input);
-      } else if (auto tv = dynamic_cast<TensorView*>(input); tv &&
-                 std::none_of(group->producer_edges.begin(),
-                              group->producer_edges.end(),
-                              [&tv](SegmentedEdge* e) {
-                                return e->val == tv;
-                              })) {
-        // Intermediate group inputs (producer edges) will have their rfactor
-        // domain reassigned as the root domain, so there is no need to process
-        // them. Tensors computed inside this group will need processing,
-        // however, as their root->rfactor transforms must be computed in this
-        // group.
-        processTV(tv);
-      }
-    }
-    for (auto attr : expr->attributes()) {
-      auto attr_val = dynamic_cast<Val*>(attr);
-      if (!attr_val) {
-        continue;
-      }
-      if (attr_val->isScalar()) {
-        to_visit.push_back(attr_val);
-      } else if (auto tv = dynamic_cast<TensorView*>(attr_val)) {
-        processTV(tv);
-      }
-    }
-    for (auto output : expr->outputs()) {
-      // We must be able to compute output extents for expression, so here we
-      // ensure the scalars involved are all available to this group
-      if (auto tv = dynamic_cast<TensorView*>(output)) {
-        processTV(tv);
-      }
-    }
-  }
-
-  // Keep track of composite fusion inputs used in this group
-  std::unordered_set<Val*> input_set;
-  for (auto inp : group->input_vals) {
-    input_set.insert(inp);
-    if (auto tv = dynamic_cast<TensorView*>(inp)) {
-      for (IterDomain* id :
-           TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-        // Extents of inputs will already be bound. This prevents adding them
-        // as redundant inputs.
-        input_set.insert(id->getMaybeExpandedExtent());
-      }
-    }
-  }
-
-  // Record and append all missing scalar exprs at the end.
-  std::vector<Expr*> exprs_to_add;
-
-  // Do a stack based traversal of the scalar ops to avoid
-  //  combinatorial duplication of exprs.
-  while (!to_visit.empty()) {
-    auto stack_top_val = to_visit.back();
-    if (visited.count(stack_top_val)) {
-      to_visit.pop_back();
-    } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def can be a scalar, a tensor dim,
-      //  or a composite fusion input
-      // The first two cases are handled in finalize(),
-      //  the last case needs to add new input_val to this group.
-      visited.insert(stack_top_val);
-      // If this is a composite fusion scalar input, make sure this group has it
-      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
-        group->input_vals.push_back(stack_top_val);
-        input_set.insert(stack_top_val);
-      }
-      to_visit.pop_back();
-    } else {
-      // A scalar with an actual definition
-      auto definition_expr = stack_top_val->definition();
-      bool all_inputs_visited = true;
-      // If any of the inputs are not visited, visit them first
-      for (auto input : definition_expr->inputs()) {
-        if (!visited.count(input)) {
-          all_inputs_visited = false;
-          to_visit.push_back(input);
-        }
-      }
-      // This node is ready to be visited
-      if (all_inputs_visited) {
-        // Collect the defining expr to insert into group
-        exprs_to_add.push_back(definition_expr);
-        visited.insert(stack_top_val);
-        to_visit.pop_back();
-      }
-    }
-  }
-
-  // Add all the defining expr to the group
-  for (auto expr : exprs_to_add) {
-    group->exprs_.push_back(expr);
-  }
-}
-
-void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
-  std::vector<Val*> to_visit;
-  std::unordered_set<Val*> visited;
-
-  // Collect all inputs to group that are not inputs of fusion
-  for (auto input : group->inputs()) {
-    if (!input->isFusionInput()) {
-      to_visit.push_back(input);
-    }
-  }
-
-  // Reset group inputs to real inputs
-  group->input_vals = IterVisitor::getInputsTo(group->inputs());
-
-  // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprsTo(to_visit);
-
-  // Insert those expressions at the beginning of the group
-  group->exprs_.insert(
-      group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
 }
 
 void SegmentCandidateFinder::removeScalarEdges() {

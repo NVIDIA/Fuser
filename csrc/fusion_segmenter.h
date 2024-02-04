@@ -79,7 +79,7 @@ class SegmentedGroup {
       const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
 
   //! Deserialize SegmentedGroup using flatbuffers
-  void deserialize(
+  bool deserialize(
       const serde::SegmentedGroup* buffer,
       const std::deque<Val*>& vals,
       const std::vector<Expr*>& exprs,
@@ -160,6 +160,9 @@ class SegmentedGroup {
   //! Composite Fusion outputs in this group
   std::vector<Val*> output_vals;
 
+  //! Exprs that make up the group
+  std::vector<Expr*> exprs_;
+
   bool isMerged() const {
     return merged_;
   }
@@ -175,9 +178,6 @@ class SegmentedGroup {
 
   //! The scheduler to use for compiling this group
   ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
-
-  //! Exprs that make up the group
-  std::vector<Expr*> exprs_;
 
   //! Maximum path distance from an input segmented group required for
   //! Theorem 4.2
@@ -658,22 +658,6 @@ class SegmentCandidateFinder {
   //!   it's enough to check if any other consumer of the producer also
   //!   produces the consumer.
   void finalMerge();
-
-  //! Duplicate and add all exprs producing the used
-  //!  scalar values in group
-  void resolveScalarsInGroup(SegmentedGroup* group);
-
-  //! Duplicate and add all exprs from "inputs" in the group, to complete
-  //! inputs. These expressions are simply unary ops of inputs that we want to
-  //! recompute for each segment, instead of computing and producing a segmented
-  //! val. For example if we have:
-  //! tv1 = tv0 * 2;
-  //! tv3 = tv1 + tv2;
-  //! tv4 = tv1 + tv4
-  //! If we segmented on tv1, we would be producing an output for tv1 for 2
-  //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
-  //! tv0.
-  void resolveInputsInGroup(SegmentedGroup* group);
 
   //! Remove all scalar edges in group
   //!  (TODO: need structure better so we don't have to do this)
