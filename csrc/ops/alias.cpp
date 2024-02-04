@@ -204,10 +204,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   return out;
 }
 
-TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& dims,
-    bool squeeze_expanded) {
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int>(x_dom.size());
@@ -232,14 +229,10 @@ TensorView* squeeze(
         to_squeeze.size(),
         " Dim: ",
         dim);
-    // If a squeeze is attempted on a non-broadcast dimension
-    // just don't do it!  This conforms with Pytorch.
-    IterDomain* id = x_dom[dim];
-    to_squeeze[dim] =
-        id->isSymbolic() || (id->isBroadcast() && !id->hasExpandedExtent());
+    to_squeeze[dim] = true;
   }
 
-  return squeeze(x, to_squeeze, squeeze_expanded);
+  return squeeze(x, to_squeeze);
 }
 
 TensorView* squeeze(
