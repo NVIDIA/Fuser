@@ -1255,8 +1255,12 @@ def squeeze_generator(
         ((1, 1, 1), (0, 1, 2)),
         ((1, 1, 1), (-3, -2, -1)),
         # No-op test cases
-        ((5, 5, 5), (0, 1, 2)),
-        ((5, 5, 5), (-3, -2, -1)),
+        # NOTE: These are skipped. We diverge from PyTorch behavior for squeeze
+        # in nvFuser. Our squeeze op will throw an exception if we pass a
+        # squeeze dimension that cannot be squeezed.
+        # See https://github.com/NVIDIA/Fuser/pull/1717
+        #((5, 5, 5), (0, 1, 2)),
+        #((5, 5, 5), (-3, -2, -1)),
         ((), ()),
     )
 
