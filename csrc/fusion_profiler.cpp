@@ -407,6 +407,10 @@ std::array<const char*, 25> column_strs{
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
+    // `os` may have leftover characters in the line
+    // before the header is printed. So we start with a newline.
+    os << std::endl;
+
     os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
        << std::setw(5) << std::get<1>(column_strs) << " " << std::setw(11)
        << std::get<2>(column_strs) << " " << std::setw(9)
