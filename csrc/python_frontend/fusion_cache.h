@@ -136,7 +136,7 @@ class FusionCache {
   //! Number of fusions cached
   size_t numFusions() const;
   //! Get device associated with this FusionCache
-  int64_t deviceId() const;
+  std::optional<int64_t> deviceId() const;
   //! print cache contents
   void print(std::ostream& os) const;
   //! print cache stats
@@ -189,7 +189,7 @@ class FusionCache {
   size_t max_fusions_;
   //! A separate process is created for each device in a distributed setting.
   //! Each FusionCache becomes associated with a device.
-  int64_t device_id_;
+  std::optional<int64_t> device_id_;
   //! The root (start) of the prefix tree to start a cache look up of a given
   //! fusion definition.
   std::unique_ptr<TrieNode> root_;

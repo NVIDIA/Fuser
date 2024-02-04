@@ -42,17 +42,18 @@ std::string getSerdeTmpFile() {
   return ss.str();
 }
 
-std::string getSerdeFile(int64_t device_id) {
-  auto device_prop = (device_id >= 0) ? at::cuda::getDeviceProperties(device_id)
-                                      : at::cuda::getCurrentDeviceProperties();
+std::string getSerdeFile(std::optional<int64_t> device_id) {
+  auto device_prop = (device_id.has_value())
+      ? at::cuda::getDeviceProperties(device_id.value())
+      : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
   NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
 
   std::stringstream ss;
   ss << "nvf_serde";
-  if (device_id >= 0) {
-    ss << "_rank" << device_id;
+  if (device_id.has_value()) {
+    ss << "_rank" << device_id.value();
   }
   ss << "_device" << device_prop->major << "_" << device_prop->minor;
   ss << "_cuda" << cuda_major << "_" << cuda_minor;
@@ -96,7 +97,7 @@ BinaryBuffer openFusionCache(std::string filename) {
 // This check function only throws errors if strict flag is enabled.
 const serde::FusionCache* verifyFusionCache(
     const BinaryBuffer& buffer,
-    int64_t device_id) {
+    std::optional<int64_t> device_id) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
@@ -112,8 +113,9 @@ const serde::FusionCache* verifyFusionCache(
       "Failed to verify the schema version of the FusionCache buffer");
 
   // Check device major and minor versions
-  auto device_prop = (device_id >= 0) ? at::cuda::getDeviceProperties(device_id)
-                                      : at::cuda::getCurrentDeviceProperties();
+  auto device_prop = (device_id.has_value())
+      ? at::cuda::getDeviceProperties(device_id.value())
+      : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
           device_prop->minor == fusion_cache_buffer->device_minor(),
@@ -295,7 +297,7 @@ size_t FusionCache::numFusions() const {
   return fusions_.size();
 }
 
-int64_t FusionCache::deviceId() const {
+std::optional<int64_t> FusionCache::deviceId() const {
   return device_id_;
 }
 
@@ -361,7 +363,7 @@ void FusionCache::reset() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ != nullptr) {
     size_t max_fusions = singleton_->max_fusions_;
-    int64_t device_id = singleton_->device_id_;
+    std::optional<int64_t> device_id = singleton_->device_id_;
     delete singleton_;
     singleton_ = new FusionCache(max_fusions, device_id);
   }
@@ -371,7 +373,7 @@ FusionCache::FusionCache(
     size_t max_fusions,
     std::optional<int64_t> selected_device)
     : max_fusions_(max_fusions),
-      device_id_(selected_device.has_value() ? selected_device.value() : -1),
+      device_id_(selected_device),
       root_(nullptr),
       fusions_(),
       terminal_nodes_(),
