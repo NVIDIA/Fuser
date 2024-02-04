@@ -1259,8 +1259,8 @@ def squeeze_generator(
         # in nvFuser. Our squeeze op will throw an exception if we pass a
         # squeeze dimension that cannot be squeezed.
         # See https://github.com/NVIDIA/Fuser/pull/1717
-        #((5, 5, 5), (0, 1, 2)),
-        #((5, 5, 5), (-3, -2, -1)),
+        # ((5, 5, 5), (0, 1, 2)),
+        # ((5, 5, 5), (-3, -2, -1)),
         ((), ()),
     )
 
