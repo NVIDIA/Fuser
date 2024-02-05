@@ -789,7 +789,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
-
+// final_paras bdimx: 8, bdimy: 64, iter_unroll_factor: 2, inner_reduction_unroll_factor: 16
+  std::cout << "final_paras bdimx: " << bdimx << ", bdimy: " << bdimy
+            << ", iter_unroll_factor: " << iter_unroll_factor
+            << ", inner_reduction_unroll_factor: " << inner_reduction_unroll_factor
+            << std::endl;
   // In these instances latency of the cleanup may be significant so flip gdimx
   // and gdimy to try and prevent all cleanup from happening at the
   // same time
