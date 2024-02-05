@@ -330,7 +330,7 @@ void FusionExecutor::compileFusion(
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
   lowered_->run();
 
-  const auto kernel = lowered_->kernel();
+  kir::Kernel* kernel = lowered_->kernel();
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
@@ -378,7 +378,7 @@ void FusionExecutor::compileFusion(
     structured_code = getStructuredCode();
   }
 
-  const auto& kernel_summary = kernel->summary();
+  const kir::KernelSummary& kernel_summary = kernel->summary();
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
@@ -1816,7 +1816,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     timer.init();
   }
 
-  if (execute_kernel_) {
+  if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
