@@ -1216,13 +1216,18 @@ LaunchParams FusionExecutor::computeLaunchParams(
     // TODO: here is an optimization opportunity since welford uses int64_t for
     // N while the data type is not neccessarily double. But it may need more
     // work on the alignment
+    int vectorization_factor = 1;                              
+    if(std::getenv("USE_VEC") != nullptr) {
+      vectorization_factor = std::stoi(std::getenv("USE_VEC"));
+    }
+
     const int welford_factor =
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        welford_factor * launch_params.bdimx() * launch_params.bdimy() *
+        vectorization_factor * welford_factor * launch_params.bdimx() * launch_params.bdimy() *
         launch_params.bdimz();
 
     if (kernel_summary.has_outer_grouped_grid_welford) {

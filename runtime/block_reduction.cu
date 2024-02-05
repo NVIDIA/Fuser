@@ -111,3 +111,78 @@ __device__ void blockReduce(
       read_write_pred,
       init_val);
 }
+
+
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    int N, // Number of elements per input array
+    typename T,
+    typename Func>
+__device__ void blockVectReduce(
+    T* out, // Now an array
+    const T* inp_val, // Now an array
+    Func reduction_op,
+    T* shared_mem,
+    bool read_pred,
+    bool write_pred,
+    T init_val) {
+  bool should_write =
+      index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
+
+  unsigned int reduction_size =
+      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(blockDim);
+
+  unsigned int reduction_tid =
+      index_utils::maskedOffset<X_REDUCE, Y_REDUCE, Z_REDUCE>(
+          threadIdx, blockDim);
+
+  unsigned int reduction_idx =
+      index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
+          threadIdx, blockDim);
+
+  // Adjust shared memory offset for array processing
+  unsigned int smem_offset = (reduction_idx * reduction_size + reduction_tid) * N;
+
+  // Initialize shared memory for each element of the array
+  if (read_pred) {
+    for (int i = 0; i < N; ++i) {
+      shared_mem[smem_offset + i] = inp_val[i];
+    }
+  } else {
+    for (int i = 0; i < N; ++i) {
+      shared_mem[smem_offset + i] = init_val;
+    }
+  }
+
+  block_sync::sync<Aligned>();
+
+  int np2 = 1 << (31 - __clz(reduction_size));
+
+  // Perform parallel reduction for each element in the array
+  for (int i = 0; i < N; ++i) {
+    if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
+      reduction_op(shared_mem[smem_offset + i], shared_mem[smem_offset + np2 * N + i]);
+    }
+    block_sync::sync<Aligned>();
+
+    for (int factor = np2 / 2; factor > 1; factor >>= 1) {
+      if (reduction_tid < factor) {
+        reduction_op(shared_mem[smem_offset + i], shared_mem[smem_offset + factor * N + i]);
+      }
+      block_sync::sync<Aligned>();
+    }
+
+    if (should_write && write_pred) {
+      T result = out[i];
+      reduction_op(result, shared_mem[smem_offset + i]);
+      if (reduction_size > 1) {
+        reduction_op(result, shared_mem[smem_offset + N + i]); // Handle the last element if reduction size is odd
+      }
+      out[i] = result;
+    }
+    block_sync::sync<Aligned>();
+  }
+}

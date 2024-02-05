@@ -506,6 +506,362 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   return rparams;
 }
 
+std::shared_ptr<ReductionParams> outerReductionHeuristic_mainbranch(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
+    const size_t vectorize_factor) {
+  // WARNING: Current device for codegen may not be the target device
+  const int64_t device_max_threads_per_multiprocessor =
+      (int64_t)at::cuda::getCurrentDeviceProperties()
+          ->maxThreadsPerMultiProcessor;
+
+  const int64_t device_multiprocessor_count =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+  auto const max_unroll = ceilDiv(
+      // Available unrolling based on size of data type
+      (int64_t)16 / (int64_t)max_input_dtype_size,
+      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
+      scheduler_utils::lastPow2(
+          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+
+  const int64_t n_elems = total_reduction_numel * total_iteration_numel;
+  const int64_t n_waves = 8;
+
+  // if data fits in l2 and we need more parallelization in the iter dim,
+  // we can use a smaller warp size. While thread local data fits in l1, and
+  // iter dim is really small, we can use <32 threads per warp.
+  // TODO: Could get a much more accurate estimation of it the problem fits in
+  // L2
+  const bool fits_in_l2 = n_elems * max_input_dtype_size * n_tensor_inputs <
+      at::cuda::getCurrentDeviceProperties()->l2CacheSize;
+
+  const int64_t min_warp_size = fits_in_l2 ? 16 : 32;
+
+  // Set some targets for parallelization
+  int64_t target_threads_in_block = min_warp_size;
+  // Start target blocks at roughly a quarter wave if available
+  int64_t target_blocks = std::min(
+      ceilDiv(device_multiprocessor_count, (int64_t)4),
+      ceilDiv(n_elems, min_warp_size));
+  int64_t target_unroll = 1;
+
+  auto available_parallelism =
+      [&n_elems, &target_threads_in_block, &target_blocks, &target_unroll]() {
+        return ceilDiv(
+            n_elems, target_threads_in_block * target_blocks * target_unroll);
+      };
+
+  // If there's available parallelism, divide it between threads, blocks, and
+  // vectorization
+  // Threads are currently at a warp (16 or 32)
+  // Blocks are currently at a quarter wave
+  // Unroll is currently at 1
+  while (
+      // and there's parallelism left
+      available_parallelism() > 1 &&
+      (
+          //  There's a place to put it in the block
+          target_threads_in_block <
+              ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)
+          // There's a place to put it in the device
+          || target_blocks < device_multiprocessor_count * n_waves
+          // There's a place to put it in unrolling
+          || target_unroll < int64_t(vectorize_factor))) {
+    if (target_threads_in_block <
+        ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
+      target_threads_in_block *= 2;
+    }
+
+    if (target_blocks < device_multiprocessor_count * n_waves &&
+        available_parallelism() > 1) {
+      target_blocks *= 2;
+    }
+
+    // Delay increasing unroll until we're at a quarter of the target blocks and
+    // threads
+    if (target_blocks > device_multiprocessor_count &&
+        target_threads_in_block >
+            ceilDiv(device_max_threads_per_multiprocessor, (int64_t)16) &&
+        target_unroll < int64_t(vectorize_factor) &&
+        available_parallelism() > 1) {
+      target_unroll *= 2;
+    }
+  }
+
+  // Fill out unrolling if possible
+  if (target_unroll < max_unroll && available_parallelism() > 1) {
+    target_unroll = std::min(available_parallelism(), max_unroll);
+  }
+
+  target_unroll = scheduler_utils::lastPow2(target_unroll);
+
+  // To get to target threads:
+  // Prioritize
+  // (1) x dim in iter domain
+  // (2) unrolling in iter domain
+  // (3) y in reduction domain
+  // To get target blocks:
+  // Prioritize
+  // (1) x dim in multiple outputs
+  // (2) y dim in multiple reductions - need to flip unrolling to reduction
+  // domain for this
+
+  // Blocks for reductions
+  int64_t grdim = 1;
+  // Blocks for outputs
+  int64_t gidim = 1;
+
+  // Threads for reduction
+  int64_t bdimy = 1;
+  // Threads for output
+  int64_t bdimx = 1;
+
+  // Unroll amount
+  int64_t inner_reduction_unroll_factor = 1;
+  int64_t iter_unroll_factor = 1;
+  bool vectorize = false;
+
+  // Helper lambda's to figure out how much is left in the iter or reduction dim
+  auto iDimAvail = [&]() {
+    return ceilDiv(total_iteration_numel, gidim * bdimx * iter_unroll_factor);
+  };
+
+  auto rDimAvail = [&]() {
+    return ceilDiv(
+        total_reduction_numel, grdim * bdimy * inner_reduction_unroll_factor);
+  };
+
+  // Start bdimx as a warp
+  bdimx = std::min(min_warp_size, total_iteration_numel);
+
+  if (total_iteration_numel > bdimx && total_iteration_numel < bdimx * 2) {
+    // If rounding up would require less than 3/4 of the warp
+    if ((total_iteration_numel % bdimx) * 4 < bdimx * 3) {
+      // Round up to avoid nasty edge effects
+      bdimx = total_iteration_numel;
+    }
+  }
+
+  // If iteration numel is not something huge like 64k we probably shouldn't do
+  // this, maybe it could be 2 * device_multi_count to make sure iter dim is
+  if (iDimAvail() > device_multiprocessor_count) {
+    // Put more into bdimx
+    bdimx = std::min(
+        // Leave 2x a full wave of blocks
+        ceilDiv(
+            total_iteration_numel,
+            iter_unroll_factor * device_multiprocessor_count),
+        // Don't exceed max thread count
+        target_threads_in_block);
+  }
+
+  // Purely empirically found switch to start vectorization, tuned on v100,
+  // should check it's validity on other hardware or if we need to switch to
+  // size not n_elems
+  if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
+    // Do some unrolling on the iter dimension
+    iter_unroll_factor =
+        vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll;
+    iter_unroll_factor =
+        std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024l * 1024l));
+    iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
+    iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
+    iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+    if (vectorize_factor > 1 &&
+        iter_unroll_factor <= (int64_t)vectorize_factor) {
+      iter_unroll_factor =
+          std::min(iter_unroll_factor, (int64_t)vectorize_factor);
+      vectorize = true;
+    }
+  }
+
+  // Round bdimx to a nice value
+  int64_t niceValue = 8;
+  if (n_elems >= device_multiprocessor_count *
+          device_max_threads_per_multiprocessor * 32) {
+    niceValue = 32;
+  }
+  bdimx = roundUpPow2OrMultipleOf(bdimx, niceValue);
+
+  if (char* user_vec_env = std::getenv("VEC")) {
+    iter_unroll_factor = atoi(user_vec_env);
+    std::cout << "VEC: " << iter_unroll_factor << std::endl;
+    vectorize = iter_unroll_factor > 1;
+  }
+
+  if (char* user_bdimx_env = std::getenv("BDX")) {
+    int user_bdimx = atoi(user_bdimx_env);
+    std::cout << "BDX: " << user_bdimx << std::endl;
+    bdimx = user_bdimx;
+  }
+
+  // Fill bdimy with left over threads
+  bdimy = std::min(
+      scheduler_utils::safeDiv(target_threads_in_block, bdimx),
+      total_reduction_numel);
+
+  bdimy = roundDownPow2OrMultipleOf(bdimy, 8);
+
+  // Move parallelization into unrolling the reduction dimension if
+  // parallelizing iteration dimension didn't take the available unroll factor.
+  if (iter_unroll_factor < max_unroll && rDimAvail() > 2) {
+    inner_reduction_unroll_factor = std::min(
+        rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
+
+    inner_reduction_unroll_factor =
+        scheduler_utils::lastPow2(inner_reduction_unroll_factor);
+  }
+
+  if (char* user_unroll_env = std::getenv("UNROLL")) {
+    inner_reduction_unroll_factor = atoi(user_unroll_env);
+    std::cout << "UNROLL: " << inner_reduction_unroll_factor << std::endl;
+  }
+
+  gidim = iDimAvail();
+
+  // Try to hit a wave by going cross reduction
+  grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
+
+  // // Extend to go to target blocks, but keep 16 iterations per thread
+  if (gidim * grdim < target_blocks) {
+    // What should we use out of the reduction factor to hit target blocks? Make
+    // sure we have 4 reductions per thread beyond what's already set as we
+    // consider expanding to target block
+    grdim = std::min(
+        // At least 4 iterations of the reduction per thread ontop of unroll
+        ceilDiv(rDimAvail() * grdim, 4),
+        // Expand to target blocks
+        ceilDiv(target_blocks, gidim));
+  }
+
+  // If there isn't a lot of available parallelism from the iteration dimension,
+  // expand across the reduction dimension. This has to be done carefully.
+  // expand further
+  if (rDimAvail() > 16 &&
+      ceilDiv(total_iteration_numel, min_warp_size) <
+          device_multiprocessor_count * 2) {
+    // Find minimum we want to parallelize by, we don't want blocks striding
+    // across too many elements: In the parallel scheme [rBIDy, remainder,
+    // iBIDx, rTIDy, i_unroll, r_unroll] figure out how many bytes iterations
+    // across remainder stride
+    int64_t bytes_stride_remainder = max_input_dtype_size * bdimx * bdimy *
+        iter_unroll_factor * inner_reduction_unroll_factor;
+    // Empiercally found stride shouldn't exceed 256kiB boundaries in a block
+    int64_t kMaxStride = 128l * 1024l;
+
+    int64_t max_remainder_size =
+        scheduler_utils::safeDiv(kMaxStride, bytes_stride_remainder);
+
+    int64_t grdim_for_stride = ceilDiv(
+        total_reduction_numel,
+        max_remainder_size * bdimy * inner_reduction_unroll_factor);
+
+    grdim = grdim_for_stride;
+  }
+
+  // Try to do some cleanup of ragged waves on device
+  if (
+      // If we have less than 8 waves of blocks
+      grdim * gidim < device_multiprocessor_count * 16 &&
+      // And we don't have an even divisible number of blocks
+      (grdim * gidim) % device_multiprocessor_count != 0 &&
+      // And we have more than one wave
+      grdim * gidim > device_multiprocessor_count) {
+    // round waves down
+    auto waves =
+        std::max((gidim * grdim) / device_multiprocessor_count, (int64_t)1);
+    auto new_grdim =
+        std::max((waves * device_multiprocessor_count) / gidim, (int64_t)1);
+    if ((grdim - new_grdim) * 4 <= grdim &&
+        new_grdim * gidim % device_multiprocessor_count >
+            grdim * gidim % device_multiprocessor_count) {
+      grdim = new_grdim;
+    }
+  }
+  std::cout << "final_paras bdimx: " << bdimx << ", bdimy: " << bdimy << ", iter_unroll_factor: " << iter_unroll_factor << ", inner_reduction_unroll_factor: " << inner_reduction_unroll_factor << std::endl;
+
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
+  // In these instances latency of the cleanup may be significant so flip gdimx
+  // and gdimy to try and prevent all cleanup from happening at the
+  // same time
+  // Always disabled for now.
+  // bool flip_grid = gidim > 1 && gidim < 8;
+  const bool flip_grid = false;
+  auto rparams = std::make_shared<ReductionParams>();
+  // cross grid implies cross block
+  rparams->cross_block_reduction = bdimy > 1 || grdim > 1;
+  rparams->cross_grid_reduction = grdim > 1;
+  if (rparams->cross_grid_reduction) {
+    rparams->split_grid_dim_reduction = true;
+    rparams->grid_dim_reduction =
+        flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
+    if (flip_grid) {
+      gdimx = std::min(grdim, scheduler_utils::x_grid_limit);
+    } else {
+      gdimy = std::min(grdim, scheduler_utils::y_grid_limit);
+    }
+  }
+  rparams->multiple_reds_per_blk = bdimx > 1 || iter_unroll_factor > 1;
+
+  if (rparams->multiple_reds_per_blk) {
+    rparams->block_dim_iter_dom = ParallelType::TIDx;
+  }
+
+  rparams->grid_dim_iter_dom =
+      flip_grid ? ParallelType::BIDy : ParallelType::BIDx;
+  if (gidim > (flip_grid ? scheduler_utils::y_grid_limit
+                         : scheduler_utils::x_grid_limit)) {
+    rparams->split_grid_dim_iter_dom_outer = true;
+    if (flip_grid) {
+      gdimy = scheduler_utils::y_grid_limit;
+    } else {
+      gdimx = scheduler_utils::x_grid_limit;
+    }
+  }
+
+  rparams->flip_grid = flip_grid;
+
+  if (rparams->cross_block_reduction) {
+    if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
+      rparams->block_dim_reduction = ParallelType::TIDy;
+    } else {
+      rparams->block_dim_reduction = ParallelType::TIDx;
+    }
+  }
+
+  rparams->unroll_factor_redu_dom = inner_reduction_unroll_factor;
+
+  rparams->unroll_factor_iter_dom = iter_unroll_factor;
+  if (iter_unroll_factor > 1) {
+    rparams->vectorize_iter_dom = vectorize;
+  }
+
+  rparams->lparams = LaunchParams(
+      gdimx,
+      gdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      rparams->multiple_reds_per_blk ? bdimx : bdimy,
+      rparams->multiple_reds_per_blk ? bdimy : LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
+    debug() << rparams->toString() << std::endl;
+  }
+  return rparams;
+}
+
+
 std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -653,6 +1009,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
 
   // Increase bdimx if needs more than n_waves
+  // at 16K x 18K, unroll = 64, vect = 2, bdimx = 32, bdimy = 16
   // Triggered when iter dim > 32K, 8 waves x 132 sm x 32 threads = 32k
   if (iDimAvail() > device_multiprocessor_count * n_waves) {
     // Put more into bdimx
@@ -796,11 +1153,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
-// final_paras bdimx: 8, bdimy: 64, iter_unroll_factor: 2, inner_reduction_unroll_factor: 16
-  std::cout << "final_paras bdimx: " << bdimx << ", bdimy: " << bdimy
-            << ", iter_unroll_factor: " << iter_unroll_factor
-            << ", inner_reduction_unroll_factor: " << inner_reduction_unroll_factor
-            << std::endl;
   // In these instances latency of the cleanup may be significant so flip gdimx
   // and gdimy to try and prevent all cleanup from happening at the
   // same time
@@ -1066,6 +1418,15 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         (int64_t)max_input_dtype_size,
         vectorize_factor);
   } else {
+    if(std::getenv("USE_MAIN")){
+
+    return outerReductionHeuristic_mainbranch(
+        total_reduction_numel,
+        total_iteration_numel,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
+        vectorize_factor);
+    }
     // 3D schedules not enabled for outer reductions
     return outerReductionHeuristic(
         total_reduction_numel,
@@ -1073,6 +1434,8 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
         vectorize_factor);
+
+        
   }
 }
 
