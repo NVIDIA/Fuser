@@ -524,10 +524,7 @@ class TestNvFuserFrontend(TestCase):
         new_shape = shape[:9]
         new_shape.append(8)
 
-        inputs = [
-            torch.randn(shape, device="cuda"),
-            new_shape
-        ]
+        inputs = [torch.randn(shape, device="cuda"), new_shape]
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
