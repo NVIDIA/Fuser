@@ -882,7 +882,8 @@ class ReductionOp : public Expr {
       Val* init,
       Val* out,
       Val* in,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      DataType serial_grid_reduction_dtype = DataType::Null);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -922,12 +923,19 @@ class ReductionOp : public Expr {
   //! Also note that this operation should not be inlined with other reductions
   //! unless they use the same parallelization pattern and they are also serial
   //! gridreductions.
-  void requestSerialGridReduction(bool value = true) {
-    attribute<bool>(3) = value;
+  //!
+  //! This reduction may be performed using global IO at a lower precision than
+  //! that of the input type by providing the dtype argument.
+  void requestSerialGridReduction(DataType dtype) {
+    attribute<DataType>(3) = dtype;
   }
 
   bool serialGridReductionRequested() const {
-    return attribute<bool>(3);
+    return attribute<DataType>(3) != DataType::Null;
+  }
+
+  DataType serialGridReductionDType() const {
+    return attribute<DataType>(3);
   }
 };
 

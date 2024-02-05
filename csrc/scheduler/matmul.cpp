@@ -899,7 +899,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
-    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
+    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction(
+        params.splitk_reduction_dtype);
 
     num_splitk_dims = 1;
   }
@@ -1114,8 +1115,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         {num_batch_dims + 8, num_batch_dims + 7},
         {num_batch_dims + 9, num_batch_dims + 8},
     });
-    // Vectorize inner-most dimension
-    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+    if (params.splitk_reduction_dtype != DataType::Null) {
+      // Vectorize inner-most dimension if using serial grid reduction
+      // This is disallowed if not using serial reduction (indicated by
+      // DataType::Null)
+      splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
   }
 
   // auto inline for all tensors except register tensors
