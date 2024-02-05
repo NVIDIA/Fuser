@@ -1359,10 +1359,17 @@ TensorView* reductionOp(
     }
   }
 
+  if (keep_dim && offset < 0) {
+    // There were squeezed dimension removed from squeeze that will not be
+    // restored by reductionOpRaw above, so we restore them here
+    out = broadcast(out, is_squeeze);
+  }
+
   if (out == tv) {
     // makes sure that a new tensor is created
     return set(tv);
   }
+
   return out;
 }
 
