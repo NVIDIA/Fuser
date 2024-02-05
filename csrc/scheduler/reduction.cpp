@@ -573,6 +573,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           || target_blocks < device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
           || target_unroll < int64_t(vectorize_factor))) {
+    
+    std::cout << "target_threads_in_block: " << target_threads_in_block << ", target_blocks: " << target_blocks << ", target_unroll: " << target_unroll << std::endl;
+
     if (target_threads_in_block <
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
       target_threads_in_block *= 2;
@@ -600,6 +603,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
 
   target_unroll = scheduler_utils::lastPow2(target_unroll);
+  std::cout << "target_threads_in_block: " << target_threads_in_block << ", target_blocks: " << target_blocks << ", target_unroll: " << target_unroll << std::endl;
 
   // To get to target threads:
   // Prioritize
@@ -665,10 +669,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // size not n_elems
   // if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
     // Do some unrolling on the iter dimension
+    const int64_t iter_unroll_factor_max = 2l;
     iter_unroll_factor =
         vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll;
-    // iter_unroll_factor =
-    //     std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024l * 1024l));
+    iter_unroll_factor =
+        std::min(iter_unroll_factor, iter_unroll_factor_max);
     iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
     iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
     iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
@@ -786,6 +791,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
   std::cout << "target_blocks: " << target_blocks << ", gidim: " << gidim
             << ", optmized_grdim: " << grdim << std::endl;
+
+  std::cout << "final_paras bdimx: " << bdimx << ", bdimy: " << bdimy << ", iter_unroll_factor: " << iter_unroll_factor << ", inner_reduction_unroll_factor: " << inner_reduction_unroll_factor << std::endl;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
