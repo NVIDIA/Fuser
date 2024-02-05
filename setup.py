@@ -290,7 +290,10 @@ def cmake(install_prefix: str = "./nvfuser"):
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix, get_pytorch_use_distributed
+    from tools.gen_nvfuser_version import (
+        get_pytorch_cmake_prefix,
+        get_pytorch_use_distributed,
+    )
 
     # this is used to suppress import error.
     # so we can get the right pytorch prefix for cmake

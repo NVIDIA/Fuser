@@ -44,6 +44,7 @@ def get_pytorch_cmake_prefix():
     stdout_msg, error_msg = process_torch_prefix.communicate()
     return stdout_msg.decode("utf-8").rstrip("\n")
 
+
 def get_pytorch_use_distributed():
     from subprocess import Popen, PIPE
 
@@ -58,6 +59,7 @@ def get_pytorch_use_distributed():
     )
     stdout_msg, error_msg = process_torch_prefix.communicate()
     return stdout_msg.decode("utf-8").rstrip("\n")
+
 
 if __name__ == "__main__":
     version_file = nvfuser_root / "nvfuser" / "version.py"
