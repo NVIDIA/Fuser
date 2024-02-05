@@ -43,12 +43,26 @@ TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
 
 TensorView* flatten(TensorView* x, int64_t start_dim = 0, int64_t end_dim = -1);
 
-// This implementation is specific to Pytorch where if you attempt to squeeze
-// a non-broadcast dimension, the squeeze does not do anything to that
-// dimension and does not trigger an error.
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims);
+//! This implementation differs from Pytorch where if you attempt to squeeze
+//! a non-broadcast dimension, the squeeze does not do anything to that
+//! dimension and does not trigger an error. Here, we will raise an exception in
+//! such cases. It is also an error to request a squeeze of an expanded
+//! dimension; however, if squeeze_expanded is true then this is allowed and
+//! works just like if the dimension was not expanded.
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool squeeze_expanded = false);
 
-TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze);
+//! Squeeze the dimensions corresponding to "true" in to_squeeze, i.e. remove
+//! those broadcasted dimension. If squeeze_expanded is true, then expanded
+//! Broadcasts will be removed just as if they were not expanded. If
+//! squeeze_expanded is false, then it is an error for an expanded broadcast to
+//! have a corresponding "true" value in to_squeeze.
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze,
+    bool squeeze_expanded = false);
 
 TensorView* unsqueeze(TensorView* x, int dim);
 

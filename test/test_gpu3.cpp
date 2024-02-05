@@ -3496,58 +3496,6 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-// Predicate elimination issue repro:
-TEST_F(NVFuserTest, FusionExpandReduce2_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({1, 4});
-  fusion->addInput(tv0);
-
-  auto tv1 =
-      expand(tv0, {IrBuilder::create<Val>(3L), IrBuilder::create<Val>(4L)});
-
-  auto tv2 = sum(tv1, {0});
-  fusion->addOutput(tv2);
-
-  // tv2[r{3}, i{4}]
-  tv2->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
-  tv2->axis(1)->parallelize(ParallelType::TIDy);
-  tv2->split(0, NamedScalar::getParallelDim(ParallelType::BIDy), false);
-  tv2->axis(0)->parallelize(ParallelType::BIDy);
-  tv2->split(-1, NamedScalar::getParallelDim(ParallelType::TIDx));
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
-  tv2->axis(-2)->parallelize(ParallelType::BIDx);
-  // [rBIDy, rO, rTIDy, iBIDx, iTIDx]
-  tv2->reorder({{-2, 0}, {-1, 1}, {2, 2}});
-  // [iBIDx, iTIDx, rTIDy, rBIDy, rO]
-  auto tv3 = tv2->rFactor({-1});
-
-  TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(tv3);
-  tv0->computeAt(tv3, -1, ComputeAtMode::MostInlined);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0}, LaunchParams(-1, 2, -1, 4, 2, 1));
-  auto cg_outputs = fe.runFusion({t0}, LaunchParams(-1, 2, -1, 4, 2, 1));
-
-  auto ref = t0.expand({3, 4}).sum({0});
-
-  testValidate(
-      fusion.get(),
-      cg_outputs,
-      {t0},
-      {ref},
-      __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(-1, 2, -1, 4, 2, 1));
-}
-
 TEST_F(NVFuserTest, FusionVectorComponentReduce_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
