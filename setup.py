@@ -290,7 +290,7 @@ def cmake(install_prefix: str = "./nvfuser"):
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix, get_pytorch_use_distributed
 
     # this is used to suppress import error.
     # so we can get the right pytorch prefix for cmake
@@ -304,6 +304,8 @@ def cmake(install_prefix: str = "./nvfuser"):
 
     logger.setLevel(logger_level)
 
+    pytorch_use_distributed = get_pytorch_use_distributed()
+
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
@@ -311,6 +313,7 @@ def cmake(install_prefix: str = "./nvfuser"):
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
+        f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         "-B",
         cmake_build_dir,
     ]

@@ -15,10 +15,11 @@ option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON
-	"$ENV{USE_DISTRIBUTED}" OFF)
+	"USE_DISTRIBUTED" OFF)
 if (NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
+message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
 if(NOT NVFUSER_CPP_STANDARD)
   set(NVFUSER_CPP_STANDARD 20)
