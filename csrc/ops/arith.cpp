@@ -1317,11 +1317,8 @@ TensorView* reductionOp(
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
     if (id->isBroadcast()) {
-      if (!keep_dim || id->hasExpandedExtent()) {
-        // If keep_dim=True, then we will leave this broadcast dimension alone.
-        is_squeeze[axis] = true;
-        offset--;
-      }
+      is_squeeze[axis] = true;
+      offset--;
     } else {
       reduction_axes.push_back((int)axis + offset);
     }
@@ -1363,7 +1360,7 @@ TensorView* reductionOp(
   }
 
   if (keep_dim && offset < 0) {
-    // There were expanded dimensions removed via squeeze that will not be
+    // There were squeezed dimension removed from squeeze that will not be
     // restored by reductionOpRaw above, so we restore them here
     out = broadcast(out, is_squeeze);
   }
