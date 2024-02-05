@@ -536,7 +536,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.reshape(t0, n_shape)
             t2 = fd.ops.sum(t1, axes=[3])
 
-            fd.add_output(t1)
+            fd.add_output(t2)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.sum(inputs[0].reshape(new_shape), dim=3)
