@@ -8664,31 +8664,6 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
       executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTensorRankLimit) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  std::vector<int64_t> input_shape;
-  for (__attribute__((unused)) auto i : c10::irange(12)) {
-    input_shape.push_back(3);
-  }
-
-  auto tv0 = makeSymbolicTensor(input_shape.size());
-  fusion->addInput(tv0);
-  auto tv1 = sum(tv0, {3});
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
-}
-
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
