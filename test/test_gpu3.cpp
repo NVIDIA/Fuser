@@ -8686,7 +8686,7 @@ TEST_F(NVFuserTest, FusionTensorRankLimit) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
