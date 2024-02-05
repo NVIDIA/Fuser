@@ -8669,13 +8669,13 @@ TEST_F(NVFuserTest, FusionTensorRankLimit) {
   FusionGuard fg(fusion.get());
 
   std::vector<int64_t> input_shape;
-  for (auto i : c10::irange(12)) {
-    input_shape.append(3);
+  for (__attribute__((unused)) auto i : c10::irange(12)) {
+    input_shape.push_back(3);
   }
 
   auto tv0 = makeSymbolicTensor(input_shape.size());
   fusion->addInput(tv0);
-  auto tv1 = sum(tv0, {0});
+  auto tv1 = sum(tv0, {3});
   fusion->addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
