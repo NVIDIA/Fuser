@@ -240,6 +240,13 @@ class NVFBenchmark:
     ) -> None:
         """
         Utility function to compute metrics for the target function.
+        
+        Args:
+            inputs: Inputs to the target function
+            outputs: Outputs of the target function
+            iobytes (Optional): When given, IO bytes computation is skipped
+                and this is used to compute the metrics.
+
         Current metrics:
             IOBytes: Total bytes in inputs + outputs
             BytesPerSecond: IOBytes * total_rounds / total_time
