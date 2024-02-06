@@ -13,10 +13,11 @@ namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
   const ValGroups terminating_inputs = graph().getTerminatingInputs();
-  ValGroups to_visit_ids = terminating_inputs;
+  std::deque<ValGroup> to_visit_ids(
+      terminating_inputs.begin(), terminating_inputs.end());
   ValGroups visited_ids;
 
-  ExprGroups to_visit_exprs;
+  std::deque<ExprGroup> to_visit_exprs;
   ExprGroups visited_exprs;
 
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
@@ -63,10 +64,11 @@ void ValGraphVisitor::traverse() {
     // Detect if nothing has been processed which would put us in an infinite
     // loop
     bool something_was_processed = false;
-    ExprGroups still_to_visit_exprs;
+    std::deque<ExprGroup> still_to_visit_exprs;
 
     while (!to_visit_exprs.empty()) {
-      ExprGroup current_expr_group = to_visit_exprs.popFront();
+      ExprGroup current_expr_group = to_visit_exprs.front();
+      to_visit_exprs.pop_front();
       NVF_ERROR(!current_expr_group->empty());
       if (visited_exprs.has(current_expr_group)) {
         continue;
@@ -78,17 +80,21 @@ void ValGraphVisitor::traverse() {
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
 
-        to_visit_ids.pushBack(graph().outputGroups(current_expr_group));
+        for (const ValGroup& output_group :
+             graph().outputGroups(current_expr_group)) {
+          to_visit_ids.push_back(output_group);
+        }
       } else {
-        still_to_visit_exprs.pushBack(current_expr_group);
+        still_to_visit_exprs.push_back(current_expr_group);
       }
     }
 
     std::swap(to_visit_exprs, still_to_visit_exprs);
 
-    ValGroups still_to_visit_ids;
+    std::deque<ValGroup> still_to_visit_ids;
     while (!to_visit_ids.empty()) {
-      auto current_id_group = to_visit_ids.popFront();
+      auto current_id_group = to_visit_ids.front();
+      to_visit_ids.pop_front();
       NVF_ERROR(!current_id_group->empty());
       if (visited_ids.has(current_id_group)) {
         continue;
@@ -100,9 +106,11 @@ void ValGraphVisitor::traverse() {
         something_was_processed = true;
         visited_ids.pushBack(current_id_group);
 
-        to_visit_exprs.pushBack(graph().getUses(current_id_group));
+        for (const ExprGroup& use_group : graph().getUses(current_id_group)) {
+          to_visit_exprs.push_back(use_group);
+        }
       } else {
-        still_to_visit_ids.pushBack(current_id_group);
+        still_to_visit_ids.push_back(current_id_group);
       }
     }
 
