@@ -23,9 +23,11 @@
 namespace nvfuser {
 
 using testing::_;
+using testing::Contains;
 using testing::ContainsRegex;
 using testing::Each;
 using testing::ElementsAre;
+using testing::Field;
 using testing::IsEmpty;
 using testing::IsTrue;
 using testing::Not;
@@ -1108,6 +1110,10 @@ TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  FusionProfiler::start();
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1125,6 +1131,19 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   fec.runFusionWithInputs({in_tensor});
+
+  const FusionProfile& profile = FusionProfiler::profile();
+  // Expect a kernel launched for one of the two segments but not the
+  // other.
+  EXPECT_THAT(
+      profile.kernel_profiles,
+      UnorderedElementsAre(
+          Field(&KernelProfile::name, IsEmpty()),
+          Field(&KernelProfile::name, Not(IsEmpty()))));
+
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
 }
 
 } // namespace nvfuser
