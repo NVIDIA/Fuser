@@ -133,6 +133,7 @@ class MatmulParams : public HeuristicParams {
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
        << "Split-K factor: " << splitk_factor << "\n"
+       << "Split-K reduction dtype: " << splitk_reduction_dtype << "\n"
        << "====================================\n";
     return ss.str();
   }
