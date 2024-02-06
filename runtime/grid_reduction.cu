@@ -625,19 +625,19 @@ __device__ void gridReduceGroup(
 
 // This performs a single reduction step, combining a single element "in" with
 // a previous value "work". For a serial grid reduction, "work" resides in
-// global memory.
+// global memory, while "in" and "out" are in registers.
 //
 // If the write predicate is false, this function returns early (noop). If the
 // read predicate is false, "init" is used in place of "in".
 //
 // If first_step is false, "work" will be read and reduction_op will be called.
 // The result will be written back to "work" unless last_step is true.
-template <typename T, typename Func>
+template <int64_t vec_size, typename T, typename Func>
 __device__ void serialReductionStep(
-    T& out,
-    T in,
+    T* out,
+    T* in,
     T init,
-    volatile T& work,
+    volatile T* work,
     Func reduction_op,
     bool first_step,
     bool last_step,
@@ -646,12 +646,24 @@ __device__ void serialReductionStep(
   if (!write_pred) {
     return;
   }
-  out = read_pred ? in : init;
+  if (read_pred) {
+    loadGeneric<T, vec_size>(out, in);
+  } else {
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      out[i] = init;
+    }
+  }
   if (!first_step) {
-    reduction_op(out, work);
+    T work_reg[vec_size];
+    loadGlobalToLocal<T, vec_size, true, CacheOp::Global>(work_reg, work);
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      reduction_op(out[i], work_reg[i]);
+    }
   }
   if (!last_step) {
-    work = out;
+    loadLocalToGlobal<T, vec_size, true>(work, out);
   }
 }
 
