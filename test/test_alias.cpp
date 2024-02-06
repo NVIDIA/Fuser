@@ -13,6 +13,7 @@
 
 #include <alias_analysis.h>
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -1104,6 +1105,26 @@ TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
   auto t6 = t5.add(t2);
   EXPECT_TRUE(t0.allclose(t6))
       << "`t0` should have been in-place updated to the same value as `t6`.";
+}
+
+TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `add_out` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fec.runFusionWithInputs({in_tensor});
 }
 
 } // namespace nvfuser
