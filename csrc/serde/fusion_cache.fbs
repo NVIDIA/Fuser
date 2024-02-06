@@ -387,6 +387,7 @@ table SegmentedGroup {
 
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
 table SegmentedFusion {
+  valid: bool;
   segmented_fusion_name: ulong;
   num_vals: ulong;
   num_exprs: ulong;

@@ -18,6 +18,7 @@
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <algorithm>
 
 #include <sstream>
 
@@ -449,10 +450,38 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
       complete_fusion_(std::move(fusion)),
-      initial_vals_size_{0},
-      initial_exprs_size_{0} {
+      initial_vals_size_{complete_fusion_->vals().size()},
+      initial_exprs_size_{complete_fusion_->unordered_exprs().size()} {
   annotateFP16IntermediateTensors();
 }
+
+namespace {
+
+//! Check if all values and expressions in SegmentedGroup are compatible with
+//! initial complete fusion
+bool isCompatibleSegmentedGroup(
+    SegmentedGroup* sg,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
+    int64_t initial_vals_size,
+    int64_t initial_exprs_size) {
+  auto check_value = [&](Val* v) {
+    return vals_to_id_map.at(v) < initial_vals_size;
+  };
+  auto check_expr = [&](Expr* e) {
+    return exprs_to_id_map.at(e) < initial_exprs_size;
+  };
+  bool all_compatible_inputs =
+      std::all_of(sg->inputs().begin(), sg->inputs().end(), check_value);
+  bool all_compatible_outputs =
+      std::all_of(sg->outputs().begin(), sg->outputs().end(), check_value);
+  bool all_compatible_exprs =
+      std::all_of(sg->exprs().begin(), sg->exprs().end(), check_expr);
+  return (
+      all_compatible_inputs && all_compatible_outputs && all_compatible_exprs);
+}
+
+} // namespace
 
 flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
@@ -465,6 +494,27 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
       impl_.groups_map();
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
       impl_.edges_map();
+
+  bool all_valid_edges =
+      std::all_of(edges_.begin(), edges_.end(), [&](SegmentedEdge* se) {
+        return vals_to_id_map.at(se->val) < (int64_t)initial_vals_size_;
+      });
+
+  bool all_valid_groups =
+      std::all_of(groups_.begin(), groups_.end(), [&](SegmentedGroup* sg) {
+        return isCompatibleSegmentedGroup(
+            sg,
+            vals_to_id_map,
+            exprs_to_id_map,
+            (int64_t)initial_vals_size_,
+            (int64_t)initial_exprs_size_);
+      });
+
+  if (!all_valid_edges || !all_valid_groups) {
+    return serde::CreateSegmentedFusionDirect(
+        builder,
+        /*valid=*/false);
+  }
 
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
@@ -487,6 +537,7 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
 
   return serde::CreateSegmentedFusionDirect(
       builder,
+      /*valid=*/true,
       segmented_fusion_name_,
       initial_vals_size_,
       initial_exprs_size_,
@@ -1130,11 +1181,6 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
-
-  // Log the number of values and expressions. It is used as a sanity check
-  // during serialization.
-  initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
