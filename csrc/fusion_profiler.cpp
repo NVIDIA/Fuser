@@ -637,6 +637,11 @@ void FusionProfiler::stop() {
         fp->kernel_profiles_.size() >= fp->segments_.size(),
         "All of the kernel profiles have not been recorded!");
 
+    for (const KernelProfile& kprof : fp->kernel_profiles_) {
+      std::cerr << "kernel_profile: " << kprof.name << ", "
+                << kprof.correlation_id << ", " << kprof.time_ms << std::endl;
+    }
+
     for (auto& kprof : fp->kernel_profiles_) {
       auto corr_id = kprof.correlation_id;
       if (fp->corrid_2_segid_.count(corr_id) == 0) {
