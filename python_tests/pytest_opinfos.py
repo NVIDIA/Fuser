@@ -22,7 +22,6 @@ from pytest_input_generators import (
     define_tensor_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
-    define_vector_input_error_generator,
     elementwise_binary_generator,
     _elementwise_binary_torch,
     elementwise_unary_generator,
@@ -89,15 +88,6 @@ define_vector_constant_opinfo = OpInfo(
     fd_error_input_fn=api_test_fd_fn,
 )
 fusion_input_ops.append(define_vector_constant_opinfo)
-
-define_vector_input_opinfo = OpInfo(
-    lambda fd: fd.define_vector,
-    "define_vector_input",
-    sample_input_generator=None,
-    error_input_generator=define_vector_input_error_generator,
-    fd_error_input_fn=api_test_fd_fn,
-)
-fusion_input_ops.append(define_vector_input_opinfo)
 
 """ End Fusion Input Operations """
 
