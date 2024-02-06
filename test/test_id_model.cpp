@@ -153,8 +153,10 @@ void checkSortingResults(
     Expr* ref_expr = ref_order.at(i);
     const ExprGroup& eg = sorted_expr_groups.at(i);
     ASSERT_TRUE(eg->has(ref_expr))
-        << "Expected: " << nvfuser::toString(graph.toGroup(ref_expr))
-        << ". Actual: " << nvfuser::toString(eg);
+        << "Mismatch detected at " << i << "-th expr group. "
+        << "Expected: " << nvfuser::toString(graph.toGroup(ref_expr)) << ", "
+        << ref_expr->toString() << ". Actual: " << nvfuser::toString(eg) << ", "
+        << eg->front()->toString();
   }
 }
 
@@ -311,8 +313,8 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
 
   // Since this fusion is not supported by ComputeAtMap, the
   // validation flag must be false
-  IdModel id_model(fusion.get(), true, false, false);
-
+  IdModel id_model(fusion.get(), false, false, false);
+  id_model.buildExactGraph();
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
 
   ValGraphStmtSort vg_stmt_sort(vg);
@@ -328,74 +330,56 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
 
   // Expected reference order:
   //
-  // exprg{39}: Merge: iS2{7} and bS3{1} -> iS46{( 7 * 1 )}
-  // exprg{57}: Merge: iS11{7} and bS12{1} -> iS61{( 7 * 1 )}
-  // exprg{17}: Merge: iS17{7} and bS18{1} -> iS29{( 7 * 1 )}
-  // exprg{69 73 89}: Split: iS1{7} by factor 5 -> iS71{( ceilDiv(7, 5) )},
-  // iS72{5}, start offset: 0, stop offset: 0 exprg{51 63 93}: Merge: iS15{7}
-  // and iS16{13} -> iS56{( 7 * 13 )} exprg{9 25 33 45 91 95}: Merge: iS20{7}
-  // and iS21{11} -> iS23{( 7 * 11 )} exprg{27}: Merge: iS35{( 7 * 11 )} and
-  // bS10{1} -> iS36{( ( 7 * 11 ) * 1 )} exprg{19}: Merge: iS29{( 7 * 1 )} and
-  // iS19{13} -> iS30{( ( 7 * 1 ) * 13 )} exprg{11 77 79 99}: Merge: iS23{( 7 *
-  // 11 )} and iS22{13} -> iS24{( ( 7 * 11 ) * 13 )} exprg{41}: Split: iS46{( 7
-  // * 1 )} by factor 5 -> iS47{( ceilDiv(( 7 * 1 ), 5) )}, iS48{5}, start
-  // offset: 0, stop offset: 0 exprg{59}: Split: iS61{( 7 * 1 )} by factor 5 ->
-  // iS62{( ceilDiv(( 7 * 1 ), 5) )}, iS63{5}, start offset: 0, stop offset: 0
-  // exprg{71 75 101}: Split: iS71{( ceilDiv(7, 5) )} by factor 3 -> iS73{(
-  // ceilDiv(( ceilDiv(7, 5) ), 3) )}, iS74{3}, start offset: 0, stop offset: 0
-  // exprg{53 65 109}: Split: iS56{( 7 * 13 )} by factor 5 -> iS57{( ceilDiv(( 7
-  // * 13 ), 5) )}, iS58{5}, start offset: 0, stop offset: 0 exprg{35 47 105}:
-  // Split: iS41{( 7 * 11 )} by factor 5 -> iS42{( ceilDiv(( 7 * 11 ), 5) )},
-  // iS43{5}, start offset: 0, stop offset: 0 exprg{29}: Split: iS36{( ( 7 * 11
-  // ) * 1 )} by factor 5 -> iS37{( ceilDiv(( ( 7 * 11 ) * 1 ), 5) )}, iS38{5},
-  // start offset: 0, stop offset: 0 exprg{21}: Split: iS30{( ( 7 * 1 ) * 13 )}
-  // by factor 5 -> iS31{( ceilDiv(( ( 7 * 1 ) * 13 ), 5) )}, iS32{5}, start
-  // offset: 0, stop offset: 0 exprg{13 81 83 97 103 107 111 115 117 119 121}:
-  // Split: iS24{( ( 7 * 11 ) * 13 )} by factor 5 -> iS25{( ceilDiv(( ( 7 * 11 )
-  // * 13 ), 5) )}, iS26{5}, start offset: 0, stop offset: 0 exprg{43}: Split:
-  // iS47{( ceilDiv(( 7 * 1 ), 5) )} by factor 3 -> iS49{( ceilDiv(( ceilDiv(( 7
-  // * 1 ), 5) ), 3) )}, iS50{3}, start offset: 0, stop offset: 0 exprg{61}:
-  // Split: iS62{( ceilDiv(( 7 * 1 ), 5) )} by factor 3 -> iS64{( ceilDiv((
-  // ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS65{3}, start offset: 0, stop offset: 0
-  // exprg{55 67 129}: Split: iS57{( ceilDiv(( 7 * 13 ), 5) )} by factor 3 ->
-  // iS59{( ceilDiv(( ceilDiv(( 7 * 13 ), 5) ), 3) )}, iS60{3}, start offset: 0,
-  // stop offset: 0 exprg{37 49 125}: Split: iS42{( ceilDiv(( 7 * 11 ), 5) )} by
-  // factor 3 -> iS44{( ceilDiv(( ceilDiv(( 7 * 11 ), 5) ), 3) )}, iS45{3},
-  // start offset: 0, stop offset: 0 exprg{31}: Split: iS37{( ceilDiv(( ( 7 * 11
-  // ) * 1 ), 5) )} by factor 3 -> iS39{( ceilDiv(( ceilDiv(( ( 7 * 11 ) * 1 ),
-  // 5) ), 3) )}, iS40{3}, start offset: 0, stop offset: 0 exprg{23}: Split:
-  // iS31{( ceilDiv(( ( 7 * 1 ) * 13 ), 5) )} by factor 3 -> iS33{( ceilDiv((
-  // ceilDiv(( ( 7 * 1 ) * 13 ), 5) ), 3) )}, iS34{3}, start offset: 0, stop
-  // offset: 0 exprg{15 85 87 113 123 127 131 133 135 137 139}: Split: iS25{(
-  // ceilDiv(( ( 7 * 11 ) * 13 ), 5) )} by factor 3 -> iS27{( ceilDiv((
-  // ceilDiv(( ( 7 * 11 ) * 13 ), 5) ), 3) )}, iS28{3}, start offset: 0, stop
-  // offset: 0
+  // exprg{39}: Merge iS2 bS3
+  // exprg{57}: Merge iS11 bS12
+  // exprg{17}: Merge iS17 bS18
+  // exprg{51 63}: Merge iS15 iS16
+  // exprg{69 73}: Split iS1
+  // exprg{9 25 33 45}: Merge iS20 iS21
+  // exprg{27}: Merge iS35 bS10
+  // exprg{11}: Merge iS23 iS22
+  // exprg{19}: Merge iS29 iS19
+  // exprg{41}: Split iS46
+  // exprg{59}: Split iS61
+  // exprg{53 65}: Split iS56
+  // exprg{71 75}: Split iS71
+  // exprg{35 47}: Split iS41
+  // exprg{29}: Split iS36
+  // exprg{13}: Split iS24
+  // exprg{21}: Split iS30
+  // exprg{43}: Split iS47
+  // exprg{61}: Split iS62
+  // exprg{55 67}: Split iS57
+  // exprg{37 49}: Split iS42
+  // exprg{31}: Split iS37
+  // exprg{15}: Split iS25
+  // exprg{23}: Split iS31
 
   std::vector<Expr*> ref_order;
   ref_order.push_back(getParentExpr(tv2->axis(0), 3));
   ref_order.push_back(getParentExpr(tv6->axis(0), 3));
   ref_order.push_back(getParentExpr(tv9->axis(0), 4));
-  ref_order.push_back(getParentExpr(tv1->axis(0), 2));
   ref_order.push_back(getParentExpr(tv8->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv1->axis(0), 2));
   ref_order.push_back(getParentExpr(tv10->axis(0), 4));
   ref_order.push_back(getParentExpr(tv5->axis(0), 3));
-  ref_order.push_back(getParentExpr(tv9->axis(0), 3));
   ref_order.push_back(getParentExpr(tv10->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 3));
   ref_order.push_back(getParentExpr(tv2->axis(0), 2));
   ref_order.push_back(getParentExpr(tv6->axis(0), 2));
-  ref_order.push_back(getParentExpr(tv1->axis(0), 1));
   ref_order.push_back(getParentExpr(tv8->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv1->axis(0), 1));
   ref_order.push_back(getParentExpr(tv4->axis(0), 2));
   ref_order.push_back(getParentExpr(tv5->axis(0), 2));
-  ref_order.push_back(getParentExpr(tv9->axis(0), 2));
   ref_order.push_back(getParentExpr(tv10->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 2));
   ref_order.push_back(getParentExpr(tv2->axis(0), 1));
   ref_order.push_back(getParentExpr(tv6->axis(0), 1));
   ref_order.push_back(getParentExpr(tv8->axis(0), 1));
   ref_order.push_back(getParentExpr(tv4->axis(0), 1));
   ref_order.push_back(getParentExpr(tv5->axis(0), 1));
-  ref_order.push_back(getParentExpr(tv9->axis(0), 1));
   ref_order.push_back(getParentExpr(tv10->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 1));
 
   checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
 }
