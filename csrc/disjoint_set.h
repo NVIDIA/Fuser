@@ -92,15 +92,6 @@ class VectorOfUniqueEntries {
     return any_added;
   }
 
-  // Remove and returns the first element in vector. Note that this is
-  // a costly operation as the underlying container is std::vector.
-  T popFront() {
-    T v = vector_.front();
-    set_.erase(v);
-    vector_.erase(vector_.begin());
-    return v;
-  }
-
   // Returns a new VectorOfUniqueEntries with entries that are in both this and
   // other, order is preserved as this.
   VectorOfUniqueEntries<T, Hash> computeIntersect(
