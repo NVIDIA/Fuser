@@ -240,7 +240,7 @@ class NVFBenchmark:
     ) -> None:
         """
         Utility function to compute metrics for the target function.
-        
+
         Args:
             inputs: Inputs to the target function
             outputs: Outputs of the target function
