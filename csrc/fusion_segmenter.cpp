@@ -554,23 +554,22 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
-  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
-  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   NVF_ERROR(
       complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
-      vals.size(),
+      complete_fusion_->vals().size(),
       " values while serialization expected ",
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
-      exprs.size(),
+      complete_fusion_->unordered_exprs().size(),
       " expressions while serialization expected ",
       buffer->num_exprs(),
       " expressions.");
-
+  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
+  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 
   // Construct segmented groups first because they are necessary for the
