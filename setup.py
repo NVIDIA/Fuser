@@ -23,6 +23,9 @@
 #   --build-with-ucc
 #     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
 #
+#   --build-without-distributed
+#     Build nvfuser without multidevice support
+#
 #   --debug
 #     Building nvfuser in debug mode
 #
@@ -68,6 +71,7 @@ NO_BENCHMARK = False
 NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
+BUILD_WITHOUT_DISTRIBUTED = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
@@ -99,6 +103,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--build-with-asan":
         BUILD_WITH_ASAN = True
+        continue
+    if arg == "--build-without-distributed":
+        BUILD_WITHOUT_DISTRIBUTED = True
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
@@ -283,7 +290,10 @@ def cmake(install_prefix: str = "./nvfuser"):
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+    from tools.gen_nvfuser_version import (
+        get_pytorch_cmake_prefix,
+        get_pytorch_use_distributed,
+    )
 
     # this is used to suppress import error.
     # so we can get the right pytorch prefix for cmake
@@ -297,6 +307,8 @@ def cmake(install_prefix: str = "./nvfuser"):
 
     logger.setLevel(logger_level)
 
+    pytorch_use_distributed = get_pytorch_use_distributed()
+
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
@@ -304,6 +316,7 @@ def cmake(install_prefix: str = "./nvfuser"):
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
+        f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         "-B",
         cmake_build_dir,
     ]
@@ -321,6 +334,8 @@ def cmake(install_prefix: str = "./nvfuser"):
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
     if BUILD_WITH_ASAN:
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
+    if BUILD_WITHOUT_DISTRIBUTED:
+        cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
