@@ -114,16 +114,16 @@ __device__ void blockReduce(
 
 
 template <
-    bool X_REDUCE,
-    bool Y_REDUCE,
-    bool Z_REDUCE,
-    bool Aligned,
-    int N, // Number of elements per input array
-    typename T,
-    typename Func>
-__device__ void blockVectReduce(
+  bool X_REDUCE,
+  bool Y_REDUCE,
+  bool Z_REDUCE,
+  bool Aligned,
+  int N, // Number of elements per input array
+  typename T,
+  typename Func>
+  __device__ void blockVectReduce(
     T* out, // Now an array
-    const T* inp_val, // Now an array
+    T* inp_val, // Now an array
     Func reduction_op,
     T* shared_mem,
     bool read_pred,
@@ -145,13 +145,20 @@ __device__ void blockVectReduce(
 
   // Adjust shared memory offset for array processing
   unsigned int smem_offset = (reduction_idx * reduction_size + reduction_tid) * N;
-
-  // Initialize shared memory for each element of the array
   if (read_pred) {
-    for (int i = 0; i < N; ++i) {
-      shared_mem[smem_offset + i] = inp_val[i];
+    if constexpr (sizeof(T) * N <= 16) {
+      loadGeneric<T, N>(shared_mem + smem_offset, inp_val);
+    } else {
+      constexpr unsigned int total_loads = sizeof(T) * N / 16;
+      constexpr unsigned int elements_per_load = 16 / sizeof(T);
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        loadGeneric<T, elements_per_load>(
+            shared_mem + smem_offset + i * elements_per_load, inp_val + i * elements_per_load);
+      }
     }
   } else {
+    #pragma unroll
     for (int i = 0; i < N; ++i) {
       shared_mem[smem_offset + i] = init_val;
     }
@@ -162,20 +169,28 @@ __device__ void blockVectReduce(
   int np2 = 1 << (31 - __clz(reduction_size));
 
   // Perform parallel reduction for each element in the array
-  for (int i = 0; i < N; ++i) {
-    if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
+  if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
       reduction_op(shared_mem[smem_offset + i], shared_mem[smem_offset + np2 * N + i]);
     }
-    block_sync::sync<Aligned>();
+  }
 
-    for (int factor = np2 / 2; factor > 1; factor >>= 1) {
-      if (reduction_tid < factor) {
+  block_sync::sync<Aligned>();
+
+  for (int factor = np2 / 2; factor > 1; factor >>= 1) {
+    if (reduction_tid < factor) {
+      #pragma unroll
+      for (int i = 0; i < N; ++i) {
         reduction_op(shared_mem[smem_offset + i], shared_mem[smem_offset + factor * N + i]);
       }
-      block_sync::sync<Aligned>();
     }
+    block_sync::sync<Aligned>();
+  }
 
-    if (should_write && write_pred) {
+  if (should_write && write_pred) {
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
       T result = out[i];
       reduction_op(result, shared_mem[smem_offset + i]);
       if (reduction_size > 1) {
@@ -183,6 +198,35 @@ __device__ void blockVectReduce(
       }
       out[i] = result;
     }
-    block_sync::sync<Aligned>();
   }
+  block_sync::sync<Aligned>();
+}
+  
+
+
+
+// Use the same pred for both reads and writes
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    int N, // Number of elements per input array
+    typename T,
+    typename Func>
+__device__ void blockVectReduce(
+    T* out, // Now an array
+    const T* inp_val, // Now an array
+    Func reduction_op,
+    T* shared_mem,
+    bool read_write_pred,
+    T init_val) {
+      blockVectReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
+      out,
+      inp_val,
+      reduction_op,
+      shared_mem,
+      read_write_pred,
+      read_write_pred,
+      init_val);
 }

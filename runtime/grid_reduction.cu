@@ -655,4 +655,223 @@ __device__ void serialReductionStep(
   }
 }
 
+
+// vectorized reduction
+template <
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool Aligned,
+    int VECT_FACTOR,
+    typename T,
+    typename Func>
+__device__ void gridVectReduceLastBlock(
+    T* out,
+    const volatile T* in,
+    const nvfuser_index_t
+        grid_reduction_segment_size, // Number of reductions across
+                                     // grid reduce dimensions
+    const nvfuser_index_t
+        block_reduction_segment_size, // Number of reductions across the block
+    Func reduction_op,
+    T* shared_buf,
+    bool write_pred,
+    T init_val,
+    const nvfuser_index_t grid_segment_size,
+    const nvfuser_index_t idx_in_grid_segment) {
+  // We have to do num_reductions across reduction_size. The reductions are
+  // contiguous, but offset by reduction_size. There is an entry in "in" for
+  // every block, and every thread marked as true. Threads in dimensions marked
+  // as false can be used to parallelize the reduction.
+
+  // Find the reduction id of the participating threads
+  const auto block_reduction_segment_idx =
+      index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
+          threadIdx, blockDim);
+
+  // Find an id associated within a reduction segment for all
+  // "non-participating" threads, which will parallelize the reductions for the
+  // "participating" threads
+  const auto id_in_block_segment =
+      index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+          threadIdx, blockDim);
+
+  // Stride by the "non-participating" threads
+  const auto input_stride_for_thread_in_segment =
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+
+  // T inp = init_val;
+  T inp[VECT_FACTOR];
+  for(int i = 0; i < VECT_FACTOR; i++){
+    inp[i] = init_val;
+  } 
+  // Block stride across the reduction until we only have one value per thread
+  for(int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++){
+      const volatile T* my_work_buf = in + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
+      grid_reduction_segment_size * block_reduction_segment_size;    
+    for (nvfuser_index_t reduction_i = id_in_block_segment;
+        reduction_i < grid_reduction_segment_size;
+        reduction_i += input_stride_for_thread_in_segment) {
+      auto work_buf_offset = reduction_i * block_reduction_segment_size +
+          block_reduction_segment_idx;
+      reduction_op(inp[entrance_ind], my_work_buf[work_buf_offset]);
+    }
+  }
+  // Block reduce the per thread values into per "participating" thread values
+  // T inp_tmp = init_val;
+  T inp_tmp[VECT_FACTOR];
+  for(int i = 0; i < VECT_FACTOR; i++){
+    inp_tmp[i] = init_val;
+  }   
+  blockVectReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned, VECT_FACTOR>(
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+  const bool should_write = (X_THREAD || threadIdx.x == 0) &&
+      (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
+  if (should_write && write_pred) {
+    for(int i = 0; i < VECT_FACTOR; i++){
+      reduction_op(out[i], inp_tmp[i]);
+    }
+  }
+}
+
+template <
+    int VECT_FACTOR,
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool PERSISTENT_REDUCTION,
+    bool Aligned,
+    typename T,
+    typename Func>
+__device__ void gridVectReduce(
+    T* out,
+    const T* inp_val,
+    Func reduction_op,
+    volatile T* work_buf,
+    int64_t* sync_flags,
+    T* shared_buf,
+    bool read_pred,
+    bool write_pred,
+    T init_val,
+    const nvfuser_index_t entrance_ind,
+    const nvfuser_index_t n_entrances) {
+
+  // inp or block reduction results
+  T block_reduction_val[VECT_FACTOR];
+
+  // Do block reduction when required
+  if (X_THREAD || Y_THREAD || Z_THREAD) {
+    for(int i = 0; i < VECT_FACTOR; i++){
+      block_reduction_val[i] = init_val;
+    }    
+    blockVectReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned, VECT_FACTOR>(
+        block_reduction_val,
+        inp_val,
+        reduction_op,
+        shared_buf,
+        read_pred,
+        true,
+        init_val);
+  } else if (read_pred) {
+    for(int i = 0; i < VECT_FACTOR; i++){
+      block_reduction_val[i] = inp_val[i];
+    }    
+  }
+
+  // Number of values to reduce in the reduction segment
+  const auto grid_reduction_segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+
+  // Index of the reduction we're performing out of the
+  // grid_reduction_segment_size
+  const auto idx_in_grid_segment =
+      index_utils::maskedOffset<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(
+          blockIdx, gridDim);
+
+  // Number of threads we can use in final reduction, Seems to assume all
+  // threads in the block participate
+  const auto block_reduction_segment_size =
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+
+  // Number of reductions in the grid
+  const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
+      ? 1
+      : index_utils::maskedSize<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(gridDim);
+
+  // advance to the offset for this segment
+  // index of reduction * size of the reduction * size of threads
+  for(int entrance_ind = 0; entrance_ind<VECT_FACTOR; entrance_ind++){
+    volatile T* my_work_buf = work_buf + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
+    grid_reduction_segment_size * block_reduction_segment_size;
+
+    if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
+        (!Z_THREAD || threadIdx.z == 0)) {
+      auto block_offset =
+          index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+      auto thread_offset =
+          index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+              threadIdx, blockDim);
+      auto work_buf_offset =
+          block_offset * block_reduction_segment_size + thread_offset;
+      my_work_buf[work_buf_offset] = block_reduction_val[entrance_ind];
+    }
+  }
+
+  if (PERSISTENT_REDUCTION) {
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+
+  } else {
+    // there is only one vectorized call, just needs one sync flag
+    constexpr int entrance_ind = 0;
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
+        grid_reduction_segment_size);
+  }
+
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (last_block) {
+      // Cleanup with block reduction
+      gridVectReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned, VECT_FACTOR>(
+          out,
+          (T*)work_buf,
+          grid_reduction_segment_size,
+          block_reduction_segment_size,
+          reduction_op,
+          shared_buf,
+          write_pred,
+          init_val,
+          grid_segment_size,
+          idx_in_grid_segment
+        );
+    // for(int entrance_ind = 0; entrance_ind<VECT_FACTOR; entrance_ind++){
+    //   volatile T* my_work_buf = work_buf + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
+    //   grid_reduction_segment_size * block_reduction_segment_size;
+    //   // Cleanup with block reduction
+    //   gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
+    //       out[entrance_ind],
+    //       (T*)my_work_buf,
+    //       grid_reduction_segment_size,
+    //       block_reduction_segment_size,
+    //       reduction_op,
+    //       shared_buf,
+    //       write_pred,
+    //       init_val);
+    // }    
+  }
+
+  if (PERSISTENT_REDUCTION) {
+    // Make sure we're done with global memory before we allow the kernel to
+    // continue
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+  }
+}
+
 } // namespace reduction
+
