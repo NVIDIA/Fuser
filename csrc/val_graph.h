@@ -203,8 +203,7 @@ class ValGraph {
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
   // Returns if the expression group has an input id group that matches an
-  // output id group. This means traversing on this expression doesn't actually
-  // do anything.
+  // output id group.
   bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
   // Can't back prop through merge without making sure one input actually
