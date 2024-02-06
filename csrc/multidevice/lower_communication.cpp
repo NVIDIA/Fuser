@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <device_lower/utils.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
@@ -569,7 +569,7 @@ bool isLowerableToCommunication(Expr* expr) {
 
 } // namespace nvfuser
 
-#else // USE_DISTRIBUTED
+#else // NVFUSER_DISTRIBUTED
 
 #include <ir/base_nodes.h>
 
