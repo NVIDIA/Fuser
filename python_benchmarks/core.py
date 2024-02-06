@@ -233,7 +233,10 @@ class NVFBenchmark:
             pass
 
     def set_metrics(
-        self, inputs: Union[torch.Tensor, List], outputs: Union[torch.Tensor, List]
+        self,
+        inputs: Union[torch.Tensor, List],
+        outputs: Union[torch.Tensor, List],
+        iobytes: int = None,
     ) -> None:
         """
         Utility function to compute metrics for the target function.
@@ -243,18 +246,19 @@ class NVFBenchmark:
             Bandwdith (GBps): BytesPerSecond / (1024**3)
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
-        if isinstance(inputs, torch.Tensor):
-            inputs = [inputs]
-        if isinstance(outputs, torch.Tensor):
-            outputs = [outputs]
+        if not iobytes:
+            if isinstance(inputs, torch.Tensor):
+                inputs = [inputs]
+            if isinstance(outputs, torch.Tensor):
+                outputs = [outputs]
 
-        iobytes = 0
-        for inp in inputs:
-            if isinstance(inp, torch.Tensor):
-                iobytes += inp.element_size() * inp.numel()
-        for out in outputs:
-            if isinstance(out, torch.Tensor):
-                iobytes += out.element_size() * out.numel()
+            iobytes = 0
+            for inp in inputs:
+                if isinstance(inp, torch.Tensor):
+                    iobytes += inp.element_size() * inp.numel()
+            for out in outputs:
+                if isinstance(out, torch.Tensor):
+                    iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
         bandwidth_bps = (
@@ -273,6 +277,7 @@ def run_benchmark(
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,
     warmup_rounds: int = 1,
+    iobytes: int = None,
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
@@ -294,6 +299,6 @@ def run_benchmark(
     outputs = nvf_benchmark.pedantic(
         benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
     )
-    nvf_benchmark.set_metrics(inputs, outputs)
+    nvf_benchmark.set_metrics(inputs, outputs, iobytes)
     nvf_benchmark.cleanup()
     return outputs

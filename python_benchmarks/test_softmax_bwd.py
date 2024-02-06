@@ -4,6 +4,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
+import numpy as np
 
 
 def softmax_bwd_fusion(
@@ -59,6 +60,11 @@ def unary_bwd_torch(inputs: list):  # [in_tensor, output, grads]
     return inputs[0].grad
 
 
+def softmax_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = output + grad_out + grad_input
+    return int(np.prod(size) * dtype.itemsize * 3)
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -86,7 +92,9 @@ def test_softmax_bwd_nvf_benchmark(
         fd.validate([eager_output, inputs[1]], [inputs[0].grad])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, inputs)
+        run_benchmark(
+            benchmark, fd.execute, inputs, iobytes=softmax_bwd_iobytes(size, dtype)
+        )
 
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
@@ -108,4 +116,5 @@ def test_softmax_bwd_baseline_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
         [input, output, grads],
+        iobytes=softmax_bwd_iobytes(size, dtype),
     )
