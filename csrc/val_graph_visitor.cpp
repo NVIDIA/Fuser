@@ -13,9 +13,9 @@ namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
   const ValGroups terminating_inputs = graph().getTerminatingInputs();
-  std::deque<ValGroup> to_visit_ids(
+  std::deque<ValGroup> to_visit_vals(
       terminating_inputs.begin(), terminating_inputs.end());
-  ValGroups visited_ids;
+  ValGroups visited_vals;
 
   std::deque<ExprGroup> to_visit_exprs;
   ExprGroups visited_exprs;
@@ -23,8 +23,8 @@ void ValGraphVisitor::traverse() {
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
     const auto inp_groups = graph().inputGroups(expr_group);
     return std::all_of(
-        inp_groups.begin(), inp_groups.end(), [&](ValGroup id_group) {
-          return visited_ids.has(id_group) || id_group->empty();
+        inp_groups.begin(), inp_groups.end(), [&](ValGroup val_group) {
+          return visited_vals.has(val_group) || val_group->empty();
         });
   };
 
@@ -57,7 +57,7 @@ void ValGraphVisitor::traverse() {
         });
   };
 
-  while (!to_visit_ids.empty() || !to_visit_exprs.empty()) {
+  while (!to_visit_vals.empty() || !to_visit_exprs.empty()) {
     // Process expressions first as all definitions of vals have to be
     // processed before we can process that val.
 
@@ -82,7 +82,7 @@ void ValGraphVisitor::traverse() {
 
         for (const ValGroup& output_group :
              graph().outputGroups(current_expr_group)) {
-          to_visit_ids.push_back(output_group);
+          to_visit_vals.push_back(output_group);
         }
       } else {
         still_to_visit_exprs.push_back(current_expr_group);
@@ -91,34 +91,34 @@ void ValGraphVisitor::traverse() {
 
     std::swap(to_visit_exprs, still_to_visit_exprs);
 
-    std::deque<ValGroup> still_to_visit_ids;
-    while (!to_visit_ids.empty()) {
-      auto current_id_group = to_visit_ids.front();
-      to_visit_ids.pop_front();
-      NVF_ERROR(!current_id_group->empty());
-      if (visited_ids.has(current_id_group)) {
+    std::deque<ValGroup> still_to_visit_vals;
+    while (!to_visit_vals.empty()) {
+      auto current_val_group = to_visit_vals.front();
+      to_visit_vals.pop_front();
+      NVF_ERROR(!current_val_group->empty());
+      if (visited_vals.has(current_val_group)) {
         continue;
       }
 
-      if (is_val_ready(current_id_group)) {
-        handle(current_id_group);
+      if (is_val_ready(current_val_group)) {
+        handle(current_val_group);
 
         something_was_processed = true;
-        visited_ids.pushBack(current_id_group);
+        visited_vals.pushBack(current_val_group);
 
-        for (const ExprGroup& use_group : graph().getUses(current_id_group)) {
+        for (const ExprGroup& use_group : graph().getUses(current_val_group)) {
           to_visit_exprs.push_back(use_group);
         }
       } else {
-        still_to_visit_ids.push_back(current_id_group);
+        still_to_visit_vals.push_back(current_val_group);
       }
     }
 
-    std::swap(to_visit_ids, still_to_visit_ids);
+    std::swap(to_visit_vals, still_to_visit_vals);
 
     NVF_ERROR(
         something_was_processed ||
-            (to_visit_ids.empty() && to_visit_exprs.empty()),
+            (to_visit_vals.empty() && to_visit_exprs.empty()),
         "Infinite loop entered.");
   }
 }
