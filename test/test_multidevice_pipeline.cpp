@@ -581,10 +581,10 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   int Dv = 4;
   int Dk = 4;
 
-  TensorView* q = makeConcreteTensor({H, S, Dk}); // 64
-  TensorView* k = makeConcreteTensor({H, S, Dk}); // 64
-  TensorView* v = makeConcreteTensor({H, S, Dv}); // 64
-  TensorView* w = makeConcreteTensor({H, Dv, D_model}); // 40
+  TensorView* q = makeConcreteTensor({H, S, Dk});
+  TensorView* k = makeConcreteTensor({H, S, Dk});
+  TensorView* v = makeConcreteTensor({H, S, Dv});
+  TensorView* w = makeConcreteTensor({H, Dv, D_model});
   auto tv_inputs = {q, k, v, w};
   for (auto i : tv_inputs) {
     fusion->addInput(i);
