@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <ir/all_nodes.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
