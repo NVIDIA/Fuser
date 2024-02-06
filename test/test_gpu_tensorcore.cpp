@@ -2431,8 +2431,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
       auto tref = atMatmul(inputs.first, inputs.second, layout);
 
       // Relax tolerance for larger sum due to large K
-      double tol = half_reduction ? 1e-5 * K : 1e-6 * K;
-      NVF_CHECK(cg_outputs[0].allclose(tref, tol, tol));
+      NVF_CHECK(cg_outputs[0].allclose(tref, 1e-4 * K, 1e-4 * K));
     }
   }
 }

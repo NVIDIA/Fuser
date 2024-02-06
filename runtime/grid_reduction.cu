@@ -632,12 +632,12 @@ __device__ void gridReduceGroup(
 //
 // If first_step is false, "work" will be read and reduction_op will be called.
 // The result will be written back to "work" unless last_step is true.
-template <int64_t vec_size, typename T, typename Func>
+template <int64_t vec_size, typename T, typename Twork, typename Func>
 __device__ void serialReductionStep(
     T* out,
     T* in,
     T init,
-    volatile T* work,
+    volatile Twork* work,
     Func reduction_op,
     bool first_step,
     bool last_step,
@@ -654,74 +654,30 @@ __device__ void serialReductionStep(
       out[i] = init;
     }
   }
-  if (!first_step) {
-    T work_reg[vec_size];
-    loadGlobalToLocal<T, vec_size, true, CacheOp::Global>(work_reg, work);
-#pragma unroll
-    for (int i = 0; i < vec_size; ++i) {
-      reduction_op(out[i], work_reg[i]);
-    }
-  }
-  if (!last_step) {
-    loadLocalToGlobal<T, vec_size, true>(work, out);
-  }
-}
 
-// Same as above, but cast to lower precision for work buffer IO
-template <int64_t vec_size, typename Twork, typename Func>
-__device__ void serialReductionStep(
-    float* out,
-    float* in,
-    float init,
-    volatile Twork* work,
-    Func reduction_op,
-    bool first_step,
-    bool last_step,
-    bool read_pred,
-    bool write_pred) {
-  static_assert(
-      std::is_same<Twork, __half>::value ||
-          std::is_same<Twork, __bfloat>::value,
-      "Twork template type must be either __half or __bfloat");
-  if (!write_pred) {
-    return;
-  }
-  if (read_pred) {
-    loadGeneric<float, vec_size>(out, in);
-  } else {
-#pragma unroll
-    for (int i = 0; i < vec_size; ++i) {
-      out[i] = init;
-    }
-  }
-  Twork work_reg[vec_size];
   if (!first_step) {
+    Twork work_reg[vec_size];
     loadGlobalToLocal<Twork, vec_size, true, CacheOp::Global>(work_reg, work);
 #pragma unroll
     for (int i = 0; i < vec_size; ++i) {
-      float work_float = NAN;
-      if constexpr (std::is_same<Twork, __half>::value) {
-        work_float = __half2float(work_reg[i]);
-      } else if constexpr (std::is_same<Twork, __bfloat>::value) {
-        work_float = __bfloat2float(work_reg[i]);
-      } else {
-        // static_assert(false);
-      }
-      reduction_op(out[i], work_float);
+      // modifies out[i] in place
+      reduction_op(out[i], castFloating<T, Twork>(work_reg[i]));
     }
   }
+
   if (!last_step) {
+    if constexpr (std::is_same<T, Twork>::value) {
+      // if no conversion is needed, we can store directly from out
+      loadLocalToGlobal<T, vec_size, true>(work, out);
+    } else {
+      Twork work_reg[vec_size];
+      // cast and save into work_reg before storing to global
 #pragma unroll
-    for (int i = 0; i < vec_size; ++i) {
-      if constexpr (std::is_same<Twork, __half>::value) {
-        work_reg[i] = __float2half(out[i]);
-      } else if constexpr (std::is_same<Twork, __bfloat>::value) {
-        work_reg[i] = __float2bfloat(out[i]);
-      } else {
-        // static_assert(false);
+      for (int i = 0; i < vec_size; ++i) {
+        work_reg[i] = castFloating<Twork, T>(out[i]);
       }
+      loadLocalToGlobal<Twork, vec_size, true>(work, work_reg);
     }
-    loadLocalToGlobal<Twork, vec_size, true>(work, work_reg);
   }
 }
 
