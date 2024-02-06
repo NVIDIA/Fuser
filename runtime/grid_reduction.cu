@@ -706,17 +706,30 @@ __device__ void gridVectReduceLastBlock(
     inp[i] = init_val;
   } 
   // Block stride across the reduction until we only have one value per thread
-  for(int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++){
+  for (nvfuser_index_t reduction_i = id_in_block_segment;
+    reduction_i < grid_reduction_segment_size;
+    reduction_i += input_stride_for_thread_in_segment) {
+    auto work_buf_offset = reduction_i * block_reduction_segment_size +
+    block_reduction_segment_idx;        
+    for(int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++){
       const volatile T* my_work_buf = in + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
-      grid_reduction_segment_size * block_reduction_segment_size;    
-    for (nvfuser_index_t reduction_i = id_in_block_segment;
-        reduction_i < grid_reduction_segment_size;
-        reduction_i += input_stride_for_thread_in_segment) {
-      auto work_buf_offset = reduction_i * block_reduction_segment_size +
-          block_reduction_segment_idx;
+      grid_reduction_segment_size * block_reduction_segment_size;            
       reduction_op(inp[entrance_ind], my_work_buf[work_buf_offset]);
     }
   }
+
+  // slow version
+  // for(int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++){
+  //   const volatile T* my_work_buf = in + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
+  //   grid_reduction_segment_size * block_reduction_segment_size;    
+  //   for (nvfuser_index_t reduction_i = id_in_block_segment;
+  //       reduction_i < grid_reduction_segment_size;
+  //       reduction_i += input_stride_for_thread_in_segment) {
+  //     auto work_buf_offset = reduction_i * block_reduction_segment_size +
+  //         block_reduction_segment_idx;
+  //     reduction_op(inp[entrance_ind], my_work_buf[work_buf_offset]);
+  //   }
+  // }
   // Block reduce the per thread values into per "participating" thread values
   // T inp_tmp = init_val;
   T inp_tmp[VECT_FACTOR];
@@ -764,6 +777,7 @@ __device__ void gridVectReduce(
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
+    #pragma unroll
     for(int i = 0; i < VECT_FACTOR; i++){
       block_reduction_val[i] = init_val;
     }    
@@ -776,6 +790,7 @@ __device__ void gridVectReduce(
         true,
         init_val);
   } else if (read_pred) {
+    #pragma unroll
     for(int i = 0; i < VECT_FACTOR; i++){
       block_reduction_val[i] = inp_val[i];
     }    
@@ -803,20 +818,20 @@ __device__ void gridVectReduce(
 
   // advance to the offset for this segment
   // index of reduction * size of the reduction * size of threads
-  for(int entrance_ind = 0; entrance_ind<VECT_FACTOR; entrance_ind++){
-    volatile T* my_work_buf = work_buf + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
-    grid_reduction_segment_size * block_reduction_segment_size;
-
-    if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
-        (!Z_THREAD || threadIdx.z == 0)) {
-      auto block_offset =
-          index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
-      auto thread_offset =
-          index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-              threadIdx, blockDim);
-      auto work_buf_offset =
-          block_offset * block_reduction_segment_size + thread_offset;
-      my_work_buf[work_buf_offset] = block_reduction_val[entrance_ind];
+  if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
+  (!Z_THREAD || threadIdx.z == 0)) {
+    auto block_offset =
+        index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+    auto thread_offset =
+        index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+            threadIdx, blockDim);
+    auto work_buf_offset =
+        block_offset * block_reduction_segment_size + thread_offset;  
+    #pragma unroll
+    for(int entrance_ind = 0; entrance_ind<VECT_FACTOR; entrance_ind++){
+      volatile T* my_work_buf = work_buf + (entrance_ind * grid_segment_size + idx_in_grid_segment) *
+      grid_reduction_segment_size * block_reduction_segment_size;
+        my_work_buf[work_buf_offset] = block_reduction_val[entrance_ind];
     }
   }
 
@@ -825,7 +840,7 @@ __device__ void gridVectReduce(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
 
   } else {
-    // there is only one vectorized call, just needs one sync flag
+    // there is only one vectorized call, sync flag is entrance_ind independent
     constexpr int entrance_ind = 0;
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
@@ -874,4 +889,3 @@ __device__ void gridVectReduce(
 }
 
 } // namespace reduction
-
