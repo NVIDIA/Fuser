@@ -267,8 +267,6 @@ TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
-
   auto shapes = matmulAtInputShape3DTuring(
       getM(macro), getN(macro), getK(macro), layout);
 
@@ -277,11 +275,12 @@ TEST_P(HopperRS, SingleTile) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M, 1, K]
   // Just doing a gmem->register copy
   tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {axes});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
 
   fusion.addOutput(tv2);
 
@@ -294,25 +293,25 @@ TEST_P(HopperRS, SingleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  if (transpose_b) {
-    // [M, N, K] -> [N, M, K]
-    tv0b->reorder({{-2, -3}});
-  } else {
+  if (layout == MmaLayout::TT) {
     // [M, K, N] -> [N, M, K]
-    tv0b->reorder({{-1, -3}});
+    tv0->reorder({{-1, -3}});
+  } else {
+    // [M, N, K] -> [N, M, K]
+    tv0->reorder({{-2, -3}});
   }
-  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv0->applyMmaSwizzle(MmaOperand::A);
 
-  tv0b->merge(1);
-  tv0b->merge(1);
-  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle_b, transpose_b);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
 
-  naivelyParallelize(tv1b);
+  naivelyParallelize(tv1);
 
-  if (!transpose_b) {
+  if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
   }
