@@ -696,8 +696,7 @@ TEST_F(ExprEvalTest, MmaOp) {
 
   at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
   at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
-  auto out_dtype = data_type_to_aten(tv2->getDataType().value());
-  at::Tensor out_ref = k * at::ones(out_shape, out_dtype).cuda();
+  at::Tensor out_ref = at::full(out_shape, k, at::kFloat).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv0, in_a);

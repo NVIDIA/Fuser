@@ -2115,6 +2115,11 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
 
   // ATen preserves the input dtype whereas MmaOP generates float outputs.
   // Cast to the dtype of the MmaOp output for consistency.
+  // NOTE: MmaOp returns the float output, whereas in the evaluate method,
+  //      we are casting from float -> input_dtype -> float. This will lead
+  //      to loss of precision.
+  //      MmaOp::evaluate should be modified to effectively handle cast(MmaOp(H,
+  //      H), H) This will avoid the above cast chain and precision issue.
   if (tv_a->getDataType() != out()->getDataType().value()) {
     output = output.to(data_type_to_aten(out()->getDataType().value()));
   }
