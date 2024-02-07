@@ -56,7 +56,6 @@ def pytest_collection_modifyitems(session, config, items):
     if not run_eager:
         skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
         for item in items:
-            breakpoint()
             # If the benchmark has compile=False parameter (eager mode), skip it.
             if (
                 hasattr(item, "callspec")
