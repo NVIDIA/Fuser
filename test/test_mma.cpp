@@ -156,7 +156,7 @@ std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto dtype = std::get<1>(info.param);
-  os << toString(macro) << "_" << dtype;
+  os << toString(macro) << dtype;
   return os.str();
 }
 
