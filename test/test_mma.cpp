@@ -263,11 +263,38 @@ class HopperRS : public HopperBase,
   }
 };
 
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopperRS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DTuring(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
 TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DTuring(
+  auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
@@ -319,7 +346,7 @@ TEST_P(HopperRS, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput2D(
+  auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
