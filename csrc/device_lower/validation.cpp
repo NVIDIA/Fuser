@@ -417,6 +417,8 @@ class VectorizeValidator : public OptInDispatch {
 
  public:
   static void validate(TensorView* tv) {
+    //Protonu - hack.
+    // return;
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     for (auto id : tv->getLeafDomain()) {

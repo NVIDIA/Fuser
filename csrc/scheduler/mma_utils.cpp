@@ -414,8 +414,12 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   auto leftmost_pos = ndims;
 
   // Pull the root id's of the given tv.
+  // std::unordered_set<IterDomain*> maybe_rfactor_id_set{
+  //     tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+
   std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.

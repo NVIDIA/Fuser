@@ -718,13 +718,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
 
+  std::cout << "printing out B:" << std::endl;
+  std::cout << b->toString() << std::endl;
+  for (auto x : b->getAllocationDomain()) {
+    std::cout << x->toString() << std::endl;
+  }
+  if (b->getAllocationDomain().empty()) {
+    std::cout << "Allocation domain of B is empty" << std::endl;
+  }
+
   // Collect mma swizzle info
   auto mma = mma_ops.front();
   const auto mma_layout_opt = mma->layout();
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
+  // const auto fusion_layout = mma_utils::getMmaLayout(fusion);
+  const auto fusion_layout =
+      mma_utils::DataWrapperOpt<MmaLayout>(MmaLayout::TN);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   const auto& gemm_tile = params.tile_sizes;
@@ -777,6 +788,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Get the input to the mma op.
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
+  std::cout << "printing bb1  " << bb->toString() << std::endl;
+  auto x = scheduler_utils::maybeRfactorReorderAsAllocationMap(bb);
+  bb->domain()->reorder(x);
+  std::cout << "printing bb2  " << bb->toString() << std::endl;
+
+  // brf = TensorDomain::orderedAs(brf, x);
 
   // Setup accumulator register.
   auto mma_result = mma->out()->as<TensorView>();
@@ -788,6 +805,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
 
+  std::cout << "printing b  " << b->toString() << std::endl;
+  auto y_map = scheduler_utils::maybeRfactorReorderAsAllocationMap(b);
+  b->domain()->reorder(y_map);
+  std::cout << "printing b after reorder  " << b->toString() << std::endl;
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
 

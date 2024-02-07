@@ -1103,6 +1103,55 @@ int64_t getVectorizeSize(const TensorView* tv) {
 
 namespace nvfuser::MmaOpUtils {
 
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap2(
+    TensorView* tv) {
+  std::unordered_map<int, int> ret;
+  if (!tv->hasAllocation()) {
+    return ret;
+  }
+  const auto& alloc_dom = tv->getAllocationDomain();
+  const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
+  if (alloc_dom == maybe_rfactor_dom) {
+    return ret;
+  }
+  if (!std::is_permutation(
+          alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
+    return ret;
+  }
+  std::unordered_map<IterDomain*, int> alloc_index;
+  std::unordered_map<IterDomain*, int> rfactor_index;
+  for (auto i : c10::irange((int)alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[maybe_rfactor_dom[i]] = i;
+  }
+  for (auto iter_dom : alloc_dom) {
+    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  }
+  return ret;
+}
+
+void modifyTensorViewDetailForAllocDomains(
+    TensorViewDetails& details,
+    const std::unordered_map<int, int>& map) {
+  MmaOp::AxesData bcasts;
+  for (auto el : details.bcasts) {
+    bcasts.push_back(map.at(el));
+  }
+  details.bcasts = bcasts;
+
+  MmaOp::AxesData cdomains;
+  for (auto el : details.cdomains) {
+    cdomains.push_back(map.at(el));
+  }
+  details.cdomains = cdomains;
+
+  MmaOp::AxesData rdomains;
+  for (auto el : details.rdomains) {
+    rdomains.push_back(map.at(el));
+  }
+  details.rdomains = rdomains;
+}
+
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
@@ -1172,9 +1221,33 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
-  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
+  auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  std::cout << "printing in_b" << std::endl;
+  std::cout << in_b->toString() << std::endl;
+  for(auto x: in_b->getAllocationDomain()){
+    std::cout << x->toString() << std::endl;
+  }
   const auto out_details = getDetailsFor(out->getRootDomain());
+
+  const auto alloc_reorder_map_a = maybeRfactorReorderAsAllocationMap2(in_a);
+  const auto alloc_reorder_map_b = maybeRfactorReorderAsAllocationMap2(in_b);
+  for (auto& [k, v] : alloc_reorder_map_b) {
+    std::cout << " k: " << k << " v: " << v << std::endl;
+  }
+
+  std::cout << "print in_b:cdomains " << std::endl;
+  for (auto x : in_b_details.cdomains) {
+    std::cout << x << std::endl;
+  }
+  if (!alloc_reorder_map_b.empty()) {
+    modifyTensorViewDetailForAllocDomains(in_b_details, alloc_reorder_map_b);
+  }
+
+  std::cout << "print in_b:cdomains " << std::endl;
+  for (auto x : in_b_details.cdomains) {
+    std::cout << x << std::endl;
+  }
 
   using AxesData = MmaOp::AxesData;
 
@@ -1306,7 +1379,8 @@ MmaOpDetails getMmaOpDetails(
       details.m_axes,
       details.n_axes,
       details.k_axes);
-
+  // Protonu - temp hack.
+  details.input_layout = MmaLayout::TN;
   return details;
 }
 

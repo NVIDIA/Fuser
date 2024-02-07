@@ -3083,6 +3083,10 @@ IterDomain* IterDomain::resize(
 // vectorize to the left of the computeAt domain, and could allow us to do some
 // simple validation of vectorize as it's inputs are right most and contiguous.
 void IterDomain::parallelize(ParallelType t) {
+  // Protonu - hack.
+  // if (isParallelTypeVectorize(t)) {
+  //   return;
+  // }
   if (parallel_type_ == t) {
     // No op, don't do any more checks, it was already set to this value.
     return;
