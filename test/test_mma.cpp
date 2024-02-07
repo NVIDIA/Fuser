@@ -119,8 +119,9 @@ TEST_P(MmaTest, SingleTile) {
   auto tv2c = tv2->cacheBefore();
 
   // [M, N, K] -> [N, M, K]
-  tv0->reorder({{-2, -3}, {-3, -2}});
+  moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
+
   tv1->applyMmaSwizzle(MmaOperand::B);
 
   tv0->merge(1);
@@ -318,13 +319,7 @@ TEST_P(HopperRS, SingleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  if (layout == MmaLayout::TT) {
-    // [M, K, N] -> [N, M, K]
-    tv0->reorder({{-1, -3}});
-  } else {
-    // [M, N, K] -> [N, M, K]
-    tv0->reorder({{-2, -3}});
-  }
+  moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -461,31 +456,8 @@ TEST_P(HopperSS, SingleTile) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  switch (layout) {
-    case MmaLayout::TT:
-      // [M, K, N]
-      tv0->reorder({{-1, -3}});
-      axes = 1;
-      break;
-    case MmaLayout::TN:
-      // [M, N, K]
-      tv0->reorder({{-2, -3}});
-      axes = 2;
-      break;
-    case MmaLayout::NT:
-      // [K, M, N]
-      tv0->reorder({{-1, -3}});
-      tv1->reorder({{-2, -3}});
-      axes = 0;
-      break;
-    case MmaLayout::NN:
-      // [N, K, M]
-      tv1->reorder({{-1, -3}});
-      axes = 1;
-      break;
-    default:
-      NVF_ERROR("Invalid layout");
-  }
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
 
   auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
 
