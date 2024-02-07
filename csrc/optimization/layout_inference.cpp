@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <optimization/layout_inference.h>
+#include <ir/all_nodes.h>
 
 namespace nvfuser {
 
@@ -13,6 +14,12 @@ namespace {
 
 // move this to util maybe?
 std::vector<int64_t> permutationIndex(const std::vector<int64_t>& permutation) {
+  int rank = permutation.size();
+  std::vector<int64_t> ret(rank, -1);
+  for (int64_t i : c10::irange(permutation.size())) {
+    ret.at(permutation[i]) = i;
+  }
+  return ret;
 }
 
 // Cases where we would want to skip modifying allocation domain
@@ -44,8 +51,8 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
   if (out == nullptr) {
     return;
   }
-  TensorView* in = op->in()->as<TensorView*>();
-  if (auto iter = format_map_.find(in)) {
+  TensorView* in = op->in()->as<TensorView>();
+  if (const auto& iter = format_map_.find(in)) {
     format_map_[out] = iter->second;
   }
 }
@@ -107,9 +114,9 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   if (out == nullptr) {
     return;
   }
-  TensorView* in = op->in()->as<TensorView*>();
+  TensorView* in = op->in()->as<TensorView>();
   // broadcast dimensions  are default to outer dimensions
-  if (auto iter = format_map_.find(in)) {
+  if (const auto& iter = format_map_.find(in)) {
     MemoryFormat out_format;
     int64_t cur_outer = out->nDims();
     int index_in = 0;
