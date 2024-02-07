@@ -2112,6 +2112,9 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // After removing the broadcast dimensions, the format should be
   // [M, K] x [K, N] compatible with aten::matmul format.
   auto output = in_a.matmul(in_b);
+
+  // ATen preserves the input dtype whereas MmaOP generates float outputs.
+  // Cast to the dtype of the MmaOp output for consistency.
   if (tv_a->getDataType() != out()->getDataType().value()) {
     output = output.to(data_type_to_aten(out()->getDataType().value()));
   }
