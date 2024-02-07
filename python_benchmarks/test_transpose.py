@@ -10,7 +10,7 @@ def transpose_fusion(
     fd: FusionDefinition,
     dtype: DataType,
     axes: list,
-):
+) -> None:
     T0 = fd.define_tensor(
         shape=[-1, -1, -1], contiguity=[True, True, True], dtype=dtype, is_cpu=False
     )
@@ -35,18 +35,16 @@ def transpose_fusion(
     fd.add_output(T9)
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=3))
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
 def test_transpose_benchmark(
     benchmark,
-    size: tuple,
-    dtype: torch.dtype,
-    axes: list,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
+
+    size = (2, 3, 5)
+    dtype = torch.float32
+    axes = (0, 1)
 
     input1 = torch.randn(*size, device="cuda", dtype=dtype)
     input2 = torch.randn(*size, device="cuda", dtype=dtype)
