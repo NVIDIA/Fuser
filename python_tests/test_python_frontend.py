@@ -3237,6 +3237,7 @@ class TestNvFuserFrontend(TestCase):
 
             self.assertEqual(nvf_out[0], inputs[0].sum(dim=0, keepdim=keepdim))
 
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1706(self):
         inputs = [
             1e-6,
