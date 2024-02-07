@@ -2147,6 +2147,40 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
+TEST_F(MatmulSchedulerTest, AllcationDomain) {
+  int M = 256, N = 256, K = 128;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv1 = makeContigConcreteTensor({256, 128}); // M,K
+  TensorView* tv2 = makeContigConcreteTensor({256, 128}); // N,K
+
+  // The above should be in TN format, so first let's broadcast
+
+  std::vector<bool> bcast_dims(tv1->nDims() + 1, false);
+  bcast_dims.at(bcast_dims.size() - 2) = true;
+  auto* tva = broadcast(tv1, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 2) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  auto* tvb = broadcast(tv2, bcast_dims);
+
+  TensorView* tv3 = fusedMultiplySum(tva, tvb, {-1});
+
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto layout = MmaLayout::TN;
+  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto tref = atMatmul(t0, t1, layout);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  NVF_CHECK(outputs[0].allclose(tref, 0.01, 0.01));
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
