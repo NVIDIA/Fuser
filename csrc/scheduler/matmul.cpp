@@ -1180,8 +1180,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iS  rBz
     //
     // This reordering step lets us inline all but the last dim MNi3 (position
-    // nbatch + 7) which might be vectorized for the epilogue but which we
-    // can't vectorize for the gridReduce.
+    // nbatch + 7) which might be vectorized.
     //
     // NOTE: we need to do this reorder after the propagation above so that it
     // doesn't get reset.
@@ -1195,6 +1194,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         {num_batch_dims + 8, num_batch_dims + 7},
         {num_batch_dims + 9, num_batch_dims + 8},
     });
+    // Vectorize inner-most dimension
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 
   // auto inline for all tensors except register tensors

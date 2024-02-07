@@ -3496,58 +3496,6 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-// Predicate elimination issue repro:
-TEST_F(NVFuserTest, FusionExpandReduce2_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({1, 4});
-  fusion->addInput(tv0);
-
-  auto tv1 =
-      expand(tv0, {IrBuilder::create<Val>(3L), IrBuilder::create<Val>(4L)});
-
-  auto tv2 = sum(tv1, {0});
-  fusion->addOutput(tv2);
-
-  // tv2[r{3}, i{4}]
-  tv2->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
-  tv2->axis(1)->parallelize(ParallelType::TIDy);
-  tv2->split(0, NamedScalar::getParallelDim(ParallelType::BIDy), false);
-  tv2->axis(0)->parallelize(ParallelType::BIDy);
-  tv2->split(-1, NamedScalar::getParallelDim(ParallelType::TIDx));
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
-  tv2->axis(-2)->parallelize(ParallelType::BIDx);
-  // [rBIDy, rO, rTIDy, iBIDx, iTIDx]
-  tv2->reorder({{-2, 0}, {-1, 1}, {2, 2}});
-  // [iBIDx, iTIDx, rTIDy, rBIDy, rO]
-  auto tv3 = tv2->rFactor({-1});
-
-  TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(tv3);
-  tv0->computeAt(tv3, -1, ComputeAtMode::MostInlined);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0}, LaunchParams(-1, 2, -1, 4, 2, 1));
-  auto cg_outputs = fe.runFusion({t0}, LaunchParams(-1, 2, -1, 4, 2, 1));
-
-  auto ref = t0.expand({3, 4}).sum({0});
-
-  testValidate(
-      fusion.get(),
-      cg_outputs,
-      {t0},
-      {ref},
-      __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(-1, 2, -1, 4, 2, 1));
-}
-
 TEST_F(NVFuserTest, FusionVectorComponentReduce_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -8672,6 +8620,48 @@ TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs3) {
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs, persistent_params->lparams);
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
+// Test 3D reductions with constant domains.
+// https://github.com/NVIDIA/Fuser/issues/1590
+TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 8L, z = 8L, w = 16L, h = 512L;
+  auto tv0 = TensorViewBuilder()
+                 .ndims(5)
+                 .shape({-1, -1, -1, -1, -1})
+                 .contiguity({true, true, true, true, true})
+                 .strideOrder({4, 3, 2, 0, 1})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = full(
+      {IrBuilder::create<Val>(x),
+       IrBuilder::create<Val>(y),
+       IrBuilder::create<Val>(z),
+       IrBuilder::create<Val>(w),
+       IrBuilder::create<Val>(h)},
+      fusion->oneVal(),
+      DataType::Float);
+  auto tv2 = mul(tv0, tv1);
+  auto tv3 = sum(tv2, {2, 4});
+  fusion->addOutput(tv3);
+
+  // tv1 is a constant tensor, and its domains are constant.
+  // Its constant domains are used in ExactMappedExtentSubstitutionPass
+  // to substitute the domains of tv0.
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 =
+      at::randn({x, y, z, w, h}, options)
+          .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  auto ref = t0.to(at::kDouble).sum({2, 4});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

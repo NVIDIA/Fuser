@@ -55,9 +55,6 @@ Vector define_vector_fn(
   std::vector<Scalar> args;
   size_t idx = 0;
   for (const auto& item : values) {
-    NVF_CHECK(
-        idx < 8,
-        "The specified vector size exceeds the max tensor size for nvfuser.");
     if (py::isinstance<py::int_>(item)) {
       auto int_value = py::cast<int64_t>(item);
       NVF_CHECK(
@@ -418,7 +415,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def_static(
           "get",
           &FusionCache::get,
-          py::arg("max_fusions") = int(8192),
+          py::arg("max_fusions") = int(16384),
+          py::arg("selected_device") = int(-1),
           py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
@@ -865,9 +863,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self, size_t size) -> Vector {
-        NVF_CHECK(
-            size < 8,
-            "The specified vector size exceeds the max tensor size for nvfuser.");
         std::vector<Scalar> args;
         args.reserve(size);
         for (size_t i = 0; i < size; ++i) {

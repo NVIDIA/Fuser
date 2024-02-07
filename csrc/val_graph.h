@@ -175,6 +175,10 @@ class ValGraph {
   // they modify matching original inputs by the same amount.
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
+  // Check basic consistencies of val and expr groups and their
+  // mappings.
+  void validateConsistency() const;
+
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }
