@@ -306,6 +306,7 @@ TEST_P(HopperRS, SingleTile) {
   tv0 = set(tv0);
   // Just doing a gmem->smem copy
   tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
 
   auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
 
@@ -333,7 +334,6 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1->setMemoryType(MemoryType::Shared);
   tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
 
   naivelyParallelize(tv1);
@@ -408,6 +408,37 @@ class HopperSS : public HopperBase,
   }
 };
 
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopperSS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, M, 1}, {K, 1, N}};
+    case MmaLayout::NN:
+      return {{1, K, M}, {N, K, 1}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -415,61 +446,54 @@ TEST_P(HopperSS, SingleTile) {
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
-  std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getK(macro), getN(macro)};
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
 
-  if (transpose_a) {
-    std::swap(A_shape[0], A_shape[1]);
-  }
-
-  if (transpose_b) {
-    std::swap(B_shape[0], B_shape[1]);
-  }
-
-  auto tv0 = makeConcreteTensor(A_shape, dtype);
-  auto tv1 = makeConcreteTensor(B_shape, dtype);
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  TensorView* tv0b = nullptr;
-  TensorView* tv1b = nullptr;
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
   int axes = 0;
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
   switch (layout) {
     case MmaLayout::TT:
       // [M, K, N]
-      tv0b = broadcast(tv0, {false, false, true});
-      tv0b->reorder({{-1, -3}});
-      tv1b = broadcast(tv1, {true, false, false});
+      tv0->reorder({{-1, -3}});
       axes = 1;
       break;
     case MmaLayout::TN:
       // [M, N, K]
-      tv0b = broadcast(tv0, {false, true, false});
-      tv0b->reorder({{-2, -3}});
-      tv1b = broadcast(tv1, {true, false, false});
+      tv0->reorder({{-2, -3}});
       axes = 2;
       break;
     case MmaLayout::NT:
       // [K, M, N]
-      tv0b = broadcast(tv0, {false, false, true});
-      tv0b->reorder({{-1, -3}});
-      tv1b = broadcast(tv1, {false, true, false});
-      tv1b->reorder({{-2, -3}});
+      tv0->reorder({{-1, -3}});
+      tv1->reorder({{-2, -3}});
       axes = 0;
       break;
     case MmaLayout::NN:
       // [N, K, M]
-      tv0b = broadcast(tv0, {true, false, false});
-      tv1b = broadcast(tv1, {false, false, true});
-      tv1b->reorder({{-1, -3}});
+      tv1->reorder({{-1, -3}});
       axes = 1;
       break;
     default:
       NVF_ERROR("Invalid layout");
   }
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {axes});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
 
+  // Reorder the accumulator as [M, N, K]
   switch (layout) {
     case MmaLayout::TT:
       // [M, K, N] -> [M, N, K]
@@ -502,14 +526,13 @@ TEST_P(HopperSS, SingleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  tv0b->setMemoryType(MemoryType::Shared);
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
-  tv0b->applyMmaSwizzle(swizzle_a, !transpose_a);
-  tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
+  tv0->applyMmaSwizzle(swizzle_a, !transpose_a);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
 
-  naivelyParallelize(tv0b);
-  naivelyParallelize(tv1b);
+  naivelyParallelize(tv0);
+  naivelyParallelize(tv1);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
