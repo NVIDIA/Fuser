@@ -829,4 +829,14 @@ bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
+void Fusion::markOutputForEvaluation(Val* output, const AllocationType type){
+  NVF_ERROR(type == AllocationType::Evaluate,
+    "Expected AllocationType to be Evaluate. For any other AllocationType, use aliasOutputToInput.");
+  io_alias_[output] = AliasInfo{
+    .type = type,
+    .aliased_io = nullptr,
+    .hide_output = !output->isFusionOutput()
+  };
+}
+
 } // namespace nvfuser
