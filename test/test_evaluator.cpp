@@ -703,5 +703,8 @@ TEST_F(ExprEvalTest, MmaOp) {
   evaluator.bind(tv1, in_b);
   at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
   NVF_CHECK(out_ref.equal(out));
+
+  auto ref_dtype = data_type_to_aten(tv2->getDataType().value());
+  NVF_CHECK(out.dtype() == ref_dtype);
 }
 } // namespace nvfuser
