@@ -11,6 +11,10 @@ namespace nvfuser {
 
 namespace {
 
+// move this to util maybe?
+std::vector<int64_t> permutationIndex(const std::vector<int64_t>& permutation) {
+}
+
 // Cases where we would want to skip modifying allocation domain
 //   1. when allocation domain is already set on tv;
 //   2. when tv is already an alias;
@@ -55,17 +59,47 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
   }
   TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
   TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
-  auto rhs_iter = format_map_.find(rhs);
-  if (lhs == nullptr && rhs_iter != format_map_.end()) {
-    format_map_[out] = rhs_iter->second;
-    return;
+  if (lhs == nullptr) {
+    if (auto rhs_iter = format_map_.find(rhs)) {
+      format_map_[out] = rhs_iter->second;
+      return;
+    }
+  } else if (rhs == nullptr) {
+    if (auto lhs_iter = format_map_.find(lhs)) {
+      format_map_[out] = lhs_iter->second;
+      return;
+    }
+  } else { // lhs != nullptr && rhs != nullptr
+    auto lhs_iter = format_map_.find(lhs);
+    auto rhs_iter = format_map_.find(rhs);
+    if (lhs_iter != format_map_.end() && rhs_iter != format_map_.end()) {
+      // if both memory format agree, we just propagate it as-is.
+      if (lhs_iter->second == rhs_iter->second) {
+        format_map_[out] = lhs_iter->second;
+        return;
+      }
+      // go from innermost to outermost until we find the first one that's non-broadcast
+      std::vector<int64_t> lhs_index = permutationIndex(lhs_iter->second);
+      std::vector<int64_t> rhs_index = permutationIndex(rhs_iter->second);
+      
+      NVF_ERROR(lhs_index.size() == rhs_index.size());
+      for (auto i = c10::irange(lhs_index.size())) {
+        if (!rhs_iter->first->getMaybeRFactorDomain()[rhs_index[i]]->isBroadcast()) {
+	  format_map_[out] = rhs_iter->second;
+	  return;
+	} else if (!lhs_iter->first->getMaybeRFactorDomain()[lhs_index[i]]->isBroadcast()) {
+	  format_map_[out] = lhs_iter->second;
+	  return;
+	}
+      }
+    } else if (lhs_iter != format_map_.end()) {
+      format_map_[out] = lhs_iter->second;
+      return;
+    } else if (rhs_iter != format_map_.end()) {
+      format_map_[out] = rhs_iter->second;
+      return;
+    }
   }
-  auto lhs_iter = format_map_.find(lhs);
-  if (rhs == nullptr && lhs_iter != format_map_.end()) {
-    format_map_[out] = lhs_iter->second;
-    return;
-  }
-  if (rhs != nullptr && lhs != nullptr && lhs_iter != format_map_.end()) {
 }
 
 void MemoryFormatInferencer::handle(const BroadcastOp* op) {
