@@ -768,7 +768,10 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
   return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input, const AllocationType type) {
+void Fusion::aliasOutputToInput(
+    Val* output,
+    Val* input,
+    const AllocationType type) {
   NVF_CHECK(
       type != AllocationType::NoAlias,
       "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
@@ -813,7 +816,9 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AllocationType ty
 
 const AliasInfo& Fusion::getOutputAlias(Val* output) const {
   static AliasInfo no_alias_info{
-      .type = AllocationType::NoAlias, .aliased_io = nullptr, .hide_output = false};
+      .type = AllocationType::NoAlias,
+      .aliased_io = nullptr,
+      .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     return search->second;
   }
