@@ -939,7 +939,7 @@ at::Tensor allocateOutput(
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
-  if (alias_info.type == AliasType::NoAlias) {
+  if (alias_info.type == AllocationType::NoAlias) {
     auto alloc_tensor = at::native::empty_strided_cuda(
         out_info.sizes,
         out_info.strides,
@@ -956,7 +956,7 @@ at::Tensor allocateOutput(
   Val* aliased_io = alias_info.aliased_io;
   NVF_ERROR(
       aliased_io != nullptr,
-      "The other two AliasTypes currently must have an `aliased_io`.");
+      "The other two AllocationTypes currently must have an `aliased_io`.");
   NVF_ERROR(
       aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
       aliased_io->toInlineString(),
@@ -970,8 +970,8 @@ at::Tensor allocateOutput(
       PolymorphicValue_functions::toString(aliased_io_val));
   auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
 
-  if (alias_info.type == AliasType::InplaceUpdate) {
-    // Unlike for `AliasType::PointerArithmetic`, don't use
+  if (alias_info.type == AllocationType::InplaceUpdate) {
+    // Unlike for `AllocationType::PointerArithmetic`, don't use
     // ExpressionEvaluator to compute the output tensor. This is because
     // the output tensor may hold different data from the input, e.g., an
     // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
@@ -979,7 +979,7 @@ at::Tensor allocateOutput(
     return aliased_io_tensor;
   }
 
-  NVF_ERROR(alias_info.type == AliasType::PointerArithmetic);
+  NVF_ERROR(alias_info.type == AllocationType::PointerArithmetic);
   at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
   NVF_ERROR(
       out_tensor.is_alias_of(aliased_io_tensor),
@@ -1027,8 +1027,8 @@ std::vector<at::Tensor> allocateOutputs(
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type == AliasType::NoAlias &&
-            kernel->getOutputAlias(rhs.second).type != AliasType::NoAlias);
+            kernel->getOutputAlias(lhs.second).type == AllocationType::NoAlias &&
+            kernel->getOutputAlias(rhs.second).type != AllocationType::NoAlias);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
