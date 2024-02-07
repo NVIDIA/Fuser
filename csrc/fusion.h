@@ -94,6 +94,11 @@ enum class AllocationType : int {
   // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
   // cheaply compute the output tensor.
   PointerArithmetic,
+  // To evaluate outputs which are not aliases.
+  // TODO: This can be potentially merged with PointerArithmetic.
+  //       PointerArithmetic requires aliased_io != nullptr while for evaluating
+  //       a non-aliased output, aliased_io = nullptr. So keeping them separate initially.
+  Evaluate,
 };
 
 struct AliasInfo {
@@ -257,6 +262,10 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
+  // Marks an output (by adding to io_alias_ map) to be evaluated through 
+  // expression evaluator.
+  void markOutputForEvaluation(Val* output, const AllocationType type);
+  
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
     permuted_input_map_.insert({index, permutation});
