@@ -540,9 +540,8 @@ std::string testNameHopperSS(
   auto layout = std::get<2>(info.param);
   auto swizzle_a = std::get<3>(info.param);
   auto swizzle_b = std::get<4>(info.param);
-  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
-     << toString(layout) << "_" << toString(swizzle_a) << "_"
-     << toString(swizzle_b) << dtype;
+  os << toString(macro) << "_" << toString(layout) << "_" << toString(swizzle_a)
+     << "_" << toString(swizzle_b) << dtype;
   return os.str();
 }
 
