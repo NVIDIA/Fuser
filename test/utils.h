@@ -636,21 +636,6 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
     MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
-// Utility to generate input shapes based on given layout
-std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopper(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout);
-
-// Utility to generate inputs based on given layout
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopper(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype = at::kHalf);
-
 // Labels to describe tensor position in matmul:
 // A, B - input
 // C - input if beta is provided, shape must be the same as output (D)

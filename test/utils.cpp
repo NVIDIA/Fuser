@@ -519,10 +519,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopper
       return {{M, K, 1}, {1, K, N}};
     case MmaLayout::TN:
       return {{M, 1, K}, {1, N, K}};
-    case MmaLayout::NT:
-      return {{K, M, 1}, {1, K, N}};
-    case MmaLayout::NN:
-      return {{K, 1, M}, {1, N, K}};
     default:
       NVF_CHECK(false, "unsupported data layout.");
   }
