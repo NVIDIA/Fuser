@@ -519,6 +519,26 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_tensor_ndim(self):
+        shape = [2 for i in range(12)]
+        new_shape = shape[:9]
+        new_shape.append(8)
+
+        inputs = [torch.randn(shape, device="cuda"), new_shape]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            n_shape = fd.define_vector(10)
+
+            t1 = fd.ops.reshape(t0, n_shape)
+            t2 = fd.ops.sum(t1, axes=[3])
+
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.sum(inputs[0].reshape(new_shape), dim=3)
+        self.assertEqual(eager_out, nvf_out[0])
+
     # Testing a scenario where a broadcast requires a symbolic output shape
     def test_tensor_shape(self):
         inputs = [
@@ -3150,6 +3170,72 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         # self.assertEqual(nvf_out[0], t24)
+
+    # Test that trivial reshapes whose inputs are reductions are concretized
+    # properly
+    # See https://github.com/NVIDIA/Fuser/issues/1691
+    def test_issue1691(self):
+        inputs = [
+            torch.randn((12,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 3, 4), (12, 4, 1)
+            ),
+            torch.randn((12,), dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 3), (3, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[1, -1, -1],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.ops.sum(T1, axes=[1], keepdim=False, dtype=DataType.Null)  # 1D
+            T3 = fd.ops.sum(T0, axes=[1, 0], keepdim=False, dtype=DataType.Null)  # 1D
+            S4 = fd.define_scalar(4, dtype=DataType.Int)
+            V5 = fd.define_vector([S4], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T2, new_shape=V5)
+            S7 = fd.define_scalar(4, dtype=DataType.Int)
+            V8 = fd.define_vector([S7], dtype=DataType.Int)
+            T9 = fd.ops.reshape(T3, new_shape=V8)
+            T10 = fd.ops.mul(T6, T9)
+            T11 = fd.ops.sum(T10, axes=[0], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T11)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = (inputs[0].sum(dim=[0, 1]) * inputs[1].sum(dim=1)).sum(dim=0)
+        self.assertEqual(nvf_out[0], torch_ref)
+
+    # Test that expanded dimensions can be reduced properly
+    # See https://github.com/NVIDIA/Fuser/issues/1678
+    def test_expanded_reduction(self):
+        inputs = [torch.tensor(1.0, device="cuda").as_strided((2, 3), (0, 0))]
+
+        for keepdim in [False, True]:
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[-1, -1],
+                    contiguity=[None, None],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                    stride_order=[1, 0],
+                )
+                T1 = fd.ops.sum(T0, axes=[0], keepdim=keepdim, dtype=DataType.Null)
+                fd.add_output(T1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+            self.assertEqual(nvf_out[0], inputs[0].sum(dim=0, keepdim=keepdim))
 
 
 if __name__ == "__main__":

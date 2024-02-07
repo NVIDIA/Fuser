@@ -26,7 +26,6 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 MINIMUM_SYMBOLIC_SIZE = -1
 INT64_MAX = 2**63 - 1
 MAX_TENSOR_DIMS = 8
-MAX_VECTOR_SIZE = 8
 
 
 # Determine if a number is with desired Domain [low, high)
@@ -468,42 +467,11 @@ def define_vector_constant_error_generator(
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
 
-    check_max_vector_size = ErrorSample(
-        {
-            "values": [-1 for _ in range(MAX_VECTOR_SIZE + 1)],
-        },
-        "The specified vector size exceeds the max tensor size for nvfuser.",
-    )
-
     error_cases = [
         # FIXME: The above_size_range case gives a non-sensical error message.
         # "Unable to cast Python instance to C++ type (#define PYBIND11_DETAILED_ER"
         # check_above_size_range,
         check_below_size_range,
-        check_max_vector_size,
-    ]
-
-    for es in error_cases:
-        yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
-
-
-def define_vector_input_error_generator(
-    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
-):
-    """
-    "define_vector",
-    [](FusionDefinition& self, size_t size) -> Vector {
-    """
-
-    check_max_vector_size = ErrorSample(
-        {
-            "size": (MAX_VECTOR_SIZE + 1),
-        },
-        "The specified vector size exceeds the max tensor size for nvfuser.",
-    )
-
-    error_cases = [
-        check_max_vector_size,
     ]
 
     for es in error_cases:
@@ -1255,8 +1223,12 @@ def squeeze_generator(
         ((1, 1, 1), (0, 1, 2)),
         ((1, 1, 1), (-3, -2, -1)),
         # No-op test cases
-        ((5, 5, 5), (0, 1, 2)),
-        ((5, 5, 5), (-3, -2, -1)),
+        # NOTE: These are skipped. We diverge from PyTorch behavior for squeeze
+        # in nvFuser. Our squeeze op will throw an exception if we pass a
+        # squeeze dimension that cannot be squeezed.
+        # See https://github.com/NVIDIA/Fuser/pull/1717
+        # ((5, 5, 5), (0, 1, 2)),
+        # ((5, 5, 5), (-3, -2, -1)),
         ((), ()),
     )
 
