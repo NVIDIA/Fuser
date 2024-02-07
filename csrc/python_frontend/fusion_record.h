@@ -718,13 +718,15 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     const auto arg_ndims = arg_domains_nr.size();
     NVF_CHECK(
         output_ndims_ >= arg_ndims,
-        "The new shape is expected to be greater-then-or-equal to the input",
+        "The new shape is expected to be greater-then-or-equal to the input: ",
         output_ndims_,
+        " vs ",
         arg_ndims);
     NVF_CHECK(
         arg_ndims == broadcast_dims_.size(),
-        "The broadcast dimensions should match the input dimensions.",
+        "The broadcast dimensions should match the input dimensions: ",
         arg_ndims,
+        " vs ",
         broadcast_dims_.size());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
