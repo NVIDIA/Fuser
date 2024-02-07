@@ -285,7 +285,7 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DTuring(M, N, K, layout);
+  auto shapes = matmulAtInputShape3DHopperRS(M, N, K, layout);
   return std::make_pair(
       at::randn(shapes.first, options), at::randn(shapes.second, options));
 }
