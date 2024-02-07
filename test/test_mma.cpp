@@ -263,11 +263,8 @@ class HopperRS : public HopperBase,
   }
 };
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopperRS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout) {
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
       return {{M, K, 1}, {1, K, N}};
@@ -355,7 +352,9 @@ TEST_P(HopperRS, SingleTile) {
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
@@ -408,11 +407,8 @@ class HopperSS : public HopperBase,
   }
 };
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DHopperSS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout) {
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
       return {{M, K, 1}, {1, K, N}};
@@ -545,7 +541,9 @@ TEST_P(HopperSS, SingleTile) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
