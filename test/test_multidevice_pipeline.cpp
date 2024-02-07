@@ -581,10 +581,10 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   int Dv = 4;
   int Dk = 4;
 
-  TensorView* q = makeConcreteTensor({H, S, Dk}); // 64
-  TensorView* k = makeConcreteTensor({H, S, Dk}); // 64
-  TensorView* v = makeConcreteTensor({H, S, Dv}); // 64
-  TensorView* w = makeConcreteTensor({H, Dv, D_model}); // 40
+  TensorView* q = makeConcreteTensor({H, S, Dk});
+  TensorView* k = makeConcreteTensor({H, S, Dk});
+  TensorView* v = makeConcreteTensor({H, S, Dv});
+  TensorView* w = makeConcreteTensor({H, Dv, D_model});
   auto tv_inputs = {q, k, v, w};
   for (auto i : tv_inputs) {
     fusion->addInput(i);
@@ -607,9 +607,9 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
       broadcast(qkv, {false, false, false, true}); // (H, S, Dv, Dmodel)
   TensorView* w_b =
       broadcast(w, {false, true, false, false}); // (H, S, Dv, Dmodel)
-  TensorView* y0 = mul(qkv_b, w_b);
-  TensorView* y1 = sum(y0, {0}); // (S, Dv, Dmodel) // TODO: Reduce Dv first
-  TensorView* y = sum(y1, {1}); // (S, Dmodel)
+  TensorView* y0 = mul(qkv_b, w_b); // (H, S, Dv, Dmodel)
+  TensorView* y1 = sum(y0, {2}); // (H, S, Dmodel)
+  TensorView* y = sum(y1, {0}); // (S, Dmodel)
   fusion->addOutput(qk);
   fusion->addOutput(qkv);
   fusion->addOutput(y);
@@ -631,17 +631,15 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
       qkv,
       qkv_b,
       w_b,
-      y0};
+      y0,
+      y1};
   for (auto tv : h_sharded) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
   }
 
-  // All other tensorviews that are not sharded
-  std::vector<TensorView*> tvs = {y1, y};
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(mesh);
-  }
+  // Only y (output) is not sharded.
+  y->setDeviceMesh(mesh);
 
   auto aten_q = at::randn({H, S, Dk}, tensor_options);
   auto aten_k = at::randn({H, S, Dk}, tensor_options);
