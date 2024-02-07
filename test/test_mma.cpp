@@ -283,39 +283,20 @@ TEST_P(HopperRS, SingleTile) {
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
-  std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getK(macro), getN(macro)};
+  auto shapes = matmulAtInputShape3DTuring(
+      getM(macro), getN(macro), getK(macro), layout);
 
-  if (transpose_a) {
-    std::swap(A_shape[0], A_shape[1]);
-  }
-
-  if (transpose_b) {
-    std::swap(B_shape[0], B_shape[1]);
-  }
-
-  auto tv0 = makeConcreteTensor(A_shape, dtype);
-  auto tv1 = makeConcreteTensor(B_shape, dtype);
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M, K]
   if (transpose_a) {
-    tv0 = transpose(tv0, 0, 1);
-  }
-
-  TensorView* tv0b = nullptr;
-  int axes = 0;
-  if (transpose_b) {
-    // [M, N, K]
-    tv0b = broadcast(tv0, {false, true, false});
-    axes = 2;
+    tv0 = transpose(tv0, 0, 2);
   } else {
-    // [M, K, N]
-    tv0b = broadcast(tv0, {false, false, true});
-    axes = 1;
+    tv0 = set(tv0);
   }
-  auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, 1, K]
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {axes});
 
