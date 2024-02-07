@@ -452,13 +452,20 @@ TEST_P(HopperSS, SingleTile) {
   tv1->setMemoryType(MemoryType::Shared);
 
   int axes = 0;
-
-  // Bring related dims to innermost, that is:
-  // - Reorder tv0 as [1, M, K] or [1, K, M]
-  // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
-
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
   auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
 
   // Reorder the accumulator as [M, N, K]
@@ -493,6 +500,12 @@ TEST_P(HopperSS, SingleTile) {
   mma_ops.front()->setMacro(macro);
 
   auto tv2c = tv2->cacheBefore();
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
 
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0->applyMmaSwizzle(swizzle_a, !transpose_a);
