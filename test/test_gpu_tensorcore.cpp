@@ -2059,8 +2059,10 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(

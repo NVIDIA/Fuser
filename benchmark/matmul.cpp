@@ -205,8 +205,8 @@ static void Baseline_Matmul(
 
   at::manual_seed(0);
 
-  auto inputs =
-      matmulAtInput2D(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs = matmulAtInput2D(
+      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
