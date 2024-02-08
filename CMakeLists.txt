@@ -426,6 +426,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_id_model.cpp
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
   ${NVFUSER_ROOT}/test/test_segmentation.cpp
+  ${NVFUSER_ROOT}/test/test_layout_inference.cpp
 )
 
 if(BUILD_TEST)

@@ -23,9 +23,7 @@ namespace nvfuser {
 
 class LayoutInferenceTest : public NVFuserTest {};
 
-// A global->global copy kernel converting NCHW memory format into NHWC, with a
-// 4d allocation domain in output.
-TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
+TEST_F(LayoutInferenceTest, test) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -39,7 +37,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_nhwc, true);
 
-  auto updated_layout = inferenceMemoryFormat(fusion);
+  auto updated_layout = inferenceMemoryFormat(&fusion);
 
   // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
