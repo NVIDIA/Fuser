@@ -118,6 +118,21 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_block_welford || out_dom->hasBlockReduction();
   }
 
+  void handle(GroupedReductionOp* grouped_rop) final {
+    summary_.has_iter_grouped_reductions = true;
+    int num_grouped_iterations = 1;
+    auto out_tv = ir_utils::getTvOutput(grouped_rop);
+    for (auto axis : out_tv->getLeafDomain()) {
+      if (axis->getParallelType() == ParallelType::Group) {
+        num_grouped_iterations *= (int)axis->extent()->value();
+      }
+    }
+    summary_.num_grouped_iterations =
+        std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+    std::cout << "GroupedReductionOp num_grouped_iterations= "
+              << num_grouped_iterations << std::endl;
+  }
+
   void handle(GridWelford* grid_welford) final {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;

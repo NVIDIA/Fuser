@@ -2143,4 +2143,66 @@ TEST_F(
   grid_persistent_batchnorm_bwd_scheduler(256, 28, 512, DataType::Float);
 }
 #endif
+
+TEST_F(NVFuserTest, IterGroupedBlockReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = castOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  std::vector<int64_t> shape({32, 2048});
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
+  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+
+  // only do block reduction, enforce vectorization so we can group them
+  const int vect_factor = 8;
+  heuristics_params->cross_grid_inner_reduction = false;
+  heuristics_params->split_grid_dim_inner_reduction = false;
+  heuristics_params->vectorize_iter_dom = true;
+  heuristics_params->unroll_factor_iter_dom = vect_factor;
+  scheduleReduction(&fusion, *heuristics_params);
+
+  // lowering & check iteration grouped reductions
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  NVF_CHECK(
+      gpulw.kernel()->summary().has_iter_grouped_reductions,
+      "There must be iter domain grouped reductions.");
+  NVF_CHECK(
+      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
+      "Expected ",
+      vect_factor,
+      " grouped iterations, found ",
+      gpulw.kernel()->summary().num_grouped_iterations);
+
+  FusionExecutor fe;
+  auto lparams = heuristics_params->lparams;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {t0.to(at::kFloat).sum(0)},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
 } // namespace nvfuser
