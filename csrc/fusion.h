@@ -474,7 +474,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, AliasInfo> io_alias_;
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation
