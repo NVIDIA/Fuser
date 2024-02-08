@@ -2638,9 +2638,95 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void genIterGroupedBlockReduction(
+      const int num_grouped_iterations,
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred,
+      kir::Predicate* write_pred) {
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+
+    const auto data_type = output->dtype();
+
+    ArgumentBuilder template_args;
+    template_args.arg(tidx).arg(tidy).arg(tidz);
+    template_args.arg(isAligned());
+    template_args.arg(num_grouped_iterations);
+
+    ArgumentBuilder func_args;
+    auto output_tv = output->view();
+    auto va = kernel_->summary().vectorized_accesses;
+    if (va.find(output_tv) != va.end()) {
+      func_args.arg(genVariableName(output) + ".array");
+    } else {
+      func_args.arg(genVariableName(output));
+    }
+    func_args.arg(genVariableName(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+    func_args.arg(genInline(read_pred));
+    // Pass the write predicate if available and different from the
+    // default predicate. The blockReduce runtime function uses the
+    // default predicate for both read and write when only the
+    // default one is given.
+    if (write_pred != nullptr) {
+      NVF_ERROR(write_pred->hasValue());
+      func_args.arg(genInline(write_pred));
+    }
+    func_args.arg(genCall(data_type, genInline(init)));
+
+    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+             << ";\n";
+  }
+
   void handle(const GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    const auto num_grouped_iterations =
+        getGroupedLoopIndexConcreteIntSets().size();
+
+    const auto num_grouped_exprs = grouped_rop->numHorizontallyGroupedExprs();
+
+    std::cout << "GroupedReductionOp: num_grouped_iterations= "
+              << num_grouped_iterations
+              << ", num_grouped_exprs= " << num_grouped_exprs << std::endl;
+
+    // special version where only iteration is grouped.
+    // used for outer reduction with vectorized iteration domain.
+    if (num_grouped_iterations > 1 && num_grouped_exprs == 1) {
+      const auto output = grouped_rop->output(0)->as<kir::TensorIndex>();
+      const auto input = grouped_rop->input(0)->as<kir::TensorIndex>();
+      const auto op_type = grouped_rop->getReductionOpType(0);
+      const auto domain = output->view()->domain();
+      const bool has_block_reduce = domain->hasBlockReduction();
+      const bool has_grid_reduce = domain->hasGridReduction();
+      NVF_ERROR(
+          !has_grid_reduce, "IterGroupedGridReduction not implemented yet");
+      NVF_ERROR(
+          has_block_reduce,
+          "To use IterGroupedBlockReduction, must have block reduce!");
+      return genIterGroupedBlockReduction(
+          num_grouped_iterations,
+          output,
+          input,
+          grouped_rop->initVal(0),
+          op_type,
+          grouped_rop->predicate(),
+          grouped_rop->writePredicate());
+    }
+
+    for (const auto i : c10::irange(num_grouped_exprs)) {
       NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();

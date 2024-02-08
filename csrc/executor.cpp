@@ -1220,11 +1220,25 @@ LaunchParams FusionExecutor::computeLaunchParams(
     const int welford_factor =
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
+    // in outer reduction, may group iteration domain, e.g. when vectorized.
+    const int grouped_iter_factor = kernel_summary.has_iter_grouped_reductions
+        ? kernel_summary.num_grouped_iterations
+        : 1;
+
+    if (welford_factor == 3) {
+      NVF_CHECK(
+          !kernel_summary.has_iter_grouped_reductions,
+          "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
+    }
+
+    if (grouped_iter_factor > 1) {
+      std::cout << "grouped_iter_factor: " << grouped_iter_factor << std::endl;
+    }
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        welford_factor * launch_params.bdimx() * launch_params.bdimy() *
-        launch_params.bdimz();
+        grouped_iter_factor * welford_factor * launch_params.bdimx() *
+        launch_params.bdimy() * launch_params.bdimz();
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(

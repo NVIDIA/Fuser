@@ -1209,18 +1209,20 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  NVF_ERROR(
-      !is_outer_grid_persistence,
-      "is_outer_grid_persistence should be false in scheduleReduction.");
+  // allow iter domain grouped reduction for block outer reduction.
+  // the var name is confusing, should rename [cross_grid/block_inner_reduction]
+  // to [cross_grid/block_reduction]
+  const bool use_grouped_reduction = !rparams.cross_grid_inner_reduction &&
+      !rparams.fastest_dim && rparams.cross_block_inner_reduction;
+
+  std::cout << "use_grouped_reduction: " << use_grouped_reduction << std::endl;
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tv,
       reference_tv,
       unroll,
       vectorize,
-      is_outer_grid_persistence,
+      use_grouped_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
