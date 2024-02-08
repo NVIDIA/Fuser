@@ -57,15 +57,17 @@ void ValGraphVisitor::traverse() {
         });
   };
 
-  while (!to_visit_vals.empty() || !to_visit_exprs.empty()) {
+  // Detect if nothing has been processed which would put us in an infinite
+  // loop
+  bool something_was_processed = false;
+
+  do {
+    something_was_processed = false;
+
     // Process expressions first as all definitions of vals have to be
     // processed before we can process that val.
 
-    // Detect if nothing has been processed which would put us in an infinite
-    // loop
-    bool something_was_processed = false;
     std::deque<ExprGroup> still_to_visit_exprs;
-
     while (!to_visit_exprs.empty()) {
       ExprGroup current_expr_group = to_visit_exprs.front();
       to_visit_exprs.pop_front();
@@ -116,10 +118,24 @@ void ValGraphVisitor::traverse() {
 
     std::swap(to_visit_vals, still_to_visit_vals);
 
-    NVF_ERROR(
-        something_was_processed ||
-            (to_visit_vals.empty() && to_visit_exprs.empty()),
-        "Infinite loop entered.");
+  } while (something_was_processed);
+
+  if (!to_visit_vals.empty()) {
+    std::stringstream ss;
+    ss << "Remaining Vals to visit:";
+    for (const ValGroup& vg : to_visit_vals) {
+      ss << " " << nvfuser::toString(vg);
+    }
+    NVF_ERROR(false, ss.str());
+  }
+
+  if (!to_visit_exprs.empty()) {
+    std::stringstream ss;
+    ss << "Remaining Exprs to visit:";
+    for (const ExprGroup& eg : to_visit_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    NVF_ERROR(false, ss.str());
   }
 }
 
