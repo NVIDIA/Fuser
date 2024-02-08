@@ -30,12 +30,12 @@ TEST_F(LayoutInferenceTest, test) {
 
   auto tv0 = makeContigTensor(4);
   fusion.addInput(tv0);
-  auto tv1 = set(tv0);
+  auto tv1 = relu(tv0);
   fusion.addOutput(tv1);
 
-  std::vector<IterDomain*> tv1_nhwc = {
-      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
-  tv1->setAllocationDomain(tv1_nhwc, true);
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
 

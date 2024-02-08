@@ -29,7 +29,7 @@ std::vector<int64_t> permutationIndex(const std::vector<int64_t>& permutation) {
 //
 // NOTE: we should also check on contiguity, but I'm not sure if it make sense to look at contiguity flag without a meaningful allocation domain on tv.
 bool skipPropagation(const TensorView* tv) {
-  return tv->hasAllocation() || tv->fusion()->getOutputAlias(tv).type != AliasType::NoAlias;
+  return tv->hasAllocation() || tv->fusion()->getOutputAlias(tv).type != AllocationType::NoAlias;
 }
 
 class MemoryFormatInferencer : public OptOutConstDispatch {
