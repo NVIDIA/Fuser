@@ -230,7 +230,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
           params, data_types, true, true);
       int64_t actual_smem = fe.lastLaunchParams().smem();
-      EXPECT_EQ(estimated_smem, actual_smem);
+      ASSERT_EQ(estimated_smem, actual_smem);
     }
   }
 }

@@ -39,11 +39,19 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
 //! Return sizes of smem_a, smem_b, smem_c in bytes
 std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const MatmulParams::DoubleBufferOptions& double_buffer_options,
     const MmaDataTypes& data_types) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+
+  int ab_factor = double_buffer_options.double_buffer_smem_write
+      ? double_buffer_options.smem_double_buffer_stage
+      : 1;
+  int c_factor = (double_buffer_options.double_buffer_smem_write &&
+                  double_buffer_options.double_buffer_smem_read)
+      ? double_buffer_options.smem_double_buffer_stage
+      : 1;
 
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
@@ -51,13 +59,14 @@ std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
       properties->warpSize * vector_word;
   const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
-  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
+  const size_t smem_a =
+      (size_t)(ceilDiv(mk, round_to_factor) * round_to_factor * ab_factor) *
       dataTypeSize(data_types[0]);
-  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
+  const size_t smem_b =
+      (size_t)(ceilDiv(nk, round_to_factor) * round_to_factor * ab_factor) *
       dataTypeSize(data_types[1]);
-  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
+  const size_t smem_c =
+      (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * c_factor) *
       dataTypeSize(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
@@ -69,11 +78,7 @@ int64_t computeExpectedSharedMemoryUsage(
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed) {
   const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
-      params.tile_sizes,
-      params.double_buffer_options.double_buffer_smem_read
-          ? params.double_buffer_options.smem_double_buffer_stage
-          : 1,
-      data_types);
+      params.tile_sizes, params.double_buffer_options, data_types);
 
   if (params.use_smem_epilogue) {
     if (params.promote_prologue_smem_reuse) {
@@ -102,8 +107,13 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   const size_t shared_memory_available =
       device_smem_limit - shared_memory_overhead;
 
+  // Create a temporary DoubleBufferOptions with full double buffering, for
+  // estimating shared memory size.
+  MatmulParams::DoubleBufferOptions double_buffer_options{
+      true, true, smem_double_buffer_stage};
+
   const auto [smem_a, smem_b, smem_c] =
-      computeSharedMemorySizes(gemm_tile, smem_double_buffer_stage, data_types);
+      computeSharedMemorySizes(gemm_tile, double_buffer_options, data_types);
 
   // NOTE: we can simply add these sizes since they should be integer multiples
   // of 16 bytes, so they will automatically be aligned. This may change with
