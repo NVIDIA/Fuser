@@ -736,7 +736,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             if (contiguity.empty()) {
               for (const auto dim_size : shape) {
                 if (dim_size == 1) {
-                  contiguity.push_back(std::nullopt);
+                  contiguity.emplace_back(std::nullopt);
                 } else {
                   contiguity.emplace_back(true);
                 }
