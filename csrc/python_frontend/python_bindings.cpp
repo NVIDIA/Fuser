@@ -713,10 +713,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& shape,
-             std::vector<std::optional<bool>>& contiguity,
-             PrimDataType dtype = DataType::Float,
-             bool is_cpu = false,
+             const std::vector<int64_t>& shape,
+             std::vector<std::optional<bool>> contiguity = {},
+             const PrimDataType dtype = DataType::Float,
+             const bool is_cpu = false,
              std::vector<int64_t> stride_order = {}) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
             NVF_CHECK(
@@ -733,6 +733,16 @@ void initNvFuserPythonBindings(PyObject* module) {
                   " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
+            if (contiguity.empty()) {
+              for (const auto dim_size : shape) {
+                if (dim_size == 1) {
+                  contiguity.emplace_back(std::nullopt);
+                } else {
+                  contiguity.emplace_back(false);
+                }
+              }
+            }
+
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
@@ -745,7 +755,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return out;
           },
           py::arg("shape"),
-          py::arg("contiguity"),
+          py::arg("contiguity") = py::list(),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::arg("stride_order") = py::list(),
