@@ -1515,10 +1515,10 @@ void ExprSegmentationSorter::sort() {
       fusion_->outputs().end(),
       std::back_inserter(non_pointer_arithmetic_outs),
       [this](Val* out) {
-        return fusion_->getOutputAlias(out).type !=
+        return (fusion_->getOutputAlias(out).type !=
             AllocationType::PointerArithmetic &&
             fusion_->getOutputAlias(out).type !=
-            AllocationType::Evaluate;
+            AllocationType::Evaluate);
       });
 
   // Not putting the exprs between fusion inputs and allKnownVals() here
