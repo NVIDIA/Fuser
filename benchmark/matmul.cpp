@@ -593,7 +593,7 @@ static std::vector<std::tuple<T, T, T>> sizeProduct(
 static void MatmulShapeEager(
     benchmark::internal::Benchmark* b,
     std::vector<std::tuple<long int, long int, long int>> sizes) {
-  b->ArgNames({"M", "N", "K", "FP16Reduction"});
+  b->ArgNames({"M", "N", "K", "half_reduction"});
   for (auto [m, n, k] : sizes) {
     for (bool allow_half_reduction : {false, true}) {
       b->Args({m, n, k, allow_half_reduction});
