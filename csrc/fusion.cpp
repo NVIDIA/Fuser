@@ -833,7 +833,7 @@ void Fusion::markOutputForEvaluation(Val* output){
   io_alias_[output] = AliasInfo{
     .type = AllocationType::Evaluate,
     .aliased_io = nullptr,
-    .hide_output = !output->isFusionOutput()
+    .hide_output = false
   };
 }
 
