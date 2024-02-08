@@ -126,7 +126,7 @@ void ValGraphVisitor::traverse() {
 
   if (!to_visit_exprs.empty()) {
     std::stringstream ss;
-    ss << "Remaining Exprs to visit:";
+    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
