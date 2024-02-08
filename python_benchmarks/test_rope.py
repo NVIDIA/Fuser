@@ -131,7 +131,7 @@ def test_rope_benchmark(
     num_heads = 32
     features_per_head = 128
 
-    # torch.manual_seed(0)
+    torch.manual_seed(0)
     q = torch.randn(
         batch_size,
         seq_len,
@@ -171,14 +171,7 @@ def test_rope_benchmark(
             [q_real * cos - q_image * sin, q_image * cos + q_real * sin], dim=-1
         ).to(torch.bfloat16)
         nvf_out = fd.execute(inputs)
-        if use_cat:
-            # For unknown reasons, rope_with_cat_fusion produces slightly off
-            # numbers. It looks like a problem with cast-to-bfloat, because when
-            # I removed the fd.ops.cast in the end of that fusion, the results
-            # were bit-exact as the reference output.
-            torch.testing.assert_close(nvf_out, [ref_out], atol=0.01, rtol=0.01)
-        else:
-            torch.testing.assert_close(nvf_out, [ref_out], atol=0, rtol=0)
+        torch.testing.assert_close(nvf_out, [ref_out], atol=0, rtol=0)
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
