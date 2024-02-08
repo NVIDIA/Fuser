@@ -45,11 +45,7 @@ std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
 
-  int ab_factor = double_buffer_options.double_buffer_smem_write
-      ? double_buffer_options.smem_double_buffer_stage
-      : 1;
-  int c_factor = (double_buffer_options.double_buffer_smem_write &&
-                  double_buffer_options.double_buffer_smem_read)
+  int ab_factor = double_buffer_options.double_buffer_smem_read
       ? double_buffer_options.smem_double_buffer_stage
       : 1;
 
@@ -65,8 +61,7 @@ std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
   const size_t smem_b =
       (size_t)(ceilDiv(nk, round_to_factor) * round_to_factor * ab_factor) *
       dataTypeSize(data_types[1]);
-  const size_t smem_c =
-      (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * c_factor) *
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
