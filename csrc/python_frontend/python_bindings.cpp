@@ -738,7 +738,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 if (dim_size == 1) {
                   contiguity.emplace_back(std::nullopt);
                 } else {
-                  contiguity.emplace_back(true);
+                  contiguity.emplace_back(false);
                 }
               }
             }
