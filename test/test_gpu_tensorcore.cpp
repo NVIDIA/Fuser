@@ -87,7 +87,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -137,7 +137,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout, at::kBFloat16);
+    auto inputs = matmulAtInput2D(M, N, K, layout, at::kBFloat16);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -191,7 +191,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput2D(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -259,7 +259,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     fe.setMeasureKernelTimeFlag(true);
@@ -372,7 +372,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput2D(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1044,7 +1044,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1719,7 +1719,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1766,7 +1766,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1825,7 +1825,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {DataType::Half, DataType::Half, DataType::Float});
         scheduleMatmul(&fusion, params);
 
-        auto inputs = matmulAtInput(M, N, K, layout);
+        auto inputs = matmulAtInput2D(M, N, K, layout);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1895,7 +1895,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
 
           scheduleMatmul(&fusion, params);
 
-          auto inputs = matmulAtInput(M, N, K, layout);
+          auto inputs = matmulAtInput2D(M, N, K, layout);
 
           FusionExecutor fe;
           NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1957,7 +1957,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               {DataType::Half, DataType::Half, DataType::Float});
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput2D(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2008,7 +2008,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2059,8 +2059,10 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2136,7 +2138,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2264,7 +2266,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2351,7 +2353,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2416,7 +2418,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2469,7 +2471,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto [aten_a, aten_b] = matmulAtInput(M, N, K, layout);
+    auto [aten_a, aten_b] = matmulAtInput2D(M, N, K, layout);
     at::Tensor aten_bias = at::randn({M}, aten_a.options());
     std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
@@ -2522,9 +2524,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     scheduleMatmul(&fusion, params);
 
     at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
     at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
     std::vector<c10::IValue> inputs = {aten_a, aten_b};
 
@@ -2579,9 +2581,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     scheduleMatmul(&fusion, params);
 
     at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
     at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
     at::Tensor aten_bias = at::randn({M}, aten_a.options());
 
     std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};

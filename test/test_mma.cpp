@@ -94,37 +94,31 @@ TEST_P(MmaTest, SingleTile) {
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
 
-  std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getN(macro), getK(macro)};
+  auto shapes =
+      matmulAtInputShape3DTuring(getM(macro), getN(macro), getK(macro), layout);
 
-  if (transpose_a) {
-    std::swap(A_shape[0], A_shape[1]);
-  }
-
-  if (transpose_b) {
-    std::swap(B_shape[0], B_shape[1]);
-  }
-
-  auto tv0 = makeConcreteTensor(A_shape, dtype);
-  auto tv1 = makeConcreteTensor(B_shape, dtype);
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M, K]
+  // [M, 1, K]
   if (transpose_a) {
-    tv0 = transpose(tv0, 0, 1);
+    tv0 = transpose(tv0, 0, 2);
+  } else {
+    // Just doing a gmem->register copy
+    tv0 = set(tv0);
   }
 
-  // [N, K]
+  // [1, N, K]
   if (transpose_b) {
-    tv1 = transpose(tv1, 0, 1);
+    tv1 = transpose(tv1, 1, 2);
+  } else {
+    // Just doing a gmem->register copy
+    tv1 = set(tv1);
   }
 
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1, {true, false, false});
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {2});
 
   fusion.addOutput(tv2);
 
@@ -138,20 +132,20 @@ TEST_P(MmaTest, SingleTile) {
   auto tv2c = tv2->cacheBefore();
 
   // [M, N, K] -> [N, M, K]
-  tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(MmaOperand::A);
-  tv1b->applyMmaSwizzle(MmaOperand::B);
+  tv0->reorder({{-2, -3}, {-3, -2}});
+  tv0->applyMmaSwizzle(MmaOperand::A);
+  tv1->applyMmaSwizzle(MmaOperand::B);
 
-  tv0b->merge(1);
-  tv0b->merge(1);
-  tv0b->axis(1)->parallelize(ParallelType::TIDx);
-  tv1b->merge(1);
-  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->merge(1);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
+  auto inputs = matmulAtInput3DTuring(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
@@ -159,7 +153,9 @@ TEST_P(MmaTest, SingleTile) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
@@ -360,7 +356,7 @@ TEST_P(HopperRS, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
+  auto inputs = matmulAtInput2D(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
@@ -528,7 +524,7 @@ TEST_P(HopperSS, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
+  auto inputs = matmulAtInput2D(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
