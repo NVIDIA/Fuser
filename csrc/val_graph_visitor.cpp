@@ -67,7 +67,6 @@ void ValGraphVisitor::traverse() {
     // Process expressions first as all definitions of vals have to be
     // processed before we can process that val.
 
-    std::deque<ExprGroup> still_to_visit_exprs;
     while (!to_visit_exprs.empty()) {
       ExprGroup current_expr_group = to_visit_exprs.front();
       to_visit_exprs.pop_front();
@@ -86,12 +85,8 @@ void ValGraphVisitor::traverse() {
              graph().outputGroups(current_expr_group)) {
           to_visit_vals.push_back(output_group);
         }
-      } else {
-        still_to_visit_exprs.push_back(current_expr_group);
       }
     }
-
-    std::swap(to_visit_exprs, still_to_visit_exprs);
 
     std::deque<ValGroup> still_to_visit_vals;
     while (!to_visit_vals.empty()) {

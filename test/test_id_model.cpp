@@ -336,24 +336,24 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
   // exprg{51 63}: Merge iS15 iS16
   // exprg{69 73}: Split iS1
   // exprg{9 25 33 45}: Merge iS20 iS21
-  // exprg{27}: Merge iS35 bS10
-  // exprg{11}: Merge iS23 iS22
-  // exprg{19}: Merge iS29 iS19
   // exprg{41}: Split iS46
   // exprg{59}: Split iS61
+  // exprg{19}: Merge iS29 iS19
   // exprg{53 65}: Split iS56
   // exprg{71 75}: Split iS71
+  // exprg{11}: Merge iS23 iS22
+  // exprg{27}: Merge iS35 bS10
   // exprg{35 47}: Split iS41
-  // exprg{29}: Split iS36
-  // exprg{13}: Split iS24
-  // exprg{21}: Split iS30
   // exprg{43}: Split iS47
   // exprg{61}: Split iS62
+  // exprg{21}: Split iS30
   // exprg{55 67}: Split iS57
+  // exprg{13}: Split iS24
+  // exprg{29}: Split iS36
   // exprg{37 49}: Split iS42
-  // exprg{31}: Split iS37
-  // exprg{15}: Split iS25
   // exprg{23}: Split iS31
+  // exprg{15}: Split iS25
+  // exprg{31}: Split iS37
 
   std::vector<Expr*> ref_order;
   ref_order.push_back(getParentExpr(tv2->axis(0), 3));
@@ -362,24 +362,24 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
   ref_order.push_back(getParentExpr(tv8->axis(0), 3));
   ref_order.push_back(getParentExpr(tv1->axis(0), 2));
   ref_order.push_back(getParentExpr(tv10->axis(0), 4));
-  ref_order.push_back(getParentExpr(tv5->axis(0), 3));
-  ref_order.push_back(getParentExpr(tv10->axis(0), 3));
-  ref_order.push_back(getParentExpr(tv9->axis(0), 3));
   ref_order.push_back(getParentExpr(tv2->axis(0), 2));
   ref_order.push_back(getParentExpr(tv6->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 3));
   ref_order.push_back(getParentExpr(tv8->axis(0), 2));
   ref_order.push_back(getParentExpr(tv1->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 3));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 3));
   ref_order.push_back(getParentExpr(tv4->axis(0), 2));
-  ref_order.push_back(getParentExpr(tv5->axis(0), 2));
-  ref_order.push_back(getParentExpr(tv10->axis(0), 2));
-  ref_order.push_back(getParentExpr(tv9->axis(0), 2));
   ref_order.push_back(getParentExpr(tv2->axis(0), 1));
   ref_order.push_back(getParentExpr(tv6->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv9->axis(0), 2));
   ref_order.push_back(getParentExpr(tv8->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 2));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 2));
   ref_order.push_back(getParentExpr(tv4->axis(0), 1));
-  ref_order.push_back(getParentExpr(tv5->axis(0), 1));
-  ref_order.push_back(getParentExpr(tv10->axis(0), 1));
   ref_order.push_back(getParentExpr(tv9->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv10->axis(0), 1));
+  ref_order.push_back(getParentExpr(tv5->axis(0), 1));
 
   checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
 }
