@@ -169,8 +169,12 @@ def test_rope_benchmark(
         q_image = q_image.to(torch.float32)
         ref_out = torch.cat(
             [q_real * cos - q_image * sin, q_image * cos + q_real * sin], dim=-1
-        ).to(torch.bfloat16)
+        )
+        print("before cast:", format(ref_out[0][0][122][124], ".60g"))
+        ref_out = ref_out.to(torch.bfloat16)
+        print("after cast in ref:", format(ref_out[0][0][122][124], ".60g"))
         nvf_out = fd.execute(inputs)
+        print("after cast in nvf:", format(nvf_out[0][0][0][122][124], ".60g"))
         torch.testing.assert_close(nvf_out, [ref_out], atol=0, rtol=0)
 
     if not disable_benchmarking:
