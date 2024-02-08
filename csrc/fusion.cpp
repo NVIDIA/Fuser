@@ -830,6 +830,7 @@ bool Fusion::hasDynamicTransform() {
 }
 
 void Fusion::markOutputForEvaluation(Val* output){
+  NVF_CHECK(output->isFusionOutput(), "Only fusion outputs can be expression evaluaed.");
   io_alias_[output] = AliasInfo{
     .type = AllocationType::Evaluate,
     .aliased_io = nullptr,
