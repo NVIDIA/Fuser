@@ -7,6 +7,7 @@
 // clang-format on
 #include <optimization/layout_inference.h>
 #include <ir/all_nodes.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
@@ -52,7 +53,7 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
     return;
   }
   TensorView* in = op->in()->as<TensorView>();
-  if (const auto& iter = format_map_.find(in)) {
+  if (auto iter = format_map_.find(in); iter != format_map_.end()) {
     format_map_[out] = iter->second;
   }
 }
@@ -67,12 +68,12 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
   TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
   TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
   if (lhs == nullptr) {
-    if (auto rhs_iter = format_map_.find(rhs)) {
+    if (auto rhs_iter = format_map_.find(rhs); rhs_iter != format_map_.end()) {
       format_map_[out] = rhs_iter->second;
       return;
     }
   } else if (rhs == nullptr) {
-    if (auto lhs_iter = format_map_.find(lhs)) {
+    if (auto lhs_iter = format_map_.find(lhs); lhs_iter != format_map_.end()) {
       format_map_[out] = lhs_iter->second;
       return;
     }
@@ -90,7 +91,7 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
       std::vector<int64_t> rhs_index = permutationIndex(rhs_iter->second);
       
       NVF_ERROR(lhs_index.size() == rhs_index.size());
-      for (auto i = c10::irange(lhs_index.size())) {
+      for (auto i : c10::irange(lhs_index.size())) {
         if (!rhs_iter->first->getMaybeRFactorDomain()[rhs_index[i]]->isBroadcast()) {
 	  format_map_[out] = rhs_iter->second;
 	  return;
@@ -116,7 +117,7 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   }
   TensorView* in = op->in()->as<TensorView>();
   // broadcast dimensions  are default to outer dimensions
-  if (const auto& iter = format_map_.find(in)) {
+  if (const auto& iter = format_map_.find(in), iter != format_map_.end()) {
     MemoryFormat out_format;
     int64_t cur_outer = out->nDims();
     int index_in = 0;
