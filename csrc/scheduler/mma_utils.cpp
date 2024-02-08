@@ -36,7 +36,7 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
   return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
 
-//! Return sizes of smem_a, smem_b, smem_c
+//! Return sizes of smem_a, smem_b, smem_c in bytes
 std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
@@ -70,7 +70,9 @@ int64_t computeExpectedSharedMemoryUsage(
     bool smem_b_reuse_guaranteed) {
   const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
       params.tile_sizes,
-      params.double_buffer_options.smem_double_buffer_stage,
+      params.double_buffer_options.double_buffer_smem_read
+          ? params.double_buffer_options.smem_double_buffer_stage
+          : 1,
       data_types);
 
   if (params.use_smem_epilogue) {
