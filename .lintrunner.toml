@@ -5,6 +5,7 @@ exclude_patterns = [
     '.git/**',
     'third_party/**',
     'tools/examples/**',
+    'stubs/**'
 ]
 command = [
     'python3',
@@ -232,6 +233,7 @@ code = 'TYPEIGNORE'
 include_patterns = ['**/*.py', '**/*.pyi']
 exclude_patterns = [
     'third_party/**',
+    'stubs/**',
 ]
 command = [
     'python3',
@@ -252,6 +254,7 @@ code = 'NOQA'
 include_patterns = ['**/*.py', '**/*.pyi']
 exclude_patterns = [
     'third_party/**',
+    'stubs/**',
 ]
 command = [
     'python3',
@@ -273,6 +276,7 @@ code = 'NEWLINE'
 include_patterns=['**']
 exclude_patterns = [
     'third_party/**',
+    'stubs/**',
 ]
 command = [
     'python3',
@@ -287,6 +291,7 @@ code = 'SPACES'
 include_patterns = ['**']
 exclude_patterns = [
     'third_party/**',
+    'stubs/**',
 ]
 command = [
     'python3',
@@ -312,6 +317,7 @@ exclude_patterns = [
     '.lintrunner.toml',
     'CMakeLists.txt',
     'third_party/**',
+    'stubs/**',
 ]
 command = [
     'python3',
@@ -354,6 +360,7 @@ include_patterns = [
 exclude_patterns = [
     'third_party/**',
     'tools/examples/**',
+    'stubs/**',
 ]
 command = [
     'python3',
