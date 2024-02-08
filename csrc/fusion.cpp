@@ -828,11 +828,9 @@ bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
-void Fusion::markOutputForEvaluation(Val* output, const AllocationType type){
-  NVF_ERROR(type == AllocationType::Evaluate,
-    "Expected AllocationType to be Evaluate. For any other AllocationType, use aliasOutputToInput.");
+void Fusion::markOutputForEvaluation(Val* output){
   io_alias_[output] = AliasInfo{
-    .type = type,
+    .type = AllocationType::Evaluate,
     .aliased_io = nullptr,
     .hide_output = !output->isFusionOutput()
   };

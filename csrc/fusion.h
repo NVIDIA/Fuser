@@ -262,9 +262,9 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
-  // Marks an output (by adding to io_alias_ map) to be evaluated through 
+  // Marks a non-aliased output to be evaluated through 
   // expression evaluator.
-  void markOutputForEvaluation(Val* output, const AllocationType type);
+  void markOutputForEvaluation(Val* output);
   
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
