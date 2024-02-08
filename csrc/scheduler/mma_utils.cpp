@@ -36,22 +36,14 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
   return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
 
-std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+//! Return sizes of smem_a, smem_b, smem_c
+std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const MmaDataTypes& data_types,
-    bool smem_a_reuse_guaranteed,
-    bool smem_b_reuse_guaranteed,
-    bool ignore_occupancy_drop) {
+    const MmaDataTypes& data_types) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
-  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
-  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
-  const size_t shared_memory_available =
-      device_smem_limit - shared_memory_overhead;
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
-  const auto threads_per_block =
-      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
 
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
@@ -67,6 +59,49 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       dataTypeSize(data_types[1]);
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
+
+  return {smem_a, smem_b, smem_c};
+}
+
+int64_t computeExpectedSharedMemoryUsage(
+    const MatmulParams& params,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed) {
+  const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
+      params.tile_sizes,
+      params.double_buffer_options.smem_double_buffer_stage,
+      data_types);
+
+  if (params.use_smem_epilogue) {
+    if (params.promote_prologue_smem_reuse) {
+      return (int64_t)std::max(
+          smem_c + (smem_a_reuse_guaranteed ? 0 : smem_a) +
+              (smem_b_reuse_guaranteed ? 0 : smem_b),
+          smem_a + smem_b);
+    } else {
+      return (int64_t)(smem_a + smem_b + smem_c);
+    }
+  } else {
+    return (int64_t)(smem_a + smem_b);
+  }
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed,
+    bool ignore_occupancy_drop) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
+
+  const auto [smem_a, smem_b, smem_c] =
+      computeSharedMemorySizes(gemm_tile, smem_double_buffer_stage, data_types);
 
   // NOTE: we can simply add these sizes since they should be integer multiples
   // of 16 bytes, so they will automatically be aligned. This may change with
@@ -96,6 +131,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 
   // use additional shared memory for epilogue if occupancy is not changed.
   // occupancy is estimated using register and shared memory usage.
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
