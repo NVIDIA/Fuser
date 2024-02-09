@@ -31,7 +31,10 @@ bool isSharded(TensorView* tv) {
     NVF_ERROR(
         !is_sharded.at(i),
         "only the outmost dimension can be device-parallelized",
-        "but axis ", i, " is sharded in tv ", tv->toString());
+        "but axis ",
+        i,
+        " is sharded in tv ",
+        tv->toString());
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
 }

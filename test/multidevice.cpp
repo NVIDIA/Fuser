@@ -44,8 +44,9 @@ void MultiDeviceTest::SetUp() {
       multidevice_env->doBarrierAtTest() && communicator->is_available();
   time_print = multidevice_env->timePrint() && communicator->is_available();
   bool disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip && (!communicator->is_available() || communicator->size() < 2 ||
-      torch::cuda::device_count() < 2)) {
+  if (!disable_skip &&
+      (!communicator->is_available() || communicator->size() < 2 ||
+       torch::cuda::device_count() < 2)) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
   }
   tensor_options =
