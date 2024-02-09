@@ -62,6 +62,7 @@ namespace nvfuser {
 using testing::ElementsAre;
 using testing::Eq;
 using testing::Pair;
+using testing::Property;
 
 TEST(LinkedHashMapTest, PushBack) {
   LinkedHashMap<std::string, int> map;
@@ -118,19 +119,15 @@ TEST(LinkedHashMapTest, EraseThenPushBack) {
   EXPECT_THAT(map, ElementsAre(Pair("a", 1), Pair("b", 4)));
 }
 
-namespace {
-MATCHER_P(DataIs, data, "") {
-  return arg.data() == data;
-}
-} // namespace
-
 TEST(LinkedHashMapTest, MovableValue) {
   LinkedHashMap<CopyableKey, MovableValue> map;
   map.pushBack(CopyableKey("a"), MovableValue(1));
   map.pushBack(CopyableKey("b"), MovableValue(2));
   map.erase(CopyableKey("b"));
 
-  EXPECT_THAT(map, ElementsAre(Pair(CopyableKey("a"), DataIs(1))));
+  EXPECT_THAT(
+      map,
+      ElementsAre(Pair(CopyableKey("a"), Property(&MovableValue::data, 1))));
 }
 
 } // namespace nvfuser
