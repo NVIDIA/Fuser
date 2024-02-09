@@ -457,9 +457,9 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
 
 namespace {
 
-//! Check if all values and expressions in SegmentedGroup are compatible with
-//! initial complete fusion
-bool isCompatibleSegmentedGroup(
+//! A SegmentedGroup is serializable if all its values and expressions are
+//! compatible with statements in the initial complete fusion
+bool isSerializableSegmentedGroup(
     SegmentedGroup* sg,
     const std::unordered_map<Val*, int64_t>& vals_to_id_map,
     const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
@@ -471,14 +471,15 @@ bool isCompatibleSegmentedGroup(
   auto check_expr = [&](Expr* e) {
     return exprs_to_id_map.at(e) < initial_exprs_size;
   };
-  bool all_compatible_inputs =
+  bool all_serializable_inputs =
       std::all_of(sg->inputs().begin(), sg->inputs().end(), check_value);
-  bool all_compatible_outputs =
+  bool all_serializable_outputs =
       std::all_of(sg->outputs().begin(), sg->outputs().end(), check_value);
-  bool all_compatible_exprs =
+  bool all_serializable_exprs =
       std::all_of(sg->exprs().begin(), sg->exprs().end(), check_expr);
   return (
-      all_compatible_inputs && all_compatible_outputs && all_compatible_exprs);
+      all_serializable_inputs && all_serializable_outputs &&
+      all_serializable_exprs);
 }
 
 } // namespace
@@ -495,14 +496,14 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
       impl_.edges_map();
 
-  bool all_valid_edges =
+  bool all_edges_serializable =
       std::all_of(edges_.begin(), edges_.end(), [&](SegmentedEdge* se) {
         return vals_to_id_map.at(se->val) < (int64_t)initial_vals_size_;
       });
 
-  bool all_valid_groups =
+  bool all_groups_serializable =
       std::all_of(groups_.begin(), groups_.end(), [&](SegmentedGroup* sg) {
-        return isCompatibleSegmentedGroup(
+        return isSerializableSegmentedGroup(
             sg,
             vals_to_id_map,
             exprs_to_id_map,
@@ -510,7 +511,7 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
             (int64_t)initial_exprs_size_);
       });
 
-  if (!all_valid_edges || !all_valid_groups) {
+  if (!all_edges_serializable || !all_groups_serializable) {
     return serde::CreateSegmentedFusionDirect(
         builder,
         /*valid=*/false);
