@@ -23,7 +23,7 @@ namespace nvfuser {
 
 class LayoutInferenceTest : public NVFuserTest {};
 
-TEST_F(LayoutInferenceTest, test) {
+TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -38,14 +38,127 @@ TEST_F(LayoutInferenceTest, test) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
+}
 
-  // int n = 31, h = 64, w = 103, c = 21;
-  // at::Tensor t0 = at::randn({n, c, h, w}, options);
-  // FusionExecutor fe;
-  // fe.compileFusion(fusion_ptr.get(), {t0});
-  // auto cg_outputs = fe.runFusion({t0});
-  // ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  // testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor({-1});
+  fusion.addInput(tv1);
+  auto tv2 = broadcast(tv0, {true, false, false, true, false, false, true});
+  fusion.addOutput(tv2);
+  auto tv3 = broadcast(tv1, {true, false, true, true});
+  fusion.addOutput(tv3);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  auto updated_layout = inferenceMemoryFormat(&fusion);
+}
+
+TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
+  {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
+    fusion.addInput(tv0);
+    auto s1 = IrBuilder::create<Val>(0L);
+    auto tv2 = add(tv0, s1);
+    fusion.addOutput(tv2);
+    auto tv3 = add(s1, tv0);
+    fusion.addOutput(tv3);
+
+    // tv0 should hold higher priority than tv1, since:
+    //   tv0's innermost non-broadcast dimension is index 3;
+    //   tv1's innermost non-broadcast dimension is index 1;
+    std::vector<IterDomain*> tv0_nhwc = {
+        tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+    tv0->setAllocationDomain(tv0_3120, true);
+
+    auto updated_layout = inferenceMemoryFormat(&fusion);
+  }
+  {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
+    fusion.addInput(tv0);
+    auto tv1 = makeSymbolicTensor({1, -1, 1, 1});
+    fusion.addInput(tv1);
+    auto tv2 = add(tv0, tv1);
+    fusion.addOutput(tv2);
+    auto tv3 = add(tv1, tv0);
+    fusion.addOutput(tv3);
+
+    // tv0 should hold higher priority than tv1, since:
+    //   tv0's innermost non-broadcast dimension is index 3;
+    //   tv1's innermost non-broadcast dimension is index 1;
+    std::vector<IterDomain*> tv0_nhwc = {
+        tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+    tv0->setAllocationDomain(tv0_3120, true);
+
+    auto updated_layout = inferenceMemoryFormat(&fusion);
+  }
+  {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor({-1, -1, 1, -1});
+    fusion.addInput(tv0);
+    auto tv1 = makeSymbolicTensor({-1, -1, -1, 1});
+    fusion.addInput(tv1);
+    auto tv2 = add(tv0, tv1);
+    fusion.addOutput(tv2);
+    auto tv3 = add(tv1, tv0);
+    fusion.addOutput(tv3);
+
+    // tv0 should hold higher priority than tv1, since:
+    //   tv0's innermost non-broadcast dimension is index 3;
+    //   tv1's innermost non-broadcast dimension is index 2;
+    std::vector<IterDomain*> tv0_3120 = {
+        tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
+    tv0->setAllocationDomain(tv0_3120, true);
+    std::vector<IterDomain*> tv1_2310 = {
+        tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
+    tv1->setAllocationDomain(tv1_2310, true);
+
+    auto updated_layout = inferenceMemoryFormat(&fusion);
+  }
+  {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor({-1, -1, 1, 1});
+    fusion.addInput(tv0);
+    auto tv1 = makeSymbolicTensor({-1, -1, 1, 1});
+    fusion.addInput(tv1);
+    auto tv2 = add(tv0, tv1);
+    fusion.addOutput(tv2);
+    auto tv3 = add(tv1, tv0);
+    fusion.addOutput(tv3);
+
+    // tv0 should hold higher priority than tv1, since:
+    //   tv0's innermost non-broadcast dimension is index 2;
+    //   tv1's innermost non-broadcast dimension is index 1;
+    std::vector<IterDomain*> tv0_3120 = {
+        tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
+    tv0->setAllocationDomain(tv0_3120, true);
+    std::vector<IterDomain*> tv1_2310 = {
+        tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
+    tv1->setAllocationDomain(tv1_2310, true);
+
+    auto updated_layout = inferenceMemoryFormat(&fusion);
+  }
 }
 
 } // namespace nvfuser
