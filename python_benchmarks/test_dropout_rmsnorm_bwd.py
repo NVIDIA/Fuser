@@ -54,7 +54,7 @@ def dropout_rmsnorm_bwd_fusion(
 
     T30 = fd.ops.mul(T8, T23)
     T31 = fd.ops.mul(T8, T27)
-    T32 = fd.ops.sum(T30, axes=[0], keepdim=False, dtype=DataType.Null)
+    T32 = fd.ops.sum(T30, dims=[0], keepdim=False, dtype=DataType.Null)
 
     T35 = fd.ops.mul(T31, T22)
     T36 = fd.ops.neg(T31)
@@ -63,7 +63,7 @@ def dropout_rmsnorm_bwd_fusion(
     T39 = fd.ops.pow(T20, S38)
     T40 = fd.ops.reciprocal(T39)
     T41 = fd.ops.mul(T37, T40)
-    T42 = fd.ops.sum(T41, axes=[1], keepdim=False, dtype=DataType.Null)
+    T42 = fd.ops.sum(T41, dims=[1], keepdim=False, dtype=DataType.Null)
 
     V60 = fd.define_vector([T5.size(0), 1], dtype=DataType.Int)
     T47 = fd.ops.broadcast_in_dim(T42, shape=V60, broadcast_dims=[0])
@@ -73,7 +73,7 @@ def dropout_rmsnorm_bwd_fusion(
     T52 = fd.ops.mul(T47, T51)
     S55 = fd.ops.reciprocal(T5.size(1))
     T56 = fd.ops.mul(T52, S55)
-    T57 = fd.ops.sum(T56, axes=[1], keepdim=False, dtype=DataType.Null)
+    T57 = fd.ops.sum(T56, dims=[1], keepdim=False, dtype=DataType.Null)
 
     T61 = fd.ops.broadcast_in_dim(T57, shape=V60, broadcast_dims=[0])
     T65 = fd.ops.broadcast_in_dim(T61, shape=V19, broadcast_dims=[0, 1])
