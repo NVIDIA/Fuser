@@ -623,7 +623,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       : bdimx + (device_warp_size - bdimx % device_warp_size);
 
   bool pad_bdimx = bdimx > 16 &&
-      padded_bdimx * bdimy * bdimz < (int64_t)dev_prop->maxThreadsPerBlock;
+      padded_bdimx * bdimy * bdimz <= (int64_t)dev_prop->maxThreadsPerBlock;
 
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
