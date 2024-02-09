@@ -6,7 +6,7 @@
  */
 // clang-format on
 #pragma once
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>

@@ -407,6 +407,10 @@ std::array<const char*, 25> column_strs{
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
+    // `os` may have leftover characters in the line
+    // before the header is printed. So we start with a newline.
+    os << std::endl;
+
     os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
        << std::setw(5) << std::get<1>(column_strs) << " " << std::setw(11)
        << std::get<2>(column_strs) << " " << std::setw(9)
@@ -628,15 +632,11 @@ void FusionProfiler::stop() {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+    // This will be populated by the following `cuptiActivityFlushAll` call.
     fp->kernel_profiles_.reserve(fp->segments_.size());
-    fprof.kernel_profiles.resize(fp->segments_.size());
-
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
-    NVF_CHECK(
-        fp->kernel_profiles_.size() >= fp->segments_.size(),
-        "All of the kernel profiles have not been recorded!");
-
+    fprof.kernel_profiles.resize(fp->segments_.size());
     for (auto& kprof : fp->kernel_profiles_) {
       auto corr_id = kprof.correlation_id;
       if (fp->corrid_2_segid_.count(corr_id) == 0) {

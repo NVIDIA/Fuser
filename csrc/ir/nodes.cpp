@@ -1309,8 +1309,6 @@ SqueezeOp::SqueezeOp(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      NVF_ERROR(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
@@ -1356,12 +1354,20 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
   NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
+  at::Tensor out = in;
   for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
-    if (!is_squeeze_dims[i]) {
+    if (is_squeeze_dims[i]) {
+      if (in.stride(i) == 0) {
+        // If the input dimension is expanded in this dimension, undo the expand
+        // by slicing. This ensures that any broadcast dimensions will be
+        // unexpanded when we do the final call to view()
+        out = out.slice(i, 0, 1);
+      }
+    } else {
       out_shape.push_back(in.sizes()[i]);
     }
   }
-  return {in.view(out_shape)};
+  return {out.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
@@ -2105,7 +2111,19 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
 
   // After removing the broadcast dimensions, the format should be
   // [M, K] x [K, N] compatible with aten::matmul format.
-  return {in_a.matmul(in_b)};
+  auto output = in_a.matmul(in_b);
+
+  // ATen preserves the input dtype whereas MmaOP generates float outputs.
+  // Cast to the dtype of the MmaOp output for consistency.
+  // NOTE: MmaOp returns the float output, whereas in the evaluate method,
+  //      we are casting from float -> input_dtype -> float. This will lead
+  //      to loss of precision.
+  //      MmaOp::evaluate should be modified to effectively handle cast(MmaOp(H,
+  //      H), H) This will avoid the above cast chain and precision issue.
+  if (tv_a->getDataType() != out()->getDataType().value()) {
+    output = output.to(data_type_to_aten(out()->getDataType().value()));
+  }
+  return {output};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2148,7 +2166,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
   for (auto i : c10::irange(1, inputs.size())) {
     expanded_size.push_back((int64_t)inputs.at(i));
   }
-  return {at::expand_copy(in, expanded_size)};
+  return {in.expand(expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)

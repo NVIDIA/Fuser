@@ -335,14 +335,29 @@ std::string IdModel::toString() const {
 ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   ValGraph id_graph(propagate_through_exprs);
 
+  // To deterministically initialize the graph, the order of adding
+  // domains must be deterministic. Here, we sort all IDs by their
+  // names.
+
+  std::vector<IterDomain*> all_ids;
+  all_ids.reserve(id_definitions_.size());
   for (const auto& [id, defs] : id_definitions_) {
+    all_ids.push_back(id);
+  }
+
+  std::sort(
+      all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
+        return id1->name() < id2->name();
+      });
+
+  for (auto id : all_ids) {
     auto uses_it = id_uses_.find(id);
     NVF_ERROR(
         uses_it != id_uses_.end(),
         "Failed to initialize id: ",
         id->toString(),
         " as it's missing a definition entry.");
-    id_graph.initializeVal(id, defs, uses_it->second);
+    id_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
   }
 
   return id_graph;

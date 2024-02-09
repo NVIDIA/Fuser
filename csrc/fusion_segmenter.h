@@ -529,6 +529,7 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
+  bool only_segment_resharding_exprs = false;
 };
 
 //!  SegmentCandidateFinder
@@ -559,7 +560,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     return segment(std::move(fusion_copy), inputs, options);
@@ -568,7 +569,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
@@ -581,7 +582,7 @@ class SegmentCandidateFinder {
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -594,7 +595,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -638,11 +639,12 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    return runtime_info_;
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+    return runtime_info_.value();
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    return runtime_info_.expressionEvaluator();
+    return runtimeInfo().expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
@@ -752,7 +754,9 @@ class SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
-  SchedulerRuntimeInfo runtime_info_;
+  // This is allowed to be null in the multidevice case where the segmenter is
+  // used for breaking the fusion into compute and communication segments
+  std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
@@ -770,7 +774,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder& runtime_inputs_;
+  const KernelArgumentHolder* runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope
