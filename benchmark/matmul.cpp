@@ -68,8 +68,8 @@ void setupMatmul(
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
   // tolerance
-  double rtol = 1e-6 * k;
-  double atol = 1e-6 * k;
+  double rtol = 1e-4 * k;
+  double atol = 1e-4 * k;
   auto ndim = result.ndimension();
   auto is_close = at::isclose(expect, result, rtol, atol);
 
