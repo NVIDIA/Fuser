@@ -116,7 +116,7 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
     return;
   }
   TensorView* in = op->in()->as<TensorView>();
-  // broadcast dimensions  are default to outer dimensions
+  // broadcast dimensions are default to outer dimensions
   if (const auto& iter = format_map_.find(in); iter != format_map_.end()) {
     MemoryFormat out_format;
     int64_t cur_outer = out->nDims();

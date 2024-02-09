@@ -21,6 +21,9 @@
 
 namespace nvfuser {
 
+using testing::_;
+using testing::ElementsAre;
+
 class LayoutInferenceTest : public NVFuserTest {};
 
 TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
@@ -38,6 +41,7 @@ TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
+  EXPECT_THAT(updated_layout[tv1], ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
@@ -47,7 +51,7 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
 
   auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor({-1});
+  auto tv1 = makeSymbolicTensor({{-1}});
   fusion.addInput(tv1);
   auto tv2 = broadcast(tv0, {true, false, false, true, false, false, true});
   fusion.addOutput(tv2);
@@ -59,6 +63,8 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
+  EXPECT_THAT(updated_layout[tv2], ElementsAre(6, 0, 2, 5, 3, 1, 4));
+  EXPECT_THAT(updated_layout[tv3], ElementsAre(3, 0, 2, 1));
 }
 
 TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
@@ -80,9 +86,11 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     //   tv1's innermost non-broadcast dimension is index 1;
     std::vector<IterDomain*> tv0_nhwc = {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-    tv0->setAllocationDomain(tv0_3120, true);
+    tv0->setAllocationDomain(tv0_nhwc, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
+    EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
   }
   {
     auto fusion_ptr = std::make_unique<Fusion>();
@@ -103,9 +111,11 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     //   tv1's innermost non-broadcast dimension is index 1;
     std::vector<IterDomain*> tv0_nhwc = {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-    tv0->setAllocationDomain(tv0_3120, true);
+    tv0->setAllocationDomain(tv0_nhwc, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
+    EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
   }
   {
     auto fusion_ptr = std::make_unique<Fusion>();
@@ -132,6 +142,8 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     tv1->setAllocationDomain(tv1_2310, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
+    EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
+    EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 1, 3));
   }
   {
     auto fusion_ptr = std::make_unique<Fusion>();
@@ -158,6 +170,8 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     tv1->setAllocationDomain(tv1_2310, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
+    EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
+    EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 1, 3));
   }
 }
 
