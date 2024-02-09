@@ -39,19 +39,12 @@ TEST_F(LayoutInferenceTest, test) {
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
 
-  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
   // int n = 31, h = 64, w = 103, c = 21;
-
   // at::Tensor t0 = at::randn({n, c, h, w}, options);
-
   // FusionExecutor fe;
   // fe.compileFusion(fusion_ptr.get(), {t0});
-
   // auto cg_outputs = fe.runFusion({t0});
-
   // ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
   // testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
