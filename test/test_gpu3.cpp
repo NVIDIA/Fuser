@@ -8738,6 +8738,57 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
     }
   }
 }
+
+TEST_F(NVFuserTest, TMP) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // values to trigger the original bug.
+
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(1, input_dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = castOp(DataType::Half, tv0);
+
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+}
+
+
+TEST_F(NVFuserTest, TMP2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // values to trigger the original bug.
+
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(1, input_dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

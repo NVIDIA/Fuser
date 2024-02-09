@@ -46,16 +46,18 @@ static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
   auto tv6 = castOp(DataType::Float, tv1);
   auto tv7 = castOp(DataType::Float, tv5);
   auto tv8 = add(tv6, tv7);
-  auto tv9 = castOp(DataType::Half, tv8);
+  auto tv9 = add(tv8,tv6);
   auto tv10 = broadcast(tv2, {true, false});
-  auto tv11 = castOp(DataType::Float, tv9);
+  auto tv11 = add(tv9,tv7);
   auto tv12 = castOp(DataType::Float, tv10);
   auto tv13 = add(tv11, tv12);
   auto tv14 = castOp(DataType::Half, tv13);
   auto tv15 = castOp(DataType::Float, tv14);
-  auto tv16 = variance(tv15, {1}, false, false);
+  auto var_mean = variance_mean(tv15, {1}, 0, false);
+  auto tv16 = var_mean.var;
   auto tv17 = broadcast(tv16, {false, true});
-  auto tv18 = sum(tv15, {1}, false);
+  auto tv18 = var_mean.mean;
+
   auto tv19 = broadcast(tv18, {false, true});
 
   nvfuser::Val* num_features = IrBuilder::create<Val>(1.0);
