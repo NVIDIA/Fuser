@@ -1911,8 +1911,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = 0;                                                     \
-        std::vector<int> axes(arg.dims);                                      \
-        std::iota(axes.begin(), axes.end(), 0);                               \
+        std::vector<int> dims(arg.dims);                                      \
+        std::iota(dims.begin(), dims.end(), 0);                               \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
             {fd->recordingState(arg())},                                      \
@@ -1923,7 +1923,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            axes,                                                             \
+            dims,                                                             \
             false,                                                            \
             dtype));                                                          \
         return output;                                                        \
@@ -1935,7 +1935,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         int axis,                                                            \
+         int dim,                                                             \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
@@ -1953,13 +1953,13 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            {axis},                                                           \
+            {dim},                                                            \
             keepdim,                                                          \
             dtype));                                                          \
         return output;                                                        \
       },                                                                      \
       py::arg("arg"),                                                         \
-      py::arg("axis"),                                                        \
+      py::arg("dim"),                                                         \
       py::arg("keepdim") = false,                                             \
       py::arg("dtype") = DataType::Null,                                      \
       py::return_value_policy::reference);                                    \
@@ -1967,14 +1967,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         const std::vector<int>& axes,                                        \
+         const std::vector<int>& dims,                                        \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
         NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());         \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());         \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
             {fd->recordingState(arg())},                                      \
@@ -1985,13 +1985,13 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            axes,                                                             \
+            dims,                                                             \
             keepdim,                                                          \
             dtype));                                                          \
         return output;                                                        \
       },                                                                      \
       py::arg("arg"),                                                         \
-      py::arg("axes"),                                                        \
+      py::arg("dims"),                                                        \
       py::arg("keepdim") = false,                                             \
       py::arg("dtype") = DataType::Null,                                      \
       py::return_value_policy::reference);
@@ -2668,25 +2668,25 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& axes,
+         std::vector<int>& dims,
          int64_t correction,
          bool keepdim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.var");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());
         Tensor output = fd->defineTensor(ndims);
         fd->defineRecord(new VarianceOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(axes),
+            std::move(dims),
             correction,
             keepdim));
         return output;
       },
       py::arg("arg"),
-      py::arg("axes"),
+      py::arg("dims"),
       py::arg("correction"),
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
@@ -2694,26 +2694,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var_mean",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& axes,
+         std::vector<int>& dims,
          int64_t correction,
          bool keepdim) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.var_mean");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());
         Tensor var = fd->defineTensor(ndims);
         Tensor mean = fd->defineTensor(ndims);
         fd->defineRecord(new VarianceMeanOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(var()), fd->recordingState(mean())},
-            std::move(axes),
+            std::move(dims),
             correction,
             keepdim));
         return std::make_tuple(var, mean);
       },
       py::arg("arg"),
-      py::arg("axes"),
+      py::arg("dims"),
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
