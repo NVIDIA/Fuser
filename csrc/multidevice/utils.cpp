@@ -30,7 +30,8 @@ bool isSharded(TensorView* tv) {
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
         !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized");
+        "only the outmost dimension can be device-parallelized",
+        "but axis ", i, " is sharded in tv ", tv->toString());
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
 }
@@ -176,9 +177,7 @@ void unshard(Fusion* fusion) {
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   std::set<DeviceIdxType> ret;
   for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
-    for (auto val : tvs) {
-      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
-      auto tv = val->as<TensorView>();
+    for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
       NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
       auto& mesh = tv->getDeviceMesh().vector();
       std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
