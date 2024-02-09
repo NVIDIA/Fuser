@@ -44,7 +44,7 @@ class MemoryFormatInferencer : public OptOutConstDispatch {
   // void handle(const LoadStoreOp*) override;
   // void handle(const SqueezeOp*) override;
   // void handle(const ExpandOp*) override;
-  std::unordered_map<const TensorView*, MemoryFormat> format_map_;
+  std::unordered_map<const TensorView*, MemoryFormat>& format_map_;
 };
 
 void MemoryFormatInferencer::handle(const UnaryOp* op) {
