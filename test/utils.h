@@ -395,7 +395,7 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
 #if TORCH_VERSION_GREATER(2, 0, 1)
     // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
     // in order to properly handle new CUDA 112 behavior
-    // c10::cuda uses DeviceIndex instead of int 
+    // c10::cuda uses DeviceIndex instead of int
     // https://github.com/pytorch/pytorch/pull/119142
     c10::cuda::GetDevice(reinterpret_cast<c10::DeviceIndex*>(&device));
 #else
