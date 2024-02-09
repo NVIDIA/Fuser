@@ -148,7 +148,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction] = GetParam();
-  if (!communicator->isBackendAvailable(backend)) {
+  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator->setDefaultBackend(backend);

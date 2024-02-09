@@ -74,6 +74,7 @@ class MultiDeviceTest : public NVFuserTest {
   bool debug_print;
   bool do_barrier_at_test;
   bool time_print;
+  bool disable_skip;
   std::vector<std::pair<
       const std::string,
       std::chrono::time_point<std::chrono::high_resolution_clock>>>

@@ -43,7 +43,7 @@ void MultiDeviceTest::SetUp() {
   do_barrier_at_test =
       multidevice_env->doBarrierAtTest() && communicator->is_available();
   time_print = multidevice_env->timePrint() && communicator->is_available();
-  bool disable_skip = multidevice_env->disableSkip();
+  disable_skip = multidevice_env->disableSkip();
   if (!disable_skip &&
       (!communicator->is_available() || communicator->size() < 2 ||
        torch::cuda::device_count() < 2)) {
