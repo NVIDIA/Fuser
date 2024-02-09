@@ -58,7 +58,8 @@ def pytest_collection_modifyitems(session, config, items):
         for item in items:
             # If the benchmark has compile=False parameter (eager mode), skip it.
             if (
-                "compile" in item.callspec.params
+                hasattr(item, "callspec")
+                and "compile" in item.callspec.params
                 and not item.callspec.params["compile"]
             ):
                 item.add_marker(skip_eager)
@@ -69,5 +70,9 @@ def pytest_collection_modifyitems(session, config, items):
         )
         for item in items:
             # If the benchmark has compile=True parameter (torch.compile mode), skip it.
-            if "compile" in item.callspec.params and item.callspec.params["compile"]:
+            if (
+                hasattr(item, "callspec")
+                and "compile" in item.callspec.params
+                and item.callspec.params["compile"]
+            ):
                 item.add_marker(skip_torchcompile)

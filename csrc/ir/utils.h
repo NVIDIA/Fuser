@@ -440,9 +440,6 @@ IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 // unique.
 std::vector<IterDomain*> allIDsOf(const TensorView* tv);
 
-// Check if the given tv is an input of SelectOp
-bool isSelectInput(TensorView* tv);
-
 // Check if the given tv is first argment of index_select(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
@@ -566,6 +563,17 @@ auto getOpsOfType(Fusion* fusion) {
 template <typename... OpTypes>
 bool hasOpsOfType(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<OpTypes...>()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+//! Returns true if tv is used by any ops of the given type.
+template <typename... OpTypes>
+bool isTvUsedByOpsOfType(TensorView* tv) {
+  for (auto expr : tv->uses()) {
     if (expr->isOneOf<OpTypes...>()) {
       return true;
     }

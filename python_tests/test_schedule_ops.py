@@ -61,7 +61,7 @@ class TestScheduleOps(TestCase):
 
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            fd.t1 = fd.ops.sum(fd.t0, axis=-1)
+            fd.t1 = fd.ops.sum(fd.t0, dim=-1)
             fd.add_output(fd.t1)
 
         class InputError(FusionDefinition):
@@ -85,7 +85,7 @@ class TestScheduleOps(TestCase):
 
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            fd.t1 = fd.ops.sum(fd.t0, axis=-1)
+            fd.t1 = fd.ops.sum(fd.t0, dim=-1)
             fd.add_output(fd.t1)
 
         class BasicValid(FusionDefinition):
