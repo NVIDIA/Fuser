@@ -458,7 +458,8 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
 namespace {
 
 //! A SegmentedGroup is serializable if all its values and expressions are
-//! compatible with statements in the initial complete fusion
+//! compatible with the statements in the complete fusion provided in the
+//! SegmentedFusion constructor.
 bool isSerializableSegmentedGroup(
     SegmentedGroup* sg,
     const std::unordered_map<Val*, int64_t>& vals_to_id_map,
@@ -511,6 +512,10 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
             (int64_t)initial_exprs_size_);
       });
 
+  // SegmentCandidateFinder::findSegments can generate new statements when
+  // finding valid sub-fusions, so SegmentedGroup can reference statements that
+  // do not exist in the original fusion. If we cannot get all statements from
+  // the original fusion, we cannot serialize the segmented fusion.
   if (!all_edges_serializable || !all_groups_serializable) {
     return serde::CreateSegmentedFusionDirect(
         builder,
@@ -559,14 +564,14 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
       complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
       complete_fusion_->vals().size(),
-      " values while serialization expected ",
+      " values while serialization expected at least",
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
       complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
       complete_fusion_->unordered_exprs().size(),
-      " expressions while serialization expected ",
+      " expressions while serialization expected at least",
       buffer->num_exprs(),
       " expressions.");
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
