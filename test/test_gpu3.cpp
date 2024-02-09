@@ -8664,6 +8664,80 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
       executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+// don't cache if the input tv is used by slice.
+// https://github.com/NVIDIA/Fuser/issues/1697
+TEST_F(NVFuserTest, AvoidCachingSliceInput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // values to trigger the original bug.
+  const int64_t eight = 8;
+  const int64_t twenty = 20;
+  const int64_t fiveTwelve = 512;
+  const int64_t batch_size = 128;
+  const int64_t hidden_size = 4096;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(1, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // inner persistent
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = exp(tv2);
+  auto tv4 = sum(tv3, {-1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = div(tv3, tv5);
+
+  // reshape t1 to [8, 512*20]
+  auto val_8 = IrBuilder::create<Val>(eight, DataType::Index);
+  auto val_512x20 =
+      IrBuilder::create<Val>(fiveTwelve * twenty, DataType::Index);
+  auto tv7 = reshape(tv1, {val_8, val_512x20});
+
+  // slice-1 reshape to hidden size
+  auto val_4096 = IrBuilder::create<Val>(hidden_size, DataType::Index);
+  auto tv8 = slice(tv7, {0, 0}, {eight, fiveTwelve});
+  auto tv9 = reshape(tv8, {val_4096});
+  auto tv10 = broadcast(tv9, {true, false});
+  auto tv11 = castOp(DataType::Float, tv10);
+  fusion->addOutput(tv11);
+
+  // slice-2  reshape to hidden size and link with inner persistent
+  auto tv12 = slice(tv7, {0, fiveTwelve * 3}, {eight, fiveTwelve * 4});
+  auto tv13 = reshape(tv12, {val_4096});
+  auto tv14 = broadcast(tv13, {true, false});
+  auto tv15 = castOp(DataType::Float, tv14);
+  auto tv16 = mul(tv6, tv15);
+  fusion->addOutput(tv16);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({eight * fiveTwelve * twenty}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  // check segment and sliced tvs are not cached
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(kernel_runtime->isSegmented(), "segmentation didn't happen");
+  const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
+  NVF_CHECK(num_segments == 3, "Expect 3 segments, got: ", num_segments);
+  for (const auto& fe : kernel_runtime->executors()) {
+    for (auto expr : fe.kernel()->exprs()) {
+      if (expr->isA<SliceOp>()) {
+        auto slice = expr->as<SliceOp>();
+        NVF_CHECK(
+            slice->in()->getMemoryType() == MemoryType::Global,
+            "slice input must be in global memory, get: ",
+            slice->in()->getMemoryType());
+      }
+    }
+  }
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
