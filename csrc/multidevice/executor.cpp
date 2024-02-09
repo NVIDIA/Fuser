@@ -263,6 +263,28 @@ std::string MultiDeviceExecutor::validate() const {
   return "";
 }
 
+std::ostream& MultiDeviceExecutor::print() {
+  int compute_segment_counter = 0;
+  int communication_counter = 0;
+  for (auto group : group_run_order_) {
+    if (is_resharding_[group]) {
+      debug() << "Communication " << compute_segment_counter << ":{\n";
+      for (auto comm : lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
+        debug () << comm->toString(2) << "\n";
+      }
+      debug() << "}\n";
+      communication_counter++;
+    } else {
+      debug() << "Compute segment " << compute_segment_counter << ":{\n";
+      auto fusion = staged_fusion_->makeFusion(group);
+      fusion->print();
+      debug() << "}\n";
+      compute_segment_counter++;
+    }
+  }
+  return debug();
+}
+
 } // namespace nvfuser
 
 #endif
