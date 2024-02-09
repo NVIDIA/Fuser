@@ -14,11 +14,11 @@ namespace nvfuser {
 namespace {
 
 // move this to util maybe?
-std::vector<int64_t> permutationIndex(const std::vector<int64_t>& permutation) {
+std::vector<int64_t> ascendingAxes(const std::vector<int64_t>& permutation) {
   int rank = permutation.size();
   std::vector<int64_t> ret(rank, -1);
   for (int64_t i : c10::irange(permutation.size())) {
-    ret.at(permutation[i]) = i;
+    ret.at(rank - 1 - i) = permutation[i];
   }
   return ret;
 }
@@ -87,8 +87,8 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
         return;
       }
       // go from innermost to outermost until we find the first one that's non-broadcast
-      std::vector<int64_t> lhs_index = permutationIndex(lhs_iter->second);
-      std::vector<int64_t> rhs_index = permutationIndex(rhs_iter->second);
+      std::vector<int64_t> lhs_index = ascendingAxes(lhs_iter->second);
+      std::vector<int64_t> rhs_index = ascendingAxes(rhs_iter->second);
       
       NVF_ERROR(lhs_index.size() == rhs_index.size());
       for (auto i : c10::irange(lhs_index.size())) {

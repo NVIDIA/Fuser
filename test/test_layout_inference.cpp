@@ -81,9 +81,6 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     auto tv3 = add(s1, tv0);
     fusion.addOutput(tv3);
 
-    // tv0 should hold higher priority than tv1, since:
-    //   tv0's innermost non-broadcast dimension is index 3;
-    //   tv1's innermost non-broadcast dimension is index 1;
     std::vector<IterDomain*> tv0_nhwc = {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
