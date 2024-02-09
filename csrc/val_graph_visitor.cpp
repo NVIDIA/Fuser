@@ -51,9 +51,22 @@ void ValGraphVisitor::traverse() {
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
-          return expr_group->empty() || visited_exprs.has(expr_group) ||
-              terminating_inputs.has(val_group) ||
-              graph().isTrivialExprGroup(expr_group);
+          if (expr_group->empty() || visited_exprs.has(expr_group) ||
+              terminating_inputs.has(val_group)) {
+            return true;
+          }
+          // Handle trivial expr groups. This expr_group is not
+          // visited yet, which means there're input ValGroups that
+          // are not yet visited. If those not-visited inputs are
+          // actually the same as val_group, visit val_group at this
+          // point to resolve the circular dependency.
+          for (const ValGroup& input_group : graph().inputGroups(expr_group)) {
+            if (input_group != val_group && !visited_vals.has(input_group) &&
+                input_group->empty()) {
+              return false;
+            }
+          }
+          return true;
         });
   };
 
