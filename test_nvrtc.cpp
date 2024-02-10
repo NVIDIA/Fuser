@@ -126,5 +126,6 @@ int main(int argc, char* argv[]) {
 
   checkCuda(cuCtxDestroy(context));
 
+  std::cout << "Done." << std::endl;
   return 0;
 }
