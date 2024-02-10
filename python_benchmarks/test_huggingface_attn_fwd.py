@@ -36,14 +36,14 @@ def huggingface_attn_fwd_fusion(
         [T0.size(0) * T0.size(1), T0.size(2), T0.size(3)], dtype=DataType.Int
     )
     T10 = fd.ops.reshape(T4, new_shape=V9)
-    T12 = fd.ops.max(T10, axes=[2], keepdim=False, dtype=DataType.Null)
+    T12 = fd.ops.max(T10, dims=[2], keepdim=False, dtype=DataType.Null)
 
     V16 = fd.define_vector([T0.size(0) * T0.size(1), T0.size(2), 1], dtype=DataType.Int)
     T17 = fd.ops.broadcast_in_dim(T12, shape=V16, broadcast_dims=[0, 1])
     T22 = fd.ops.broadcast_in_dim(T17, shape=V9, broadcast_dims=[0, 1, 2])
     T23 = fd.ops.sub(T10, T22)
     T24 = fd.ops.exp(T23)
-    T25 = fd.ops.sum(T24, axes=[2], keepdim=False, dtype=DataType.Null)
+    T25 = fd.ops.sum(T24, dims=[2], keepdim=False, dtype=DataType.Null)
 
     T30 = fd.ops.broadcast_in_dim(T25, shape=V16, broadcast_dims=[0, 1])
     T35 = fd.ops.broadcast_in_dim(T30, shape=V9, broadcast_dims=[0, 1, 2])
