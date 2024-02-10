@@ -402,7 +402,7 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
     cudaGetDevice(&device);
 #endif
 
-    auto device_stats = allocator->getDeviceStats(0);
+    auto device_stats = allocator->getDeviceStats(device);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
     if (uint64_t(device_stats.reserved_bytes[0].current) >
