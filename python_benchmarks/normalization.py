@@ -47,7 +47,7 @@ def norm_fwd_fusion(
         weight = fd.ops.cast(weight, dtype=DataType.Float)
         bias = fd.ops.cast(bias, dtype=DataType.Float)
 
-    var, mean = fd.ops.var_mean(input, axes=reduction_axes, correction=0, keepdim=False)
+    var, mean = fd.ops.var_mean(input, dims=reduction_axes, correction=0, keepdim=False)
 
     eps = fd.define_scalar(eps, dtype=DataType.Double)
     var_eps = fd.ops.add(var, eps)
@@ -155,10 +155,10 @@ def norm_bwd_fusion(
 
     mean = fd.ops.broadcast(mean, bcast_mask)
 
-    grad_sum = fd.ops.sum(grad, axes=reduction_axes, keepdim=False)
+    grad_sum = fd.ops.sum(grad, dims=reduction_axes, keepdim=False)
 
     x_sub_mean = fd.ops.sub(input, mean)
-    dot_p = fd.ops.sum(fd.ops.mul(grad, x_sub_mean), axes=reduction_axes, keepdim=False)
+    dot_p = fd.ops.sum(fd.ops.mul(grad, x_sub_mean), dims=reduction_axes, keepdim=False)
 
     grad_mean = fd.ops.broadcast(fd.ops.mul(grad_sum, norm), bcast_mask)
     proj_scale = fd.ops.mul(fd.ops.mul(dot_p, norm), fd.ops.mul(invstd, invstd))
