@@ -397,7 +397,9 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
     // in order to properly handle new CUDA 112 behavior
     // c10::cuda uses DeviceIndex instead of int
     // https://github.com/pytorch/pytorch/pull/119142
-    c10::cuda::GetDevice(reinterpret_cast<c10::DeviceIndex*>(&device));
+    c10::DeviceIndex device_index;
+    c10::cuda::GetDevice(&device_index);
+    device = static_cast<int>(device_index);
 #else
     cudaGetDevice(&device);
 #endif
