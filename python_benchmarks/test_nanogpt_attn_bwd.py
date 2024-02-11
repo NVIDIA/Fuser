@@ -47,7 +47,7 @@ def nanogpt_attn_bwd_fusion(
     T7 = fd.ops.mul(T2, S0)
     T8 = fd.ops.mul(T7, T4)
     T9 = fd.ops.mul(T3, T8)
-    T10 = fd.ops.sum(T9, axes=[3], keepdim=False, dtype=DataType.Null)
+    T10 = fd.ops.sum(T9, dims=[3], keepdim=False, dtype=DataType.Null)
 
     V15 = fd.define_vector([T2.size(0), T2.size(1), T2.size(2), 1], dtype=DataType.Int)
     T16 = fd.ops.broadcast_in_dim(T10, shape=V15, broadcast_dims=[0, 1, 2])

@@ -1566,7 +1566,7 @@ struct ReductionOpRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", axes=[";
+    os << ", dims=[";
     bool first_arg = true;
     for (auto axis : axes_) {
       if (first_arg) {
@@ -2092,7 +2092,7 @@ struct NormOpRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", axes=[";
+    os << ", dims=[";
     bool first_arg = true;
     for (auto axis : axes_) {
       if (first_arg) {
