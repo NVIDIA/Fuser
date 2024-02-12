@@ -86,7 +86,7 @@ enum class EnableOption {
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
   WarnRegisterSpill, //! Enable warnings of register spill
-  MatmulExprEval, //! Enable ATen evaluation for Matmul 
+  MatmulExprEval, //! Enable ATen evaluation for Matmul
   EndOfOption //! Placeholder for counting the number of elements
 };
 
