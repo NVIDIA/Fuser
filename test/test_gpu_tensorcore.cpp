@@ -2525,7 +2525,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
           half_reduction ? DataType::Half : DataType::Float;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput2D(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
