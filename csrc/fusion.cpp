@@ -828,13 +828,14 @@ bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
-void Fusion::markOutputForEvaluation(Val* output){
-  NVF_CHECK(output->isFusionOutput(), "Only fusion outputs can be expression evaluaed.");
+void Fusion::markOutputForEvaluation(Val* output) {
+  NVF_CHECK(
+      output->isFusionOutput(),
+      "Only fusion outputs can be expression evaluaed.");
   io_alias_[output] = AliasInfo{
-    .type = AllocationType::Evaluate,
-    .aliased_io = nullptr,
-    .hide_output = false
-  };
+      .type = AllocationType::Evaluate,
+      .aliased_io = nullptr,
+      .hide_output = false};
 }
 
 } // namespace nvfuser

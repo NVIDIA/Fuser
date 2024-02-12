@@ -97,7 +97,8 @@ enum class AllocationType : int {
   // To evaluate outputs which are not aliases.
   // TODO: This can be potentially merged with PointerArithmetic.
   //       PointerArithmetic requires aliased_io != nullptr while for evaluating
-  //       a non-aliased output, aliased_io = nullptr. So keeping them separate initially.
+  //       a non-aliased output, aliased_io = nullptr. So keeping them separate
+  //       initially.
   Evaluate,
 };
 
@@ -262,10 +263,10 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
-  // Marks a non-aliased output to be evaluated through 
+  // Marks a non-aliased output to be evaluated through
   // expression evaluator.
   void markOutputForEvaluation(Val* output);
-  
+
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
     permuted_input_map_.insert({index, permutation});
