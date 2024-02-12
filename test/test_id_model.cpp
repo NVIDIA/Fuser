@@ -278,7 +278,7 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
 
-  // Merge adn split by one. The split input and output will be mapped.
+  // Merge and split by one. The split input and output will be mapped.
   for (auto tv : {tv0, tv1, tv2}) {
     tv->merge(0)->split(0, 1);
   }
