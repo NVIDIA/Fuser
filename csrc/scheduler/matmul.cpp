@@ -713,12 +713,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_ops.size());
 
   // Skip scheduling if Matmul will be expression evaluated.
-  // NOTE: This strictly evaluates only MmaOp.
-  // TODO: Add support to evaluate (MmaOp + cast).
-  if (isOptionEnabled(EnableOption::MatmulExprEval)){
-    NVF_CHECK (fusion->outputs().size() == 1)
+  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+    NVF_CHECK(fusion->outputs().size() == 1)
     fusion->markOutputForEvaluation(fusion->outputs()[0]);
-    scheduler_debug_utils::log(__FUNCTION__, ": Matmul output to be computed through expression evaluator. Skipping codegen.");
+    scheduler_debug_utils::log(
+        __FUNCTION__,
+        ": Matmul output to be computed through expression evaluator. Skipping codegen.");
     return;
   }
 
