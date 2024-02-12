@@ -2520,8 +2520,24 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
-        params.use_smem_epilogue = use_smem_epilogue;
-        params.promote_prologue_smem_reuse = true;
+        if (use_smem_epilogue) {
+          std::tie(
+              params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+              mma_utils::generateSharedMemoryEpilogueHeuristics(
+                  gemm_tile,
+                  stage_number,
+                  {DataType::Half, DataType::Half, DataType::Float},
+                  true,
+                  true,
+                  true);
+          if (!params.use_smem_epilogue) {
+            std::cout
+                << "Skipping smem epilogue due to shared memory constraints on this device"
+                << std::endl;
+            continue;
+          }
+          params.promote_prologue_smem_reuse = true;
+        }
 
         scheduleMatmul(&fusion, params);
 
