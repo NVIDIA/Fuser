@@ -55,7 +55,7 @@ void ValGraphVisitor::traverse() {
               terminating_inputs.has(val_group)) {
             return true;
           }
-          // Handle trivial expr groups. This expr_group is not
+          // Handle ExprGroups that return one or some of its input ValGroups as output. This expr_group is not
           // visited yet, which means there're input ValGroups that
           // are not yet visited. If those not-visited inputs are
           // actually the same as val_group, visit val_group at this
