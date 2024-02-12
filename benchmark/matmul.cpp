@@ -403,7 +403,8 @@ static void NvFuserScheduler_Matmul(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);
   if (use_smem_epilogue) {
     if (!params.use_smem_epilogue) {
-      benchmark_state.SkipWithError("Insufficient shared mem for smem epilogue");
+      benchmark_state.SkipWithError(
+          "Insufficient shared mem for smem epilogue");
     }
   } else {
     params.use_smem_epilogue = false;
@@ -665,14 +666,22 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 // Use this for manual splitk.
 static void MatmulShapeWarpStageSpecificSplitK(
     benchmark::internal::Benchmark* b) {
-  b->ArgNames({"M", "N", "K", "warps", "stages", "splitk_factor", "smem_epilogue"});
+  b->ArgNames(
+      {"M", "N", "K", "warps", "stages", "splitk_factor", "smem_epilogue"});
   for (long int num_warps : NumWarps) {
     for (long int num_stages : NumStages) {
       for (auto [m, n, k] :
            std::vector<std::tuple<int, int, int>>(SplitKSpecificShapes)) {
         for (auto splitk_factor : {2, 3, 4, 5, 6}) {
-          for (bool use_smem_epilogue: {false, true}) {
-            b->Args({m, n, k, num_warps, num_stages, splitk_factor, use_smem_epilogue});
+          for (bool use_smem_epilogue : {false, true}) {
+            b->Args(
+                {m,
+                 n,
+                 k,
+                 num_warps,
+                 num_stages,
+                 splitk_factor,
+                 use_smem_epilogue});
           }
         }
       }
@@ -766,7 +775,11 @@ static void NvFuserScheduler_Matmul_Manual(
   int splitk_factor = benchmark_state.range(5);
   bool use_smem_epilogue = benchmark_state.range(6);
   NvFuserScheduler_Matmul(
-      benchmark_state, layout, splitk_factor, /*partitionedk=*/false, use_smem_epilogue);
+      benchmark_state,
+      layout,
+      splitk_factor,
+      /*partitionedk=*/false,
+      use_smem_epilogue);
 }
 
 #define SpecificSplitKBenchmark(layout) \
