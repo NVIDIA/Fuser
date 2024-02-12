@@ -2525,7 +2525,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
               params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
               mma_utils::generateSharedMemoryEpilogueHeuristics(
                   gemm_tile,
-                  stage_number,
+                  1,
                   {DataType::Half, DataType::Half, DataType::Float},
                   true,
                   true,
