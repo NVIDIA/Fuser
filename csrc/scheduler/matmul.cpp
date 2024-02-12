@@ -1137,7 +1137,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       // Now that transforms are propagated backward to smem_epilogue, which is
       // before splitk_sum, we can vectorize the inner-most non-trivial
       // dimension of splitk_sum
+      Val* vec_ext = splitk_sum->axis(-2)->extent();
+      NVF_ERROR(vec_ext->isConstInt());
+      int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
+      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
+        // NOTE: We might encounter an illegal vectorization size if we are using
+        // Float for this reduction and Half for output. So here we first check
+        // whether the vectorize size is at most 16 bytes. If not , we split into
+        // an unrolled loop that will do multiple vectorized reads/writes instead.
+        // Note that we reorder such that the axes are in order UR TIDx V.
+        splitk_sum->split(-2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
+        splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
+        splitk_sum->reorder({{-4, -3}});
+      }
       splitk_sum->axis(-2)->parallelize(ParallelType::Vectorize);
+      splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
     }
   } else {
     for (auto [dc, d] : cached_and_forked_outputs) {
