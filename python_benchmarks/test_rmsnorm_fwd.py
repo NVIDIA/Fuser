@@ -20,7 +20,7 @@ def rmsnorm_fwd_fusion(
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
     S3 = fd.define_scalar(2.00000, dtype=DataType.Double)
     T4 = fd.ops.pow(T0, S3)
-    T5 = fd.ops.sum(T4, axes=[1], keepdim=False, dtype=DataType.Null)
+    T5 = fd.ops.sum(T4, dims=[1], keepdim=False, dtype=DataType.Null)
     V8 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
     T9 = fd.ops.broadcast_in_dim(T5, shape=V8, broadcast_dims=[0])
     S11 = fd.ops.reciprocal(T0.size(1))
