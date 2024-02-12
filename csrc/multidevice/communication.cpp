@@ -233,11 +233,20 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
   c10d::ReduceOptions options = {
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
+#define TORCH_VERSION_GREATER(major, minor, patch)                    \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
 #ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
+#if TORCH_VERSION_GREATER(2, 2, 0)
+    // API change https://github.com/pytorch/pytorch/pull/119421
     return nccl_backend->_reduce_oop(
         buf.at(0), params_.src_bufs.at(0), options);
+#else
+    return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+#endif
   }
 #endif
   if (comm.deviceId() == params_.root) {
