@@ -8,6 +8,7 @@
 #ifdef NVFUSER_DISTRIBUTED
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
+#include <torch/torch.h>
 #endif
 
 #include <multidevice/communication.h>
