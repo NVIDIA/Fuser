@@ -210,6 +210,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/optimization/layout_inference.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/layout_optimization.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
 )
 
