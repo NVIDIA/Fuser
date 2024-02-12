@@ -55,10 +55,10 @@ void ValGraphVisitor::traverse() {
               terminating_inputs.has(val_group)) {
             return true;
           }
-          // Handle ExprGroups that return one or some of its input ValGroups as output. This expr_group is not
-          // visited yet, which means there're input ValGroups that
-          // are not yet visited. If those not-visited inputs are
-          // actually the same as val_group, visit val_group at this
+          // Handle ExprGroups that return one or some of its input ValGroups as
+          // output. This expr_group is not visited yet, which means there're
+          // input ValGroups that are not yet visited. If those not-visited
+          // inputs are actually the same as val_group, visit val_group at this
           // point to resolve the circular dependency.
           for (const ValGroup& input_group : graph().inputGroups(expr_group)) {
             if (input_group != val_group && !visited_vals.has(input_group) &&
