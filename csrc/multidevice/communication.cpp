@@ -236,7 +236,8 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
 #ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
-    return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+    return nccl_backend->_reduce_oop(
+        buf.at(0), params_.src_bufs.at(0), options);
   }
 #endif
   if (comm.deviceId() == params_.root) {
