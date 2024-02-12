@@ -126,7 +126,7 @@ template <
     int N, // Number of elements per input array
     typename T,
     typename Func>
-__device__ void blockIterGroupedReduce(
+__device__ void iterGroupedBlockReduce(
     T out[N],
     const T inp_val[N],
     Func reduction_op,
@@ -226,14 +226,14 @@ template <
     int N, // Number of elements per input array
     typename T,
     typename Func>
-__device__ void blockIterGroupedReduce(
+__device__ void iterGroupedBlockReduce(
     T out[N],
     const T inp_val[N],
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
     T init_val) {
-  blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
+  iterGroupedBlockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
       out,
       inp_val,
       reduction_op,

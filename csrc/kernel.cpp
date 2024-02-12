@@ -118,8 +118,7 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_block_welford || out_dom->hasBlockReduction();
   }
 
-  void handle(GroupedReductionOp* grouped_rop) final {
-    summary_.has_iter_grouped_reductions = true;
+  inline int getNumGroupedIterations(GroupedReductionOp* grouped_rop) {
     int num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
     for (auto axis : out_tv->getLeafDomain()) {
@@ -127,10 +126,15 @@ class KernelIrScanner : private IrVisitor {
         num_grouped_iterations *= (int)axis->extent()->value();
       }
     }
-    summary_.num_grouped_iterations =
-        std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+    return num_grouped_iterations;
+  }
+
+  void handle(GroupedReductionOp* grouped_rop) final {
+    summary_.has_iter_grouped_reductions = true;
+    summary_.num_grouped_iterations = std::max(
+        summary_.num_grouped_iterations, getNumGroupedIterations(grouped_rop));
     std::cout << "GroupedReductionOp num_grouped_iterations= "
-              << num_grouped_iterations << std::endl;
+              << summary_.num_grouped_iterations << std::endl;
   }
 
   void handle(GridWelford* grid_welford) final {
@@ -154,9 +158,17 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(GroupedGridReduction* grid_reduction) final {
+    std::cout << "summary_ has GroupedGridReduction" << std::endl;
     summary_.has_grid_reductions = true;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
+    }
+    // iteration domain grouped reduction
+    if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
+      summary_.has_iter_grouped_reductions = true;
+      summary_.num_grouped_iterations = std::max(
+          summary_.num_grouped_iterations,
+          getNumGroupedIterations(grid_reduction->as<GroupedReductionOp>()));
     }
   }
 

@@ -1795,6 +1795,65 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+
+  void generateIterGroupedGridReduction(const int num_grouped_iterations, const kir::GroupedGridReduction* grop) {
+    NVF_ERROR(grop->output(0)->isA<kir::TensorIndex>());
+    const auto output = grop->output(0)->as<kir::TensorIndex>();
+    const auto input = grop->input(0)->as<kir::TensorIndex>();
+    const auto op_type = grop->getReductionOpType(0);    
+    const auto data_type = grop->output(0)->dtype();
+
+    const std::string flags_str =
+        generateGridReduceTemplateFlags2(grop, grop->threadPredicate());
+
+    const bool persistent_sync =
+        kernel_->summary().has_cooperative_grid_reduction;
+
+    // Since block-level reduction is already done, those dimensions
+    // with tidx/y/z being true do not participate in the grid
+    // reduction.
+    ArgumentBuilder template_args;
+    template_args.arg(flags_str).arg(persistent_sync).arg(isAligned()).arg(num_grouped_iterations);
+
+    const auto work_buffer =
+        grop->reduction_buffers().at(0)->buffer()->as<TensorView>();
+    const auto sync_buffer =
+        grop->sync_buffer()->buffer()->as<TensorView>();
+
+    ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
+    auto output_tv = output->view();
+    auto va = kernel_->summary().vectorized_accesses;
+    if (va.find(output_tv) != va.end()) {
+      func_args.arg(genVariableName(output) + ".array");
+    } else {
+      func_args.arg(genVariableName(output));
+    }    
+    func_args.arg(genVariableName(input));
+    func_args.arg(genReductionOp(op_type, data_type));
+    func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
+    func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
+    func_args.arg(genCall("static_cast", ptrType(data_type), "shared_mem"));
+    // read and write predicates
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
+    const auto read_pred = genInline(grop->predicate());
+    func_args.arg(read_pred);
+    if (grop->writePredicate() != nullptr) {
+      NVF_ERROR(grop->writePredicate()->hasValue());
+      func_args.arg(genInline(grop->writePredicate()));
+    } else {
+      func_args.arg(read_pred);
+    }
+    // Init val
+    func_args.arg(genCall(data_type, genInline(grop->initVal(0))));
+    func_args.arg("0"); // entrance index is always 0
+    func_args.arg(genInline(grop->entrances()));
+
+    addProfileArguments(func_args, grop);
+
+    indent() << "reduction::iterGroupedGridReduce<" << template_args << ">(\n";
+    indent() << kTab << func_args << ");\n";
+  }
+
   void handle(const kir::GroupedGridReduction* grouped_grop) final {
     const auto out = ir_utils::getTvOutput(grouped_grop);
     const auto domain = out->domain();
@@ -1807,6 +1866,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (grouped_grop->isAllreduce()) {
       generateGroupedGridAllreduce(grouped_grop);
       return;
+    }
+
+    // iter domain grouped grid reduction, used for outer reduction
+    // where iter domain is vectorized.
+    if(grouped_grop->numHorizontallyGroupedExprs() == 1){
+      const auto num_grouped_iterations =
+          getGroupedLoopIndexConcreteIntSets().size();
+      NVF_ERROR(
+          num_grouped_iterations > 1,
+          "num_grouped_iterations should be greater than 1. Got: ",
+          num_grouped_iterations);
+      return generateIterGroupedGridReduction(num_grouped_iterations, grouped_grop);
     }
 
     NVF_ERROR(
@@ -2687,7 +2758,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+    indent() << genCall("iterGroupedBlockReduce", template_args, func_args)
              << ";\n";
   }
 
@@ -2711,7 +2782,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const bool has_block_reduce = domain->hasBlockReduction();
       const bool has_grid_reduce = domain->hasGridReduction();
       NVF_ERROR(
-          !has_grid_reduce, "IterGroupedGridReduction not implemented yet");
+          !has_grid_reduce, "Should use IterGroupedGridReduction!");
       NVF_ERROR(
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
