@@ -48,11 +48,13 @@ void ValGraphVisitor::traverse() {
   //
   // See also IdModelTest.ValGraphStmtSort3 for a concrete example.
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
+    if (terminating_inputs.has(val_group)) {
+      return true;
+    }
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
-          if (expr_group->empty() || visited_exprs.has(expr_group) ||
-              terminating_inputs.has(val_group)) {
+          if (expr_group->empty() || visited_exprs.has(expr_group)) {
             return true;
           }
           // Handle ExprGroups that return one or some of its input ValGroups as

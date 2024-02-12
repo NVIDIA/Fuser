@@ -542,12 +542,6 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   return true;
 }
 
-bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
-  return !ValGroups(inputGroups(expr_group))
-              .computeIntersect(ValGroups(outputGroups(expr_group)))
-              .empty();
-}
-
 void ValGraph::validateConsistency() const {
   // Check the consistency of the mapping information. Specifically:
   // 1. All ValGroup and ExprGroup sets are not empty. This may not be
