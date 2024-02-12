@@ -395,12 +395,16 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
 #if TORCH_VERSION_GREATER(2, 0, 1)
     // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
     // in order to properly handle new CUDA 112 behavior
-    c10::cuda::GetDevice(&device);
+    // c10::cuda uses DeviceIndex instead of int
+    // https://github.com/pytorch/pytorch/pull/119142
+    c10::DeviceIndex device_index;
+    c10::cuda::GetDevice(&device_index);
+    device = static_cast<int>(device_index);
 #else
     cudaGetDevice(&device);
 #endif
 
-    auto device_stats = allocator->getDeviceStats(0);
+    auto device_stats = allocator->getDeviceStats(device);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
     if (uint64_t(device_stats.reserved_bytes[0].current) >
@@ -614,7 +618,22 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
-std::pair<at::Tensor, at::Tensor> matmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype = at::kHalf);
+
+// Utility to generate input shapes based on given layout
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout);
+
+// Utility to generate inputs based on given layout
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
     int M,
     int N,
     int K,
@@ -630,7 +649,7 @@ enum class TensorMatmulPos { A, B, C, D, Bias };
 
 // Utility to generate buffers based on given problem, layout and tensor
 //  position in matmul with support for matmul and strided batch matmul
-at::Tensor matmulAtInput(
+at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,

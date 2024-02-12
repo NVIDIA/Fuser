@@ -56,17 +56,21 @@ void setupMatmul(
 
   auto c = matmul(a, b, layout, turing_or_later);
 
+  // Cast the output so that we perform an HSH matmul, which is what at::matmul
+  // will perform
+  auto d = castOp(DataType::Half, c);
+
   fusion->addInput(a);
   fusion->addInput(b);
-  fusion->addOutput(c);
+  fusion->addOutput(d);
 
   scheduleMatmul(fusion, params);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
   // tolerance
-  double rtol = 1e-6 * k;
-  double atol = 1e-6 * k;
+  double rtol = 1e-4 * k;
+  double atol = 1e-4 * k;
   auto ndim = result.ndimension();
   auto is_close = at::isclose(expect, result, rtol, atol);
 
@@ -149,7 +153,7 @@ static void SingleMatmulBase(
   at::manual_seed(0);
 
   // Tensor inputs
-  auto inputs = matmulAtInput(m, n, k, layout);
+  auto inputs = matmulAtInput2D(m, n, k, layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -204,10 +208,16 @@ static void Baseline_Matmul(
       benchmark_state.range(1),
       benchmark_state.range(2)};
 
+  bool allow_half_reduction = (bool)benchmark_state.range(3);
+
   at::manual_seed(0);
 
-  auto inputs =
-      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs = matmulAtInput2D(
+      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+
+  // Disable reduced-precision reduction for fair comparison since we do not use
+  // it in nvFuser
+  at::globalContext().setAllowFP16ReductionCuBLAS(allow_half_reduction);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
@@ -337,9 +347,9 @@ static void SingleMatmulPartitionedK(
 
   scheduleMatmul(fusion, params);
 
-  at::Tensor aten_a = matmulAtInput(
+  at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
-  at::Tensor aten_b = matmulAtInput(
+  at::Tensor aten_b = matmulAtInput2D(
       layout, TensorMatmulPos::B, at::kHalf, M, N, Ki, splitk_factor);
   std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
   at::Tensor expected_output = splitkLikeAtMatmul(
@@ -524,7 +534,14 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   {                          \
     /* NanoGPT bwd sizes */  \
     {1024, 2048, 4096},      \
-    {1024, 2048, 50304}     \
+    {1024, 2048, 50304},     \
+    /* Symmetric M,N to make comparison in TN/NT fair with eager due to transpose/swap */ \
+    {1024, 1024, 4096},     \
+    {1024, 1024, 50304},     \
+    /* Sizes mentioned by Michel */ \
+    {136, 184, 175704},     \
+    /* Other */ \
+    {128, 128, 262144}     \
   }
 // clang-format on
 
@@ -555,7 +572,7 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
 #define NumWarps \
   { 4, 8 }
 #define NumStages \
-  { 3, 4 }
+  { 3, 4, 5 }
 
 //! Simple cartesian product of three integers. Used to emulate ArgsProduct
 template <typename T>
@@ -586,6 +603,20 @@ static std::vector<std::tuple<T, T, T>> sizeProduct(
     }
   }
   return sizes;
+}
+
+// Use this to apply shape arguments to a benchmark without additional
+// NVFuser-specific args. Used for eager benchmarks to avoid redundant
+// benchmarks for combinations of num_warps and num_stages
+static void MatmulShapeEager(
+    benchmark::internal::Benchmark* b,
+    std::vector<std::tuple<long int, long int, long int>> sizes) {
+  b->ArgNames({"M", "N", "K", "half_reduction"});
+  for (auto [m, n, k] : sizes) {
+    for (bool allow_half_reduction : {false, true}) {
+      b->Args({m, n, k, allow_half_reduction});
+    }
+  }
 }
 
 // Use this to apply shape arguments to a benchmark without additional
@@ -655,7 +686,7 @@ static void MatmulShapeWarpStageSpecificSplitK(
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(                                                \
+        return MatmulShapeEager(                                           \
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));       \
       });                                                                  \
   BENCHMARK_CAPTURE(                                                       \
@@ -663,14 +694,14 @@ static void MatmulShapeWarpStageSpecificSplitK(
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(b, TIMMShapes);                                 \
+        return MatmulShapeEager(b, TIMMShapes);                            \
       });                                                                  \
   BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_splitkshapes_##layout, MmaLayout::layout) \
       ->Unit(benchmark::kMicrosecond)                                      \
       ->UseManualTime()                                                    \
       ->Apply([](benchmark::internal::Benchmark* b) {                      \
-        return MatmulShape(                                                \
+        return MatmulShapeEager(                                           \
             b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));     \
       });
 
@@ -749,9 +780,7 @@ static void NvFuserScheduler_Matmul_Manual(
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
-//ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(SpecificSplitKBenchmark);
-//ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
 // factor is deduced automatically from N
