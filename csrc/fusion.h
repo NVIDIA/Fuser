@@ -96,7 +96,7 @@ enum class AllocationType : int {
   // cheaply compute the output tensor.
   PointerArithmetic,
   // To evaluate outputs which are not aliases.
-  // TODO: This can be potentially merged with PointerArithmetic.
+  // TODO: This will merged with PointerArithmetic in the next PR.
   //       PointerArithmetic requires aliased_io != nullptr while for evaluating
   //       a non-aliased output, aliased_io = nullptr. So keeping them separate
   //       initially.
