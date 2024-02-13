@@ -47,6 +47,14 @@ TEST(MatmulATenEvaluationTest, SingleMmaOp) {
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1});
 
+  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->executors().size() == 1);
+
+  // Verify that the io_alias_ set has the correct entry
+  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  EXPECT_TRUE(
+      kernel->getOutputAlias(kernel->outputs()[0]).type ==
+      AllocationType::Evaluate);
+
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
@@ -77,6 +85,14 @@ TEST(MatmulATenEvaluationTest, MmaOpAndCast) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1});
+
+  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->executors().size() == 1);
+
+  // Verify that the io_alias_ set has the correct entry
+  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  EXPECT_TRUE(
+      kernel->getOutputAlias(kernel->outputs()[0]).type ==
+      AllocationType::Evaluate);
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -114,6 +130,14 @@ TEST(MatmulATenEvaluationTest, MatmulWithBias) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2});
+
+  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->executors().size() == 1);
+
+  // Verify that the io_alias_ set has the correct entry
+  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  EXPECT_TRUE(
+      kernel->getOutputAlias(kernel->outputs()[0]).type ==
+      AllocationType::Evaluate);
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
