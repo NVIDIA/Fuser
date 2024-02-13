@@ -705,7 +705,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // dropout_layer_norm on A100 & H100.
     const int64_t target_warps_per_sm = 28;
 
-    // Estimate register usage
+    // Calculate the max register count each thread can use.
     nvrtc_register_per_thread = getMaxRegisterCountPerThread(
         persistent_buffer_size,
         threads_per_block,
