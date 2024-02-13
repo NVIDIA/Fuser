@@ -376,17 +376,6 @@ if(BUILD_PYTHON)
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
-  set_target_properties(nvf_py_internal PROPERTIES
-    C_STANDARD 17
-    CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
   target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
