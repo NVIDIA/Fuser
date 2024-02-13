@@ -514,7 +514,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/test/test_swizzle.cpp
   ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
-  ${NVFUSER_ROOT}/test/test_matmul_default.cpp
+  ${NVFUSER_ROOT}/test/test_matmul_aten_evaluation.cpp
 )
 
 if(BUILD_TEST)
