@@ -16,8 +16,3 @@ target_link_libraries(sinh_example "-Wl,-no-as-needed ${TORCH_INSTALL_PREFIX}/li
 
 target_link_libraries(sinh_example ${TORCH_LIBRARIES})
 target_link_libraries(sinh_example nvfuser_codegen)
-target_include_directories(sinh_example SYSTEM PRIVATE
-  ../../csrc
-  ../../lib/dynamic_type/src/
-  ../../third_party/flatbuffers/include/
-)
