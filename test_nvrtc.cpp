@@ -45,7 +45,7 @@ std::vector<const char*> getCompileOptions() {
   std::vector<const char*> options;
   options.push_back("--std=c++17");
   options.push_back("--diag-suppress=177");
-  options.push_back("--gpu-architecture=sm_89");
+  options.push_back("--gpu-architecture=sm_80");
   options.push_back("-default-device");
   options.push_back("--fmad=true");
   options.push_back("-DNDEBUG");
