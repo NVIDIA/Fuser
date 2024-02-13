@@ -8,9 +8,9 @@
 #ifdef NVFUSER_DISTRIBUTED
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
-#include <torch/torch.h>
 #endif
 
+#include <utils.h>
 #include <multidevice/communication.h>
 
 namespace nvfuser {
@@ -234,14 +234,10 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
   c10d::ReduceOptions options = {
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
-#define TORCH_VERSION_GREATER(major, minor, patch)                    \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
 #ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
-#if TORCH_VERSION_GREATER(2, 2, 0)
+#if NVF_TORCH_VERSION_GREATER(2, 2, 0)
     // API change https://github.com/pytorch/pytorch/pull/119421
     return nccl_backend->_reduce_oop(
         buf.at(0), params_.src_bufs.at(0), options);
