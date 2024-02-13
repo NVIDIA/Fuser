@@ -423,10 +423,22 @@ if(BUILD_PYTHON)
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_internal PRIVATE -Werror)
-    set_target_properties(nvfuser PROPERTIES SUFFIX ".so")
+    set(NVF_LIB_SUFFIX ".so")
   else()
-    set_target_properties(nvfuser PROPERTIES SUFFIX ".pyd")
+    set(NVF_LIB_SUFFIX ".pyd")
   endif()
+  set_target_properties(nvfuser PROPERTIES
+    C_STANDARD 17
+    CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    SUFFIX ${NVF_LIB_SUFFIX}
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
   set_target_properties(nvf_py_internal PROPERTIES
     C_STANDARD 17
     CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
