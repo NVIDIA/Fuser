@@ -13,6 +13,7 @@ namespace nvfuser {
 
 using MemoryFormat = std::vector<int64_t>;
 
-std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(Fusion* fusion);
+std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
+    Fusion* fusion);
 
 } // namespace nvfuser
