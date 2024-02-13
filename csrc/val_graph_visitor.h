@@ -71,7 +71,7 @@ class ValGraphVisitor {
 
   ValGraphVisitor(ValGraphVisitor&& other) = default;
 
-  virtual void handle(const ValGroup& id_group) = 0;
+  virtual void handle(const ValGroup& val_group) = 0;
   virtual void handle(const ExprGroup& expr_group) = 0;
 
   void traverse();
@@ -92,7 +92,7 @@ class ValGraphStmtSort : public ValGraphVisitor {
   }
 
   // Return non-reference so that code like below can work
-  // for (auto expr_group: IdGraphStmtSort(graph).exprs())
+  // for (auto expr_group: ValGraphStmtSort(graph).exprs())
   ExprGroups exprs() const {
     return sorted_exprs_;
   }

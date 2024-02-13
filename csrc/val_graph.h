@@ -122,7 +122,7 @@ class ValGraph {
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
 
-  // Return Val groups that have no definition exprs.
+  // Return Val groups that have no definition.
   ValGroups getTerminatingInputs() const;
 
   // Recursively traverses uses of the IdGroups in 'of' and returns all

@@ -13,17 +13,18 @@ namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
   const ValGroups terminating_inputs = graph().getTerminatingInputs();
-  ValGroups to_visit_ids = terminating_inputs;
-  ValGroups visited_ids;
+  std::deque<ValGroup> to_visit_vals(
+      terminating_inputs.begin(), terminating_inputs.end());
+  ValGroups visited_vals;
 
-  ExprGroups to_visit_exprs;
+  std::deque<ExprGroup> to_visit_exprs;
   ExprGroups visited_exprs;
 
   auto is_expr_ready = [&](const ExprGroup& expr_group) -> bool {
     const auto inp_groups = graph().inputGroups(expr_group);
     return std::all_of(
-        inp_groups.begin(), inp_groups.end(), [&](ValGroup id_group) {
-          return visited_ids.has(id_group) || id_group->empty();
+        inp_groups.begin(), inp_groups.end(), [&](ValGroup val_group) {
+          return visited_vals.has(val_group) || val_group->empty();
         });
   };
 
@@ -47,26 +48,43 @@ void ValGraphVisitor::traverse() {
   //
   // See also IdModelTest.ValGraphStmtSort3 for a concrete example.
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
+    if (terminating_inputs.has(val_group)) {
+      return true;
+    }
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
-          return expr_group->empty() || visited_exprs.has(expr_group) ||
-              terminating_inputs.has(val_group) ||
-              graph().isTrivialExprGroup(expr_group);
+          if (expr_group->empty() || visited_exprs.has(expr_group)) {
+            return true;
+          }
+          // Handle ExprGroups that return one or some of its input ValGroups as
+          // output. This expr_group is not visited yet, which means there're
+          // input ValGroups that are not yet visited. If those not-visited
+          // inputs are actually the same as val_group, visit val_group at this
+          // point to resolve the circular dependency.
+          for (const ValGroup& input_group : graph().inputGroups(expr_group)) {
+            if (input_group != val_group && !visited_vals.has(input_group) &&
+                input_group->empty()) {
+              return false;
+            }
+          }
+          return true;
         });
   };
 
-  while (!to_visit_ids.empty() || !to_visit_exprs.empty()) {
+  // Detect if nothing has been processed which would put us in an infinite
+  // loop
+  bool something_was_processed = false;
+
+  do {
+    something_was_processed = false;
+
     // Process expressions first as all definitions of vals have to be
     // processed before we can process that val.
 
-    // Detect if nothing has been processed which would put us in an infinite
-    // loop
-    bool something_was_processed = false;
-    ExprGroups still_to_visit_exprs;
-
     while (!to_visit_exprs.empty()) {
-      ExprGroup current_expr_group = to_visit_exprs.popFront();
+      ExprGroup current_expr_group = to_visit_exprs.front();
+      to_visit_exprs.pop_front();
       NVF_ERROR(!current_expr_group->empty());
       if (visited_exprs.has(current_expr_group)) {
         continue;
@@ -78,40 +96,56 @@ void ValGraphVisitor::traverse() {
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
 
-        to_visit_ids.pushBack(graph().outputGroups(current_expr_group));
-      } else {
-        still_to_visit_exprs.pushBack(current_expr_group);
+        for (const ValGroup& output_group :
+             graph().outputGroups(current_expr_group)) {
+          to_visit_vals.push_back(output_group);
+        }
       }
     }
 
-    std::swap(to_visit_exprs, still_to_visit_exprs);
-
-    ValGroups still_to_visit_ids;
-    while (!to_visit_ids.empty()) {
-      auto current_id_group = to_visit_ids.popFront();
-      NVF_ERROR(!current_id_group->empty());
-      if (visited_ids.has(current_id_group)) {
+    std::deque<ValGroup> still_to_visit_vals;
+    while (!to_visit_vals.empty()) {
+      auto current_val_group = to_visit_vals.front();
+      to_visit_vals.pop_front();
+      NVF_ERROR(!current_val_group->empty());
+      if (visited_vals.has(current_val_group)) {
         continue;
       }
 
-      if (is_val_ready(current_id_group)) {
-        handle(current_id_group);
+      if (is_val_ready(current_val_group)) {
+        handle(current_val_group);
 
         something_was_processed = true;
-        visited_ids.pushBack(current_id_group);
+        visited_vals.pushBack(current_val_group);
 
-        to_visit_exprs.pushBack(graph().getUses(current_id_group));
+        for (const ExprGroup& use_group : graph().getUses(current_val_group)) {
+          to_visit_exprs.push_back(use_group);
+        }
       } else {
-        still_to_visit_ids.pushBack(current_id_group);
+        still_to_visit_vals.push_back(current_val_group);
       }
     }
 
-    std::swap(to_visit_ids, still_to_visit_ids);
+    std::swap(to_visit_vals, still_to_visit_vals);
 
-    NVF_ERROR(
-        something_was_processed ||
-            (to_visit_ids.empty() && to_visit_exprs.empty()),
-        "Infinite loop entered.");
+  } while (something_was_processed);
+
+  if (!to_visit_vals.empty()) {
+    std::stringstream ss;
+    ss << "The graph has an infinite loop. The following Vals should be visited but are never ready:";
+    for (const ValGroup& vg : to_visit_vals) {
+      ss << " " << nvfuser::toString(vg);
+    }
+    NVF_ERROR(false, ss.str());
+  }
+
+  if (!to_visit_exprs.empty()) {
+    std::stringstream ss;
+    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    for (const ExprGroup& eg : to_visit_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    NVF_ERROR(false, ss.str());
   }
 }
 

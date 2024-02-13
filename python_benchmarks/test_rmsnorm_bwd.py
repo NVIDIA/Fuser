@@ -35,7 +35,7 @@ def rmsnorm_bwd_fusion(
 
     T23 = fd.ops.mul(T6, T16)
     T24 = fd.ops.mul(T6, T20)
-    T25 = fd.ops.sum(T23, axes=[0], keepdim=False, dtype=DataType.Null)
+    T25 = fd.ops.sum(T23, dims=[0], keepdim=False, dtype=DataType.Null)
 
     T28 = fd.ops.mul(T24, T15)
     T29 = fd.ops.neg(T24)
@@ -43,7 +43,7 @@ def rmsnorm_bwd_fusion(
     T32 = fd.ops.pow(T14, S0)
     T33 = fd.ops.reciprocal(T32)
     T34 = fd.ops.mul(T30, T33)
-    T35 = fd.ops.sum(T34, axes=[1], keepdim=False, dtype=DataType.Null)
+    T35 = fd.ops.sum(T34, dims=[1], keepdim=False, dtype=DataType.Null)
     V39 = fd.define_vector([T4.size(0), 1], dtype=DataType.Int)
     T41 = fd.ops.broadcast_in_dim(T35, shape=V39, broadcast_dims=[0])
     T43 = fd.ops.mul(S0, T5)
@@ -51,7 +51,7 @@ def rmsnorm_bwd_fusion(
     T45 = fd.ops.mul(T41, T44)
     S48 = fd.ops.reciprocal(T4.size(1))
     T49 = fd.ops.mul(T45, S48)
-    T50 = fd.ops.sum(T49, axes=[1], keepdim=False, dtype=DataType.Null)
+    T50 = fd.ops.sum(T49, dims=[1], keepdim=False, dtype=DataType.Null)
     T54 = fd.ops.broadcast_in_dim(T50, shape=V39, broadcast_dims=[0])
     T58 = fd.ops.broadcast_in_dim(T54, shape=T4.shape(), broadcast_dims=[0, 1])
     T59 = fd.ops.mul(T58, S0)

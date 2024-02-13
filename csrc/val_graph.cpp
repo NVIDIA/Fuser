@@ -103,13 +103,13 @@ std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
 ValGroups ValGraph::getTerminatingInputs() const {
   // Initialize vals to traverse
   ValGroups all_vals{
-          disjointValSets().disjointSets().begin(),
-          disjointValSets().disjointSets().end()};
+      disjointValSets().disjointSets().begin(),
+      disjointValSets().disjointSets().end()};
 
   // Initialize exprs to traverse
   ExprGroups all_exprs{
-        disjointExprSets().disjointSets().begin(),
-        disjointExprSets().disjointSets().end()};
+      disjointExprSets().disjointSets().begin(),
+      disjointExprSets().disjointSets().end()};
 
   // Grab all vals that are not input, i.e., having a defining expr
   // within all_exprs.
@@ -138,9 +138,10 @@ ValGroups ValGraph::getTerminatingInputs() const {
   for (const ExprGroup& expr_group : all_exprs) {
     const std::vector<ValGroup> input_groups = inputGroups(expr_group);
     const std::vector<ValGroup> output_groups = outputGroups(expr_group);
-    std::unordered_set<ValGroup> input_set{input_groups.begin(), input_groups.end()};
+    std::unordered_set<ValGroup> input_set{
+        input_groups.begin(), input_groups.end()};
 
-    for (const ValGroup& output_group: output_groups) {
+    for (const ValGroup& output_group : output_groups) {
       if (input_set.count(output_group)) {
         continue;
       }

@@ -14,6 +14,7 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -329,8 +330,9 @@ void SegmentedGroup::finalize() {
   // alias aware segmentation. we add inputs that are aliased by output
   // generated in this SegmentedGroup
   for (Val* output : output_vals) {
-    if (Val* aliased_input =
-            segmented_fusion_->completeFusion()->getOutputAlias(output).first) {
+    if (Val* aliased_input = segmented_fusion_->completeFusion()
+                                 ->getOutputAlias(output)
+                                 .aliased_io) {
       // aliasing currently only supported as output to input
       NVF_ERROR(
           aliased_input->isFusionInput(),
@@ -1865,7 +1867,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -1874,7 +1876,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
   }
   if (fusion) {
@@ -2582,7 +2584,7 @@ class TranslateApplicableWelford {
   //!  group containing all the welford ops needs to be
   //!  provided.
   bool wouldTranslateToPersistent(
-      const std::vector<WelfordOp*>& orignal_welfords,
+      const std::vector<WelfordOp*>& original_welfords,
       SegmentedGroup* group = nullptr);
 
   //! Translate the given welford op into separate
@@ -2615,12 +2617,12 @@ TranslateApplicableWelford::TranslateApplicableWelford(
     const KernelArgumentHolder& runtime_inputs)
     : runtime_inputs_(runtime_inputs) {
   auto exprs = fusion->exprs();
-  std::vector<WelfordOp*> orignal_welfords(
+  std::vector<WelfordOp*> original_welfords(
       ir_utils::filterByType<WelfordOp>(exprs).begin(),
       ir_utils::filterByType<WelfordOp>(exprs).end());
 
-  if (wouldTranslateToPersistent(orignal_welfords)) {
-    for (auto welford : orignal_welfords) {
+  if (wouldTranslateToPersistent(original_welfords)) {
+    for (auto welford : original_welfords) {
       translateSingleWelford(welford);
     }
     translated_any_welford_ = true;
@@ -2705,26 +2707,26 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 // Note that when segmented it is assumed that insertion of lower
 // precision cast has already been done
 bool TranslateApplicableWelford::wouldTranslateToPersistent(
-    const std::vector<WelfordOp*>& orignal_welfords,
+    const std::vector<WelfordOp*>& original_welfords,
     SegmentedGroup* group) {
-  if (orignal_welfords.empty()) {
+  if (original_welfords.empty()) {
     return false;
   }
 
   // Make sure all welford inputs are not already statistics, e.g.
   // FusionSqueezeOnlyWelford_CUDA
-  for (auto welford : orignal_welfords) {
+  for (auto welford : original_welfords) {
     if (!welford->inN()->isOneInt()) {
       return false;
     }
   }
 
   // Make sure all welford ops come from the same complete fusion
-  auto fusion = orignal_welfords[0]->fusion();
+  auto fusion = original_welfords[0]->fusion();
   NVF_ERROR(
       std::all_of(
-          orignal_welfords.begin(),
-          orignal_welfords.end(),
+          original_welfords.begin(),
+          original_welfords.end(),
           [fusion](WelfordOp* welford) { return welford->fusion() == fusion; }),
       "Welfords in given vector not in the same fusion");
 
@@ -2734,8 +2736,8 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
 
   std::vector<WelfordOp*> copied_welfords;
   std::transform(
-      orignal_welfords.begin(),
-      orignal_welfords.end(),
+      original_welfords.begin(),
+      original_welfords.end(),
       std::back_inserter(copied_welfords),
       [&original_to_test_map](auto welford) {
         return original_to_test_map.clone(welford);
@@ -3547,7 +3549,17 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group1, group2);
+  if (options_.only_segment_resharding_exprs) {
+    for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
+        if (isResharding(expr)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
   return h.has_value();
 }
 
@@ -3555,7 +3567,12 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
     SegmentedGroup* group) {
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group);
+  if (options_.only_segment_resharding_exprs) {
+    // We don't need to generate a heuristic for multidevice segments at this
+    // moment
+    return ScheduleHeuristic::None;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
       h.has_value(), "Can not find a scheduler to schedule fusion segment");
   return h.value();
@@ -3563,11 +3580,21 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs),
+      runtime_info_(
+          inputs == nullptr ? std::nullopt
+                            : std::make_optional<SchedulerRuntimeInfo>(
+                                  fusion.get(),
+                                  *inputs)),
       runtime_inputs_(inputs) {
+  NVF_ERROR(
+      !options_.only_segment_resharding_exprs ||
+          (!options_.run_translate_welford &&
+           !options_.run_combine_reductions && options_.run_herrmann_merge &&
+           options_.run_final_merge),
+      "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
@@ -3687,7 +3714,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), runtime_inputs_)) {
+            segmented_fusion_.get(), *runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();

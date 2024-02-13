@@ -43,7 +43,7 @@ def dropout_rmsnorm_fwd_fusion(
     T15 = fd.ops.add(T0, T14)
     S16 = fd.define_scalar(2.00000, dtype=DataType.Double)
     T17 = fd.ops.pow(T15, S16)
-    T18 = fd.ops.sum(T17, axes=[1], keepdim=False, dtype=DataType.Null)
+    T18 = fd.ops.sum(T17, dims=[1], keepdim=False, dtype=DataType.Null)
 
     V21 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
     T22 = fd.ops.broadcast_in_dim(T18, shape=V21, broadcast_dims=[0])
