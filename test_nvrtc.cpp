@@ -114,6 +114,7 @@ int main(int argc, char* argv[]) {
   std::vector<char> cubin_buffer(cubin_size);
   checkNvrtc(nvrtcGetCUBIN(program, cubin_buffer.data()));
 
+  std::cout << "Loading the module..." << std::endl;
   CUmodule module;
   checkCuda(
       cuModuleLoadDataEx(&module, cubin_buffer.data(), 0, nullptr, nullptr));
