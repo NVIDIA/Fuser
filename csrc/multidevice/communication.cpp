@@ -10,8 +10,8 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
-#include <utils.h>
 #include <multidevice/communication.h>
+#include <utils.h>
 
 namespace nvfuser {
 namespace {
