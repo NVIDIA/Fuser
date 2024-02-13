@@ -23,6 +23,8 @@ class MatmulDefaultTest : public NVFuserTest {};
 TEST(MatmulDefaultTest, SingleMmaOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
   int64_t m = 2, k = 3, n = 4;
@@ -51,6 +53,8 @@ TEST(MatmulDefaultTest, SingleMmaOp) {
 TEST(MatmulDefaultTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
   int64_t m = 2, k = 3, n = 4;
@@ -80,6 +84,8 @@ TEST(MatmulDefaultTest, MmaOpAndCast) {
 TEST(MatmulDefaultTest, MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
   int64_t m = 2, k = 3, n = 4;
