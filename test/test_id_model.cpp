@@ -1167,10 +1167,6 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   // Fully inline tv10 to tv11 without merging
   tv10->inlineAt(-1);
 
-  IdModel id_model(&fusion, true, false, false);
-
-  const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-
   // Due to the compliment mapping, the leaf domains of tv10 and tv11
   // are loop mapped, which is invalid.
   //
@@ -1188,13 +1184,23 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   // Here's the loop graph for tv10 and tv11:
   // idg{22 23 24 25 26 27}
 
+  // Due to the invalid mapping, building IdModel should fail for now
+  EXPECT_THAT(
+      [&]() { IdModel id_model(&fusion, true, false, false); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Detected leaf domains are mapped in the loop graph")));
+
+  // Enable the below validation once the above problem is resolved.
+  //
+  // const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  //
   // These assertions should fail at this moment.
-  ASSERT_NE(
-      loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(1)));
-  ASSERT_NE(
-      loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(2)));
-  ASSERT_NE(
-      loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
+  // ASSERT_NE(
+  //     loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(1)));
+  // ASSERT_NE(
+  //     loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(2)));
+  // ASSERT_NE(
+  //     loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
 } // namespace nvfuser

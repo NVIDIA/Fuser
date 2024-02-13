@@ -1014,6 +1014,30 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
+namespace {
+
+// Loop graph represents the loop structure of the given fusion, so
+// there must not be any mapping between the leaf domains of each
+// tensor.
+void validateLoopGraphHasNoSelfMappedLeafDomains(
+    const std::vector<TensorView*>& tvs,
+    const IdModel& id_model) {
+  for (auto tv : tvs) {
+    auto self_mappped_leaf_pair =
+        detectMappablePair(tv->domain()->leaf(), id_model, IdMappingMode::LOOP);
+    NVF_ERROR(
+        !self_mappped_leaf_pair.has_value(),
+        "Detected leaf domains are mapped in the loop graph. Tensor: ",
+        tv->toString(),
+        ". Mapped leaf domains: ",
+        self_mappped_leaf_pair->first->toString(),
+        " and ",
+        self_mappped_leaf_pair->second->toString());
+  }
+}
+
+} // namespace
+
 void IdModel::buildLoopGraph() {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
@@ -1032,6 +1056,8 @@ void IdModel::buildLoopGraph() {
 
   initializeLoopGraph(inlining_info);
 
+  validateLoopGraphHasNoSelfMappedLeafDomains(tvs_, *this);
+
   VERBOSE() << "Initial loop graph:\n";
   for (const auto& group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
@@ -1039,6 +1065,10 @@ void IdModel::buildLoopGraph() {
   }
 
   loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+
+  // New domains are added. Make sure there's still no self mapping in
+  // the leaf domains
+  validateLoopGraphHasNoSelfMappedLeafDomains(tvs_, *this);
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
 }
