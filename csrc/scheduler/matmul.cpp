@@ -719,8 +719,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     NVF_CHECK(fusion->outputs().size() == 1)
     fusion->markOutputForEvaluation(fusion->outputs()[0]);
     scheduler_debug_utils::log(
-        __FUNCTION__,
-        ": Matmul output to be computed through expression evaluator. Skipping codegen.");
+        __FILE__,
+        ":",
+        __LINE__,
+        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
     return;
   }
 
