@@ -18,7 +18,7 @@
 
 namespace nvfuser {
 
-class MatmulATenEvaluationTest : public NVFuserTest {};
+using MatmulATenEvaluationTest = NVFuserTest;
 
 TEST(MatmulATenEvaluationTest, SingleMmaOp) {
   auto fusion = std::make_unique<Fusion>();
@@ -96,14 +96,14 @@ TEST(MatmulATenEvaluationTest, MatmulWithBias) {
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-  auto tv3 = castOp(DataType::Half, tv2);
-  auto tv4 = makeConcreteTensor({m}, DataType::Half);
-  auto tv5 = biasEpilogue(tv3, tv4);
+  auto tv3 = makeConcreteTensor({m}, DataType::Half);
+  auto tv4 = castOp(DataType::Float, tv3);
+  auto tv5 = biasEpilogue(tv2, tv4);
   auto tv6 = castOp(DataType::Half, tv5);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  fusion->addInput(tv4);
+  fusion->addInput(tv3);
   fusion->addOutput(tv6);
 
   at::Tensor t0 = at::ones(a_shape, at::kHalf).cuda();
