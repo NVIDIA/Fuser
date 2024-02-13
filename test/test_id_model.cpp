@@ -1100,8 +1100,85 @@ TEST_F(IdModelTest, ValGraphStmtSort4) {
   ref_order.push_back(getParentExpr(tv9->axis(0), 1));
   ref_order.push_back(getParentExpr(tv10->axis(0), 1));
 
-  checkSortingResults(
-      vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
+  checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), ref_order);
+}
+
+// A repro that produces an invalid loop graph due to the compliment
+// mapping. This is not currently supported.
+TEST_F(IdModelTest, ComplimentMappingRepro) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({7});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({7, 8});
+  fusion.addInput(tv1);
+  auto tv2 = makeConcreteTensor({7, 9});
+  fusion.addInput(tv2);
+
+  auto tv3 = broadcast(tv0, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = broadcast(tv4, {false, false, true});
+
+  auto tv6 = broadcast(tv0, {false, true});
+  auto tv7 = add(tv2, tv6);
+  auto tv8 = broadcast(tv7, {false, true, false});
+
+  auto tv9 = add(tv5, tv8);
+
+  auto tv10 = set(tv9);
+  auto tv11 = set(tv10);
+  fusion.addOutput(tv11);
+
+  // Merge all domains except for tv10 and tv11
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv == tv10 || tv == tv11) {
+      continue;
+    }
+    while (tv->nDims() > 1) {
+      tv->merge(0);
+    }
+  }
+
+  // Fully inline all tensors up until tv10
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv == tv9 || tv == tv10 || tv == tv11) {
+      continue;
+    }
+    tv->inlineAt(1);
+  }
+
+  // Fully inline tv10 to tv11 without merging
+  tv10->inlineAt(-1);
+
+  IdModel id_model(&fusion, true, false, false);
+
+  const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+
+  // Due to the compliment mapping, the leaf domains of tv10 and tv11
+  // are loop mapped, which is invalid.
+  //
+  // Specifically, here are the tv10 and tv11 tensors:
+  //
+  // T10_l[ iS22{7}, iS23{8}, iS24{9} ] ca_pos( 3 )
+  // root domain : (iS22{7}, iS23{8}, iS24{9})
+  // contiguity: t t t
+  // leaf domain : (iS22{7}, iS23{8}, iS24{9})
+  // T11_g[ iS25{7}, iS26{8}, iS27{9} ] produce_pos( 3 )
+  // root domain : (iS25{7}, iS26{8}, iS27{9})
+  // contiguity: t t t
+  // leaf domain : (iS25{7}, iS26{8}, iS27{9})
+  //
+  // Here's the loop graph for tv10 and tv11:
+  // idg{22 23 24 25 26 27}
+
+  // These assertions should fail at this moment.
+  ASSERT_NE(
+      loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(1)));
+  ASSERT_NE(
+      loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(2)));
+  ASSERT_NE(
+      loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
 } // namespace nvfuser
