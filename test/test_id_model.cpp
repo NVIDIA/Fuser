@@ -1121,7 +1121,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
 // A repro that produces an invalid loop graph due to the compliment
 // mapping. This is not currently supported.
-TEST_F(IdModelTest, ComplimentMappingRepro) {
+TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
