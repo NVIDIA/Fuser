@@ -177,10 +177,16 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 
 namespace {
 
-// Calculate register usage based on target occupancy
-// Para [target_warps_per_sm]: required occupancy to hide memory latency.
-// Para [register_overhead]: registers except those for the persistent buffers.
-int64_t estimateRegPerThread(
+// Calculate the maximum register count each thread can use.
+// We always guarantee the returned register count is at least as large as the
+// buffer+overhead estimate. We meet the desired occupancy but don't try to
+// maximize it further. As long as it's as large as a given target occupancy, we
+// consider it's good enough. The idea is that as long as we have a good enough
+// occupancy, we should be able to saturate the memory bandwidth. Within these
+// constraints, we try to maximize the number of registers each thread can use.
+// Para [target_warps_per_sm]: required occupancy to saturate memory bandwidth.
+// Para [register_overhead]: registers except those for persistent buffers.
+int64_t getMaxRegisterCountPerThread(
     const int64_t buffer_size_per_thread,
     const int64_t threads_per_block,
     const int64_t target_warps_per_sm,
@@ -700,7 +706,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t target_warps_per_sm = 28;
 
     // Estimate register usage
-    nvrtc_register_per_thread = estimateRegPerThread(
+    nvrtc_register_per_thread = getMaxRegisterCountPerThread(
         persistent_buffer_size,
         threads_per_block,
         target_warps_per_sm,
