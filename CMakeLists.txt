@@ -16,8 +16,7 @@ option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 include(CMakeDependentOption)
-cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON
-	"USE_DISTRIBUTED" OFF)
+cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
 if (NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
@@ -254,7 +253,7 @@ target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-	PRIVATE
+  PRIVATE
   ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
   ${CUDA_INCLUDE_DIRS}
 )
