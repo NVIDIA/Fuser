@@ -16,7 +16,7 @@ def reduction_fusion(
     )
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
-    T2 = fd.ops.sum(T0, axes=[reduction_axis], keepdim=False)
+    T2 = fd.ops.sum(T0, dims=[reduction_axis], keepdim=False)
     if dtype in PROMOTE_DTYPES:
         T2 = fd.ops.cast(T2, dtype=dtype)
     fd.add_output(T2)
