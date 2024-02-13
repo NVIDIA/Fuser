@@ -31,10 +31,10 @@ void LayoutOptimizationPass::runPass(Fusion* fusion) {
 
     auto rfactor_dom = out_tv->getMaybeRFactorDomain();
 
-    auto rank = rfactor_dom->size();
+    auto rank = rfactor_dom.size();
     std::vector<IterDomain*> allocation_domain(rank, nullptr);
     for (auto i : c10::irange(rank)) {
-      allocation_domain.at(rank - 1 - mapped_entry->second.at(i)) = rfactor_dom.at(i);
+      allocation_domain.at(i) = rfactor_dom.at(mapped_entry->second.at(i));
     }
     out_tv->setAllocationDomain(allocation_domain, true);
   }
