@@ -40,9 +40,9 @@ class MemoryFormatInferencer : public OptOutConstDispatch {
   //   void handle(const ExpandOp*) override;
 
  private:
-  // format_map_ records the stride order (memory format) of each TensorView. Since it only handles permutation from a rfactor domain to allocation domain, it can be interpreted as:
-  // e.g.
-  // TV0 rfactor domain [i0, i1, i2]
+  // format_map_ records the stride order (memory format) of each TensorView.
+  // Since it only handles permutation from a rfactor domain to allocation
+  // domain, it can be interpreted as: e.g. TV0 rfactor domain [i0, i1, i2]
   //     memory  format   2,  0,  1
   //     alloc   domain [i0, i2, i1]
   std::unordered_map<const TensorView*, MemoryFormat>& format_map_;
@@ -62,8 +62,12 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
 
 // BinaryOp propagation tries to merge the memory format of both inputs
 //
-//   1. when there's only one operand has a recorded memory format, it forwards that.
-//   2. When both tensor have recorded memory format. It breaks tie based on the innermost dimension. whichever operand has a "better match" dominates the output format, where a "better match" meaning "less broadcast dimensions on the inner dimension"
+//   1. when there's only one operand has a recorded memory format, it forwards
+//   that.
+//   2. When both tensor have recorded memory format. It breaks tie based on the
+//   innermost dimension. whichever operand has a "better match" dominates the
+//   output format, where a "better match" meaning "less broadcast dimensions on
+//   the inner dimension"
 //
 // e.g.
 //   lhs TV0 [i0, i1, b2]
@@ -73,7 +77,9 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
 //   if we go from innermost to outermost order:
 //     TV0 has i1 -> b2 -> i0
 //     TV1 has b5 -> i4 -> i3
-//   we see that TV0 encounters a non-broadcast iter domain first, so TV0 is the dominating tensor. We'll produce an output with stride order identical to that of TV0 in the record.
+//   we see that TV0 encounters a non-broadcast iter domain first, so TV0 is the
+//   dominating tensor. We'll produce an output with stride order identical to
+//   that of TV0 in the record.
 void MemoryFormatInferencer::handle(const BinaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
@@ -128,7 +134,8 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
 
 // BroadcastOp propagation:
 //   1. preserves all stride order of input iterdomain;
-//   2. stacks all added broadcast iter domain on outputs as outer dimensions in their natural position
+//   2. stacks all added broadcast iter domain on outputs as outer dimensions in
+//   their natural position
 //
 // e.g.
 //   TV0 = [i0, i1, i2] @ stride order {1, 2, 0}
@@ -164,14 +171,19 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
 
 // Note [ Memory Format Propagation ]
 //
-// The propagation tries to propagate memory format from inputs to the entire fusion:
-//   1. Iterates through all inputs, looking for TensorView with allocatoin domain that's a permutation of its corresponding rfactor domain and record it as the memory format of the tensor;
-//   2. Traverse the fusion IR, propagate memory format and record results in memory_format_map.
+// The propagation tries to propagate memory format from inputs to the entire
+// fusion:
+//   1. Iterates through all inputs, looking for TensorView with allocatoin
+//   domain that's a permutation of its corresponding rfactor domain and record
+//   it as the memory format of the tensor;
+//   2. Traverse the fusion IR, propagate memory format and record results in
+//   memory_format_map.
 std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
     Fusion* fusion) {
   std::unordered_map<const TensorView*, MemoryFormat> memory_format_map;
 
-  // Note: we only consider simple permutation of allocation domain to rfactor domain.
+  // Note: we only consider simple permutation of allocation domain to rfactor
+  // domain.
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     std::optional<MemoryFormat> permutation = ir_utils::computePermutation(
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()),

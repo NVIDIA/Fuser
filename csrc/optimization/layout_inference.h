@@ -13,7 +13,9 @@ namespace nvfuser {
 
 using MemoryFormat = std::vector<int64_t>;
 
-// Propagate memory format from input to the entire fusion. It does NOT modify any fusion IR, but instead stores the propagated memory format as an unordered_map from TensorView to permutation.
+// Propagate memory format from input to the entire fusion. It does NOT modify
+// any fusion IR, but instead stores the propagated memory format as an
+// unordered_map from TensorView to permutation.
 //
 // See details in Note [ Memory Format Propagation ]
 std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
