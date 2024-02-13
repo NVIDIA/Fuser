@@ -18,9 +18,9 @@
 
 namespace nvfuser {
 
-class MatmulDefaultTest : public NVFuserTest {};
+class MatmulATenEvaluationTest : public NVFuserTest {};
 
-TEST(MatmulDefaultTest, SingleMmaOp) {
+TEST(MatmulATenEvaluationTest, SingleMmaOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -50,7 +50,7 @@ TEST(MatmulDefaultTest, SingleMmaOp) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST(MatmulDefaultTest, MmaOpAndCast) {
+TEST(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -81,7 +81,7 @@ TEST(MatmulDefaultTest, MmaOpAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST(MatmulDefaultTest, MatmulWithBias) {
+TEST(MatmulATenEvaluationTest, MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
