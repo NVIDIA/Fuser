@@ -62,18 +62,16 @@ void setAsARange(at::Tensor tensor) {
 
 } // namespace debugging
 
-using MmaTestParams = std::tuple<MmaMacro, PrimDataType, MmaLayout>;
+using MmaTestParams = std::tuple<MmaMacro, PrimDataType>;
 
 class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
  protected:
-  MmaLayout layout;
   MmaMacro macro;
   PrimDataType dtype;
 
   void SetUp() override {
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
-    layout = std::get<2>(GetParam());
 
     if (isTuring(macro) && cudaArchGuardShouldSkip(7, 5)) {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
@@ -91,40 +89,23 @@ TEST_P(MmaTest, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
-  bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
+  auto shapes = matmulAtInputShape3DTuring(
+      getM(macro), getN(macro), getK(macro), MmaLayout::TN);
 
-  std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getN(macro), getK(macro)};
-
-  if (transpose_a) {
-    std::swap(A_shape[0], A_shape[1]);
-  }
-
-  if (transpose_b) {
-    std::swap(B_shape[0], B_shape[1]);
-  }
-
-  auto tv0 = makeConcreteTensor(A_shape, dtype);
-  auto tv1 = makeConcreteTensor(B_shape, dtype);
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M, K]
-  if (transpose_a) {
-    tv0 = transpose(tv0, 0, 1);
-  }
+  // [M, 1, K]
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
 
-  // [N, K]
-  if (transpose_b) {
-    tv1 = transpose(tv1, 0, 1);
-  }
+  // [1, N, K]
+  // Just doing a gmem->register copy
+  tv1 = set(tv1);
 
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1, {true, false, false});
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {2});
 
   fusion.addOutput(tv2);
 
@@ -138,33 +119,36 @@ TEST_P(MmaTest, SingleTile) {
   auto tv2c = tv2->cacheBefore();
 
   // [M, N, K] -> [N, M, K]
-  tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(MmaOperand::A);
-  tv1b->applyMmaSwizzle(MmaOperand::B);
+  tv0->reorder({{-2, -3}, {-3, -2}});
+  tv0->applyMmaSwizzle(MmaOperand::A);
+  tv1->applyMmaSwizzle(MmaOperand::B);
 
-  tv0b->merge(1);
-  tv0b->merge(1);
-  tv0b->axis(1)->parallelize(ParallelType::TIDx);
-  tv1b->merge(1);
-  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->merge(1);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
-      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+  auto inputs = matmulAtInput3DTuring(
+      getM(macro),
+      getN(macro),
+      getK(macro),
+      MmaLayout::TN,
+      data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      MmaLayout::TN);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
-
-auto all_mma_layouts =
-    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
 
 auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
 
@@ -172,9 +156,7 @@ std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto dtype = std::get<1>(info.param);
-  auto layout = std::get<2>(info.param);
-  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
-     << toString(layout) << dtype;
+  os << toString(macro) << dtype;
   return os.str();
 }
 
@@ -186,8 +168,7 @@ INSTANTIATE_TEST_SUITE_P(
             MmaMacro::Turing_16_8_8,
             MmaMacro::Turing_16_8_16,
             MmaMacro::Turing_16_16_16),
-        testing::Values(DataType::Half),
-        all_mma_layouts),
+        testing::Values(DataType::Half)),
     testName);
 
 INSTANTIATE_TEST_SUITE_P(
@@ -195,8 +176,7 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     testing::Combine(
         testing::Values(MmaMacro::Ampere_16_8_16, MmaMacro::Ampere_16_16_16),
-        all_dtypes,
-        all_mma_layouts),
+        all_dtypes),
     testName);
 
 class HopperBase : public NVFuserTest {
@@ -218,6 +198,9 @@ void naivelyParallelize(TensorView* tv) {
   tv->split(0, 128);
   tv->axis(1)->parallelize(ParallelType::TIDx);
 }
+
+auto all_mma_layouts =
+    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
 
 auto all_hopper_macros = testing::Values(
     MmaMacro::Hopper_64_8_16,
@@ -284,15 +267,10 @@ TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
   std::vector<int64_t> A_shape{getM(macro), getK(macro)},
       B_shape{getK(macro), getN(macro)};
-
-  if (transpose_a) {
-    std::swap(A_shape[0], A_shape[1]);
-  }
 
   if (transpose_b) {
     std::swap(B_shape[0], B_shape[1]);
@@ -302,11 +280,6 @@ TEST_P(HopperRS, SingleTile) {
   auto tv1 = makeConcreteTensor(B_shape, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
-
-  // [M, K]
-  if (transpose_a) {
-    tv0 = transpose(tv0, 0, 1);
-  }
 
   TensorView* tv0b = nullptr;
   int axes = 0;
@@ -360,7 +333,7 @@ TEST_P(HopperRS, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
+  auto inputs = matmulAtInput2D(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
@@ -380,8 +353,8 @@ std::string testNameHopperRS(
   auto dtype = std::get<1>(info.param);
   auto layout = std::get<2>(info.param);
   auto swizzle_b = std::get<3>(info.param);
-  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
-     << toString(layout) << "_" << toString(swizzle_b) << dtype;
+  os << toString(macro) << "_" << toString(layout) << "_" << toString(swizzle_b)
+     << dtype;
   return os.str();
 }
 
@@ -391,7 +364,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         all_hopper_macros,
         all_dtypes,
-        all_mma_layouts,
+        testing::Values(MmaLayout::TT, MmaLayout::TN),
         all_smem_swizzle_modes),
     testNameHopperRS);
 
@@ -528,7 +501,7 @@ TEST_P(HopperSS, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput(
+  auto inputs = matmulAtInput2D(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;

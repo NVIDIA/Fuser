@@ -208,9 +208,9 @@ class automaticReshardingTest
         .only_segment_resharding_exprs = true};
 
     auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion), options);
+        SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
 
-    for (auto group : segmented_fusion->groups()) {
+    for (SegmentedGroup* group : segmented_fusion->groups()) {
       GTEST_EXPECT_TRUE(
           std::none_of(
               group->exprs().begin(),

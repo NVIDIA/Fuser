@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
@@ -105,7 +105,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
 
-  staged_fusion_ = SegmentCandidateFinder::segment(std::move(fusion), options);
+  staged_fusion_ =
+      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
 
   for (auto group : staged_fusion_->groups()) {
     NVF_ERROR(!group->exprs().empty() == 1, "invalid segmentation");
