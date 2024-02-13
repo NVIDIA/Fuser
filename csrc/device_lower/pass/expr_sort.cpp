@@ -1509,12 +1509,12 @@ void ExprSegmentationSorter::sort() {
   // We skip generating code that computes only pointer-arithmetic outputs
   // or any output marked for expression evaluator (AllocationType::Evaluate).
   // Those outputs will be computed by ExpressionEvaluator.
-  std::vector<Val*> non_expr_evaluator_outs;
-  non_expr_evaluator_outs.reserve(fusion_->outputs().size());
+  std::vector<Val*> outs_requiring_codegen;
+  outs_requiring_codegen.reserve(fusion_->outputs().size());
   std::copy_if(
       fusion_->outputs().begin(),
       fusion_->outputs().end(),
-      std::back_inserter(non_expr_evaluator_outs),
+      std::back_inserter(outs_requiring_codegen),
       [this](Val* out) {
         return (
             fusion_->getOutputAlias(out).type !=
@@ -1525,7 +1525,7 @@ void ExprSegmentationSorter::sort() {
   // Not putting the exprs between fusion inputs and allKnownVals() here
   // because they are computed using the expr evaluator.
   auto all_exprs = StmtSort::getExprsBetween(
-      GpuLower::current()->allKnownVals(), non_expr_evaluator_outs);
+      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
 
   // Figure out all the values used as inputs to the expressions we're sorting
   // (to find terminating expressions). There could be branches of expressions
