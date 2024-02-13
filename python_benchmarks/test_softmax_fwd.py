@@ -17,7 +17,7 @@ def softmax_fwd_fusion(
     )
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
-    T2 = fd.ops.max(T0, axes=[reduction_axis], keepdim=False, dtype=DataType.Null)
+    T2 = fd.ops.max(T0, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
     if reduction_axis:
         V6 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
@@ -31,7 +31,7 @@ def softmax_fwd_fusion(
     T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
     T13 = fd.ops.sub(T0, T12)
     T14 = fd.ops.exp(T13)
-    T15 = fd.ops.sum(T14, axes=[reduction_axis], keepdim=False, dtype=DataType.Null)
+    T15 = fd.ops.sum(T14, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
     T20 = fd.ops.broadcast_in_dim(T15, shape=V6, broadcast_dims=[bcast_dim])
     T25 = fd.ops.broadcast_in_dim(T20, shape=V11, broadcast_dims=[0, 1])
