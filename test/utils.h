@@ -388,18 +388,13 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
     int device = 0;
-#define TORCH_VERSION_GREATER(major, minor, patch)                    \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
-
-#if TORCH_VERSION_GREATER(2, 2, 0)
+#if NVF_TORCH_VERSION_GREATER(2, 2, 0)
     // c10::cuda uses DeviceIndex instead of int
     // https://github.com/pytorch/pytorch/pull/119142
     c10::DeviceIndex device_index;
     c10::cuda::GetDevice(&device_index);
     device = static_cast<int>(device_index);
-#elif TORCH_VERSION_GREATER(2, 0, 1)
+#elif NVF_TORCH_VERSION_GREATER(2, 0, 1)
     // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
     // in order to properly handle new CUDA 112 behavior
     c10::cuda::GetDevice(&device);
