@@ -15,9 +15,9 @@ namespace {
 
 // move this to util maybe?
 std::vector<int64_t> ascendingAxes(const std::vector<int64_t>& permutation) {
-  int rank = permutation.size();
+  int64_t rank = static_cast<int64_t>(permutation.size());
   std::vector<int64_t> ret(rank, -1);
-  for (int64_t i : c10::irange(permutation.size())) {
+  for (int64_t i : c10::irange(rank)) {
     ret.at(rank - 1 - i) = permutation[i];
   }
   return ret;
@@ -128,9 +128,9 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   // broadcast dimensions are default to outer dimensions
   if (const auto& iter = format_map_.find(in); iter != format_map_.end()) {
     MemoryFormat out_format;
-    int64_t cur_outer = out->nDims();
+    int64_t cur_outer = static_cast<int64_t>(out->nDims());
     int index_in = 0;
-    for (auto i : c10::irange(out->nDims())) {
+    for (auto i : c10::irange(cur_outer)) {
       out_format.push_back(
           op->isBroadcastDim(i) ? --cur_outer : iter->second[index_in++]);
     }
