@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
@@ -26,6 +27,13 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 
 // Returns whether an Expr embbeds multi-device resharding
 bool isResharding(Expr* expr);
+
+// Returns the devices involved in an expr
+std::set<DeviceIdxType> involvedDevices(Expr* expr);
+
+// returns the number of device indices present accross all
+// device meshes in the Fusion
+int64_t requestedNumberOfDevices(Fusion*);
 
 // Runs through the fusion and inserts a resharding Set Op before any resharding
 // Expr that is not directly lowerable to a series of communications

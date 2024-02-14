@@ -34,9 +34,6 @@ Communication should not be used directly but through its derived classes:
 Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will be
 added later.
 
-Later, Communication could be made a derived class of Expr and be thought
-as a kernel IRs resulting of the lowering of a PipelineCommunication.
-
 CommParams contains the arguments for the communication constructors.
 Note that each process (associated with a device index given by
 communicator.deviceId()) will fill CommParams with different arguments,

@@ -37,7 +37,6 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
-  PipelineVal,
   Others
 };
 

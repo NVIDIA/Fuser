@@ -69,8 +69,6 @@ class TensorView;
 
 class NamedScalar;
 
-class PipelineVal;
-
 // Exprs
 class FullOp;
 class IotaOp;
@@ -106,9 +104,6 @@ class ViewOp;
 class CatOp;
 class PadOp;
 class SliceOp;
-
-class PipelineStage;
-class PipelineCommunication;
 
 // Exprs
 class Split;
@@ -175,8 +170,6 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const kir::Predicate*);
   virtual void handle(const kir::TensorIndex*);
-
-  virtual void handle(const PipelineVal*);
 
   // Exprs
   virtual void handle(const FullOp* stmt);
@@ -246,10 +239,6 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::AllocateFusedReduction*);
   virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
   virtual void handle(const kir::EncodeTensorMapTiled*);
-
-  virtual void handle(const PipelineStage*);
-  virtual void handle(const PipelineCommunication*);
-
   virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
@@ -272,8 +261,6 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(kir::Predicate*);
   virtual void handle(kir::TensorIndex*);
-
-  virtual void handle(PipelineVal*);
 
   // Exprs
   virtual void handle(FullOp* stmt);
@@ -343,10 +330,6 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
   virtual void handle(kir::EncodeTensorMapTiled* stmt);
-
-  virtual void handle(PipelineStage* stmt);
-  virtual void handle(PipelineCommunication* stmt);
-
   virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
@@ -401,7 +384,6 @@ class OptOutMutator : public PolymorphicBase {
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);
   virtual void mutate(TensorView*);
-  virtual void mutate(PipelineVal*);
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);

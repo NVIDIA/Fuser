@@ -68,9 +68,6 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
       return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
-      return;
     default:
       ptr(handler)->handle(val);
       return;
@@ -345,14 +342,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
-    return;
-  }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
-    return;
-  }
   if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
     ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
@@ -391,9 +380,6 @@ void Val::constDispatch(T handler, const Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
       ptr(handler)->handle(val);
@@ -669,14 +655,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
-    return;
-  }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
-    return;
-  }
   if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
     ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
@@ -725,9 +703,6 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(mutator)->mutate(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
       ptr(mutator)->mutate(val);
@@ -862,10 +837,6 @@ void OptOutConstDispatch::handle(const kir::Predicate* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1068,13 +1039,6 @@ void OptOutConstDispatch::handle(const kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const PipelineStage* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
-  unhandled(stmt);
-}
-
 void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
@@ -1102,10 +1066,6 @@ void OptOutDispatch::handle(kir::Predicate* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::TensorIndex* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1305,13 +1265,6 @@ void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::EncodeTensorMapTiled* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handle(PipelineStage* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(PipelineCommunication* stmt) {
   unhandled(stmt);
 }
 
