@@ -459,6 +459,13 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
                 input_keys.begin(),
                 input_keys.end(),
                 [&](const auto& input_key) {
+                  // check if input_key is concretized
+                  if (input_key.id()->isBroadcast()) {
+                    if (!root_map.isConcretized(
+                            input_key.td(), input_key.id())) {
+                      return false;
+                    }
+                  }
                   return root_map.canMap(
                       consumer_domain.td(),
                       consumer_domain.id(),
@@ -687,6 +694,14 @@ std::unordered_set<const IterDomain*>& ComputeAtRootDomainMap::
   auto it = bcast_map_.find(key);
   NVF_ERROR(it != bcast_map_.end(), "Not found: ", key.toString());
   return it->second;
+}
+
+bool ComputeAtRootDomainMap::isConcretized(
+    const TensorDomain* td,
+    const IterDomain* id) const {
+  DomainKey key(td, id);
+  auto it = bcast_map_.find(key);
+  return it != bcast_map_.end();
 }
 
 std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::
