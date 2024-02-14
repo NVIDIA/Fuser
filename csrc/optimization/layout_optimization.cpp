@@ -25,7 +25,7 @@ void LayoutOptimizationPass::runPass(Fusion* fusion) {
     }
 
     auto mapped_entry = stride_mapping.find(out_tv);
-    if (mapped_entry == stride_mapping.end()) {
+    if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
       continue;
     }
 
