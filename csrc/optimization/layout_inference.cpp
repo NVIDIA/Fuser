@@ -135,22 +135,33 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
 }
 
 // BroadcastOp propagation:
-//   1. preserves all stride order of input iterdomain;
+//   1. preserves all memory format of input iterdomain;
 //   2. stacks all added broadcast iter domain on outputs as outer dimensions in
 //   their natural position
 //
 // e.g.
 //   TV0 rfactor dom [i0, i1, i2] @ stride order {0, 2, 1}
-//    |    alloc dom [i0, i2, i1] 
-//    |   
+//    |    alloc dom [i0, i2, i1]
+//    |
 //    |
 //    BroadcastOp
 //    |
 //    v
 //   TV1 rfactor dom [i0, b3, i1, i2, b4]
-//         alloc dom [b3, b4, i0, i2, i1]
-//                     1,  4,  
-//                             0,  3,  2
+//         alloc dom [b3, b4, i0, i2, i1]  *see note 1
+//                     1,  4,
+//                             0,  3,  2   *see note 2
+//   note 1:
+//       keeping the alloc domain from input [i0, i2, i1]
+//       stack all broadcast in rfactor [b3, b4].
+//       concat([b3, b4], [i0, i2, i1])
+//
+//   note 2:
+//       computing the new output memory format
+//       We'll scan through the rfactor domain of output where:
+//       a. insert any broadcast iterdomain index as we encounter them
+//       b. adjust the index of entry from input's rfactor domain
+//
 //   so output TV1 will have stride order {1, 4, 0, 3, 2}
 void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
@@ -168,15 +179,19 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
 
     for (auto i : c10::irange(out_rank)) {
       if (op->isBroadcastDim(i)) {
-	broadcast_seen_so_far++;
+        broadcast_seen_so_far++;
+        // broadcast dimensions are default to outer dimensions
+        // see note 2.a
         out_format.push_back(i);
       } else {
-	offset_table[offset_entry++] = broadcast_seen_so_far;
+        // adjusting entry point by recording index compensation
+        // i.e. broadcast dimensions inserted on the left of the old iterdomain
+        // see note 2.b
+        offset_table[offset_entry++] = broadcast_seen_so_far;
       }
     }
 
     for (auto i : c10::irange(in->nDims())) {
-      // broadcast dimensions are default to outer dimensions
       auto format_entry = iter->second[i];
       out_format.push_back(format_entry + offset_table[format_entry]);
     }

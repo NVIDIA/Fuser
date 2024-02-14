@@ -131,12 +131,12 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     // tv0 should hold higher priority than tv1, since:
     //   tv0's innermost non-broadcast dimension is index 3;
     //   tv1's innermost non-broadcast dimension is index 2;
-    std::vector<IterDomain*> tv0_3120 = {
+    std::vector<IterDomain*> tv0_format = {
         tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
-    tv0->setAllocationDomain(tv0_3120, true);
-    std::vector<IterDomain*> tv1_2310 = {
+    tv0->setAllocationDomain(tv0_format, true);
+    std::vector<IterDomain*> tv1_format = {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
-    tv1->setAllocationDomain(tv1_2310, true);
+    tv1->setAllocationDomain(tv1_format, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
@@ -159,12 +159,12 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     // tv0 should hold higher priority than tv1, since:
     //   tv0's innermost non-broadcast dimension is index 2;
     //   tv1's innermost non-broadcast dimension is index 1;
-    std::vector<IterDomain*> tv0_3120 = {
+    std::vector<IterDomain*> tv0_format = {
         tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
-    tv0->setAllocationDomain(tv0_3120, true);
-    std::vector<IterDomain*> tv1_2310 = {
+    tv0->setAllocationDomain(tv0_format, true);
+    std::vector<IterDomain*> tv1_format = {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
-    tv1->setAllocationDomain(tv1_2310, true);
+    tv1->setAllocationDomain(tv1_format, true);
 
     auto updated_layout = inferenceMemoryFormat(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
