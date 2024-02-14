@@ -212,6 +212,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/layout_inference.cpp
   ${NVFUSER_SRCS_DIR}/optimization/layout_optimization.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
 )
 
 # We don't link CUPTI for MSVC
