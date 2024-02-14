@@ -13,16 +13,6 @@ namespace nvfuser {
 
 namespace {
 
-// move this to util maybe?
-std::vector<int64_t> ascendingAxes(const std::vector<int64_t>& permutation) {
-  int64_t rank = static_cast<int64_t>(permutation.size());
-  std::vector<int64_t> ret(rank, -1);
-  for (int64_t i : c10::irange(rank)) {
-    ret.at(rank - 1 - i) = permutation[i];
-  }
-  return ret;
-}
-
 class MemoryFormatInferencer : public OptOutConstDispatch {
  public:
   MemoryFormatInferencer(
@@ -82,6 +72,7 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
 //   we see that TV0 encounters a non-broadcast iter domain first, so TV0 is the
 //   dominating tensor. We'll produce an output with stride order identical to
 //   that of TV0 in the record.
+//   In the event of a tie, we'll just propagate the memory format of lhs.
 void MemoryFormatInferencer::handle(const BinaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
@@ -110,20 +101,27 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
       }
       // go from innermost to outermost until we find the first one that's
       // non-broadcast
-      std::vector<int64_t> lhs_index = ascendingAxes(lhs_iter->second);
-      std::vector<int64_t> rhs_index = ascendingAxes(rhs_iter->second);
-      NVF_ERROR(lhs_index.size() == rhs_index.size());
-      for (auto i : c10::irange(lhs_index.size())) {
-        if (!rhs_iter->first->getMaybeRFactorDomain()[rhs_index[i]]
+      auto rank = lhs_iter->second.size();
+      NVF_ERROR(
+          rank == rhs_iter->second.size(),
+          "expect binary op operands to have same length of memory format");
+      for (auto i : c10::irange(rank)) {
+        if (!lhs_iter->first
+                 ->getMaybeRFactorDomain()[lhs_iter->second[rank - 1 - i]]
                  ->isBroadcast()) {
-          format_map_[out] = rhs_iter->second;
-          return;
-        } else if (!lhs_iter->first->getMaybeRFactorDomain()[lhs_index[i]]
-                        ->isBroadcast()) {
           format_map_[out] = lhs_iter->second;
+          return;
+        } else if (!rhs_iter->first
+                        ->getMaybeRFactorDomain()[rhs_iter
+                                                      ->second[rank - 1 - i]]
+                        ->isBroadcast()) {
+          format_map_[out] = rhs_iter->second;
           return;
         }
       }
+      // for all broadcast dimension, this is a special case for a tie.
+      // we propagate lhs format as a convention.
+      format_map_[out] = lhs_iter->second;
     } else if (lhs_iter != format_map_.end()) {
       format_map_[out] = lhs_iter->second;
       return;
