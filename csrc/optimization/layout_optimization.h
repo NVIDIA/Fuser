@@ -9,6 +9,9 @@
 
 namespace nvfuser::optimization {
 
+// Realize MemoryFormat propagation on fusion inputs to optimize MemoryFormat of
+// output tensor. This optimization pass currently only applies to fusion
+// outputs, but not intermediate tensors.
 class LayoutOptimizationPass : public OptimizationPass<LayoutOptimizationPass> {
   friend class OptimizationPass<LayoutOptimizationPass>;
 
