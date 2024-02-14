@@ -11,6 +11,7 @@
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <visibility.h>
+#include <torch/torch.h>
 
 #include <debug.h>
 #include <type.h>
