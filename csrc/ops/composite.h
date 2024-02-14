@@ -54,6 +54,7 @@ TensorView* _matmul_nn(TensorView* a, TensorView* b);
 TensorView* _matmul_nt(TensorView* a, TensorView* b);
 TensorView* _matmul_tn(TensorView* a, TensorView* b);
 TensorView* _matmul_tt(TensorView* a, TensorView* b);
+TensorView* matmul(TensorView* a, TensorView* b);
 
 TensorView* sign(TensorView* x);
 Val* sign(Val* x);

@@ -712,8 +712,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
+    std::cout << "Dummy Line " << std::endl;
   // Skip scheduling if Matmul will be expression evaluated.
   if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+    std::cout << "Skipping Matmul Scheduling" << std::endl;
     NVF_CHECK(fusion->outputs().size() == 1)
     fusion->markOutputForEvaluation(fusion->outputs()[0]);
     scheduler_debug_utils::log(

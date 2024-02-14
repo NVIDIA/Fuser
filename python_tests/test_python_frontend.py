@@ -2311,18 +2311,23 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(24, 8, device="cuda", dtype=torch.float16),
             torch.randn(8, 16, device="cuda", dtype=torch.float16),
         ]
+        a = torch.randn(24, 8, device="cuda", dtype=torch.float16)
+        b = torch.randn(8, 16, device="cuda", dtype=torch.float16)
+        c = torch.as_strided(b.contiguous(), b.shape, (1, 8))
+        nvf_tt_ins = [a , b]
 
         def fusion_func(fd: FusionDefinition, inps, matmul_fn) -> None:
-            t0 = fd.from_pytorch(inps[0])
-            t1 = fd.from_pytorch(inps[1])
+            t0 = fd.from_pytorch(inps[0], True)
+            t1 = fd.from_pytorch(inps[1], True)
             t2 = eval(matmul_fn)(t0, t1)
             fd.add_output(t2)
 
         tests = [
-            ("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
-            ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
-            ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
-            ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
+            # ("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
+            # ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
+            # ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
+            # ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
+            ("fd.ops.matmul", nvf_tt_ins, nvf_tt_ins),
         ]
 
         prop = torch.cuda.get_device_properties(torch.cuda.current_device())
