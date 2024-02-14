@@ -387,6 +387,11 @@ table SegmentedGroup {
 
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
 table SegmentedFusion {
+  // The valid flag is false when we cannot get all statements for
+  // SegmentedFusion from the original fusion. This occurs when
+  // SegmentCandidateFinder::findSegments adds new statements while finding
+  // valid sub-fusions. See https://github.com/NVIDIA/Fuser/issues/1706 for details.
+  valid: bool;
   segmented_fusion_name: ulong;
   num_vals: ulong;
   num_exprs: ulong;
