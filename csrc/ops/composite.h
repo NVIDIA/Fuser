@@ -53,10 +53,11 @@ NVF_API LstmResult lstm(
 // 2. Tensors must be contiguously defined.
 // 3. Inputs must be FP16/BF16
 // 4. Heuristic support only exists for Ampere
-NVF_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
+TensorView* _matmul_nn(TensorView* a, TensorView* b);
+TensorView* _matmul_nt(TensorView* a, TensorView* b);
+TensorView* _matmul_tn(TensorView* a, TensorView* b);
+TensorView* _matmul_tt(TensorView* a, TensorView* b);
+TensorView* matmul(TensorView* a, TensorView* b);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);

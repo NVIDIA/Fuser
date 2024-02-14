@@ -772,6 +772,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_ONLY_OP("_matmul_nt", _matmul_nt)
   NVFUSER_BINARY_TV_ONLY_OP("_matmul_tn", _matmul_tn)
   NVFUSER_BINARY_TV_ONLY_OP("_matmul_tt", _matmul_tt)
+  NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
 
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+#include <options.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <transform_view.h>
@@ -103,6 +104,25 @@ TensorView* _matmul_tt(TensorView* a, TensorView* b) {
   auto tv0b = broadcast(a, {false, true, false});
   auto tv1b = broadcast(tv1t, {true, false, false});
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+
+TensorView* matmul(TensorView* a, TensorView* b) {
+  NVF_CHECK(a->nDims() == b->nDims());
+  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
+
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  TensorView *tv0b, *tv1b, *tv2;
+  // A: M, K, Bcast
+  // B: Bcast, K, N
+  bcast_dims.at(bcast_dims.size() - 1) = true;
+  tv0b = broadcast(a, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 1) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  tv1b = broadcast(b, bcast_dims);
+  tv2 = fusedMultiplySum(tv0b, tv1b, {1});
   return tv2;
 }
 
