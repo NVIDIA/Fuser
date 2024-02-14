@@ -959,6 +959,10 @@ std::vector<Statement*> next(Statement* stmt) {
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain) {
+  // empty domain are equivalent.
+  if (initial_domain.empty() && derived_domain.empty()) {
+    return;
+  }
   ValidateDomainEquivalence(initial_domain, derived_domain);
 }
 
