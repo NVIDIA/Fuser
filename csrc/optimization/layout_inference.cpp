@@ -42,9 +42,11 @@ class MemoryFormatInferencer : public OptOutConstDispatch {
  private:
   // format_map_ records the stride order (memory format) of each TensorView.
   // Since it only handles permutation from a rfactor domain to allocation
-  // domain, it can be interpreted as: e.g. TV0 rfactor domain [i0, i1, i2]
-  //     memory  format   2,  0,  1
-  //     alloc   domain [i0, i2, i1]
+  // domain, it can be interpreted as:
+  //
+  // e.g. TV0 rfactor domain [i0, i1, i2]
+  //            alloc domain [i0, i2, i1]
+  //           memory format   0,  2,  1
   std::unordered_map<const TensorView*, MemoryFormat>& format_map_;
 };
 
@@ -70,13 +72,13 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
 //   the inner dimension"
 //
 // e.g.
-//   lhs TV0 [i0, i1, b2]
-//             2   0   1
-//   rhs TV0 [i3, i4, b5]
-//             2   1   0
+//   lhs TV0 rfactor_dom [i0, i1, b2]
+//                         0   2   1
+//   rhs TV0 rfactor_dom [i3, i4, b5]
+//                         0   1   2
 //   if we go from innermost to outermost order:
-//     TV0 has i1 -> b2 -> i0
-//     TV1 has b5 -> i4 -> i3
+//       TV0 has i1 -> b2 -> i0
+//       TV1 has b5 -> i4 -> i3
 //   we see that TV0 encounters a non-broadcast iter domain first, so TV0 is the
 //   dominating tensor. We'll produce an output with stride order identical to
 //   that of TV0 in the record.
@@ -138,16 +140,18 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
 //   their natural position
 //
 // e.g.
-//   TV0 = [i0, i1, i2] @ stride order {1, 2, 0}
-//    |      1   2   0
+//   TV0 rfactor dom [i0, i1, i2] @ stride order {0, 2, 1}
+//    |    alloc dom [i0, i2, i1] 
+//    |   
 //    |
 //    BroadcastOp
 //    |
 //    v
-//   TV1 = [i0, b3, i1, i2, b4]
-//           1       2   0
-//               4           3
-//   so output TV1 will have stride order {1, 4, 2, 0, 3}
+//   TV1 rfactor dom [i0, b3, i1, i2, b4]
+//         alloc dom [b3, b4, i0, i2, i1]
+//                     1,  4,  
+//                             0,  3,  2
+//   so output TV1 will have stride order {1, 4, 0, 3, 2}
 void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
@@ -156,9 +160,15 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
   TensorView* in = op->in()->as<TensorView>();
   if (const auto& iter = format_map_.find(in); iter != format_map_.end()) {
     MemoryFormat out_format;
-    int64_t cur_outer = static_cast<int64_t>(out->nDims());
-    int index_in = 0;
-    for (auto i : c10::irange(cur_outer)) {
+    int64_t out_rank = static_cast<int64_t>(out->nDims());
+
+    int broadcast_seen_so_far = 0;
+    std::vector<int64_t> offset_per_entry(in->nDims(), 0);
+
+
+
+
+    for (auto i : c10::irange(out_rank)) {
       // broadcast dimensions are default to outer dimensions
       out_format.push_back(
           op->isBroadcastDim(i) ? --cur_outer : iter->second[index_in++]);

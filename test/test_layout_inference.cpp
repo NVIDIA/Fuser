@@ -54,7 +54,7 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
   auto tv1 = makeSymbolicTensor({-1});
   fusion.addInput(tv1);
   auto tv2 = broadcast(tv0, {true, false, false, true, false, false, true});
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv2); // (0, 2, 3, 1) -> (0, 3, 6, 1, 3, 4, 5)
   auto tv3 = broadcast(tv1, {true, false, true, true});
   fusion.addOutput(tv3);
 
@@ -64,7 +64,7 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
 
   auto updated_layout = inferenceMemoryFormat(&fusion);
   EXPECT_THAT(updated_layout[tv2], ElementsAre(6, 0, 2, 5, 3, 1, 4));
-  EXPECT_THAT(updated_layout[tv3], ElementsAre(3, 0, 2, 1));
+  EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
