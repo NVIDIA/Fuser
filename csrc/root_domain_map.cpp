@@ -447,8 +447,29 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
               input_keys.end();
         });
     // None of the consumer domains is used for the reduction
-    // domain. They should be safe with respect to this reduction
-    // domain
+    // domain.
+    if (it == consumer_domains.end()) {
+      // Further check if any consumer domain is mapped with the reduction input
+      // domains
+      it = std::find_if(
+          consumer_domains.begin(),
+          consumer_domains.end(),
+          [&](const auto& consumer_domain) {
+            return std::any_of(
+                input_keys.begin(),
+                input_keys.end(),
+                [&](const auto& input_key) {
+                  return root_map.canMap(
+                      consumer_domain.td(),
+                      consumer_domain.id(),
+                      input_key.td(),
+                      input_key.id());
+                });
+          });
+    }
+    // None of the consumer domains is used for the reduction.
+    // None of the consumer domains is mapped with the reduction input domains.
+    // Safe to map.
     if (it == consumer_domains.end()) {
       continue;
     }
