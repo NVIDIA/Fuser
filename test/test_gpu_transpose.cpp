@@ -1335,4 +1335,57 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+// Testing transpose scheduler to handle fusion inputs with reduction IterDomain
+// produced by segmented fusion, see issue
+// https://github.com/NVIDIA/Fuser/issues/1659 for details
+TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
+  auto fusion = std::make_unique<Fusion>();
+  auto fusion_ptr = fusion.get();
+  FusionGuard fg(fusion_ptr);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .contiguity({true, true, std::nullopt})
+                 .shape({-1, -1, 1})
+                 .dtype(DataType::Float)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = TensorViewBuilder()
+                 .ndims(3)
+                 .contiguity({true, std::nullopt, true})
+                 .shape({-1, 1, -1})
+                 .dtype(DataType::Float)
+                 .build();
+  fusion->addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = squeeze(tv1, std::vector<int64_t>{1});
+  auto tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({1024, 512, 1}, options);
+  auto t1 = at::randn({1024, 1, 512}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(runtime->isSegmented(), "Segmentation expected");
+  auto heuristic0 =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  NVF_CHECK(
+      heuristic0 == ScheduleHeuristic::Reduction,
+      "Unexpected heuristic: ",
+      heuristic0);
+  auto heuristic1 =
+      runtime->schedulerHeuristics()->heuristicsList().at(1).get()->heuristic();
+  NVF_CHECK(
+      heuristic1 == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic1);
+  testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

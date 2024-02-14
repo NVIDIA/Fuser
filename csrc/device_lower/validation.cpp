@@ -477,7 +477,12 @@ class VectorizeValidator : public OptInDispatch {
           tv, (int)vector_word_size);
     }
 
-    auto producer_tv = tv->definition()->inputs().at(0)->as<TensorView>();
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+    auto producer_tv = tv_def->inputs().at(0)->as<TensorView>();
     auto producer_word_size_it =
         GpuLower::current()->vectorizedAccesses().find(producer_tv);
     if (producer_word_size_it !=
@@ -579,9 +584,11 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       }
     }
     if (has_vectorize_dim) {
+      Expr* def = tv->definition();
       NVF_ERROR(
-          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>() ||
-              tv->definition()->isA<SliceOp>(),
+          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              (def->isA<ReductionOp>() &&
+               def->as<ReductionOp>()->serialGridReductionRequested()),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
