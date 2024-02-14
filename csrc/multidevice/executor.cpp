@@ -98,6 +98,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm)
     : comm_(comm) {
+  insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
@@ -164,27 +165,27 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 }
 
 void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
-  NVF_ERROR(
-      group->exprs().size() == 1,
-      "Communication segments must contain only one Expr");
-  auto expr = group->exprs().at(0);
-  NVF_ERROR(
-      expr->inputs().size() == 1, "Communication must have exactly one input");
-  NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Communication must have exactly one output");
-  auto input_val = expr->inputs().at(0);
-  auto output_val = expr->outputs().at(0);
-  at::Tensor input_tensor, output_tensor;
-  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
-  }
-  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
-  }
-
-  // Lower the Communication into a vector of Communications
+  // Lower the group into a vector of Communications
   if (communications_.find(group) == communications_.end()) { // check if cached
+    NVF_ERROR(
+        group->exprs().size() == 1,
+        "Communication segments must contain only one Expr");
+    auto expr = group->exprs().at(0);
+    NVF_ERROR(
+        expr->inputs().size() == 1,
+        "Communication must have exactly one input");
+    NVF_ERROR(
+        expr->outputs().size() == 1,
+        "Communication must have exactly one output");
+    auto input_val = expr->inputs().at(0);
+    auto output_val = expr->outputs().at(0);
+    at::Tensor input_tensor, output_tensor;
+    if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
+      input_tensor = val_to_IValue_.at(input_val).toTensor();
+    }
+    if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
+      output_tensor = val_to_IValue_.at(output_val).toTensor();
+    }
     communications_.emplace(
         group,
         lowerCommunication(
@@ -261,6 +262,29 @@ std::string MultiDeviceExecutor::validate() const {
   }
 
   return "";
+}
+
+std::ostream& MultiDeviceExecutor::print() {
+  int compute_segment_counter = 0;
+  int communication_counter = 0;
+  for (auto group : group_run_order_) {
+    if (is_resharding_[group]) {
+      debug() << "Communication " << compute_segment_counter << ":{\n";
+      for (const auto& comm :
+           lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
+        debug() << comm->toString(2) << "\n";
+      }
+      debug() << "}\n";
+      communication_counter++;
+    } else {
+      debug() << "Compute segment " << compute_segment_counter << ":{\n";
+      auto fusion = staged_fusion_->makeFusion(group);
+      fusion->print();
+      debug() << "}\n";
+      compute_segment_counter++;
+    }
+  }
+  return debug();
 }
 
 } // namespace nvfuser

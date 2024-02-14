@@ -37,11 +37,16 @@ class MultiDeviceEnvironment : public testing::Environment {
     return time_print_;
   }
 
+  bool disableSkip() const {
+    return disable_skip_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
   bool time_print_ = false;
+  bool disable_skip_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
@@ -69,6 +74,7 @@ class MultiDeviceTest : public NVFuserTest {
   bool debug_print;
   bool do_barrier_at_test;
   bool time_print;
+  bool disable_skip;
   std::vector<std::pair<
       const std::string,
       std::chrono::time_point<std::chrono::high_resolution_clock>>>
