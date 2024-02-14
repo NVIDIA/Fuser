@@ -451,6 +451,7 @@ if(BUILD_PYTHON)
   target_link_libraries(nvfuser PRIVATE
     nvf_py_internal
     codegen_internal
+    Python::Module
   )
   install(TARGETS nvfuser DESTINATION lib)
 endif()
