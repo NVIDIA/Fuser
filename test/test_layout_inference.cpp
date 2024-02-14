@@ -24,7 +24,7 @@ namespace nvfuser {
 using testing::_;
 using testing::ElementsAre;
 
-class LayoutInferenceTest : public NVFuserTest {};
+using LayoutInferenceTest = NVFuserTest;
 
 TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
