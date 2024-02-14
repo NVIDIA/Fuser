@@ -11,16 +11,18 @@
 namespace nvfuser::optimization {
 
 void LayoutOptimizationPass::runPass(Fusion* fusion) {
-  std::unordered_map<const TensorView*, MemoryFormat> stride_mapping = inferenceMemoryFormat(fusion);
+  std::unordered_map<const TensorView*, MemoryFormat> stride_mapping =
+      inferenceMemoryFormat(fusion);
 
   for (auto out_val : fusion->outputs()) {
-
     auto out_tv = dynamic_cast<TensorView*>(out_val);
     // skip:
     //   1. non-tensor output;
-    //   2. tensor output with allocation specified, assuming everything is semantical
+    //   2. tensor output with allocation specified, assuming everything is
+    //   semantical
     //   3. tensor output that's aliasing (Does aliased src matter?)
-    if (out_tv == nullptr || out_tv->hasAllocation() || fusion->getOutputAlias(out_val).type != AllocationType::NoAlias) {
+    if (out_tv == nullptr || out_tv->hasAllocation() ||
+        fusion->getOutputAlias(out_val).type != AllocationType::NoAlias) {
       continue;
     }
 

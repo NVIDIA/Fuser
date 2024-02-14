@@ -10,8 +10,8 @@
 #include <optimization/add_axioms.h>
 #include <optimization/consecutive_cast.h>
 #include <optimization/exact_mapped_extent_substitution.h>
-#include <optimization/mark_aliases_prepare.h>
 #include <optimization/layout_optimization.h>
+#include <optimization/mark_aliases_prepare.h>
 #include <optimization/remove_empty.h>
 
 namespace nvfuser::optimization {
