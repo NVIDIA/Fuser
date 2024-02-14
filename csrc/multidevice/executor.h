@@ -43,9 +43,6 @@ class MultiDeviceExecutor {
   // An empty message means that the runtime is valid
   std::string validate() const;
 
-  //! Print to default debugging output stream
-  std::ostream& print();
-
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication
