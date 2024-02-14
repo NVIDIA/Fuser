@@ -163,15 +163,22 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
     int64_t out_rank = static_cast<int64_t>(out->nDims());
 
     int broadcast_seen_so_far = 0;
-    std::vector<int64_t> offset_per_entry(in->nDims(), 0);
-
-
-
+    std::vector<int64_t> offset_table(in->nDims(), 0);
+    int offset_entry = 0;
 
     for (auto i : c10::irange(out_rank)) {
+      if (op->isBroadcastDim(i)) {
+	broadcast_seen_so_far++;
+        out_format.push_back(i);
+      } else {
+	offset_table[offset_entry++] = broadcast_seen_so_far;
+      }
+    }
+
+    for (auto i : c10::irange(in->nDims())) {
       // broadcast dimensions are default to outer dimensions
-      out_format.push_back(
-          op->isBroadcastDim(i) ? --cur_outer : iter->second[index_in++]);
+      auto format_entry = iter->second[i];
+      out_format.push_back(format_entry + offset_table[format_entry]);
     }
     format_map_[out] = out_format;
   }
