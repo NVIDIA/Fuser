@@ -8,7 +8,6 @@ from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 
 # Fusion from nanogpt attention module
 # The nvFuser defintion only includes the non-matmul computation (masked_fill + softmax + dropout)
-# https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
 def nanogpt_attn_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, head_size: int, dropout_p: float
 ):
@@ -36,13 +35,13 @@ def nanogpt_attn_fwd_fusion(
     T11 = fd.ops.broadcast_in_dim(T5, shape=V10, broadcast_dims=[0, 1, 2, 3])
     S12 = fd.define_scalar(float("-inf"), dtype=DataType.Double)
     T13 = fd.ops.where(T11, S12, T3)
-    T14 = fd.ops.max(T13, axes=[3], keepdim=False, dtype=DataType.Null)
+    T14 = fd.ops.max(T13, dims=[3], keepdim=False, dtype=DataType.Null)
     V19 = fd.define_vector([T0.size(0), T0.size(1), T0.size(2), 1], dtype=DataType.Int)
     T20 = fd.ops.broadcast_in_dim(T14, shape=V19, broadcast_dims=[0, 1, 2])
     T26 = fd.ops.broadcast_in_dim(T20, shape=V10, broadcast_dims=[0, 1, 2, 3])
     T27 = fd.ops.sub(T13, T26)
     T28 = fd.ops.exp(T27)
-    T29 = fd.ops.sum(T28, axes=[3], keepdim=False, dtype=DataType.Null)
+    T29 = fd.ops.sum(T28, dims=[3], keepdim=False, dtype=DataType.Null)
     T35 = fd.ops.broadcast_in_dim(T29, shape=V19, broadcast_dims=[0, 1, 2])
     T41 = fd.ops.broadcast_in_dim(T35, shape=V10, broadcast_dims=[0, 1, 2, 3])
     T42 = fd.ops.reciprocal(T41)

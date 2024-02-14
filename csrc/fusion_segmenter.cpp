@@ -14,9 +14,11 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <algorithm>
 
 #include <sstream>
 
@@ -328,8 +330,10 @@ void SegmentedGroup::finalize() {
 
   // alias aware segmentation. we add inputs that are aliased by output
   // generated in this SegmentedGroup
-  for (auto output : output_vals) {
-    if (auto aliased_input = segmented_fusion_->findAlias(output)) {
+  for (Val* output : output_vals) {
+    if (Val* aliased_input = segmented_fusion_->completeFusion()
+                                 ->getOutputAlias(output)
+                                 .aliased_io) {
       // aliasing currently only supported as output to input
       NVF_ERROR(
           aliased_input->isFusionInput(),
@@ -446,10 +450,40 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
       complete_fusion_(std::move(fusion)),
-      initial_vals_size_{0},
-      initial_exprs_size_{0} {
+      initial_vals_size_{complete_fusion_->vals().size()},
+      initial_exprs_size_{complete_fusion_->unordered_exprs().size()} {
   annotateFP16IntermediateTensors();
 }
+
+namespace {
+
+//! A SegmentedGroup is serializable if all its values and expressions are
+//! compatible with the statements in the complete fusion provided in the
+//! SegmentedFusion constructor.
+bool isSerializableSegmentedGroup(
+    SegmentedGroup* sg,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
+    int64_t initial_vals_size,
+    int64_t initial_exprs_size) {
+  auto check_value = [&](Val* v) {
+    return vals_to_id_map.at(v) < initial_vals_size;
+  };
+  auto check_expr = [&](Expr* e) {
+    return exprs_to_id_map.at(e) < initial_exprs_size;
+  };
+  bool all_serializable_inputs =
+      std::all_of(sg->inputs().begin(), sg->inputs().end(), check_value);
+  bool all_serializable_outputs =
+      std::all_of(sg->outputs().begin(), sg->outputs().end(), check_value);
+  bool all_serializable_exprs =
+      std::all_of(sg->exprs().begin(), sg->exprs().end(), check_expr);
+  return (
+      all_serializable_inputs && all_serializable_outputs &&
+      all_serializable_exprs);
+}
+
+} // namespace
 
 flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
@@ -462,6 +496,31 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
       impl_.groups_map();
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
       impl_.edges_map();
+
+  bool all_edges_serializable =
+      std::all_of(edges_.begin(), edges_.end(), [&](SegmentedEdge* se) {
+        return vals_to_id_map.at(se->val) < (int64_t)initial_vals_size_;
+      });
+
+  bool all_groups_serializable =
+      std::all_of(groups_.begin(), groups_.end(), [&](SegmentedGroup* sg) {
+        return isSerializableSegmentedGroup(
+            sg,
+            vals_to_id_map,
+            exprs_to_id_map,
+            (int64_t)initial_vals_size_,
+            (int64_t)initial_exprs_size_);
+      });
+
+  // SegmentCandidateFinder::findSegments can generate new statements when
+  // finding valid sub-fusions, so SegmentedGroup can reference statements that
+  // do not exist in the original fusion. If we cannot get all statements from
+  // the original fusion, we cannot serialize the segmented fusion.
+  if (!all_edges_serializable || !all_groups_serializable) {
+    return serde::CreateSegmentedFusionDirect(
+        builder,
+        /*valid=*/false);
+  }
 
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
@@ -484,6 +543,7 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
 
   return serde::CreateSegmentedFusionDirect(
       builder,
+      /*valid=*/true,
       segmented_fusion_name_,
       initial_vals_size_,
       initial_exprs_size_,
@@ -500,23 +560,22 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
-  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
-  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   NVF_ERROR(
       complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
-      vals.size(),
-      " values while serialization expected ",
+      complete_fusion_->vals().size(),
+      " values while serialization expected at least",
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
-      exprs.size(),
-      " expressions while serialization expected ",
+      complete_fusion_->unordered_exprs().size(),
+      " expressions while serialization expected at least",
       buffer->num_exprs(),
       " expressions.");
-
+  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
+  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 
   // Construct segmented groups first because they are necessary for the
@@ -1127,11 +1186,6 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
-
-  // Log the number of values and expressions. It is used as a sanity check
-  // during serialization.
-  initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
@@ -1864,7 +1918,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -1873,7 +1927,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
   }
   if (fusion) {
@@ -2581,7 +2635,7 @@ class TranslateApplicableWelford {
   //!  group containing all the welford ops needs to be
   //!  provided.
   bool wouldTranslateToPersistent(
-      const std::vector<WelfordOp*>& orignal_welfords,
+      const std::vector<WelfordOp*>& original_welfords,
       SegmentedGroup* group = nullptr);
 
   //! Translate the given welford op into separate
@@ -2614,12 +2668,12 @@ TranslateApplicableWelford::TranslateApplicableWelford(
     const KernelArgumentHolder& runtime_inputs)
     : runtime_inputs_(runtime_inputs) {
   auto exprs = fusion->exprs();
-  std::vector<WelfordOp*> orignal_welfords(
+  std::vector<WelfordOp*> original_welfords(
       ir_utils::filterByType<WelfordOp>(exprs).begin(),
       ir_utils::filterByType<WelfordOp>(exprs).end());
 
-  if (wouldTranslateToPersistent(orignal_welfords)) {
-    for (auto welford : orignal_welfords) {
+  if (wouldTranslateToPersistent(original_welfords)) {
+    for (auto welford : original_welfords) {
       translateSingleWelford(welford);
     }
     translated_any_welford_ = true;
@@ -2704,26 +2758,26 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 // Note that when segmented it is assumed that insertion of lower
 // precision cast has already been done
 bool TranslateApplicableWelford::wouldTranslateToPersistent(
-    const std::vector<WelfordOp*>& orignal_welfords,
+    const std::vector<WelfordOp*>& original_welfords,
     SegmentedGroup* group) {
-  if (orignal_welfords.empty()) {
+  if (original_welfords.empty()) {
     return false;
   }
 
   // Make sure all welford inputs are not already statistics, e.g.
   // FusionSqueezeOnlyWelford_CUDA
-  for (auto welford : orignal_welfords) {
+  for (auto welford : original_welfords) {
     if (!welford->inN()->isOneInt()) {
       return false;
     }
   }
 
   // Make sure all welford ops come from the same complete fusion
-  auto fusion = orignal_welfords[0]->fusion();
+  auto fusion = original_welfords[0]->fusion();
   NVF_ERROR(
       std::all_of(
-          orignal_welfords.begin(),
-          orignal_welfords.end(),
+          original_welfords.begin(),
+          original_welfords.end(),
           [fusion](WelfordOp* welford) { return welford->fusion() == fusion; }),
       "Welfords in given vector not in the same fusion");
 
@@ -2733,8 +2787,8 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
 
   std::vector<WelfordOp*> copied_welfords;
   std::transform(
-      orignal_welfords.begin(),
-      orignal_welfords.end(),
+      original_welfords.begin(),
+      original_welfords.end(),
       std::back_inserter(copied_welfords),
       [&original_to_test_map](auto welford) {
         return original_to_test_map.clone(welford);
@@ -3546,7 +3600,17 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group1, group2);
+  if (options_.only_segment_resharding_exprs) {
+    for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
+        if (isResharding(expr)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
   return h.has_value();
 }
 
@@ -3554,7 +3618,12 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
     SegmentedGroup* group) {
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_, group);
+  if (options_.only_segment_resharding_exprs) {
+    // We don't need to generate a heuristic for multidevice segments at this
+    // moment
+    return ScheduleHeuristic::None;
+  }
+  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
       h.has_value(), "Can not find a scheduler to schedule fusion segment");
   return h.value();
@@ -3562,11 +3631,21 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& inputs,
+    const KernelArgumentHolder* inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs),
+      runtime_info_(
+          inputs == nullptr ? std::nullopt
+                            : std::make_optional<SchedulerRuntimeInfo>(
+                                  fusion.get(),
+                                  *inputs)),
       runtime_inputs_(inputs) {
+  NVF_ERROR(
+      !options_.only_segment_resharding_exprs ||
+          (!options_.run_translate_welford &&
+           !options_.run_combine_reductions && options_.run_herrmann_merge &&
+           options_.run_final_merge),
+      "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
@@ -3686,7 +3765,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), runtime_inputs_)) {
+            segmented_fusion_.get(), *runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();

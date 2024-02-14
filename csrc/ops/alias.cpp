@@ -232,46 +232,13 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
     to_squeeze[dim] = true;
   }
 
-  std::vector<IterDomain*> out_domain;
-  for (const auto idx : c10::irange(ndims)) {
-    auto id = x_dom[idx];
-    if (to_squeeze[idx]) {
-      if (!id->isSymbolic()) {
-        // If a squeeze is attempted on a non-broadcast dimension
-        // just don't do it!  This conforms with Pytorch.
-        if (!id->isBroadcast()) {
-          to_squeeze[idx] = false;
-          out_domain.push_back(id->cloneWithoutRFactor());
-          continue;
-        }
-        NVF_CHECK(
-            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-        NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
-            "Can not squeeze dimension(s) with size != 1.");
-      }
-    } else {
-      out_domain.push_back(id->cloneWithoutRFactor());
-    }
-  }
-
-  auto out = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      *x->getDataType());
-
-  std::vector<bool> all_false(to_squeeze.size(), false);
-  // If a squeeze does not perform a squeeze, create a no-op
-  if (to_squeeze == all_false) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
-  } else {
-    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
-  }
-
-  return out;
+  return squeeze(x, to_squeeze);
 }
 
-TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze,
+    bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int>(x_dom.size());
@@ -292,7 +259,10 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
             id->isBroadcast(),
             "Can not squeeze non-broadcasting dimension(s).");
         NVF_CHECK(
-            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+            squeeze_expanded || !id->hasExpandedExtent(),
+            "Refusing to squeeze expanded IterDomain ",
+            id->toString(),
+            ". To force removal of this axis, use squeeze_expanded=true.");
         NVF_CHECK(
             id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
@@ -307,7 +277,13 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
 
-  IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  if (std::none_of(
+          to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
+    // If we did not squeeze any axes, this is just set()
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
+  } else {
+    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  }
 
   return out;
 }

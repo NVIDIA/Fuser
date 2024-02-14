@@ -673,4 +673,35 @@ TEST_F(ExprEvalTest, SumDiv) {
   evaluator.evaluate(out);
 }
 
+TEST_F(ExprEvalTest, MmaOp) {
+  int64_t m = 2, k = 3, n = 4;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // The matmul API will expect inputs in the shape [M,K] x [K,N].
+  // This is compatible with PyTorch,
+  std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
+  auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion.addOutput(tv2);
+
+  at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
+  at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::full(out_shape, k, at::kFloat).cuda();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, in_a);
+  evaluator.bind(tv1, in_b);
+  at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(out, out_ref));
+}
 } // namespace nvfuser

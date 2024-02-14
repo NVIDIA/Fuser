@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
 #include <multidevice/communication.h>
+#include <utils.h>
 
 namespace nvfuser {
 namespace {
@@ -236,7 +237,13 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
 #ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
+#if NVF_TORCH_VERSION_GREATER(2, 2, 0)
+    // API change https://github.com/pytorch/pytorch/pull/119421
+    return nccl_backend->_reduce_oop(
+        buf.at(0), params_.src_bufs.at(0), options);
+#else
     return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+#endif
   }
 #endif
   if (comm.deviceId() == params_.root) {

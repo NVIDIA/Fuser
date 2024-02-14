@@ -1309,8 +1309,6 @@ SqueezeOp::SqueezeOp(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      NVF_ERROR(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
@@ -1356,12 +1354,20 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
   NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
+  at::Tensor out = in;
   for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
-    if (!is_squeeze_dims[i]) {
+    if (is_squeeze_dims[i]) {
+      if (in.stride(i) == 0) {
+        // If the input dimension is expanded in this dimension, undo the expand
+        // by slicing. This ensures that any broadcast dimensions will be
+        // unexpanded when we do the final call to view()
+        out = out.slice(i, 0, 1);
+      }
+    } else {
       out_shape.push_back(in.sizes()[i]);
     }
   }
-  return {in.view(out_shape)};
+  return {out.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
@@ -2063,6 +2069,63 @@ void MmaOp::setMacro(MmaMacro macro) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
+std::vector<PolymorphicValue> MmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto tv_a = inA()->as<TensorView>();
+  const auto tv_b = inB()->as<TensorView>();
+  NVF_CHECK(
+
+      tv_a->nDims() == tv_b->nDims(),
+      "Either both or none of A and B should be batch");
+  // Verify that the broadcasted size is 3.
+  NVF_CHECK(
+      tv_a->nDims() == 3,
+      "MmaOp::evaluate is not implemented for size: ",
+      tv_a->nDims());
+
+  // Assumptions:
+  //    Currently, the evaluate method assumes that the MmaOp is preceded by a
+  //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
+  //    first operand and the first dim for the second operand.
+  //    The inputs here will be [M, K, 1] x [1, K, N].
+  NVF_CHECK(
+      input(0)->definition() != nullptr &&
+          input(0)->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_CHECK(
+      input(1)->definition() != nullptr &&
+          input(1)->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
+  NVF_CHECK(
+      tv_a->getRootDomain().back()->isBroadcast(),
+      "Expected last dimension to be broadcasted for first operand.");
+  NVF_CHECK(
+      tv_b->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
+
+  // Squeeze the inputs to remove the broadcasted dimensions.
+  const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
+  const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
+
+  // After removing the broadcast dimensions, the format should be
+  // [M, K] x [K, N] compatible with aten::matmul format.
+  auto output = in_a.matmul(in_b);
+
+  // ATen preserves the input dtype whereas MmaOP generates float outputs.
+  // Cast to the dtype of the MmaOp output for consistency.
+  // NOTE: MmaOp returns the float output, whereas in the evaluate method,
+  //      we are casting from float -> input_dtype -> float. This will lead
+  //      to loss of precision.
+  //      MmaOp::evaluate should be modified to effectively handle cast(MmaOp(H,
+  //      H), H) This will avoid the above cast chain and precision issue.
+  if (tv_a->getDataType() != out()->getDataType().value()) {
+    output = output.to(data_type_to_aten(out()->getDataType().value()));
+  }
+  return {output};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
 ExpandOp::ExpandOp(
@@ -2103,7 +2166,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
   for (auto i : c10::irange(1, inputs.size())) {
     expanded_size.push_back((int64_t)inputs.at(i));
   }
-  return {at::expand_copy(in, expanded_size)};
+  return {in.expand(expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)

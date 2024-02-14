@@ -128,7 +128,11 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(GridReduction* grid_reduction) final {
-    summary_.has_grid_reductions = true;
+    // summary.has_grid_reductions is used to determine whether we need a
+    // reduction workspace. Serial grid reductions do not require this
+    // workspace.
+    summary_.has_grid_reductions =
+        grid_reduction->serialReductionTensor() == nullptr;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
