@@ -101,8 +101,11 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
       }
       // go from innermost to outermost until we find the first one that's
       // non-broadcast
-      NVF_ERROR(lhs_iter->second.size() == rhs_iter->second.size());
-      for (auto i : c10::irange(lhs_index.size())) {
+      auto rank = lhs_iter->second.size();
+      NVF_ERROR(
+          rank == rhs_iter->second.size(),
+          "expect binary op operands to have same length of memory format");
+      for (auto i : c10::irange(rank)) {
         if (!lhs_iter->first
                  ->getMaybeRFactorDomain()[lhs_iter->second[rank - 1 - i]]
                  ->isBroadcast()) {
