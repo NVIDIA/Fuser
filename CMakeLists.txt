@@ -486,6 +486,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_aten_evaluation.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
