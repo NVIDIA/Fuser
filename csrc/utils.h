@@ -10,8 +10,8 @@
 #include <ATen/ATen.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
-#include <visibility.h>
 #include <torch/torch.h>
+#include <visibility.h>
 
 #include <debug.h>
 #include <type.h>
