@@ -989,7 +989,18 @@ PersistentKernelProperties getPersistentKernelProperties(
   // zero.
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
-  // (8) return collected properties to get heuristics.
+  // Info about ops in the fusion, used to set model specific parameters
+  // Exp op typically used in softmax is expensive and needs more registers.
+  bool has_exp_op = false;
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      has_exp_op = true;
+      break;
+    }
+  }
+
+  // (9) return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
       .total_reduction_numel = properties.total_reduction_numel,
@@ -999,7 +1010,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .max_dtype_size = max_dtype_size,
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
-      .index_type = runtime_info.getIndexType()};
+      .index_type = runtime_info.getIndexType(),
+      .has_exp_op = has_exp_op};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
