@@ -189,7 +189,7 @@ class Fusion : public IrContainer {
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to genereate registered outputs.
+  //! exprs required to generate registered outputs.
   std::vector<Expr*> exprs();
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to generate registered outputs.
