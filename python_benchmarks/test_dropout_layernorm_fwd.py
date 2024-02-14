@@ -38,7 +38,7 @@ def dropout_layernorm_fwd_fusion(
     T15 = fd.ops.mul(T13, S14)
     T16 = fd.ops.add(T2, T15)
     # Layernorm
-    T17, T18 = fd.ops.var_mean(T16, axes=[1], correction=0, keepdim=False)
+    T17, T18 = fd.ops.var_mean(T16, dims=[1], correction=0, keepdim=False)
     V21 = fd.define_vector([T2.size(0), 1], dtype=DataType.Int)
     T22 = fd.ops.broadcast_in_dim(T17, shape=V21, broadcast_dims=[0])
     T26 = fd.ops.broadcast_in_dim(T18, shape=V21, broadcast_dims=[0])

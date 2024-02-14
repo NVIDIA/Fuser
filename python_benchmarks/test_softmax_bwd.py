@@ -27,7 +27,7 @@ def softmax_bwd_fusion(
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
 
     T4 = fd.ops.mul(T0, T1)
-    T5 = fd.ops.sum(T4, axes=[reduction_axis], keepdim=False, dtype=DataType.Null)
+    T5 = fd.ops.sum(T4, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
     if reduction_axis:
         V9 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
