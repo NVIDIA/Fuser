@@ -2497,49 +2497,54 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   int M = 504, N = 136, K = 8096;
 
   for (auto layout : kAllSupportedMmaLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+    for (bool half_reduction : {false, true}) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
-    fusion.addOutput(tv2);
+      auto tv3 = castOp(DataType::Half, tv2);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+      fusion.addOutput(tv3);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
-    scheduleMatmul(&fusion, params);
+      MatMulTileOptions gemm_tile;
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+      MatmulParams params;
+      params.mma_macro = MmaMacro::Ampere_16_8_16;
+      params.tile_sizes = gemm_tile;
+      params.splitk_factor = 2;
+      params.splitk_reduction_dtype =
+          half_reduction ? DataType::Half : DataType::Float;
+      scheduleMatmul(&fusion, params);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
-        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      auto inputs = matmulAtInput2D(M, N, K, layout);
 
-    // Relax tolerance for larger sum due to large K
-    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      FusionExecutor fe;
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+      auto tref = atMatmul(inputs.first, inputs.second, layout);
 
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
+      // Relax tolerance for larger sum due to large K
+      NVF_CHECK(cg_outputs[0].allclose(tref, 1e-4 * K, 1e-4 * K));
+
+      // Check that computed smem matches actually allocated smem
+      mma_utils::MmaDataTypes data_types = {
+          DataType::Half, DataType::Half, DataType::Float};
+      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+          params, data_types, true, true);
+      int64_t actual_smem = fe.lastLaunchParams().smem();
+      EXPECT_EQ(estimated_smem, actual_smem);
+    }
   }
 }
 

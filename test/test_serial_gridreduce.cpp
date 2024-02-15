@@ -112,7 +112,8 @@ TEST_F(SerialGridReductionTest, Scheduling) {
 
         FusionExecutor fe;
         if (serial) {
-          tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
+          tv3->definition()->as<ReductionOp>()->requestSerialGridReduction(
+              tv3->dtype());
         }
         fe.compileFusion(fusion);
 

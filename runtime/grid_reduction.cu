@@ -632,12 +632,12 @@ __device__ void gridReduceGroup(
 //
 // If first_step is false, "work" will be read and reduction_op will be called.
 // The result will be written back to "work" unless last_step is true.
-template <int64_t vec_size, typename T, typename Func>
+template <int64_t vec_size, typename T, typename Twork, typename Func>
 __device__ void serialReductionStep(
     T* out,
     T* in,
     T init,
-    volatile T* work,
+    volatile Twork* work,
     Func reduction_op,
     bool first_step,
     bool last_step,
@@ -654,16 +654,30 @@ __device__ void serialReductionStep(
       out[i] = init;
     }
   }
+
   if (!first_step) {
-    T work_reg[vec_size];
-    loadGlobalToLocal<T, vec_size, true, CacheOp::Global>(work_reg, work);
+    Twork work_reg[vec_size];
+    loadGlobalToLocal<Twork, vec_size, true, CacheOp::Global>(work_reg, work);
 #pragma unroll
     for (int i = 0; i < vec_size; ++i) {
-      reduction_op(out[i], work_reg[i]);
+      // modifies out[i] in place
+      reduction_op(out[i], castFloating<T, Twork>(work_reg[i]));
     }
   }
+
   if (!last_step) {
-    loadLocalToGlobal<T, vec_size, true>(work, out);
+    if constexpr (std::is_same<T, Twork>::value) {
+      // if no conversion is needed, we can store directly from out
+      loadLocalToGlobal<T, vec_size, true>(work, out);
+    } else {
+      Twork work_reg[vec_size];
+      // cast and save into work_reg before storing to global
+#pragma unroll
+      for (int i = 0; i < vec_size; ++i) {
+        work_reg[i] = castFloating<Twork, T>(out[i]);
+      }
+      loadLocalToGlobal<Twork, vec_size, true>(work, work_reg);
+    }
   }
 }
 

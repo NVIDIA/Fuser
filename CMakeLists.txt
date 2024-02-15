@@ -610,6 +610,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
+  ${NVFUSER_ROOT}/runtime/type_conversion.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
   ${NVFUSER_ROOT}/runtime/welford.cu

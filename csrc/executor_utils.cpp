@@ -51,6 +51,7 @@
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tuple.h>
+#include <nvfuser_resources/type_conversion.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
 #include <nvfuser_resources/welford.h>
@@ -72,6 +73,7 @@ std::string kernelPreamble() {
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
+  ss << nvfuser_resources::type_conversion_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;

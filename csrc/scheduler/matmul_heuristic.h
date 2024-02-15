@@ -101,6 +101,12 @@ class MatmulParams : public HeuristicParams {
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;
 
+  //! Precision with which to perform grid reduction in split-K. Note that this
+  //! is not the same as the accumulator precision. For example, we might
+  //! accumulate in Float, meaning the register buffers are Float, then perform
+  //! the split-K reduction in Half.
+  DataType splitk_reduction_dtype = DataType::Null;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -127,6 +133,7 @@ class MatmulParams : public HeuristicParams {
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
        << "Split-K factor: " << splitk_factor << "\n"
+       << "Split-K reduction dtype: " << splitk_reduction_dtype << "\n"
        << "====================================\n";
     return ss.str();
   }

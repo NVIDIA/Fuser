@@ -1420,7 +1420,8 @@ ReductionOp::ReductionOp(
     Val* init,
     Val* out,
     Val* in,
-    bool is_allreduce)
+    bool is_allreduce,
+    DataType serial_grid_reduction_dtype)
     : Expr(passkey) {
   NVF_CHECK(
       out->getValType().value() == ValType::TensorView ||
@@ -1449,7 +1450,7 @@ ReductionOp::ReductionOp(
   addAttribute(init);
   addDataAttribute(reduction_op_type);
   addDataAttribute(is_allreduce);
-  addDataAttribute(false); // serial reduction
+  addDataAttribute(serial_grid_reduction_dtype);
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -1459,7 +1460,9 @@ std::string ReductionOp::toString(int indent_size) const {
                           << ", op = " << getReductionOpType()
                           << ", initial value = " << init()->toString()
                           << ", allreduce = "
-                          << (isAllreduce() ? "true" : "false") << " )\n";
+                          << (isAllreduce() ? "true" : "false")
+                          << ", serial_grid_reduction_dtype = "
+                          << serialGridReductionDType() << " )\n";
   return ss.str();
 }
 
