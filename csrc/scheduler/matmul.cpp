@@ -30,6 +30,17 @@ MatmulScheduler::MatmulScheduler(
 
 void MatmulScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Matmul Fusion");
+  // Skip scheduling if Matmul will be expression evaluated.
+  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+    NVF_CHECK(fusion->outputs().size() == 1)
+    fusion->markOutputForEvaluation(fusion->outputs()[0]);
+    scheduler_debug_utils::log(
+        __FILE__,
+        ":",
+        __LINE__,
+        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
+    return;
+  }
   scheduleMatmul(fusion, matmulParams());
 }
 
@@ -60,8 +71,10 @@ void MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  if (!isOptionEnabled(EnableOption::MatmulExprEval)) {
+    params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+    NVF_ERROR(params_ != nullptr);
+  }
 }
 
 void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
@@ -713,18 +726,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
-
-  // Skip scheduling if Matmul will be expression evaluated.
-  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
-    NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->markOutputForEvaluation(fusion->outputs()[0]);
-    scheduler_debug_utils::log(
-        __FILE__,
-        ":",
-        __LINE__,
-        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
-    return;
-  }
 
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
