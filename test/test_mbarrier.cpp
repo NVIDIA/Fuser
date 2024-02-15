@@ -102,8 +102,8 @@ TEST_F(MBarrierTest, Simple) {
     smem_alloc_it += 2;
 
     // Arrive and wait
-    auto sync_it = std::find_if(
-        smem_alloc_it, top_level_exprs.end(), [](Expr* expr) {
+    auto sync_it =
+        std::find_if(smem_alloc_it, top_level_exprs.end(), [](Expr* expr) {
           return expr->isA<kir::BlockSync>();
         });
     ASSERT_NE(sync_it, top_level_exprs.end());
