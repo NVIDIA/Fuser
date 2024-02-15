@@ -122,12 +122,7 @@ TensorView* findCancelingSplit(CatOp* cat) {
 } // namespace
 
 void MoveSplitCatPass::runPass(Fusion* fusion) {
-  for (Expr* expr : fusion->exprs()) {
-    auto* cat = dynamic_cast<CatOp*>(expr);
-    if (cat == nullptr) {
-      continue;
-    }
-
+  for (CatOp* cat : ir_utils::filterByType<CatOp*>(fusion->exprs())) {
     TensorView* split_in = findCancelingSplit(cat);
     if (split_in == nullptr) {
       continue;
