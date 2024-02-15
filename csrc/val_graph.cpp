@@ -337,14 +337,6 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     }
   }
 
-  // Special handling for backprop of merge
-  if (first->isA<Merge>() && !forward) {
-    if (!shouldMapMergeBackward<Val>(
-            first->as<Merge>(), second->as<Merge>(), this->disjointValSets())) {
-      return false;
-    }
-  }
-
   // TODO: For now we're using same as, however we could know what val's are
   // exactly the same given the exact map. We might want to pipe that
   // information through to here.
