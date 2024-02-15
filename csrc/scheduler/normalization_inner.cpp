@@ -218,6 +218,36 @@ int64_t getMaxRegisterCountPerThread(
       blocks_per_sm_max * threads_per_block);
 }
 
+// Returns the maximum persistent batch size.
+// For example: assuming we have 64K registers per SM and 28 warps per SM.
+// Each thread can use up to 72 registers. Then minus the register overhead 16,
+// there are 56 registers or 224 bytes to store the persistent buffer.
+// (1) If each reduction element has 1 fp32 buffer and vectorized by 8,
+//     [buffer_bytes_per_batch] = 4 * 8 = 32. Then the maximum persistent
+//      batch size is 224 / 32 = 7
+// (2) If each reduction element has 1 fp16 buffer and vectorized by 8,
+//     [buffer_bytes_per_batch] = 2 * 8 = 16. Then the maximum persistent
+//      batch size is 224 / 16 = 14, which is then capped to
+//      [max_batches_per_block] whose value is 10.
+int64_t getMaxPersistentBatch(
+    const int64_t buffer_bytes_per_batch,
+    const int64_t target_threads_per_sm,
+    const int64_t register_overhead) {
+  // (1) calculate the maximum register count given the target occupancy.
+  int64_t total_register =
+      getRegPerThreadGivenThreadsPerSM(target_threads_per_sm);
+  int64_t register_for_buffer = total_register - register_overhead;
+
+  // (2) calculate the maximum persistent batch size using the register count.
+  int64_t batch_from_register = scheduler_utils::safeDiv(
+      register_for_buffer * scheduler_utils::bytes_per_register,
+      buffer_bytes_per_batch);
+
+  // (3) It can't exceed [max_batches_per_block] to reduce serial workload.
+  constexpr int64_t max_batches_per_block = 10l;
+  return std::min(max_batches_per_block, batch_from_register);
+}
+
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -313,6 +343,20 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         project_to_input,
         index_type);
   }
+
+  // Define two free parameters used in this heuristic.
+  // register_overhead is all registers except those for the persistent
+  // buffers. The register in each thread = register_overhead +
+  // persistent_buffer_size / bytes_per_register
+  // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
+  // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
+  // to NVRTC and influences the occupancy.
+  const int64_t register_overhead = 16l;
+
+  // Target occupancy required to hide memory latency
+  // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
+  // dropout_layer_norm on A100 & H100.
+  const int64_t target_warps_per_sm = 28l;
 
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
@@ -524,6 +568,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         (int64_t)vectorize_factor);
   }
 
+  // calculate the maximum persistent buffer size
+  const int64_t buffer_bytes_per_batch = max_persistent_buffer_size /
+      total_reduction_numel * inner_reduction_unroll_factor;
+  const int64_t batches_per_block_inner_reduction_max = getMaxPersistentBatch(
+      buffer_bytes_per_batch,
+      target_warps_per_sm * dev_prop->warpSize,
+      register_overhead);
+  std::cout << "batches_per_block_inner_reduction_max: "
+            << batches_per_block_inner_reduction_max
+            << ", buffer_bytes_per_batch: " << buffer_bytes_per_batch
+            << std::endl;
+
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
@@ -601,7 +657,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   // Try moving persistent buffer factors into threads until we have too many
   // threads.
-  constexpr int batches_per_block_inner_reduction_max = 10;
+
   while (
       // If block size can be doubled
       bdimx * bdimy * bdimz * 2 <= max_threads_in_block &&
@@ -691,19 +747,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         inner_reduction_unroll_factor;
     const int64_t threads_per_block =
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
-
-    // register_overhead is all registers except those for the persistent
-    // buffers. The register in each thread = register_overhead +
-    // persistent_buffer_size / bytes_per_register
-    // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
-    // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
-    // to NVRTC and influences the occupancy.
-    const int64_t register_overhead = has_exp_op ? 32l : 16l;
-
-    // Target occupancy required to hide memory latency
-    // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
-    // dropout_layer_norm on A100 & H100.
-    const int64_t target_warps_per_sm = 28;
 
     // Calculate the max register count each thread can use.
     nvrtc_register_per_thread = getMaxRegisterCountPerThread(
