@@ -156,8 +156,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
       {"static_fusion_count", EnableOption::StaticFusionCount},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill},
-      {"matmul_expr_eval", EnableOption::MatmulExprEval}};
+      {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
   return parseEnvOptions("ENABLE", available_options);
 }

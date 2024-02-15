@@ -953,12 +953,6 @@ at::Tensor allocateOutput(
     return alloc_tensor;
   }
 
-  if (alias_info.type == AllocationType::Evaluate) {
-    // Compute non-aliased outputs that were marked for expr evaluator.
-    at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
-    return out_tensor;
-  }
-
   Val* aliased_io = alias_info.aliased_io;
   NVF_ERROR(
       aliased_io != nullptr,
