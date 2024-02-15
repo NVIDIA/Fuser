@@ -120,7 +120,9 @@ def test_rmsnorm_bwd_benchmark(
         dropout_rmsnorm_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
 
     if not disable_validation:
-        eager_output = weights.to(torch.double) * (x.to(torch.double) / rms_eps.to(torch.double))
+        eager_output = weights.to(torch.double) * (
+            x.to(torch.double) / rms_eps.to(torch.double)
+        )
         eager_output.backward(grads.to(torch.double))
         fd.validate(
             [inputs, dropout_mask, rms_eps, grads, weights], [inputs.grad, weights.grad]
