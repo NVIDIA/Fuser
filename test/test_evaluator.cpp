@@ -696,12 +696,12 @@ TEST_F(ExprEvalTest, MmaOp) {
 
   at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
   at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
-  at::Tensor out_ref = k * at::ones(out_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::full(out_shape, k, at::kFloat).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv0, in_a);
   evaluator.bind(tv1, in_b);
   at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
-  NVF_CHECK(out_ref.equal(out));
+  EXPECT_TRUE(at::allclose(out, out_ref));
 }
 } // namespace nvfuser
