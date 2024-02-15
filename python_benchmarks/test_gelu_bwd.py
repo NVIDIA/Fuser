@@ -71,8 +71,10 @@ def test_gelu_bwd_benchmark(
         gelu_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
-        eager_output.backward(grads)
+        eager_output = torch.nn.functional.gelu(
+            inputs.to(torch.double) + bias.to(torch.double), approximate="tanh"
+        )
+        eager_output.backward(grads.to(torch.double))
         fd.validate([inputs, grads, bias], [inputs.grad])
 
     if not disable_benchmarking:
