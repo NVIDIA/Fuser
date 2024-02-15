@@ -13,6 +13,7 @@
 
 #include <alias_analysis.h>
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -22,9 +23,11 @@
 namespace nvfuser {
 
 using testing::_;
+using testing::Contains;
 using testing::ContainsRegex;
 using testing::Each;
 using testing::ElementsAre;
+using testing::Field;
 using testing::IsEmpty;
 using testing::IsTrue;
 using testing::Not;
@@ -1104,6 +1107,43 @@ TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
   auto t6 = t5.add(t2);
   EXPECT_TRUE(t0.allclose(t6))
       << "`t0` should have been in-place updated to the same value as `t6`.";
+}
+
+TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  FusionProfiler::start();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `add_out` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fec.runFusionWithInputs({in_tensor});
+
+  const FusionProfile& profile = FusionProfiler::profile();
+  // Expect a kernel launched for one of the two segments but not the
+  // other.
+  EXPECT_THAT(
+      profile.kernel_profiles,
+      UnorderedElementsAre(
+          Field(&KernelProfile::name, IsEmpty()),
+          Field(&KernelProfile::name, Not(IsEmpty()))));
+
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
 }
 
 } // namespace nvfuser

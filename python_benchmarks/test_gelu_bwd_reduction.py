@@ -47,7 +47,7 @@ def gelu_bwd_reduction_fusion(
     T18 = fd.ops.mul(T17, S2)
     T19 = fd.ops.add(T16, T18)
     T20 = fd.ops.mul(grad, T19)
-    T21 = fd.ops.sum(T20, axes=[reduction_axis], keepdim=False)
+    T21 = fd.ops.sum(T20, dims=[reduction_axis], keepdim=False)
     if dtype in PROMOTE_DTYPES:
         T21 = fd.ops.cast(T21, dtype=dtype)
     fd.add_output(T21)
