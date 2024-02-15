@@ -203,7 +203,7 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
 //
 // The propagation tries to propagate memory format from inputs to the entire
 // fusion:
-//   1. Iterates through all inputs, looking for TensorView with allocatoin
+//   1. Iterates through all inputs, looking for TensorView with allocation
 //   domain that's a permutation of its corresponding rfactor domain and record
 //   it as the memory format of the tensor;
 //   2. Traverse the fusion IR, propagate memory format and record results in
