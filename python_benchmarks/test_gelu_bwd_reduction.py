@@ -75,10 +75,10 @@ def test_gelu_bwd_reduction_benchmark(
         )
 
     if not disable_validation:
-        eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
-        eager_output.backward(grads)
-        reduction_out = inputs.grad.sum(reduction_axis)
-        fd.validate([inputs, grads, bias], [reduction_out])
+        eager_output = torch.nn.functional.gelu(inputs.to(torch.double) + bias.to(torch.double), approximate="tanh")
+        eager_output.backward(grads.to(torch.double))
+        reduction_out = inputs.grad.to(torch.double).sum(reduction_axis)
+        fd.validate([inputs, grads, bias], [reduction_out.to(dtype)])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])
