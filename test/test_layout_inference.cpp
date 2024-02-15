@@ -194,9 +194,9 @@ TEST_F(LayoutInferenceTest, MemoryFormatOptimizationTest) {
 
   auto cg_outputs = fec.runFusionWithInputs({in_nhwc});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast))
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {in_nhwc}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {in_nhwc}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
