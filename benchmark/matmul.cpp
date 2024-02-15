@@ -377,7 +377,8 @@ static void NvFuserScheduler_Matmul(
     benchmark::State& benchmark_state,
     MmaLayout layout,
     int splitk_factor = 1,
-    bool partitionedk = false) {
+    bool partitionedk = false,
+    bool smem_epilogue = false) {
   int num_warps = benchmark_state.range(3);
   int number_of_stage = benchmark_state.range(4);
 
@@ -391,6 +392,10 @@ static void NvFuserScheduler_Matmul(
 
   auto params = getMatmulParams(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);
+  if (smem_epilogue) {
+    params.use_smem_epilogue = true;
+    params.promote_prologue_smem_reuse = true;
+  }
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -517,6 +522,8 @@ static void NvFuserScheduler_MatmulSplitKReduction(
     /* NanoGPT bwd sizes */  \
     {1024, 2048, 4096},      \
     {1024, 2048, 50304},     \
+    /* Short and fat operands to emphasize reduction and epilogue IO */ \
+    {16384, 16384, 128 * 1}, \
     /* Symmetric M,N to make comparison in TN/NT fair with eager due to transpose/swap */ \
     {1024, 1024, 4096},     \
     {1024, 1024, 50304},     \
@@ -647,13 +654,17 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 // Use this for manual splitk.
 static void MatmulShapeWarpStageSpecificSplitK(
     benchmark::internal::Benchmark* b) {
-  b->ArgNames({"M", "N", "K", "warps", "stages", "splitk_factor"});
+  b->ArgNames(
+      {"M", "N", "K", "warps", "stages", "splitk_factor", "smem_epilogue"});
   for (long int num_warps : NumWarps) {
     for (long int num_stages : NumStages) {
       for (auto [m, n, k] :
            std::vector<std::tuple<int, int, int>>(SplitKSpecificShapes)) {
         for (auto splitk_factor : {2, 3, 4, 5, 6}) {
-          b->Args({m, n, k, num_warps, num_stages, splitk_factor});
+          for (bool smem_epilogue : {false, true}) {
+            b->Args(
+                {m, n, k, num_warps, num_stages, splitk_factor, smem_epilogue});
+          }
         }
       }
     }
@@ -744,8 +755,13 @@ static void NvFuserScheduler_Matmul_Manual(
     benchmark::State& benchmark_state,
     MmaLayout layout) {
   int splitk_factor = benchmark_state.range(5);
+  bool smem_epilogue = benchmark_state.range(6);
   NvFuserScheduler_Matmul(
-      benchmark_state, layout, splitk_factor, /*partitionedk=*/false);
+      benchmark_state,
+      layout,
+      splitk_factor,
+      /*partitionedk=*/false,
+      smem_epilogue);
 }
 
 #define SpecificSplitKBenchmark(layout) \

@@ -786,8 +786,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto mma_result = mma->out()->as<TensorView>();
 
   // Unswizzle mma result in shared memory
-  auto smem_epilogue =
-      params.use_smem_epilogue ? mma_result->cacheAfter() : mma_result;
+  TensorView* smem_epilogue = mma_result;
+  if (params.use_smem_epilogue) {
+    // We would like to perform as much computation as we can before
+    // unswizzling. If we have an epilogue, this means computing the epilogue
+    // inside the unswizzling loop instead of the output write loop. Since we
+    // might have multiple outputs, we set smem_epilogue as their common
+    // ancestor so that all the smem->global outputs will be written unswizzled,
+    // but as much of the epilogue as possible will be placed in the earlier
+    // register->smem unswizzling loop.
+    // TODO: above traversal to find most recent common ancestor of all the
+    // cached outputs
+    NVF_ERROR(cached_and_forked_outputs.size() == 1);
+    smem_epilogue = cached_and_forked_outputs.at(0).first->cacheAfter();
+  }
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
