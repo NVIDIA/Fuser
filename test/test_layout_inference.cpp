@@ -189,14 +189,15 @@ TEST_F(LayoutInferenceTest, MemoryFormatOptimizationTest) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor in_tensor = at::randn({2, 4, 8, 8}, options);
-  at::Tensor in_nhwc = in_tensor.as_strided({2, 4, 8, 8}, {4 * 8 * 8, 1, 4 * 8, 4});
+  at::Tensor in_nhwc =
+      in_tensor.as_strided({2, 4, 8, 8}, {4 * 8 * 8, 1, 4 * 8, 4});
   FusionExecutorCache fec(std::move(fusion));
 
   auto cg_outputs = fec.runFusionWithInputs({in_nhwc});
+  auto ref_out = in_nhwc.relu();
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
-  testValidate(fusion.get(), cg_outputs, {in_nhwc}, __LINE__, __FILE__);
+  ASSERT_TRUE(ref_out.allclose(cg_outputs[0]));
 }
 
 } // namespace nvfuser
