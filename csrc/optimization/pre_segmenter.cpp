@@ -11,6 +11,7 @@
 #include <optimization/consecutive_cast.h>
 #include <optimization/exact_mapped_extent_substitution.h>
 #include <optimization/mark_aliases_prepare.h>
+#include <optimization/move_split_cat.h>
 #include <optimization/remove_empty.h>
 
 namespace nvfuser::optimization {
@@ -21,6 +22,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
 }
