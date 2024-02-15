@@ -253,7 +253,7 @@ class Fusion : public IrContainer {
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
-  const AliasInfo& getOutputAlias(Val* output) const;
+  const AliasInfo& getOutputAlias(const Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -474,7 +474,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, AliasInfo> io_alias_;
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation
