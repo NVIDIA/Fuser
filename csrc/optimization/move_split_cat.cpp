@@ -62,7 +62,7 @@ TensorView* findCancelingSplit(CatOp* cat) {
       return nullptr;
     }
   }
-  NVF_ERROR(split_in != nullptr);
+  NVF_CHECK(split_in != nullptr, "`cat` has zero inputs: ", cat);
 
   for (auto i : c10::irange(pads.size())) {
     // For each branch, check the sliced amount is the same as the padded
