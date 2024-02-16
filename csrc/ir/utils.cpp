@@ -827,6 +827,10 @@ class ValidateDomainEquivalence : private IterVisitor {
       : initial_domain_({initial_domain.begin(), initial_domain.end()}),
         derived_domain_({derived_domain.begin(), derived_domain.end()}),
         frontier_({initial_domain.begin(), initial_domain.end()}) {
+    // empty domain are equivalent.
+    if (initial_domain.empty() && derived_domain.empty()) {
+      return;
+    }
     NVF_ERROR(!initial_domain.empty());
     NVF_ERROR(!derived_domain.empty());
     // Make sure there's no duplicate in the parameter vectors
