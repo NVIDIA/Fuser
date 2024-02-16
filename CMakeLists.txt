@@ -291,6 +291,10 @@ if(NVFUSER_BUILD_WITH_ASAN)
 endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
+target_include_directories(nvfuser_codegen PUBLIC
+  "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+)
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
