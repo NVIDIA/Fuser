@@ -8,7 +8,7 @@
 #include <exceptions.h>
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 //! RemoveEmptyPass removes intermediate empty tensors (those with at least one
 //! extent zero thar are neither a fusion output or input).
@@ -19,4 +19,4 @@ class RemoveEmptyPass : public OptimizationPass<RemoveEmptyPass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

@@ -965,7 +965,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       convertMetadataArg);
   args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {

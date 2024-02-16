@@ -7,7 +7,7 @@
 // clang-format on
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 //! AddAxiomsPass adds extent > 0 as axioms of the IR container for all tensors
 class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
@@ -17,4 +17,4 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

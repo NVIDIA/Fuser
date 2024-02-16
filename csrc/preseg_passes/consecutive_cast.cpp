@@ -9,7 +9,7 @@
 
 #include <ir/utils.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -191,4 +191,4 @@ void ConsecutiveCastPass::runPass(Fusion* fusion) {
   castOptimizationPass(fusion);
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

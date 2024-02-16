@@ -44,15 +44,15 @@ class TransposeTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    previously_enabled_ = optimization::MarkAliasesPreparePass::getEnabled();
+    previously_enabled_ = preseg_passes::MarkAliasesPreparePass::getEnabled();
     // For convenience, disable MarkAliasesPreparePass. Many tests in this file
     // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
     // would turn those fusions into a no-op, skipping the transpose scheduler.
-    optimization::MarkAliasesPreparePass::setEnabled(false);
+    preseg_passes::MarkAliasesPreparePass::setEnabled(false);
   }
 
   void TearDown() override {
-    optimization::MarkAliasesPreparePass::setEnabled(previously_enabled_);
+    preseg_passes::MarkAliasesPreparePass::setEnabled(previously_enabled_);
     NVFuserTest::TearDown();
   }
 

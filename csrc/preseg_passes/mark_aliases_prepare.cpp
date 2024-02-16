@@ -11,7 +11,7 @@
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <options.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
@@ -113,4 +113,4 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

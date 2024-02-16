@@ -262,7 +262,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     fusion.addOutput(tv2);
 
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         &fusion);
 
     MatMulTileOptions gemm_tile;

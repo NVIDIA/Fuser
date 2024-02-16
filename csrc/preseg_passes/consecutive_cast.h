@@ -7,7 +7,7 @@
 // clang-format on
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 //! ConsecutiveCastPass removes redundant consecutive cast operations that
 //! doesn't have any impact on output from fusion.
@@ -18,4 +18,4 @@ class ConsecutiveCastPass : public OptimizationPass<ConsecutiveCastPass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

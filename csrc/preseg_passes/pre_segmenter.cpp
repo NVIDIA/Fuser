@@ -13,7 +13,7 @@
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/remove_empty.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 void PreSegmenter::runPass(Fusion* fusion) {
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
@@ -25,4 +25,4 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

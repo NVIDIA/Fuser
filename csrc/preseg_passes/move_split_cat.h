@@ -7,7 +7,7 @@
 // clang-format on
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 // A pre-segmenter optimization that moves splits and cats for better codegen.
 class MoveSplitCatPass : public OptimizationPass<MoveSplitCatPass> {
@@ -17,4 +17,4 @@ class MoveSplitCatPass : public OptimizationPass<MoveSplitCatPass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

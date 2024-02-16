@@ -16,7 +16,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -133,4 +133,4 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

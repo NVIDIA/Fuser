@@ -12,7 +12,7 @@
 
 #include <ir/utils.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 void AddAxiomsPass::runPass(Fusion* fusion) {
   auto all_vals = fusion->usedMathVals();
@@ -38,4 +38,4 @@ void AddAxiomsPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

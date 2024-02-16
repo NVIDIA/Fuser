@@ -11,7 +11,7 @@
 #include <options.h>
 #include <root_domain_map.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 // Skip broadcast without expanded extent
@@ -97,4 +97,4 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

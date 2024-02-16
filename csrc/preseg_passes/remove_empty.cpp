@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -317,4 +317,4 @@ void RemoveEmptyPass::runPass(Fusion* fusion) {
   EmptyTensorRemover(fusion).run();
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

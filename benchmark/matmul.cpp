@@ -165,7 +165,7 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, params, turing_or_later);
 
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(fusion);
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
   // inputs
   at::manual_seed(0);
