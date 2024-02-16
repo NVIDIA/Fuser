@@ -8765,21 +8765,21 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
   // manual project tv2 to input, so tv7 is mapped with tv2.
   auto tv5 = castOp(DataType::Float, tv0);
   auto tv6 = div(tv5, tv4);
-  auto tv7 = add(tv1, tv6);
-  auto tv8 = add(tv2, tv1);
-  fusion->addOutput(tv7);
+  auto tv7 = set(tv1);
+  auto tv8 = add(tv7, tv6);
+  auto tv9 = add(tv2, tv7);
   fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
 
   // |--5------------------|
-  // 0 -> 2 -> r3 -> b4 -> 6 -> 7    8
-  // 1--------------------------|
-  // |-------------------------------|
+  // 0 -> 2 -> r3 -> b4 -> 6 -> 8    9
+  // 1-------> 7----------------|
+  //           |---------------------|
   //      |--------------------------|
-  // tv1 has two consumers, tv7 and tv8.
-  // tv7 is a consumer of the reduction output.
-  // tv8 is not a reduction input but it is mapped with a reduction input, tv2.
-  // So, we can't map tv1 with tv7 and tv8, otherwise, the compute at position
-  // of tv1 is not correct and expr sort fails.
+  // tv7 has two consumers, tv8 and tv9.
+  // tv8 is a consumer of the reduction output.
+  // if tv9 is mapped with tv2, we can't map tv8 and tv9.
+  // Because tv9 is in the pre-reduction set and tv8 is in the post-reduction set.
   ComputeAtRootDomainMap root_map;
   root_map.build();
   auto shouldNotMapCheck = [&root_map](
@@ -8799,8 +8799,8 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
         " of ",
         tvb);
   };
-  shouldNotMapCheck(tv1, tv7, 1);
-  shouldNotMapCheck(tv1, tv8, 1);
+  shouldNotMapCheck(tv7, tv8, 1);
+  shouldNotMapCheck(tv7, tv9, 1);
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
