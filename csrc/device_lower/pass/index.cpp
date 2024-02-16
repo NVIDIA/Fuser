@@ -1478,7 +1478,6 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  DEBUG_PRINT_SCOPE(ldst->toString());
   Val* in = nullptr;
   Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {

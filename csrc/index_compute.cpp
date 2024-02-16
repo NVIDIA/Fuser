@@ -1080,7 +1080,9 @@ class UpdateLeafIndices : public IterVisitor {
       //  support reduciton on swizzled iterdomains, so un-indexed
       //  reduction iterdomains are just ignored for now.
       NVF_ERROR(
-          in_id->isReduction(), "Undefined index for ", in_id->toString());
+          in_id->isReduction() || in_id->isBroadcast(),
+          "Undefined index for ",
+          in_id->toString());
       return;
     }
 

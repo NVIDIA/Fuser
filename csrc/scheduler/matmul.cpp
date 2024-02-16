@@ -942,9 +942,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     moveInnerBroadcastLeft(bb);
   }
 
-  std::cout << "ab: " << ab->toString() << std::endl;
-  std::cout << "bb: " << bb->toString() << std::endl;
-
   ab->applyMmaSwizzle(MmaOperand::A);
   bb->applyMmaSwizzle(MmaOperand::B);
 
