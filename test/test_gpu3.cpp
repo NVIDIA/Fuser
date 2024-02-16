@@ -8762,11 +8762,45 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
   auto tv2 = castOp(DataType::Float, tv0);
   auto tv3 = sum(tv2, {1});
   auto tv4 = broadcast(tv3, {false, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = add(tv1, tv5);
-  auto tv7 = add(tv2, tv1);
-  fusion->addOutput(tv6);
+  // manual project tv2 to input, so tv7 is mapped with tv2.
+  auto tv5 = castOp(DataType::Float, tv0);
+  auto tv6 = div(tv5, tv4);
+  auto tv7 = add(tv1, tv6);
+  auto tv8 = add(tv2, tv1);
   fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+
+  // |--5------------------|
+  // 0 -> 2 -> r3 -> b4 -> 6 -> 7    8
+  // 1--------------------------|
+  // |-------------------------------|
+  //      |--------------------------|
+  // tv1 has two consumers, tv7 and tv8.
+  // tv7 is a consumer of the reduction output.
+  // tv8 is not a reduction input but it is mapped with a reduction input, tv2.
+  // So, we can't map tv1 with tv7 and tv8, otherwise, the compute at position
+  // of tv1 is not correct and expr sort fails.
+  ComputeAtRootDomainMap root_map;
+  root_map.build();
+  auto shouldNotMapCheck = [&root_map](
+                               TensorView* tva, TensorView* tvb, int axis) {
+    NVF_CHECK(
+        !root_map.canMap(
+            tva->domain(),
+            tva->getRootDomain().at(axis),
+            tvb->domain(),
+            tvb->getRootDomain().at(axis)),
+        "Should not be mappable: ",
+        tva->getRootDomain().at(axis),
+        " of ",
+        tva,
+        " and ",
+        tvb->getRootDomain().at(axis),
+        " of ",
+        tvb);
+  };
+  shouldNotMapCheck(tv1, tv7, 1);
+  shouldNotMapCheck(tv1, tv8, 1);
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))

@@ -437,52 +437,41 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
     // Input domains to the reduction domain
     const auto& input_keys = reduction_domain_inputs_.at(reduction_domain);
     // Check if any of the consumer domains is an input to the
-    // reduction
+    // reduction or is mapped with the reduction input domains
     auto it = std::find_if(
         consumer_domains.begin(),
         consumer_domains.end(),
         [&](const auto& consumer_domain) {
-          return std::find(
-                     input_keys.begin(), input_keys.end(), consumer_domain) !=
+          bool is_reduction_input =
+              std::find(
+                  input_keys.begin(), input_keys.end(), consumer_domain) !=
               input_keys.end();
-        });
-    // None of the consumer domains is used for the reduction
-    // domain.
-    if (it == consumer_domains.end()) {
-      // Further check if any consumer domain is mapped with the reduction input
-      // domains
-      it = std::find_if(
-          consumer_domains.begin(),
-          consumer_domains.end(),
-          [&](const auto& consumer_domain) {
-            return std::any_of(
-                input_keys.begin(),
-                input_keys.end(),
-                [&](const auto& input_key) {
-                  // canMap check requires concretized IDs for broadcast domain.
-                  // For example, in softmax there are two consecutive
-                  // reductions, one of the inputs to the 2nd reduction has a
-                  // broadcast domain and it is not concretized until its
-                  // consumer is visited where it will be concretized to its
-                  // consumer's non-broadcast domain.
-                  // Note that, the analaysis can only make a decision based on
-                  // the current visited exprs. If the skipped tensor turns out
-                  // to be an input to reduction domain and also used by the
-                  // consumers, it becomes a persistent tensor.
-                  if (input_key.id()->isBroadcast()) {
-                    if (!root_map.isConcretized(
-                            input_key.td(), input_key.id())) {
-                      return false;
-                    }
+          bool is_mapped_with_reduction_input = std::any_of(
+              input_keys.begin(), input_keys.end(), [&](const auto& input_key) {
+                // canMap check requires concretized IDs for broadcast domain.
+                // For example, in softmax there are two consecutive
+                // reductions, one of the inputs to the 2nd reduction has a
+                // broadcast domain and it is not concretized until its
+                // consumer is visited where it will be concretized to its
+                // consumer's non-broadcast domain.
+                // Note that, the analaysis can only make a decision based on
+                // the current visited exprs. If the skipped tensor turns out
+                // to be an input to reduction domain and also used by the
+                // consumers, it becomes a persistent tensor.
+                if (input_key.id()->isBroadcast()) {
+                  if (!root_map.isConcretized(input_key.td(), input_key.id())) {
+                    return false;
                   }
-                  return root_map.canMap(
-                      consumer_domain.td(),
-                      consumer_domain.id(),
-                      input_key.td(),
-                      input_key.id());
-                });
-          });
-    }
+                }
+                return root_map.canMap(
+                    consumer_domain.td(),
+                    consumer_domain.id(),
+                    input_key.td(),
+                    input_key.id());
+              });
+          return is_reduction_input || is_mapped_with_reduction_input;
+        });
+
     // None of the consumer domains is used for the reduction.
     // None of the consumer domains is mapped with the reduction input domains.
     // Safe to map.
