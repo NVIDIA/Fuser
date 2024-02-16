@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <exceptions.h>
-#include <optimization/optimization_pass.h>
+#include <preseg_passes/optimization_pass.h>
 
 namespace nvfuser::optimization {
 

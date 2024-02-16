@@ -13,7 +13,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <optimization/mark_aliases_prepare.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>

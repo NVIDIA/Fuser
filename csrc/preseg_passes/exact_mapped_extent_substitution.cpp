@@ -7,7 +7,7 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/exact_mapped_extent_substitution.h>
+#include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <options.h>
 #include <root_domain_map.h>
 

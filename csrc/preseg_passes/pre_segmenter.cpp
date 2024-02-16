@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/pre_segmenter.h>
 
-#include <optimization/add_axioms.h>
-#include <optimization/consecutive_cast.h>
-#include <optimization/exact_mapped_extent_substitution.h>
-#include <optimization/mark_aliases_prepare.h>
-#include <optimization/remove_empty.h>
+#include <preseg_passes/add_axioms.h>
+#include <preseg_passes/consecutive_cast.h>
+#include <preseg_passes/exact_mapped_extent_substitution.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/remove_empty.h>
 
 namespace nvfuser::optimization {
 

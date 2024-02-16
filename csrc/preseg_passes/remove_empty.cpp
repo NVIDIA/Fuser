@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/remove_empty.h>
+#include <preseg_passes/remove_empty.h>
 
 #include <ir/utils.h>
 #include <iter_visitor.h>

@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/move_split_cat.h>
+#include <preseg_passes/move_split_cat.h>
 
 #include <vector>
 

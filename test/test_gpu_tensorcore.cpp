@@ -29,7 +29,7 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>

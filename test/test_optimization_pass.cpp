@@ -12,8 +12,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
-#include <optimization/optimization_pass.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <test/utils.h>
 #include <test/validator.h>
 

@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/add_axioms.h>
+#include <preseg_passes/add_axioms.h>
 
 #include <unordered_set>
 #include <vector>

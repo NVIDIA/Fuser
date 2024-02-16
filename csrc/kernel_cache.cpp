@@ -15,7 +15,7 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
