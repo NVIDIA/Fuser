@@ -161,9 +161,9 @@ void FusionState::addOutput(
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  // We haven't exposed AliasType to Python API. For now, use
+  // We haven't exposed AllocationType to Python API. For now, use
   // InplaceUpdate to preserve the old behavior.
-  fusion_->aliasOutputToInput(output, input, AliasType::InplaceUpdate);
+  fusion_->aliasOutputToInput(output, input, AllocationType::InplaceUpdate);
 }
 
 } // namespace nvfuser::python_frontend

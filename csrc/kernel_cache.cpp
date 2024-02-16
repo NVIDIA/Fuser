@@ -522,9 +522,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   NVF_ERROR(fusion->outputs().size() == outputs.size());
   size_t new_size = 0;
   for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
-    const AliasInfo* alias_info =
-        fusion->getOutputAlias(fusion->outputs()[out_index]).second;
-    if (alias_info == nullptr || !alias_info->hide_output) {
+    Val* out = fusion->outputs()[out_index];
+    if (!fusion->getOutputAlias(out).hide_output) {
       outputs[new_size] = outputs[out_index];
       new_size++;
     }
@@ -981,11 +980,11 @@ FusionKernelRuntime::FusionKernelRuntime(
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
-  if (serde_buffer == nullptr) {
+  if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original

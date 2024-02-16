@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
+#include <scheduler/matmul_heuristic.h>
 #include <array>
 #include <variant>
 #include <vector>
@@ -388,6 +389,16 @@ class CombineMulSum : public IterVisitor {
   //! than can be replaced by a mma op, or has a single mma op.
   bool is_valid_ = false;
 };
+
+//! Compute the amount of shared memory we expect to need. The actual amount
+//! allocated will be determined by aliasing (see alias_memory.cpp). This
+//! function is useful for testing that we provide accurate information to our
+//! heuristics.
+int64_t computeExpectedSharedMemoryUsage(
+    const MatmulParams& params,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false);
 
 } // namespace mma_utils
 

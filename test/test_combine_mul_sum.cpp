@@ -185,7 +185,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     fe.compileFusion(
@@ -215,8 +215,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     fusion->addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+    auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+    auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
     auto tref = atMatmul(t0, t1, layout);
 
     FusionExecutorCache executor_cache(std::move(fusion));

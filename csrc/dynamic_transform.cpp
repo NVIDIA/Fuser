@@ -13,6 +13,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -591,6 +592,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(Expr* expr) final;
+
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -649,6 +652,13 @@ void DynamicTransformConcretizer::concretize() {
     }
     OptOutMutator::dispatchMutate(stmt);
   }
+
+  for (Val* outp : info_->fusion()->outputs()) {
+    Val* new_outp = maybeMutated(outp);
+    if (new_outp != outp) {
+      info_->fusion()->replaceOutput(outp, new_outp);
+    }
+  }
 }
 
 void DynamicTransformConcretizer::concretizeEmptyExtents() {
@@ -689,8 +699,35 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
     // like it would have if we had used a static reshape instead.
+    //
+    // Note that Reduction IterDomains might be present in the concretized
+    // reshape. For example, suppose we are given the following dynamic Fusion
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T2[ ?S4{i2} ] = view(T1[ iS2{i0} rS3{i1} ])
+    //   T3[ ?S4{i2} ] = -T2[ ?S4{i2} ]
+    //
+    // Then we will concretize this as
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
+    //
+    // Notice here that the ViewOp is gone since we recognized that there is no
+    // transformation to perform. Instead, T1 is used directly in place of T2.
+    // We also replace the extent i2 from the dynamic reshape output T2 with i0,
+    // which is what the code below implements. Since T1 includes a Reduction
+    // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+    auto new_rfactor = TensorDomain::noReductions(
+        concrete_reshape_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
@@ -993,6 +1030,86 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+//! Returns whether a reduction has any trivial partial reductions. Modifies
+//! reduction_axes in place to insert indices of non-trivial reduction axes,
+//! relative to squeezed input.
+static bool hasTrivialReduction(
+    TensorView* in,
+    TensorView* out,
+    std::vector<int>& reduction_axes) {
+  bool has_trivial_reduction = false;
+  PairwiseRootDomainMap p2c_map(in, out);
+  // We need to map broadcasts in order to detect reductions of broadcasts
+  p2c_map.mapBroadcast(true);
+  auto p2c = p2c_map.mapProducerToConsumer();
+  int pos = -1;
+  for (IterDomain* in_id :
+       TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
+    ++pos;
+    auto out_it = p2c.find(in_id);
+    if (out_it == p2c.end()) {
+      continue;
+    }
+    IterDomain* out_id = out_it->second;
+    if (out_id->isReduction()) {
+      reduction_axes.push_back(pos);
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+  }
+  return has_trivial_reduction;
+}
+
+// Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
+// reductions.
+void DynamicTransformConcretizer::mutate(Expr* expr) {
+  if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
+    auto* in = rop->in()->as<TensorView>();
+    auto* orig_out = rop->out()->as<TensorView>();
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_out, reduction_axes)) {
+      // There is at least one trivial reduction that should be squeezed. Use
+      // binaryOp to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      //
+      // Note that keepdim=false always here, since that results in downstream
+      // broadcasts which will already have been inserted.
+      TensorView* new_out = reductionOp(
+          rop->getReductionOpType(),
+          reduction_axes,
+          rop->init(),
+          in,
+          /*keep_dim=*/false,
+          orig_out->dtype());
+      registerConcretization(orig_out, new_out);
+    }
+  } else if (WelfordOp* wop = dynamic_cast<WelfordOp*>(expr); wop) {
+    auto in = wop->in()->as<TensorView>();
+    auto orig_avg = wop->outAvg()->as<TensorView>();
+
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_avg, reduction_axes)) {
+      // Use Welford to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      WelfordResult new_result = Welford(
+          in,
+          reduction_axes,
+          // For avg and variance to be default initialized, they should be
+          // given as nullptr. In that case, this constructor actually sets them
+          // as a scalar 0. Here we use that to detect whether they are
+          // initialized or not.
+          dynamic_cast<TensorView*>(wop->initAvg()),
+          dynamic_cast<TensorView*>(wop->initVar()),
+          wop->initN());
+      registerConcretization(orig_avg, new_result.avg);
+      registerConcretization(wop->outVar(), new_result.var_sum);
+      registerConcretization(wop->outN(), new_result.n);
+    }
+  }
+  OptOutMutator::mutate(expr);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(

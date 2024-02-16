@@ -13,6 +13,7 @@
 
 #include <alias_analysis.h>
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -22,9 +23,11 @@
 namespace nvfuser {
 
 using testing::_;
+using testing::Contains;
 using testing::ContainsRegex;
 using testing::Each;
 using testing::ElementsAre;
+using testing::Field;
 using testing::IsEmpty;
 using testing::IsTrue;
 using testing::Not;
@@ -1044,6 +1047,103 @@ TEST_F(AliasTest, SegmentBoundary) {
       UnorderedElementsAre(
           HeuristicIs(ScheduleHeuristic::NoOp),
           HeuristicIs(ScheduleHeuristic::PointWise)));
+}
+
+TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(1);
+  TensorView* tv2 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
+  TensorView* tv4 =
+      max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
+  TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
+                                   //  keeps normalization scheduler away)
+  TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
+
+  // Note: test alias;
+  fusion->aliasOutputToInput(tv6, tv0, AllocationType::InplaceUpdate);
+  // TODO: support output on aliased fusion #1488
+  // remove tv7 after #1488
+  // fusion->addOutput(tv6);
+  TensorView* tv7 = add(tv6, IrBuilder::create<Val>(1.0)); // Group 0
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128, 65}, options);
+  at::Tensor t1 = at::randn({65}, options);
+  at::Tensor t2 = at::randn({128, 65}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  // Make a copy of `t0` because `t0` will be in-place updated.
+  at::Tensor original_t0 = t0.clone();
+  std::vector<at::Tensor> outputs =
+      executor_cache.runFusionWithInputs({t0, t1, t2});
+  testValidate(
+      executor_cache.fusion(),
+      outputs,
+      {original_t0, t1, t2},
+      __LINE__,
+      __FILE__);
+
+  EXPECT_EQ(
+      executor_cache.getMostRecentKernelRuntime()
+          ->fusionSegments()
+          ->groups()
+          .size(),
+      2)
+      << "segmentation didn't happen as expected";
+
+  auto t3 = original_t0.add(1.0);
+  auto t4 = std::get<0>(at::max(t3, 0));
+  auto t5 = t4.add(t1);
+  auto t6 = t5.add(t2);
+  EXPECT_TRUE(t0.allclose(t6))
+      << "`t0` should have been in-place updated to the same value as `t6`.";
+}
+
+TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  FusionProfiler::start();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `add_out` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fec.runFusionWithInputs({in_tensor});
+
+  const FusionProfile& profile = FusionProfiler::profile();
+  // Expect a kernel launched for one of the two segments but not the
+  // other.
+  EXPECT_THAT(
+      profile.kernel_profiles,
+      UnorderedElementsAre(
+          Field(&KernelProfile::name, IsEmpty()),
+          Field(&KernelProfile::name, Not(IsEmpty()))));
+
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
 }
 
 } // namespace nvfuser
