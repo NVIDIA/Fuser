@@ -562,14 +562,14 @@ namespace {
 
 // Returns the root producer iteration domains that are resolved by provided
 // consumer
-std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
+std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
   auto p2c_map = PairwiseRootDomainMap(producer, consumer)
                      .mapBroadcast(true)
                      .mapProducerToConsumer();
 
-  std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map;
+  std::vector<std::pair<IterDomain*, IterDomain*>> resolved_bcast_domains;
   for (const auto& [p_id, c_id] : p2c_map) {
     // Look for a broadcast producer and non-broadcast consumer
 
@@ -586,9 +586,9 @@ std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
       continue;
     }
 
-    resolved_bcast_map[p_id] = c_id;
+    resolved_bcast_domains.emplace_back(p_id, c_id);
   }
-  return resolved_bcast_map;
+  return resolved_bcast_domains;
 }
 
 } // namespace
@@ -634,10 +634,11 @@ StatefulInliningInfo buildStatefulInliningInfo(
           }
         }
 
-        std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map =
-            resolvedRootBroadcasts(producer_tv, consumer_tv);
+        const std::vector<std::pair<IterDomain*, IterDomain*>>
+            resolved_bcast_domains =
+                resolvedRootBroadcasts(producer_tv, consumer_tv);
 
-        for (const auto& [p_root_id, c_root_id] : resolved_bcast_map) {
+        for (const auto& [p_root_id, c_root_id] : resolved_bcast_domains) {
           info.p2c_root_broadcast_resolution_map[p_root_id].pushBack(c_root_id);
         }
       }

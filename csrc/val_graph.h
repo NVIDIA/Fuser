@@ -97,18 +97,14 @@ class ValGraph {
       typename ContainerType,
       typename ElementType = typename std::remove_pointer<
           typename ContainerType::value_type>::type,
+      typename RetType = typename std::conditional<
+          std::is_base_of<Val, ElementType>::value,
+          ValGroups,
+          ExprGroups>::type,
       typename = std::enable_if_t<
           std::is_base_of<Val, ElementType>::value ||
           std::is_base_of<Expr, ElementType>::value>>
-  typename std::conditional<
-      std::is_base_of<Val, ElementType>::value,
-      ValGroups,
-      ExprGroups>::type
-  toGroups(const ContainerType& entries) const {
-    using RetType = typename std::conditional<
-        std::is_base_of<Val, ElementType>::value,
-        ValGroups,
-        ExprGroups>::type;
+  RetType toGroups(const ContainerType& entries) const {
     RetType groups;
     for (auto entry : entries) {
       groups.pushBack(toGroup(entry));
