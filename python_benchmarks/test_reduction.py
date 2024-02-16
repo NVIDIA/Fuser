@@ -16,7 +16,7 @@ def reduction_fusion(
     )
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
-    T2 = fd.ops.sum(T0, axes=[reduction_axis], keepdim=False)
+    T2 = fd.ops.sum(T0, dims=[reduction_axis], keepdim=False)
     if dtype in PROMOTE_DTYPES:
         T2 = fd.ops.cast(T2, dtype=dtype)
     fd.add_output(T2)
@@ -41,8 +41,8 @@ def test_reduction_benchmark(
         reduction_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     if not disable_validation:
-        eager_output = torch.sum(inputs[0], dim=reduction_axis)
-        fd.validate(inputs, [eager_output])
+        eager_output = torch.sum(inputs[0].to(torch.double), dim=reduction_axis)
+        fd.validate(inputs, [eager_output.to(dtype)])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)

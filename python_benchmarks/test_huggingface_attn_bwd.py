@@ -37,7 +37,7 @@ def huggingface_attn_bwd_fusion(
     T10 = fd.ops.mul(T5, S0)
     T11 = fd.ops.mul(T10, T7)
     T13 = fd.ops.mul(T6, T11)
-    T14 = fd.ops.sum(T13, axes=[2], keepdim=False, dtype=DataType.Null)
+    T14 = fd.ops.sum(T13, dims=[2], keepdim=False, dtype=DataType.Null)
 
     V18 = fd.define_vector([T5.size(0), T5.size(1), 1], dtype=DataType.Int)
     T19 = fd.ops.broadcast_in_dim(T14, shape=V18, broadcast_dims=[0, 1])

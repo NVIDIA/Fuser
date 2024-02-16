@@ -47,7 +47,7 @@ def gelu_bwd_reduction_fusion(
     T18 = fd.ops.mul(T17, S2)
     T19 = fd.ops.add(T16, T18)
     T20 = fd.ops.mul(grad, T19)
-    T21 = fd.ops.sum(T20, axes=[reduction_axis], keepdim=False)
+    T21 = fd.ops.sum(T20, dims=[reduction_axis], keepdim=False)
     if dtype in PROMOTE_DTYPES:
         T21 = fd.ops.cast(T21, dtype=dtype)
     fd.add_output(T21)
@@ -75,10 +75,12 @@ def test_gelu_bwd_reduction_benchmark(
         )
 
     if not disable_validation:
-        eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
-        eager_output.backward(grads)
-        reduction_out = inputs.grad.sum(reduction_axis)
-        fd.validate([inputs, grads, bias], [reduction_out])
+        eager_output = torch.nn.functional.gelu(
+            inputs.to(torch.double) + bias.to(torch.double), approximate="tanh"
+        )
+        eager_output.backward(grads.to(torch.double))
+        reduction_out = inputs.grad.to(torch.double).sum(reduction_axis)
+        fd.validate([inputs, grads, bias], [reduction_out.to(dtype)])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])

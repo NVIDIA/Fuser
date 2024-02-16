@@ -259,6 +259,10 @@ Container parse(const std::string& nvdisasm_output) {
 
 // matmulAtInput2D provides batched inputs in a splitk-like ordering. It
 // provides contiguous tensors with these shapes
+//   TT: [M, (1,) B, K] [(1,) B, K, N]
+//   TN: [M, (1,) B, K] [(1,) N, B, K]
+//   NT: [B, K, (1,) M] [(1,) B, K, N]
+//   NN: [B, K, (1,) M] [(1,) N, B, K]
 // fusedMultiplySum assumes [B, M, 1, K] [B, 1, N, K] so here we transpose into that
 // order
 TensorView* matmulTuringOrLater(

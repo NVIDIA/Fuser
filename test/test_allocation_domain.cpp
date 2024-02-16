@@ -1333,4 +1333,12 @@ TEST_F(AllocationDomainTest, Issue1524) {
   fec.runFusionWithInputs({in_tensor});
 }
 
+TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = TensorViewBuilder().ndims(0).build();
+  tv0->setAllocationDomain({}, true);
+}
+
 } // namespace nvfuser
