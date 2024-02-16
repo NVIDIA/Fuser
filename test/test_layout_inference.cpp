@@ -49,9 +49,9 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
+  auto tv0 = makeSymbolicTensor(4);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor({-1});
+  auto tv1 = makeSymbolicTensor(1);
   fusion.addInput(tv1);
   auto tv2 =
       broadcast(tv0, {true, false, false, true, false, true, false, true});
