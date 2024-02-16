@@ -8,8 +8,8 @@
 #include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
-#include <preseg_passes/mark_aliases_prepare.h>
 #include <options.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 
 namespace nvfuser::preseg_passes {
 
