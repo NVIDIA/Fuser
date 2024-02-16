@@ -459,7 +459,12 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
                 input_keys.begin(),
                 input_keys.end(),
                 [&](const auto& input_key) {
-                  // check if input_key is concretized
+                  // canMap check requires concretized IDs for broadcast domain.
+                  // For example, in softmax there are two consecutive
+                  // reductions, one of the inputs to the 2nd reduction has a
+                  // broadcast domain and it is not concretized until its
+                  // consumer is visited where it will be concretized to its
+                  // consumer's non-broadcast domain.
                   if (input_key.id()->isBroadcast()) {
                     if (!root_map.isConcretized(
                             input_key.td(), input_key.id())) {
