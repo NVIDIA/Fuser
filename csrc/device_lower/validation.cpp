@@ -881,7 +881,6 @@ namespace {
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
 void validateMmaTensors(MmaOp* mma) {
-  return;
   bool tidx_validated = false;
   std::vector<TensorView*> to_validate = {mma->out()->as<TensorView>()};
 
@@ -966,16 +965,6 @@ void validateMmaTensors(MmaOp* mma) {
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
   validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
-
-  // Additionally validate that mma is not directly taking a double buffered
-  //  register input as the double buffer indexing is currently not compatible
-  //  with fragment iteration. Would need to require a cache stage in this case.
-  NVF_ERROR(
-      !mma->inA()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
-  NVF_ERROR(
-      !mma->inB()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
