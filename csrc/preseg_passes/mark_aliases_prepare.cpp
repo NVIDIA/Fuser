@@ -49,6 +49,12 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       continue;
     }
 
+    // A scalar `tv` triggers a corner case that crashes
+    // `validateDomainEquivalence`.
+    if (tv->isZeroDim()) {
+      continue;
+    }
+
     const Layout preferred_layout = analysis.preferredLayout(tv);
     tv->setAllocationDomain(
         preferred_layout.allocation_domain, preferred_layout.contiguity);
