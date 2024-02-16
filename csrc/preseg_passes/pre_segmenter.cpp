@@ -11,6 +11,7 @@
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/remove_empty.h>
 
 namespace nvfuser::preseg_passes {
