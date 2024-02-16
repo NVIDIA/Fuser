@@ -270,9 +270,6 @@ TensorView* matmulTuringOrLater(
     TensorView* b,
     MmaLayout layout,
     bool as_mul_sum) {
-  std::cout << a->toString() << std::endl;
-  std::cout << b->toString() << std::endl;
-
   NVF_CHECK(a->nDims() == b->nDims());
   NVF_CHECK(a->nDims() == 2 || a->nDims() == 3 || a->nDims() == 4);
   NVF_CHECK(a->hasBroadcast() == b->hasBroadcast());
@@ -343,8 +340,6 @@ TensorView* matmulTuringOrLater(
     tv3 = sum(tv2, {-1});
     return tv3;
   }
-  std::cout << tv0b->toString() << std::endl;
-  std::cout << tv1b->toString() << std::endl;
   tv3 = fusedMultiplySum(tv0b, tv1b, {-1});
   return tv3;
 }
@@ -411,6 +406,8 @@ TensorView* splitkLikeBatchedMatmul(
 //   NN: [B, K, M] [N, B, K]
 // ATen matmul assumes [B, M, K] [B, K, N] so here we transpose into that order
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
+  a = a.squeeze();
+  b = b.squeeze();
   NVF_CHECK(
       a.dim() == b.dim(), "Either both or none of A and B should be batch");
   NVF_CHECK(
