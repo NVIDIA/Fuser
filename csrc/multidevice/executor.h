@@ -49,7 +49,7 @@ namespace nvfuser {
   Also, the steps described above should be divided into compilation,
   allocation, runtime etc.
   This will be done along the way when we will have a better symbolic
-  representation of the multidevice module 
+  representation of the multidevice module
 */
 class MultiDeviceExecutor {
  public:

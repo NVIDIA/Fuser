@@ -19,10 +19,12 @@ namespace nvfuser {
 
 namespace {
 
-// copy the fusion and replace the original outputs to the ones given as argument
-// returns the copied fusion and a copy-to-original Vals map 
+// copy the fusion and replace the original outputs to the ones given as
+// argument returns the copied fusion and a copy-to-original Vals map
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(Fusion* fusion, const std::unordered_set<Val*>& outputs) {
+copyFusionAndChangeOutputs(
+    Fusion* fusion,
+    const std::unordered_set<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
@@ -59,7 +61,11 @@ copyFusionAndChangeOutputs(Fusion* fusion, const std::unordered_set<Val*>& outpu
 } // namespace
 
 // TODO: use native allocator instead.
-// TODO: reimplement. The implementation here is very naive and wasteful since we entirely copy the fusion, change the outputs to be the Vals we want to allocate, and call allocOutputSpace which effectively compile and run the Fusion. This function creates a potentially important overhead, it needs to be reimplemented
+// TODO: reimplement. The implementation here is very naive and wasteful since
+// we entirely copy the fusion, change the outputs to be the Vals we want to
+// allocate, and call allocOutputSpace which effectively compile and run the
+// Fusion. This function creates a potentially important overhead, it needs to
+// be reimplemented
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
   std::unordered_set<Val*> vals_to_allocate;
@@ -172,8 +178,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       "Communication segments must contain only one Expr");
   auto expr = group->exprs().at(0);
   NVF_ERROR(
-      expr->inputs().size() == 1,
-      "Communication must have exactly one input");
+      expr->inputs().size() == 1, "Communication must have exactly one input");
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
@@ -187,8 +192,8 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  auto communications = lowerCommunication(
-            comm_.deviceId(), expr, input_tensor, output_tensor);
+  auto communications =
+      lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
 
   // post and wait communications
   for (auto& communication : communications) {

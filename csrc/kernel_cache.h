@@ -78,7 +78,8 @@ struct PairPointerEquals {
   }
 };
 
-// Perform a topological sort of different groups composiong the Segmented Fusion
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
 void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 
 //! FusionKernelRuntime is the unified interface from fusion graphs into
