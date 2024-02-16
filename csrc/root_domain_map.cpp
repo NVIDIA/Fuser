@@ -465,6 +465,10 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
                   // broadcast domain and it is not concretized until its
                   // consumer is visited where it will be concretized to its
                   // consumer's non-broadcast domain.
+                  // Note that, the analaysis can only make a decision based on
+                  // the current visited exprs. If the skipped tensor turns out
+                  // to be an input to reduction domain and also used by the
+                  // consumers, it becomes a persistent tensor.
                   if (input_key.id()->isBroadcast()) {
                     if (!root_map.isConcretized(
                             input_key.td(), input_key.id())) {
