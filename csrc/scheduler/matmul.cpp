@@ -703,7 +703,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::clearMemorySpace(fusion);
 
   // Cache inputs
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  scheduler_utils::cacheInputs(fusion, true);
 
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
