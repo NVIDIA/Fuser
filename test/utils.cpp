@@ -263,8 +263,8 @@ Container parse(const std::string& nvdisasm_output) {
 //   TN: [M, (1,) B, K] [(1,) N, B, K]
 //   NT: [B, K, (1,) M] [(1,) B, K, N]
 //   NN: [B, K, (1,) M] [(1,) N, B, K]
-// fusedMultiplySum assumes [B, M, 1, K] [B, 1, N, K] so here we transpose into that
-// order
+// fusedMultiplySum assumes [B, M, 1, K] [B, 1, N, K] so here we transpose into
+// that order
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
