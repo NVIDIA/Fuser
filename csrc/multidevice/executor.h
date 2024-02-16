@@ -69,10 +69,6 @@ class MultiDeviceExecutor {
   // Cache Fusions, FusionExecutors, and Communications
   std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
   std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
-  std::unordered_map<
-      SegmentedGroup*,
-      std::vector<std::shared_ptr<Communication>>>
-      communications_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
