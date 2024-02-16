@@ -30,6 +30,11 @@ struct StatefulInliningInfo {
   // leaf domains.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
+
+  // Broadcast resolution map for root domains, including non-inlined
+  // root domains
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+      p2c_root_broadcast_resolution_map;
 };
 
 StatefulInliningInfo buildStatefulInliningInfo(
@@ -157,6 +162,17 @@ class IdModel : public PolymorphicBase {
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
+  // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
+  // graph1.
+  ValGraph buildIntersection(
+      const ValGraph& graph0,
+      const ValGraph& graph1,
+      bool propagate_exprs = true);
+
+  const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
+    return loop_promotion_map_;
+  }
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -164,6 +180,19 @@ class IdModel : public PolymorphicBase {
 
   /// Start loop map by grouping inlined iter domains
   void initializeLoopGraph(const StatefulInliningInfo& info);
+
+  // Build a map of loop groups to IterDomains that represent actual
+  // loops. The map is built based on the broadcast resolution with
+  // root domains between inlined producer and consumer tensors.
+  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
+      const StatefulInliningInfo& info);
+
+  // Helper function for buildLoopPromotionMap. Returns a map of
+  // root broadcast ValGroups in the IEL graph to a representative
+  // IterDomain picked from its IEL group.
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionMap(
+      const ValGraph& iel_graph,
+      const StatefulInliningInfo& info);
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();
@@ -181,6 +210,10 @@ class IdModel : public PolymorphicBase {
 
   // If true, validate graphs by comparing them with ComputeAtMap
   bool validate_ = false;
+
+  // By default, the permissive graph should map compliment domains as
+  // well. See the design doc for more details
+  bool permissive_graph_map_compliment_ids_ = true;
 
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
@@ -206,6 +239,9 @@ class IdModel : public PolymorphicBase {
       self_mapping_info_ = std::nullopt;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
+
+  // Promotion domain for each loop group
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
 
 } // namespace nvfuser
