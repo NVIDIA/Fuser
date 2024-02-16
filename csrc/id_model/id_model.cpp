@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
+#include <id_model/transform_replay.h>
 #include <id_model/validation_utils.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -16,6 +17,7 @@
 #include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <memory>
 #include <tuple>
@@ -719,6 +721,12 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionMap(iel_graph, inlining_info);
 
+  // Step 2: Propagate the root promotions to intermediate and leaf groups.
+  // At this point, the promotion may not be final as the analysis is
+  // localized to IEL groups. The map is used in the next step to
+  // build mappings of the loop groups.
+  propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
+
   // This is not a right map to return but just a placeholder since
   // the loop promotion map is not yet completely merged. It will be
   // replaced by a proper map.
@@ -947,6 +955,399 @@ ValGraph IdModel::buildIntersection(
     }
   }
   return intersection;
+}
+
+namespace {
+
+// When replaying the transformations we can't blindly apply loop promotion
+// to all iter domains within a loop group as it would replay the
+// transformations within that loop group on the promoted id of that loop
+// group.
+//
+// i.e. if we have the inlined domains from:
+// T2[i0*i1] pa(1) = T0[i0*b1]ca(1) + T1[i0*i1]ca(1)
+// The inlined loop group would be:
+//
+// i0, i1, b1, i0*i1, b0*i1
+// Then if we replayed the iel transformations they would be:
+// merge(i0, i1)
+// merge(i0, b1)
+//
+// So if we replayed them with loop promotion, then i0, i1, b1 would be
+// promoted to i0*i1, and the merges would be replayed.
+//
+// Therefore only promote i0*b1 to i0*i1, or i0*i1 to i0*i1 (i.e. don't
+// promote an input to any transformation within the loop group).
+//
+// So if we have an iel_expr make sure it's inputs and outputs are not in
+// the same loop group.
+bool hasUniqueOutputLoopGroups(
+    const ExprGroup& iel_expr,
+    const ValGraph& iel_graph,
+    const ValGraph& loop_graph) {
+  const std::vector<ValGroup> iel_inp_groups = iel_graph.inputGroups(iel_expr);
+
+  const std::vector<ValGroup> iel_out_groups = iel_graph.outputGroups(iel_expr);
+
+  ValGroups inp_loop_groups;
+  for (const ValGroup& iel_inp_group : iel_inp_groups) {
+    inp_loop_groups.pushBack(loop_graph.toGroup(iel_inp_group->front()));
+  }
+  ValGroups out_loop_groups;
+  for (const ValGroup& iel_out_group : iel_out_groups) {
+    out_loop_groups.pushBack(loop_graph.toGroup(iel_out_group->front()));
+  }
+
+  // Check if output groups that are not included in the input group set
+  return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
+}
+
+} // namespace
+
+// Propagate promotion mappings from root domains to derived domains
+// by traversing IEL exprs. For each expr, if an input is promoted,
+// the output needs to be promoted too. If there's already a domain
+// that the output domain should be promoted to, create a mapping to it from
+// the promoted output domain. If not, a new domain is created by
+// replaying the expr with the promoted inputs.
+//
+// This is used twice when building the promotion map. The first time
+// it is used there's no loop graph promotion yet, so only the IEL
+// promotions are propagated. In that case, loop_graph_promotion_map
+// should be just empty.
+//
+// Propagation uses iel_promotion_map and
+// loop_graph_promotion_map. If both are available for an IEL group,
+// the former has the precedence. This is because when this function
+// is used for step 4, the given iel_promotion_map is empty and gets
+// populated during this propagation, whereas the loop promotion map
+// is not guaranteed to have the correct mappings for partially
+// inlined domains.
+//
+// The loop_graph pamameter may not be up-to-date.
+void IdModel::propagatePromotionsInIELGraph(
+    const ValGraph& iel_graph,
+    std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+    const ValGraph& loop_graph,
+    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
+    bool require_loop_mapped_promotion) {
+  // In order to make this traversal work, the traversal order must be
+  // topologically sorted.
+  ValGraphStmtSort iel_stmt_sort(iel_graph);
+
+  // TODO-NM: The ordering might be non-deterministic
+
+  for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
+    NVF_ERROR(!iel_expr->empty());
+    const std::vector<ValGroup> iel_inp_groups =
+        iel_graph.inputGroups(iel_expr);
+
+    // Propagate loop graph promotion only when the inputs and outputs are
+    // not in the same loop group.
+    const bool loop_promote_inputs = !loop_graph_promotion_map.empty() &&
+        hasUniqueOutputLoopGroups(iel_expr, iel_graph, loop_graph);
+
+    // Check if any inputs need promotion indicating this expr group needs to
+    // be replayed with promoted inputs
+    bool an_input_was_promoted = false;
+    std::vector<IterDomain*> maybe_promoted_inputs;
+    maybe_promoted_inputs.reserve(iel_inp_groups.size());
+
+    for (const ValGroup& iel_inp_group : iel_inp_groups) {
+      // Assumed all inputs are IterDomains
+      NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
+
+      // Even when loop promotions are given, We still could require
+      // an input promotion. We could be traversing across non-inlined
+      // groups. Meaning we have inputs that were promoted in an
+      // inlined loop group traversing through the non-inlined
+      // portions of the iel graph.
+      if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
+          inp_promo_it != iel_promotion_map.end()) {
+        maybe_promoted_inputs.push_back(inp_promo_it->second);
+        an_input_was_promoted = true;
+        continue;
+      }
+
+      // Promote loops based on the loop promotion map. If the loop promotion
+      // map should be used and has an entry we should use that promotion. This
+      // happen when an iel expression is across a loop group boundary.
+      // Signifying and capturing instances when we traverse across an inlined
+      // loop group to a non-inlined loop group boundary (think of the iel graph
+      // projected onto the loop graph).
+      if (loop_promote_inputs) {
+        const ValGroup& loop_copy_group =
+            loop_graph.toGroup(iel_inp_group->front());
+        auto inp_loop_promo_it = loop_graph_promotion_map.find(loop_copy_group);
+        if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
+          maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
+          an_input_was_promoted = true;
+          continue;
+        }
+      }
+
+      // No promotion found. Just use the non-promoted domain
+      maybe_promoted_inputs.push_back(iel_inp_group->front()->as<IterDomain>());
+    }
+
+    if (!an_input_was_promoted) {
+      // No inputs need promotion so just continue
+      continue;
+    }
+
+    // Before replaying, check if there's already an expression like this, if so
+    // use that for promotion. We would need the iel entries for non-promoted
+    // inputs to match exactly to reuse the expression.
+    auto findMatchingExpr =
+        [this, &require_loop_mapped_promotion](
+            const ExprGroup& iel_expr,
+            const ValGraph& iel_graph,
+            const std::vector<IterDomain*>& maybe_promoted_inputs) -> Expr* {
+      ExprGroups maybe_promoted_input_uses;
+
+      for (auto inp_id : maybe_promoted_inputs) {
+        // inp_id may have been just replayed, in which case it should
+        // not exist in the IEL graph. It should be just ignored as it
+        // should not have any use yet.
+        if (!iel_graph.hasGroup(inp_id)) {
+          continue;
+        }
+        const auto& inp_exact_group = iel_graph.toGroup(inp_id);
+        maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_exact_group));
+      }
+
+      // Look for exprs that have inputs that are mapped in the IEL
+      // graph with the (promoted) inputs of iel_expr. If found, no need
+      // to create a new expr to produce promoted outputs
+      for (const ExprGroup& maybe_promoted_input_use_group :
+           maybe_promoted_input_uses) {
+        NVF_ERROR(!maybe_promoted_input_use_group->empty());
+        // No need to check itself
+        if (iel_expr == maybe_promoted_input_use_group) {
+          continue;
+        }
+        Expr* maybe_promoted_input_use =
+            maybe_promoted_input_use_group->front();
+        if (!iel_expr->front()->sameOp(maybe_promoted_input_use)) {
+          continue;
+        }
+        // Check if all inputs are mapped
+        NVF_ERROR(
+            maybe_promoted_inputs.size() ==
+            maybe_promoted_input_use->inputs().size());
+        bool inps_match = true;
+        for (const auto inp_i : c10::irange(maybe_promoted_inputs.size())) {
+          // Here, new promoted ids are not added to iel_graph, so
+          // once promoted, this should not return true anymore. Also,
+          // strictAreMapped doesn't work as promoted domains are not
+          // in the graph
+          inps_match = inps_match &&
+              iel_graph.disjointValSets().permissiveAreMapped(
+                  maybe_promoted_inputs[inp_i],
+                  maybe_promoted_input_use->inputs().at(inp_i));
+        }
+        if (!inps_match) {
+          continue;
+        }
+
+        // For the final loop promotion map, we want to find
+        // promotions within the same loop groups. Note that that's
+        // guaranteed when replayed.
+        if (require_loop_mapped_promotion) {
+          if (!idGraph(IdMappingMode::LOOP)
+                   .disjointExprSets()
+                   .permissiveAreMapped(
+                       iel_expr->front(),
+                       maybe_promoted_input_use_group->front())) {
+            continue;
+          }
+          // This is just an extra sanity check. Make sure all exprs in
+          // the use group are mapped
+          NVF_ERROR(
+              std::all_of(
+                  maybe_promoted_input_use_group->vector().begin(),
+                  maybe_promoted_input_use_group->vector().end(),
+                  [&](Expr* iel_use) {
+                    return idGraph(IdMappingMode::LOOP)
+                        .disjointExprSets()
+                        .permissiveAreMapped(iel_expr->front(), iel_use);
+                  }),
+              "Not all mapped: ",
+              nvfuser::toString(iel_expr),
+              "\n",
+              nvfuser::toString(maybe_promoted_input_use_group));
+        }
+        return maybe_promoted_input_use;
+      }
+
+      return nullptr;
+    };
+
+    bool replayed = false;
+    Expr* promoted_expr =
+        findMatchingExpr(iel_expr, iel_graph, maybe_promoted_inputs);
+
+    if (!promoted_expr) {
+      promoted_expr = addReplayAs(maybe_promoted_inputs, iel_expr->front());
+      replayed = true;
+    }
+
+    // Mark outputs as having a promoted iter domain
+    std::vector<ValGroup> out_groups = iel_graph.outputGroups(iel_expr);
+    NVF_ERROR(promoted_expr->outputs().size() == out_groups.size());
+    NVF_ERROR(
+        ir_utils::filterByType<IterDomain>(promoted_expr->outputs()).size() ==
+            out_groups.size(),
+        "Unexpected non IterDomain outputs found: ",
+        promoted_expr->toString());
+
+    for (const auto i : c10::irange(out_groups.size())) {
+      // Promote if necessary, if the output is already in the same exact map
+      // it doesn't need a promotion.
+      if (idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .strictAreMapped(
+                  promoted_expr->output(i), out_groups[i]->front())) {
+        continue;
+      }
+      iel_promotion_map[out_groups[i]] =
+          promoted_expr->output(i)->as<IterDomain>();
+      // Explicitly map loop map since expr propagation doesn't happen
+      if (replayed) {
+        idGraph(IdMappingMode::LOOP)
+            .mapVals(iel_expr->front()->output(i), promoted_expr->output(i));
+      }
+    }
+  }
+}
+
+void IdModel::propagatePromotionsInIELGraph(
+    const ValGraph& iel_graph,
+    std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
+  propagatePromotionsInIELGraph(
+      iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {}, false);
+}
+
+// Replay Expr but with the inputs provided.
+Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
+  // Figure out which graphs are already initialized to make sure we add the new
+  // expression to them.
+  std::vector<IdMappingMode> initialized_modes;
+  for (auto mode : kIdMappingModes) {
+    auto graph_it = id_graphs_.find(mode);
+    if (graph_it == id_graphs_.end()) {
+      continue;
+    }
+
+    auto& graph = graph_it->second;
+    if (graph.disjointValSets().disjointSetMap().empty()) {
+      continue;
+    }
+
+    initialized_modes.push_back(mode);
+  }
+
+  auto orig_inputs = ir_utils::filterByType<IterDomain>(expr->inputs());
+  std::vector<IterDomain*> orig_input_ids(
+      orig_inputs.begin(), orig_inputs.end());
+
+  // Replace the provided inputs with IterType::Iteration domains as
+  // reduction domains cannot be merged with non-reduction domains.
+  if (std::any_of(
+          new_inputs.begin(),
+          new_inputs.end(),
+          [](IterDomain* id) { return id->isReduction(); }) &&
+      std::any_of(new_inputs.begin(), new_inputs.end(), [](IterDomain* id) {
+        return !id->isReduction();
+      })) {
+    // Inputs have mismatched type, replace new_inputs
+    decltype(new_inputs) tmp_inputs;
+    std::swap(tmp_inputs, new_inputs);
+    for (auto tmp_input : tmp_inputs) {
+      new_inputs.push_back(
+          IterDomainBuilder(tmp_input).iter_type(IterType::Iteration).build());
+      id_definitions_[new_inputs.back()];
+      id_uses_[new_inputs.back()];
+      for (auto mode : initialized_modes) {
+        idGraph(mode).initializeVal(new_inputs.back(), {}, {});
+        idGraph(mode).mapVals(new_inputs.back(), tmp_input);
+      }
+    }
+  }
+
+  {
+    NVF_ERROR(
+        new_inputs.size() == orig_input_ids.size(),
+        "Invalid number of inputs: ",
+        new_inputs.size(),
+        " does not match number of iter domain inputs for ",
+        expr->toString());
+
+    VectorOfUniqueEntries<IterDomain*> all_inputs{
+        orig_input_ids.begin(), orig_input_ids.end()};
+
+    all_inputs.pushBack(new_inputs);
+
+    for (auto mode : initialized_modes) {
+      for (auto inp : all_inputs) {
+        NVF_ERROR(
+            idGraph(mode).hasGroup(inp),
+            "All inputs for replay need to be initialized in all graphs, ",
+            inp->toString(),
+            " was not found in mode: ",
+            mode);
+      }
+    }
+  }
+
+  // Create the new expression with provided inputs
+  auto replay = ReplayTransform::replayAs(new_inputs, expr);
+
+  for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+    id_definitions_[out_id].pushBack(replay);
+    id_uses_[out_id];
+  }
+
+  // Add the expression to the uses of the inputs
+  for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
+    id_definitions_[inp_id];
+    id_uses_[inp_id].pushBack(replay);
+  }
+
+  // Initialize output iter domains in the graphs
+  for (auto mode : initialized_modes) {
+    idGraph(mode).registerExpr(replay);
+    auto replay_group = idGraph(mode).toGroup(replay);
+
+    // Initialize output ids in map
+    for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+      idGraph(mode).initializeVal(out_id, {replay}, {});
+    }
+
+    // Update uses of the inputs in the graphs
+    for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
+      auto inp_group = idGraph(mode).toGroup(inp_id);
+      idGraph(mode).addUniqueUses(inp_group, replay_group);
+    }
+
+    // Propagate through all the uses of the iter domain groups of the inputs
+    // with the new expression.
+    auto& graph = idGraph(mode);
+    // Gather all use expressions from inputs
+    VectorOfUniqueEntries<Expr*> representative_uses;
+    for (IterDomain* inp : new_inputs) {
+      for (const ExprGroup& use_group : graph.getUses(graph.toGroup(inp))) {
+        NVF_ERROR(!use_group->empty());
+        representative_uses.pushBack(use_group->front());
+      }
+    }
+
+    for (auto rep_use : representative_uses) {
+      graph.maybeMapThroughExprs(rep_use, replay, true);
+    }
+  }
+
+  return replay;
 }
 
 } // namespace nvfuser

@@ -310,6 +310,14 @@ void ValGraph::initializeVal(Val* val) {
   initializeVal(val, defs, uses);
 }
 
+void ValGraph::registerExpr(Expr* expr) {
+  NVF_ERROR(
+      !disjoint_exprs_.mappingExists(expr),
+      "Already in the disjoint sets: ",
+      expr->toString());
+  disjoint_exprs_.initializeSet(expr);
+}
+
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   NVF_ERROR(first);
   NVF_ERROR(second);
