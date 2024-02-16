@@ -175,6 +175,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     initStringStreamFormat(code_);
   }
 
+  std::unordered_set<Val*> aligned_array_of_regs_;
+
   using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
@@ -245,6 +247,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           typePrefix(v->dtype()) + std::to_string(val_to_name_.size());
     }
     return val_to_name_.at(v);
+  }
+
+  // A wrapper around genVariableName that also appends the array suffix if the
+  // variable is an aligned array of registers. This avoid the type mismatch in
+  // template functions when one of the arguments is an aligned array
+  // (Array<T,N>) while another is a regular array T[N].
+  std::string genVarForTemplateFunction(Val* v) {
+    TensorView* tv = nullptr;
+    if (v->isA<kir::TensorIndex>()) {
+      tv = v->as<kir::TensorIndex>()->view();
+    } else if (v->isA<TensorView>()) {
+      tv = v->as<TensorView>();
+    }
+    if (tv && aligned_array_of_regs_.count(tv)) {
+      return genVariableName(tv).append(".array");
+    } else {
+      return genVariableName(v);
+    }
   }
 
   // Generates the kernel function declaration
@@ -2298,13 +2318,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableName(output.get(0)));
-    func_args.arg(genVariableName(output.get(1)));
-    func_args.arg(genVariableName(output.get(2)));
+    func_args.arg(genVarForTemplateFunction(output.get(0)));
+    func_args.arg(genVarForTemplateFunction(output.get(1)));
+    func_args.arg(genVarForTemplateFunction(output.get(2)));
     // inputs
-    func_args.arg(genVariableName(input.get(0)));
-    func_args.arg(genVariableName(input.get(1)));
-    func_args.arg(genVariableName(input.get(2))).append("[0]");
+    func_args.arg(genVarForTemplateFunction(input.get(0)));
+    func_args.arg(genVarForTemplateFunction(input.get(1)));
+    func_args.arg(genVarForTemplateFunction(input.get(2))).append("[0]");
 
     // global buf
     for (const auto i : c10::irange(3)) {
@@ -2803,6 +2823,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ">*>(&" << genVariableName(alias_tv)
                  << ");\n";
+        aligned_array_of_regs_.insert(tv);
       }
     } else {
       // Standard Memory Allocation
@@ -2829,6 +2850,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
                      << ", " << va.at(tv) << "> " << genVariableName(tv)
                      << ";\n";
+            aligned_array_of_regs_.insert(tv);
           } else {
             indent() << buffer_dtype << " " << genVariableName(tv) << "["
                      << genInline(size) << "];\n";
