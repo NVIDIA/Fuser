@@ -8896,7 +8896,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
   NVF_ERROR(buffers.size() == 1);
-  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 2);
   NVF_ERROR(projectable.size() == 1);
   NVF_ERROR(projectable_inputs.size() == 1);
 
@@ -9045,10 +9045,13 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
+  // T1 and T2 are persistent buffers.
+  // T1 has two resolution points: T6, T8, and T9.
+  // T2 has two resolution points: T8 and T9.
   NVF_ERROR(buffers.size() == 2);
   NVF_ERROR(
-      resolution.size() == 2 && resolution[0].size() == 1 &&
-      resolution[1].size() == 1);
+      resolution.size() == 2 && resolution[0].size() == 3 &&
+      resolution[1].size() == 2);
 
   NVF_ERROR(projectable.size() == 2);
   NVF_ERROR(projectable_inputs.size() == 1);
