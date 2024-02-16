@@ -8779,7 +8779,8 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
   // tv7 has two consumers, tv8 and tv9.
   // tv8 is a consumer of the reduction output.
   // if tv9 is mapped with tv2, we can't map tv8 and tv9.
-  // Because tv9 is in the pre-reduction set and tv8 is in the post-reduction set.
+  // Because tv9 is in the pre-reduction set and tv8 is in the post-reduction
+  // set.
   ComputeAtRootDomainMap root_map;
   root_map.build();
   auto shouldNotMapCheck = [&root_map](
