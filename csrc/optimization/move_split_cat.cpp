@@ -41,6 +41,25 @@ TensorView* findCancelingSplit(CatOp* cat) {
     pads.push_back(in->definition()->as<PadOp>());
   }
 
+  int cat_axis = -1;
+  for (PadOp* pad : pads) {
+    std::vector<int> padded_axes = pad->getPaddedAxes();
+    if (padded_axes.size() != 1) {
+      return nullptr;
+    }
+    if (cat_axis == -1) {
+      cat_axis = padded_axes[0];
+    } else {
+      NVF_ERROR(
+          cat_axis == padded_axes[0],
+          "Pads before a Cat should have the same padded axis, but found ",
+          cat_axis,
+          " vs ",
+          padded_axes[0]);
+    }
+  }
+  NVF_CHECK(cat_axis != -1, "`cat` has zero inputs: ", cat);
+
   // We then locate the `SliceOp`s right before these `PadOp`s.
   std::vector<SliceOp*> slices;
   slices.reserve(pads.size());
@@ -74,8 +93,7 @@ TensorView* findCancelingSplit(CatOp* cat) {
     if (padded_axes.size() != 1) {
       return nullptr;
     }
-    auto padded_axis = padded_axes[0];
-    auto [left_padding, right_padding] = pad->getPadWidths(padded_axis);
+    auto [left_padding, right_padding] = pad->getPadWidths(cat_axis);
 
     for (Slice slice_range : slice->getRanges()) {
       if (!slice_range.step->isOne()) {
@@ -96,7 +114,7 @@ TensorView* findCancelingSplit(CatOp* cat) {
       if (resize == nullptr) {
         return nullptr;
       }
-      if (resize->out() != slice_out->getRFactorDomain()[padded_axis]) {
+      if (resize->out() != slice_out->getRFactorDomain()[cat_axis]) {
         return nullptr;
       }
       left_expand = resize->leftExpand();
