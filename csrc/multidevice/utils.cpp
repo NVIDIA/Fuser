@@ -148,7 +148,7 @@ void insertReshardings(Fusion* fusion) {
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   std::set<DeviceIdxType> device_indices;
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
     if (tv->hasDeviceMesh()) {
       std::copy(
           tv->getDeviceMesh().vector().begin(),

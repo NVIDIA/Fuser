@@ -175,7 +175,7 @@ void testValidateMultidevice(
     c10::IValue unsharded_input = inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
     SendToTester(
-        runtime.fusion()->inputs().at(i)->as<TensorView>(),
+        runtime.completeFusion()->inputs().at(i)->as<TensorView>(),
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
@@ -187,7 +187,7 @@ void testValidateMultidevice(
   if (runtime.comm()->deviceId() == tester) {
     std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
     auto original_to_copy_cloner =
-        Fusion::copy(runtime.fusion(), fusion_copy.get());
+        Fusion::copy(runtime.completeFusion(), fusion_copy.get());
 
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
       unshardTv(tv);
@@ -206,7 +206,7 @@ void testValidateMultidevice(
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
     SendToTester(
-        runtime.fusion()->outputs().at(i)->as<TensorView>(),
+        runtime.completeFusion()->outputs().at(i)->as<TensorView>(),
         outputs.at(i),
         unsharded_outputs.at(i),
         tester,
@@ -231,7 +231,7 @@ void testValidateMultidevice(
     }
 
     // sets all the memory type to global to avoid an execution error
-    auto fusion_ptr = runtime.fusion();
+    auto fusion_ptr = runtime.completeFusion();
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
       unshardTv(tv);
       if (set_mem_type_to_global) {

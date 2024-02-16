@@ -19,8 +19,10 @@ namespace nvfuser {
 
 namespace {
 
+// copy the fusion and replace the original outputs to the ones given as argument
+// returns the copied fusion and a copy-to-original Vals map 
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
+copyFusionAndChangeOutputs(Fusion* fusion, const std::unordered_set<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
@@ -57,6 +59,7 @@ copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
 } // namespace
 
 // TODO: use native allocator instead.
+// TODO: reimplement. The implementation here is very naive and wasteful since we entirely copy the fusion, change the outputs to be the Vals we want to allocate, and call allocOutputSpace which effectively compile and run the Fusion. This function creates a potentially important overhead, it needs to be reimplemented
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
   std::unordered_set<Val*> vals_to_allocate;
@@ -76,7 +79,7 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   }
 
   auto [fusion_copy, copy_to_original_map] =
-      copyFusionAndChangeOutputs(fusion(), vals_to_allocate);
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate);
   if (fusion_copy->outputs().empty()) {
     return {};
   }
@@ -110,7 +113,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
 
   for (auto group : staged_fusion_->groups()) {
-    NVF_ERROR(!group->exprs().empty() == 1, "invalid segmentation");
+    NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     is_resharding_[group] = std::any_of(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
@@ -122,9 +125,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
   // prepare the order in which to launch the kernels/comms
-  RuntimeWorkSpace workspace;
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
-  group_run_order_ = std::move(workspace.group_run_order);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -219,7 +220,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   // Run through the groups to launch kernels and comms
-  for (auto group : group_run_order_) {
+  for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
       postKernel(group);
     } else {
@@ -244,9 +245,9 @@ std::string MultiDeviceExecutor::validate() const {
     return "distributed configuration required";
   }
 
-  if (requestedNumberOfDevices(fusion()) > comm_.size()) {
+  if (requestedNumberOfDevices(completeFusion()) > comm_.size()) {
     return "the pipeline requests " +
-        std::to_string(requestedNumberOfDevices(fusion())) +
+        std::to_string(requestedNumberOfDevices(completeFusion())) +
         " GPUs to run, but there are only " + std::to_string(comm_.size()) +
         " ranks in the communicator";
   }
