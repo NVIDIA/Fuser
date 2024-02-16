@@ -696,9 +696,17 @@ void scheduleFusionInputsForEpilogue(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
-  static const bool should_unroll = true;
-  auto cached_and_forked_outputs =
-      scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);
+  FusionGuard fg(fusion);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
+  // Cache inputs
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   mma_utils::CombineMulSum combiner(fusion);
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
@@ -778,27 +786,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
 
-  // Get the input to the mma op.
-  auto ab = mma->inA()->as<TensorView>();
-  auto bb = mma->inB()->as<TensorView>();
-
   // Setup accumulator register.
   auto mma_result = mma->out()->as<TensorView>();
 
   // Unswizzle mma result in shared memory
   auto smem_epilogue =
       params.use_smem_epilogue ? mma_result->cacheAfter() : mma_result;
-
-  // Clear MmaOp pointer, it's not needed from now on
-  mma = nullptr;
-
-  // Staging register for global memory load
-  TensorView *ar = a, *br = b;
-
-  if (!params.async_gmem_load_operands) {
-    ar = a->cacheAfter();
-    br = b->cacheAfter();
-  }
 
   // TODO:
   //  Significant build out needed here
@@ -818,8 +811,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     cache_op = CacheOp::Global;
   }
 
-  acw_smem = ar->cacheAfter(load_op, cache_op);
-  bcw_smem = br->cacheAfter(load_op, cache_op);
+  NVF_ERROR(a->uses().size() == 1);
+  NVF_ERROR(a->uses().size() == 1);
+  acw_smem = ir_utils::consumerTvsOf(a).at(0);
+  acw_smem->definition()->as<LoadStoreOp>()->setOpType(load_op);
+  acw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+  bcw_smem = ir_utils::consumerTvsOf(b).at(0);
+  bcw_smem->definition()->as<LoadStoreOp>()->setOpType(load_op);
+  bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
   if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
@@ -929,6 +928,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduleProlog(bcw_smem, params);
   // [..., Mo, No, (Kf,) Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
+  // Get the input to the mma op.
+  mma = mma_result->definition()->as<MmaOp>();
+  auto ab = mma->inA()->as<TensorView>();
+  auto bb = mma->inB()->as<TensorView>();
+
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
@@ -937,6 +941,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     moveInnerBroadcastLeft(ab);
     moveInnerBroadcastLeft(bb);
   }
+
+  std::cout << "ab: " << ab->toString() << std::endl;
+  std::cout << "bb: " << bb->toString() << std::endl;
+
   ab->applyMmaSwizzle(MmaOperand::A);
   bb->applyMmaSwizzle(MmaOperand::B);
 
@@ -944,18 +952,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  to all the tensors before mma op and after shared mem read.
   auto propagate_mma_input_schedule_to = [&](TensorView* a_boundary,
                                              TensorView* b_boundary) {
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        ab,
-        -1,
-        {a_boundary},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType());
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        bb,
-        -1,
-        {b_boundary},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType());
+    if (a_boundary != nullptr) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          ab,
+          -1,
+          {a_boundary},
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+    }
+    if (b_boundary != nullptr) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          bb,
+          -1,
+          {b_boundary},
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+    }
   };
   propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
@@ -966,18 +978,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   and needs more configurability.
   // ------------------------------------------------------------------
 
-  acr->setAllocationDomain(acr->getLeafDomain(), true);
-  bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
-
-  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
-  //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
-  for (auto tv : {ab, bb}) {
-    tv->merge(-5);
-    tv->axis(-4)->parallelize(ParallelType::TIDx);
+  if (acr != ab) {
+    //  -5  -4   -3   -2   -1
+    //[8mi, 4k, 2ko, 2mo, 2ki]
+    acr->setAllocationDomain(acr->getLeafDomain(), true);
+    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
+    ab->merge(-5);
+    ab->axis(-4)->parallelize(ParallelType::TIDx);
+    propagate_mma_input_schedule_to(acr, nullptr);
   }
-  propagate_mma_input_schedule_to(acr, bcr);
+  if (bcr != bb) {
+    //   -5  -4   -3   -2   -1
+    // [8ni, 4k, 2ko, 1no, 2ki]
+    bcr->setAllocationDomain(bcr->getLeafDomain(), true);
+    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
+    bb->merge(-5);
+    bb->axis(-4)->parallelize(ParallelType::TIDx);
+    propagate_mma_input_schedule_to(nullptr, bcr);
+  }
 
   // Parallelization strategy:
   // Here the top two rows indicate how we can index each axis. The third row
@@ -1049,7 +1067,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    for (auto [dc, d] : cached_and_forked_outputs) {
+    for (auto [dc, d] : cached_outputs) {
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(mma_result, d, gemm_tile);
@@ -1060,7 +1078,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           d, -1, {smem_epilogue});
     }
   } else {
-    for (auto [dc, d] : cached_and_forked_outputs) {
+    for (auto [dc, d] : cached_outputs) {
       scheduler_utils::BoundedDirectionalTransformPropagator::forward(
           mma_result,
           -1,

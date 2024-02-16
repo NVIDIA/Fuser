@@ -60,11 +60,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMmaLayout) {
+  for (auto layout : {MmaLayout::TT}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);

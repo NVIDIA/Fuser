@@ -1419,6 +1419,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
     case MmaOperand::A:
     case MmaOperand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
+      setAllocationDomain(getLeafDomain(), true);
       if (ir_utils::isLdMatrixOp(definition())) {
         mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
       }

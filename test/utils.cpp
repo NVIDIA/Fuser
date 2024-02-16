@@ -259,24 +259,27 @@ Container parse(const std::string& nvdisasm_output) {
 
 // matmulAtInput2D provides batched inputs in a splitk-like ordering. It
 // provides contiguous tensors with these shapes
-//   TT: [M, B, K] [B, K, N]
-//   TN: [M, B, K] [N, B, K]
-//   NT: [B, K, M] [B, K, N]
-//   NN: [B, K, M] [N, B, K]
-// fusedMultiplySum assumes [B, M, K] [B, N, K] so here we transpose into that
+// fusedMultiplySum assumes [B, M, 1, K] [B, 1, N, K] so here we transpose into that
 // order
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
     MmaLayout layout,
     bool as_mul_sum) {
+  std::cout << a->toString() << std::endl;
+  std::cout << b->toString() << std::endl;
+
   NVF_CHECK(a->nDims() == b->nDims());
-  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
+  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3 || a->nDims() == 4);
+  NVF_CHECK(a->hasBroadcast() == b->hasBroadcast());
+
+  bool already_broadcasted = a->hasBroadcast();
+
   TensorView *tv3 = nullptr, *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr,
              *tv0b = nullptr, *tv1b = nullptr;
-  if (a->nDims() == 3) { // bmm
+  if (a->nDims() == 3 && !already_broadcasted) { // bmm
     switch (layout) {
-        // Canonicalize all inputs to [B, M, K] and [B, N, K]
+      // Canonicalize all inputs to [B, M, (1,) K] and [B, (1,) N, K]
       case MmaLayout::TT:
         tv0t = transpose(a, 0, 1);
         tv1t = transpose(b, 1, 2);
@@ -297,39 +300,47 @@ TensorView* matmulTuringOrLater(
         NVF_CHECK(false, "unsupported data layout.");
     }
   } else {
+    int offset = already_broadcasted ? 1 : 0;
     switch (layout) {
-        // Canonicalize all inputs to [M, K] and [N, K]
+      // Canonicalize all inputs to [M, (1,) K] and [(1,) N, K]
       case MmaLayout::TT:
         tv0t = a;
-        tv1t = transpose(b, 0, 1);
+        tv1t = transpose(b, offset, offset + 1);
         break;
       case MmaLayout::TN:
         tv0t = a;
         tv1t = b;
         break;
       case MmaLayout::NT:
-        tv0t = transpose(a, 0, 1);
-        tv1t = transpose(b, 0, 1);
+        tv0t = transpose(a, 0, offset + 1);
+        tv1t = transpose(b, offset, offset + 1);
         break;
       case MmaLayout::NN:
-        tv0t = transpose(a, 0, 1);
+        tv0t = transpose(a, 0, offset + 1);
         tv1t = b;
         break;
       default:
         NVF_CHECK(false, "unsupported data layout.");
     }
   }
-  std::vector<bool> bcast_dims(a->nDims() + 1, false);
-  bcast_dims.at(bcast_dims.size() - 2) = true;
-  tv0b = broadcast(tv0t, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 2) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  tv1b = broadcast(tv1t, bcast_dims);
+  if (already_broadcasted) {
+    tv0b = tv0t;
+    tv1b = tv1t;
+  } else {
+    std::vector<bool> bcast_dims(a->nDims() + 1, false);
+    bcast_dims.at(bcast_dims.size() - 2) = true;
+    tv0b = broadcast(tv0t, bcast_dims);
+    bcast_dims.at(bcast_dims.size() - 2) = false;
+    bcast_dims.at(bcast_dims.size() - 3) = true;
+    tv1b = broadcast(tv1t, bcast_dims);
+  }
   if (as_mul_sum) {
     tv2 = mul(tv0b, tv1b);
     tv3 = sum(tv2, {-1});
     return tv3;
   }
+  std::cout << tv0b->toString() << std::endl;
+  std::cout << tv1b->toString() << std::endl;
   tv3 = fusedMultiplySum(tv0b, tv1b, {-1});
   return tv3;
 }

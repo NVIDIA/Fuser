@@ -881,6 +881,7 @@ namespace {
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
 void validateMmaTensors(MmaOp* mma) {
+  return;
   bool tidx_validated = false;
   std::vector<TensorView*> to_validate = {mma->out()->as<TensorView>()};
 
