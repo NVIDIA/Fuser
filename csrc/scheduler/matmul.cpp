@@ -71,10 +71,8 @@ void MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  if (!isOptionEnabled(EnableOption::MatmulExprEval)) {
     params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
     NVF_ERROR(params_ != nullptr);
-  }
 }
 
 void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
