@@ -367,7 +367,7 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
 
   // Determines minimum device version necessary to compile and run this fusion.
-  std::tie(min_device_version, min_device_version_reason) =
+  std::tie(min_device_version_, min_device_version_reason_) =
       MinimumDeviceVersion::compute(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
 

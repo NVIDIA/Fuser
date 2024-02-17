@@ -338,7 +338,8 @@ void FusionExecutor::compileFusion(
   // executor_utils.
   int major = 0, minor = 0;
   bool compile_to_sass = false;
-  queryTargetGPUVersion(properties, major, minor, compile_to_sass);
+  executor_utils::queryTargetGPUVersion(
+      properties, major, minor, compile_to_sass);
 
   NVF_CHECK(
       major < kernel_summary.min_device_version.first ||
