@@ -1435,7 +1435,8 @@ void validateCooperativeLaunch(
   auto grid_size =
       launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
   auto max_active_blocks = num_blocks_per_SM *
-      at::cuda::getDeviceProperties((c10::DeviceIndex)device_index)->multiProcessorCount;
+      at::cuda::getDeviceProperties((c10::DeviceIndex)device_index)
+          ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
@@ -1857,7 +1858,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.smem()));
       const int64_t device_id =
           static_cast<unsigned char>(options_.device.index());
-      const auto prop = at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
+      const auto prop =
+          at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
           ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
       const int hw_max_warps =
