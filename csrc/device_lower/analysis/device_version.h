@@ -51,8 +51,9 @@ class MinimumDeviceVersion : IterVisitor {
   void ensureVersion(std::pair<int, int> version, std::string reason);
 
  private:
-  std::pair<int, int> min_version_ = {0, 0};
-  std::string reason_;
+  std::pair<int, int> min_version_ = {7, 0};
+  std::string reason_ =
+      "nvFuser supports Volta and above (compute capability 7.0+)";
 };
 
 } // namespace nvfuser
