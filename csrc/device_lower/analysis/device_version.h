@@ -33,11 +33,12 @@ class MinimumDeviceVersion : IterVisitor {
   }
 
  private:
+  using IterVisitor::dispatch;
   using IterVisitor::handle;
   using IterVisitor::traverse;
 
   //! Check dtypes of all Vals. BFloat16 requires Ampere (8.0+)
-  void handle(Val* v) final;
+  void dispatch(Val* v) final;
 
   //! MmaOp currently supports Turing and newer (7.0+) depending on macro
   void handle(MmaOp* mma_op) final;
