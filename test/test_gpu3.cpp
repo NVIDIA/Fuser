@@ -1841,12 +1841,15 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
 
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() {
           fe.compileFusion(&fusion, {t0, t1});
         },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0, t1});
   }
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -1884,10 +1887,13 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
 
   FusionExecutor fe;
   if (!deviceMajorMinorCheck(8)) {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() { fe.compileFusion(&fusion, {t0}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
   }
 
   fe.compileFusion(&fusion, {t0});
@@ -3836,10 +3842,11 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   }
 
   {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("Conflicting sizes")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }
 
@@ -4250,11 +4257,15 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
   FusionExecutor fe;
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() { fe.compileFusion(&fusion, {input1}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {input1});
   }
+
   auto cg_outputs = fe.runFusion({input1});
 
   testValidate(&fusion, cg_outputs, {input1}, __LINE__, __FILE__);
@@ -5729,10 +5740,13 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
 
   FusionExecutor fe;
   if (!deviceMajorMinorCheck(8)) {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() { fe.compileFusion(&fusion, {t0}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
   }
 
   auto cg_outputs = fe.runFusion({t0});
