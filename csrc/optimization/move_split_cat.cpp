@@ -21,7 +21,11 @@ namespace nvfuser::optimization {
 
 namespace {
 
-bool mergeable(const std::vector<Expr*>& frontier, int& split_axis) {
+// Returns true when Exprs in the frontier can be horizontally merged and
+// applied on the unsplit tensor.
+bool horizontallyMergeable(
+    const std::vector<Expr*>& frontier,
+    int& split_axis) {
   NVF_ERROR(!frontier.empty());
 
   // Check all Exprs in `frontier`
@@ -69,35 +73,23 @@ bool mergeable(const std::vector<Expr*>& frontier, int& split_axis) {
   return false;
 }
 
-// Finds the canceling split of `cat` and returns the input TensorView of the
-// split. A split (implemented as multiple `slice`s) and a cat cancel when they
-// work on the same dimension. For example, when
-//
-//   s0 = in[:, :5]
-//   s1 = in[:, 5:]
-//   out = cat([s0, s1], dim=-1)
-//
-// findCancelingSplit(out) returns `in`.
-//
-// Currently, the cat has to immediately follow the split. But we will soon
-// handle patterns like `split ->
-// a_chain_of_unary_ops_that_do_not_resize_the_split_dimension -> cat`.
-TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
-  NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
-
-  // nvFuser implements cat as PadOp->CatOp. We first locate these `PadOp`s.
+// Returns the inputs of `cat` and the dimension over which the inputs are
+// concatenated.
+std::pair<std::vector<PadOp*>, int64_t> getCatInputsAndAxis(CatOp* cat) {
   std::vector<PadOp*> pads;
   pads.reserve(cat->inputs().size());
-  for (Val* in : cat->inputs()) {
-    pads.push_back(in->definition()->as<PadOp>());
-  }
+  int64_t cat_axis = -1;
 
-  int cat_axis = -1;
-  for (PadOp* pad : pads) {
+  for (Val* in : cat->inputs()) {
+    // nvFuser implements cat as PadOp->CatOp.
+    PadOp* pad = in->definition()->as<PadOp>();
+    pads.push_back(pad);
+
     std::vector<int> padded_axes = pad->getPaddedAxes();
-    if (padded_axes.size() != 1) {
-      return nullptr;
-    }
+    NVF_ERROR(
+        padded_axes.size() == 1,
+        "One of `cat`'s consumers pads 0 or multiple dimensions: ",
+        pad);
     if (cat_axis == -1) {
       cat_axis = padded_axes[0];
     } else {
@@ -110,25 +102,55 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
     }
   }
   NVF_ERROR(cat_axis != -1);
+  return {pads, cat_axis};
+}
 
+// Finds the canceling split of `cat` and returns the input TensorView of the
+// split. A split (implemented as multiple `slice`s) and a cat cancel when they
+// work on the same dimension. For example, when
+//
+//   s0 = in[:, :5]
+//   s1 = in[:, 5:]
+//   out = cat([s0, s1], dim=-1)
+//
+// findCancelingSplit(out) returns `in`.
+//
+// `cat` doesn't have to immediately follow the split. For example, when
+//
+//   s0 = in[:, :5]
+//   s1 = in[:, 5:]
+//   t0 = permute(s0)
+//   t1 = permute(s1)
+//   out = cat([t0, t1], dim=0)
+//
+// In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
+// `permute` into `use_def_chain` so the caller can reconstruct `out` by
+// replaying `use_def_chain` (in reverse order) on `in`.
+TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
+  NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
+
+  auto [pads, cat_axis] = getCatInputsAndAxis(cat);
+
+  // `frontier` initially contains the preceding Exprs of `pads`. Then, we
+  // repeatedly try to move the frontier up in lockstep as long as Exprs in the
+  // frontier can be horizontally merged and applied on the unsplit tensor.
   std::vector<Expr*> frontier;
-  frontier.reserve(cat->inputs().size());
+  frontier.reserve(pads.size());
   for (PadOp* pad : pads) {
     frontier.push_back(pad->in()->definition());
   }
 
-  // Break the loop when any Expr in `frontier` is a slice or a null.
+  // Exit the loop when any Expr in `frontier` is a slice or a null.
   int split_axis = cat_axis;
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
-    if (!mergeable(frontier, std::ref(split_axis))) {
+    if (!horizontallyMergeable(frontier, std::ref(split_axis))) {
       return nullptr;
     }
-
     use_def_chain.push_back(frontier[0]);
 
-    // Advance the frontier.
+    // Advance the frontier in lockstep.
     for (Expr*& e : frontier) {
       NVF_ERROR(
           e->inputs().size() == 1,
