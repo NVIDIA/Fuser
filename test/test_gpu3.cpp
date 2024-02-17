@@ -8743,9 +8743,9 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
 // `nvfuser_index_t T5[4]` is aliased as `Array<float, 4> T9`.
 // `float T4[4]` is aliased as `auto& T10 = T4`.
 // Using `T9` and `T10` in `welfordGroupOuter` function causes a compilation
-// error due to type mismatch: `T9` is a custom array type, while `T10` is a
-// native float array. when aliasing different types, use Array<T, N> or T[N]
-// should depend on how the original tv was allocated.
+// error due to type mismatch: `T9` is an aligned array, while `T10` is a
+// regular array. Should generate fun<>(T9.array, T10) instead of
+// fun<>(T9, T10).
 TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
