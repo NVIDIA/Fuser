@@ -25,7 +25,7 @@ namespace {
 // applied on the unsplit tensor.
 bool horizontallyMergeable(
     const std::vector<Expr*>& frontier,
-    int& split_axis) {
+    int64_t& split_axis) {
   NVF_ERROR(!frontier.empty());
 
   // Check all Exprs in `frontier`
@@ -141,7 +141,7 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
   }
 
   // Exit the loop when any Expr in `frontier` is a slice or a null.
-  int split_axis = cat_axis;
+  int64_t split_axis = cat_axis;
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
@@ -183,7 +183,8 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
     auto* slice = frontier[i]->as<SliceOp>();
     PadOp* pad = pads[i];
 
-    auto [left_padding, right_padding] = pad->getPadWidths(cat_axis);
+    auto [left_padding, right_padding] =
+        pad->getPadWidths(static_cast<int>(cat_axis));
 
     for (Slice slice_range : slice->getRanges()) {
       if (!slice_range.step->isOne()) {
