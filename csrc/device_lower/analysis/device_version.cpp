@@ -39,9 +39,12 @@ void MinimumDeviceVersion::handle(MmaOp* mma_op) {
 
 void MinimumDeviceVersion::handle(LoadStoreOp* ls_op) {
   if (ls_op->opType() == LoadStoreOpType::CpAsync) {
-    ensureVersion({8, 0}, "LoadStoreOpType::CpAsync requires Ampere (8.0) or newer");
+    ensureVersion(
+        {8, 0}, "LoadStoreOpType::CpAsync requires Ampere (8.0) or newer");
   } else if (ls_op->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-    ensureVersion({9, 0}, "LoadStoreOpType::CpAsyncBulkTensorTile requires Hopper (9.0) or newer");
+    ensureVersion(
+        {9, 0},
+        "LoadStoreOpType::CpAsyncBulkTensorTile requires Hopper (9.0) or newer");
   }
 }
 
