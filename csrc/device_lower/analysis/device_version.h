@@ -40,7 +40,7 @@ class MinimumDeviceVersion : IterVisitor {
   //! Check dtypes of all Vals. BFloat16 requires Ampere (8.0+)
   void dispatch(Val* v) final;
 
-  //! MmaOp currently supports Turing and newer (7.0+) depending on macro
+  //! MmaOp currently supports Turing and newer (7.5+) depending on macro
   void handle(MmaOp* mma_op) final;
 
   //! LoadStoreOpType::CpAsync requires Ampere (8.0+)

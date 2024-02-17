@@ -22,7 +22,7 @@ void MinimumDeviceVersion::dispatch(Val* val) {
 
 void MinimumDeviceVersion::handle(MmaOp* mma_op) {
   if (isTuring(mma_op->macro())) {
-    ensureVersion({7, 0}, "Fusion contains a Turing MMA macro");
+    ensureVersion({7, 5}, "Fusion contains a Turing MMA macro");
   } else if (isAmpere(mma_op->macro())) {
     ensureVersion({8, 0}, "Fusion contains an Ampere MMA macro");
   } else if (isHopper(mma_op->macro())) {
