@@ -336,17 +336,17 @@ void FusionExecutor::compileFusion(
 
   // TODO: this replicates the target GPU version computation from
   // executor_utils.
-  int major = 0, minor = 0;
+  std::pair<int, int> target_arch;
   bool compile_to_sass = false;
   executor_utils::queryTargetGPUVersion(
-      properties, major, minor, compile_to_sass);
+      properties, target_arch.first, target_arch.second, compile_to_sass);
 
   NVF_CHECK(
-      std::pair<int, int>(major, minor) >= kernel_summary.min_device_version,
+      target_arch >= kernel_summary.min_device_version,
       "Target compute capability is ",
-      major,
+      target_arch.first,
       ".",
-      minor,
+      target_arch.second,
       " but this fusion requires at least ",
       kernel_summary.min_device_version.first,
       ".",
