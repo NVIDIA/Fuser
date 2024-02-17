@@ -12,7 +12,7 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -165,7 +165,7 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, params, turing_or_later);
 
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(fusion);
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
   // inputs
   at::manual_seed(0);

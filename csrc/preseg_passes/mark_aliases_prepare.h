@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/optimization_pass.h>
+#include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 // Prepares the input fusion for marking aliases. It currently updates layouts
 // to enable aliases, and inserts `SegmenterSet`s so segmentation will separate
@@ -19,4 +19,4 @@ class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes
