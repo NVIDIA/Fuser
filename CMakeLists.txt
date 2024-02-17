@@ -390,44 +390,45 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_ROOT}/test/test_alias.cpp
   ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
+  ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_double_buffering.cpp
   ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/test/test_evaluator.cpp
   ${NVFUSER_ROOT}/test/test_exceptions.cpp
+  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/test/test_expr_sort.cpp
   ${NVFUSER_ROOT}/test/test_gather.cpp
   ${NVFUSER_ROOT}/test/test_gpu1.cpp
   ${NVFUSER_ROOT}/test/test_gpu2.cpp
   ${NVFUSER_ROOT}/test/test_gpu3.cpp
   ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-  ${NVFUSER_ROOT}/test/test_swizzle.cpp
-  ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_resize.cpp
-  ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
-  ${NVFUSER_ROOT}/test/test_mbarrier.cpp
-  ${NVFUSER_ROOT}/test/test_memory.cpp
   ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-  ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/test/test_id_model.cpp
+  ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
+  ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
+  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
+  ${NVFUSER_ROOT}/test/test_mbarrier.cpp
+  ${NVFUSER_ROOT}/test/test_memory.cpp
+  ${NVFUSER_ROOT}/test/test_move_split_cat.cpp
+  ${NVFUSER_ROOT}/test/test_no_op.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
+  ${NVFUSER_ROOT}/test/test_pointwise.cpp
+  ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
+  ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/test/test_resize.cpp
+  ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/test/test_segmentation.cpp
   ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-  ${NVFUSER_ROOT}/test/test_alias.cpp
-  ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
-  ${NVFUSER_ROOT}/test/test_no_op.cpp
-  ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
-  ${NVFUSER_ROOT}/test/test_pointwise.cpp
-  ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
-  ${NVFUSER_ROOT}/test/test_id_model.cpp
-  ${NVFUSER_ROOT}/test/test_double_buffering.cpp
-  ${NVFUSER_ROOT}/test/test_segmentation.cpp
+  ${NVFUSER_ROOT}/test/test_swizzle.cpp
+  ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
 )
 
 if(BUILD_TEST)
