@@ -43,6 +43,10 @@ class MinimumDeviceVersion : IterVisitor {
   //! MmaOp currently supports Turing and newer (7.0+) depending on macro
   void handle(MmaOp* mma_op) final;
 
+  //! LoadStoreOpType::CpAsync requires Ampere (8.0+)
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async
+  void handle(LoadStoreOp* ls_op) final;
+
   //! bump min_version_ to at least this value
   void ensureVersion(std::pair<int, int> version, std::string reason);
 
