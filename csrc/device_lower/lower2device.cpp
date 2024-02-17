@@ -9,6 +9,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
+#include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/pass/alias_memory.h>
@@ -364,6 +365,10 @@ void GpuLower::analysis(Fusion* fusion) {
   // prepare for lowering
   validateIr(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
+
+  // Determines minimum device version necessary to compile and run this fusion.
+  min_device_version_ = MinimumDeviceVersion::compute(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.

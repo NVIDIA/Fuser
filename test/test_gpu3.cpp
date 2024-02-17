@@ -5696,37 +5696,23 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
-  // Repro for https://github.com/csarofeen/pytorch/issues/2463
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    GTEST_SKIP() << "Requires GPU capability below 8.0 to run.\n";
+  }
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({12800, 8, 8, 8}, DataType::Half);
+  auto tv0 = makeContigConcreteTensor({2, 3}, DataType::BFloat16);
   auto tv1 = set(tv0);
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
 
-  tv1->axis(1)->parallelize(ParallelType::TIDy);
-  tv1->axis(2)->parallelize(ParallelType::TIDx);
-
-  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsync);
-  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
-  tv2->axis(2)->parallelize(ParallelType::TIDy);
-  tv2->setMemoryType(MemoryType::Shared);
-
-  tv2->inlineAt(1);
-  tv2->circularBuffer(8);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-
-  at::Tensor t0 = at::randn({12800, 8, 8, 8}, options);
-
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-
-  auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_THAT(
+      [&]() { GpuLower(&fusion).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
 }
 
 // Repro of issue #2459
@@ -8737,6 +8723,28 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
       }
     }
   }
+}
+
+// Test that architectures before Ampere give helpful error message if BFloat16
+// is used
+TEST_F(NVFuserTest, UnsupportedBFloat) {
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    GTEST_SKIP() << "Requires GPU capability below 8.0 to run.\n";
+  }
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3}, DataType::BFloat16);
+  auto tv1 = set(tv0);
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  FusionExecutor fe;
+  EXPECT_THAT(
+      [&]() { GpuLower(&fusion).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 

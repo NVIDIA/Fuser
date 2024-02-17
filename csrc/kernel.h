@@ -107,6 +107,9 @@ struct KernelSummary {
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  //! Minimum compute capability of device that can execute this kernel
+  std::pair<int, int> min_device_version_;
 };
 
 class KernelPerformanceProfile {
