@@ -15,11 +15,32 @@
 namespace nvfuser {
 
 struct CompileParams {
-  std::optional<PrimDataType> index_type = std::nullopt;
-  int64_t maxrregcount = 255;
-  bool enable_magic_zero = true;
+  std::optional<PrimDataType> index_type;
+  int64_t maxrregcount;
+  bool enable_magic_zero;
   // if true, save ptxas info to compile log and check for register spilling
-  bool enable_ptxas_verbose = false;
+  bool enable_ptxas_verbose;
+  std::pair<int, int> target_arch;
+  bool compile_to_sass;
+
+  CompileParams(
+      std::optional<PrimDataType> index_type_ = std::nullopt,
+      int64_t maxrregcount_ = 255,
+      bool enable_magic_zero_ = true,
+      bool enable_ptxas_verbose_ = false,
+      std::optional<std::pair<int, int>> target_arch_ = std::nullopt)
+      : index_type(index_type_),
+        maxrregcount(maxrregcount_),
+        enable_magic_zero(enable_magic_zero_),
+        enable_ptxas_verbose(enable_ptxas_verbose_) {
+    if (target_arch_.has_value()) {
+      target_arch = target_arch_.value();
+    } else {
+      setDefaultTargetArch();
+    }
+  }
+
+  void setDefaultTargetArch();
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt

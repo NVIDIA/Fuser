@@ -296,5 +296,11 @@ class CudaKernelTimer {
   float kernel_time_ms_ = 0;
 };
 
+using CudaVersion = std::pair<int, int>;
+
+//! Query the target GPU version number NVRTC compiles CUDA kernels for. Also
+//! returns a bool indicating whether we can compile to SASS.
+std::pair<CudaVersion, bool> queryTargetGPUVersion();
+
 } // namespace executor_utils
 } // namespace nvfuser

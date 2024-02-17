@@ -37,6 +37,7 @@ class ViewTransform;
 class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
+class TensorView;
 
 class FullOp : public Expr {
  public:

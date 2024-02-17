@@ -108,15 +108,7 @@ std::string kernelPreamble() {
   return ss.str();
 }
 
-namespace {
-
-// Query the target GPU version number NVRTC compiles CUDA kernels for
-void queryTargetGPUVersion(
-    const cudaDeviceProp* const prop,
-    int& major,
-    int& minor,
-    bool& compile_to_sass) {
-  using CudaVersion = std::pair<int, int>;
+std::pair<CudaVersion, bool> queryTargetGPUVersion() {
   CudaVersion nvrtc_version;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
@@ -128,7 +120,9 @@ void queryTargetGPUVersion(
 
   // Version supported by device
   // Usually any lower version works too but is less efficient
-  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+  CudaVersion target_arch = CudaVersion(prop->major, prop->minor);
+
   // Maximum version supported by the driver, cap dev_version to this
   CudaVersion max_dev_version;
   if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
@@ -146,19 +140,31 @@ void queryTargetGPUVersion(
   } else {
     // If the driver version is unknown (i.e. newer than this code)
     // assume the driver supports this device
-    max_dev_version = dev_version;
+    max_dev_version = target_arch;
   }
-  if (dev_version > max_dev_version) {
-    major = max_dev_version.first;
-    minor = max_dev_version.second;
+
+  // Prefer compiling to sass
+  bool compile_to_sass = true;
+
+  if (target_arch > max_dev_version) {
     // if we are clamping major/minor, sass is not compatible
     compile_to_sass = false;
-  } else {
-    major = dev_version.first;
-    minor = dev_version.second;
-    compile_to_sass = true;
+    target_arch = max_dev_version;
   }
+
+#if CUDA_VERSION < 11010
+  // compile to sass is not allowed prior to CUDA 11.1
+  compile_to_sass = false;
+#endif
+
+  if (isOptionDisabled(DisableOption::CompileToSass)) {
+    compile_to_sass = false;
+  }
+
+  return {target_arch, compile_to_sass};
 }
+
+namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
@@ -967,9 +973,6 @@ class CuModuleLoadDataDriver {
 void fillCompileOptions(
     NvrtcCompileDriver& nvrtc_compile_driver,
     CuModuleLoadDataDriver& module_load_driver,
-    bool compile_to_sass,
-    int major,
-    int minor,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
@@ -986,9 +989,10 @@ void fillCompileOptions(
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
   std::string compute = std::string("--gpu-architecture=") +
-      (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
-      std::to_string(minor);
-  if (major == 9) {
+      (compile_params.compile_to_sass ? "sm_" : "compute_") +
+      std::to_string(compile_params.target_arch.first) +
+      std::to_string(compile_params.target_arch.second);
+  if (compile_params.target_arch.first == 9) {
     // Hopper MMAs require 90a instead of 90
     compute += "a";
   }
@@ -1020,7 +1024,7 @@ void fillCompileOptions(
       isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
     // show register usage in compilation log
-    if (compile_to_sass) {
+    if (compile_params.compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
       nvrtc_compile_driver.setOption("--verbose");
     } else {
@@ -1039,7 +1043,7 @@ void fillCompileOptions(
             val,
             ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
-      if (compile_to_sass) {
+      if (compile_params.compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
         nvrtc_compile_driver.setOption("-O" + std::to_string(val));
       } else {
@@ -1058,7 +1062,7 @@ void fillCompileOptions(
 
   // If the max register count is set
   if (max_register.has_value()) {
-    if (compile_to_sass) {
+    if (compile_params.compile_to_sass) {
       nvrtc_compile_driver.setOption(
           "--maxrregcount=" + std::to_string(*max_register));
     } else {
@@ -1196,32 +1200,15 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     cudaFree(nullptr);
   }
 
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  int major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-#if CUDA_VERSION < 11010
-  // compile to sass is not allowed prior to CUDA 11.1
-  compile_to_sass = false;
-#endif
-
-  if (isOptionDisabled(DisableOption::CompileToSass)) {
-    compile_to_sass = false;
-  }
+  CudaVersion target_arch;
+  bool compile_to_sass;
+  std::tie(target_arch, compile_to_sass) = queryTargetGPUVersion();
 
   NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
   fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
+      nvrtc_compile_driver, module_load_driver, compile_params, opt_block_size);
 
   std::stringstream log;
 
@@ -1339,15 +1326,9 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     cudaFree(nullptr);
   }
 
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
   // Generate compile args and compare against saved args in compiled_kernel
   NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
-
-  int major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
   std::optional<int64_t> opt_block_size;
   if (compiled_kernel->block_size >= -1) {
@@ -1355,13 +1336,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
   }
 
   fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
+      nvrtc_compile_driver, module_load_driver, compile_params, opt_block_size);
 
   const auto latest_compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
@@ -1374,18 +1349,18 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
       compiled_kernel->compile_args);
 
   NVF_ERROR(
-      !compile_to_sass || !compiled_kernel->cubin.empty(),
+      !compile_params.compile_to_sass || !compiled_kernel->cubin.empty(),
       "Expected compiled cubin after deserializing CompiledKernel.");
 
   NVF_ERROR(
-      compile_to_sass || !compiled_kernel->ptx.empty(),
+      compile_params.compile_to_sass || !compiled_kernel->ptx.empty(),
       "Expected compiled ptx after deserializing CompiledKernel.");
 
   std::stringstream log;
   log << module_load_driver.invoke(
              compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
+             (compile_params.compile_to_sass ? compiled_kernel->cubin.data()
+                                             : compiled_kernel->ptx.data()))
       << std::endl;
   compiled_kernel->compile_log = log.str();
 

@@ -670,7 +670,7 @@ bool isSchedulerInUse(
     const ScheduleHeuristic& scheduler);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams(DataType::Int32, 255, false);
 
 // Validate that the fusion is segmented with desired scheduler, currently only
 // supporting two segments

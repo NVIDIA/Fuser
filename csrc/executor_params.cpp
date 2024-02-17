@@ -7,10 +7,16 @@
 // clang-format on
 #include <debug.h>
 #include <executor_params.h>
+#include <executor_utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
+
+void CompileParams::setDefaultTargetArch() {
+  std::tie(target_arch, compile_to_sass) =
+      executor_utils::queryTargetGPUVersion();
+}
 
 std::string CompileParams::toString() const {
   std::stringstream ss;

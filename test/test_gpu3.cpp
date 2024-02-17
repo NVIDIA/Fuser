@@ -6040,7 +6040,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     {
       FusionExecutor fe;
       // Lower the kernel with large inputs and int64 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      CompileParams compile_opts(PrimDataType::Int);
       fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
 
       NVF_CHECK(
@@ -6057,7 +6057,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     {
       FusionExecutor fe;
       // Lower the kernel with small inputs and int64 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      CompileParams compile_opts(PrimDataType::Int);
       fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
 
       NVF_CHECK(
@@ -6074,7 +6074,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     {
       FusionExecutor fe;
       LaunchParams launch_params;
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      CompileParams compile_opts(PrimDataType::Int32);
       fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
 
       NVF_CHECK(
@@ -6088,7 +6088,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
       // This should fail as the Kernel is already compiled for Int32, but
       // the arguments are too large
-      CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
+      CompileParams compile_opts_large(PrimDataType::Int);
       EXPECT_THAT(
           [&]() {
             fe.runFusion(large_inputs, launch_params, compile_opts_large);
@@ -6100,7 +6100,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     {
       FusionExecutor fe;
       // Lower the kernel with large inputs and int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      CompileParams compile_opts(PrimDataType::Int32);
       // This should fail due to the conflict
       EXPECT_THAT(
           [&]() {
@@ -6920,8 +6920,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
 
     // compile and run persistent kernel
     // intentionally set maxrregcount to 32 to trigger register spill
-    CompileParams compile_opts = {
-        .maxrregcount = 32, .enable_ptxas_verbose = true};
+    CompileParams compile_opts(std::nullopt, 32, true);
     auto lparams = persistent_params->lparams;
     FusionExecutor fe;
     fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
@@ -7322,7 +7321,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
 
   // compile and run persistent kernel
   // intentionally set maxrregcount to 32 to trigger register spill
-  CompileParams compile_opts = {.maxrregcount = 32};
+  CompileParams compile_opts(std::nullopt, 32);
   auto lparams = persistent_params->lparams;
 
   EnableOptionsGuard opt_guard;
@@ -7789,7 +7788,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
 
     auto ee = executor_utils::bindInputs(args, fusion.get());
 
-    CompileParams opt{.index_type = index_type};
+    CompileParams opt(index_type);
 
     FusionExecutor fe;
     fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
