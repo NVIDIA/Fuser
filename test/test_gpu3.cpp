@@ -3766,14 +3766,11 @@ TEST_F(NVFuserTest, FusionMatchedLeafPosWithoutReplayBroadcast_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionPrint_CUDA) {
-  auto dtypes = {
-      at::kFloat,
-      at::kDouble,
-      at::kHalf,
-      at::kBFloat16,
-      at::kInt,
-      at::kLong,
-      at::kBool};
+  std::vector<at::ScalarType> dtypes = {
+      at::kFloat, at::kDouble, at::kHalf, at::kInt, at::kLong, at::kBool};
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    dtypes.push_back(at::kBFloat16);
+  }
   for (auto dtype : dtypes) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -7160,11 +7157,12 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
 }
 
 TEST_F(NVFuserTest, IsFinite_CUDA) {
-  for (const auto& [nvfuser_dtype, aten_dtype] :
-       std::vector<std::pair<DataType, at::ScalarType>>{
-           {DataType::Float, at::kFloat},
-           {DataType::Half, at::kHalf},
-           {DataType::BFloat16, at::kBFloat16}}) {
+  std::vector<std::pair<DataType, at::ScalarType>> dtypes{
+      {DataType::Float, at::kFloat}, {DataType::Half, at::kHalf}};
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    dtypes.push_back({DataType::BFloat16, at::kBFloat16});
+  }
+  for (const auto& [nvfuser_dtype, aten_dtype] : dtypes) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -7738,7 +7736,6 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto idx = IrBuilder::create<Val>(DataType::Index);
     auto i32 = IrBuilder::create<Val>(DataType::Int32);
     auto b = IrBuilder::create<Val>(DataType::Bool);
-    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
     auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
     auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
     DataType ptr_type =
@@ -7756,7 +7753,6 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     fusion->addInput(idx);
     fusion->addInput(i32);
     fusion->addInput(b);
-    fusion->addInput(bf16);
     fusion->addInput(cf);
     fusion->addInput(cd);
     fusion->addInput(ptr);
@@ -7769,7 +7765,11 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     output = IrBuilder::addExpr(output, idx);
     output = IrBuilder::addExpr(output, i32);
     output = IrBuilder::addExpr(output, b);
-    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+      auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+      fusion->addInput(bf16);
+      output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    }
     output = IrBuilder::addExpr(output, abs(cf));
     output = IrBuilder::addExpr(output, abs(cd));
     output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
@@ -7805,11 +7805,13 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     args.push(9L);
     args.push(10L);
     args.push(true);
-    args.push(12.3);
     args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
     args.push(t2.data_ptr<float>());
     args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+    if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+      args.push(12.3); // bf16
+    }
 
     auto ee = executor_utils::bindInputs(args, fusion.get());
 
@@ -8780,7 +8782,7 @@ TEST_F(NVFuserTest, UnsupportedBFloat) {
 
   FusionExecutor fe;
   EXPECT_THAT(
-      [&]() { GpuLower(&fusion).run(); },
+      [&]() { fe.compileFusion(&fusion); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Reason: Fusion contains BFloat16")));
 }
