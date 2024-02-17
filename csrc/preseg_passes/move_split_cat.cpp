@@ -15,10 +15,59 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
+
+bool mergeable(const std::vector<Expr*>& frontier, int& split_axis) {
+  NVF_ERROR(!frontier.empty());
+
+  // Check all Exprs in `frontier`
+  // 1. have the same op type and attributes,
+  // 2. transform IDs in the same way, and
+  // 3. don't resize the split axis.
+
+  if (std::adjacent_find(
+          frontier.begin(), frontier.end(), [](Expr* lhs, Expr* rhs) {
+            return !lhs->sameOp(rhs);
+          }) != frontier.end()) {
+    return false;
+  }
+
+  if (auto* set = dynamic_cast<LoadStoreOp*>(frontier[0])) {
+    if (set->opType() == LoadStoreOpType::Set) {
+      auto* set_out = set->out()->as<TensorView>();
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
+      if (!permutation.has_value()) {
+        return false;
+      }
+
+      for (size_t i = 1; i < frontier.size(); i++) {
+        auto* other_set_out =
+            frontier[i]->as<LoadStoreOp>()->out()->as<TensorView>();
+        std::optional<std::vector<int64_t>> other_permutation =
+            ir_utils::computePermutation(
+                other_set_out->getRootDomain(),
+                other_set_out->getMaybeRFactorDomain());
+        if (!other_permutation.has_value()) {
+          return false;
+        }
+        if (*permutation != *other_permutation) {
+          return false;
+        }
+      }
+
+      split_axis = (*permutation)[split_axis];
+      return true;
+    }
+  }
+
+  return false;
+}
 
 // Finds the canceling split of `cat` and returns the input TensorView of the
 // split. A split (implemented as multiple `slice`s) and a cat cancel when they
@@ -33,7 +82,9 @@ namespace {
 // Currently, the cat has to immediately follow the split. But we will soon
 // handle patterns like `split ->
 // a_chain_of_unary_ops_that_do_not_resize_the_split_dimension -> cat`.
-TensorView* findCancelingSplit(CatOp* cat) {
+TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
+  NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
+
   // nvFuser implements cat as PadOp->CatOp. We first locate these `PadOp`s.
   std::vector<PadOp*> pads;
   pads.reserve(cat->inputs().size());
@@ -58,41 +109,58 @@ TensorView* findCancelingSplit(CatOp* cat) {
           padded_axes[0]);
     }
   }
-  NVF_CHECK(cat_axis != -1, "`cat` has zero inputs: ", cat);
+  NVF_ERROR(cat_axis != -1);
 
-  // We then locate the `SliceOp`s right before these `PadOp`s.
-  std::vector<SliceOp*> slices;
-  slices.reserve(pads.size());
+  std::vector<Expr*> frontier;
+  frontier.reserve(cat->inputs().size());
   for (PadOp* pad : pads) {
-    auto* slice = dynamic_cast<SliceOp*>(pad->in()->definition());
+    frontier.push_back(pad->in()->definition());
+  }
+
+  // Break the loop when any Expr in `frontier` is a slice or a null.
+  int split_axis = cat_axis;
+  while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
+    return e == nullptr || e->isA<SliceOp>();
+  })) {
+    if (!mergeable(frontier, std::ref(split_axis))) {
+      return nullptr;
+    }
+
+    use_def_chain.push_back(frontier[0]);
+
+    // Advance the frontier.
+    for (Expr*& e : frontier) {
+      NVF_ERROR(
+          e->inputs().size() == 1,
+          "All mergeable Exprs should be unary at this moment, but found: ",
+          e);
+      e = e->input(0)->definition();
+    }
+  }
+
+  // Check that `frontier` has only slices, and that all slices are based on the
+  // same tensor. Otherwise, they don't form a split.
+  TensorView* split_in = nullptr;
+  for (Expr* e : frontier) {
+    auto* slice = dynamic_cast<SliceOp*>(e);
     if (slice == nullptr) {
       return nullptr;
     }
-    slices.push_back(slice);
-  }
 
-  // Check the slices are based on the same tensor. Otherwise, they don't form a
-  // split.
-  TensorView* split_in = nullptr;
-  for (SliceOp* slice : slices) {
     if (split_in == nullptr) {
       split_in = slice->in();
     } else if (split_in != slice->in()) {
       return nullptr;
     }
   }
-  NVF_CHECK(split_in != nullptr, "`cat` has zero inputs: ", cat);
+  NVF_ERROR(split_in != nullptr);
 
   for (auto i : c10::irange(pads.size())) {
     // For each branch, check the sliced amount is the same as the padded
     // amount. Otherwise, the slices don't form a split.
-    SliceOp* slice = slices[i];
+    auto* slice = frontier[i]->as<SliceOp>();
     PadOp* pad = pads[i];
 
-    std::vector<int> padded_axes = pad->getPaddedAxes();
-    if (padded_axes.size() != 1) {
-      return nullptr;
-    }
     auto [left_padding, right_padding] = pad->getPadWidths(cat_axis);
 
     for (Slice slice_range : slice->getRanges()) {
@@ -114,7 +182,7 @@ TensorView* findCancelingSplit(CatOp* cat) {
       if (resize == nullptr) {
         return nullptr;
       }
-      if (resize->out() != slice_out->getRFactorDomain()[cat_axis]) {
+      if (resize->out() != slice_out->getRFactorDomain()[split_axis]) {
         return nullptr;
       }
       left_expand = resize->leftExpand();
@@ -140,14 +208,30 @@ TensorView* findCancelingSplit(CatOp* cat) {
 } // namespace
 
 void MoveSplitCatPass::runPass(Fusion* fusion) {
-  const auto& exprs = fusion->exprs();
-  for (CatOp* cat : ir_utils::filterByType<CatOp>(exprs)) {
-    TensorView* split_in = findCancelingSplit(cat);
+  std::vector<Expr*> exprs = fusion->exprs();
+  for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
+    std::vector<Expr*> use_def_chain;
+    TensorView* split_in = findCancelingSplit(cat, std::ref(use_def_chain));
     if (split_in == nullptr) {
       continue;
     }
+
+    TensorView* merged_out = split_in;
+    for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
+         i++) {
+      Expr* to_replay = *i;
+      if (to_replay->isA<LoadStoreOp>()) {
+        auto* set_out = to_replay->output(0)->as<TensorView>();
+        std::vector<int64_t> permutation = *ir_utils::computePermutation(
+            set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
+        merged_out = permute(merged_out, permutation);
+        continue;
+      }
+      NVF_ERROR("Not implemented");
+    }
+
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        cat->output(0), split_in);
+        cat->output(0), merged_out);
   }
 }
 
