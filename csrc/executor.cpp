@@ -342,7 +342,7 @@ void FusionExecutor::compileFusion(
       properties, major, minor, compile_to_sass);
 
   NVF_CHECK(
-      std::pair<int, int>{major, minor} >= kernel_summary.min_device_version,
+      std::pair<int, int>(major, minor) >= kernel_summary.min_device_version,
       "Target compute capability is ",
       major,
       ".",
