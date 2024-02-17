@@ -1841,8 +1841,12 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
 
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0, t1}));
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+    EXPECT_THAT(
+        [&]() {
+          fe.compileFusion(&fusion, {t0, t1});
+        },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
   }
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -1880,8 +1884,10 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
 
   FusionExecutor fe;
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+    EXPECT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
   }
 
   fe.compileFusion(&fusion, {t0});
@@ -4190,12 +4196,6 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // requires ampere+ GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-    return;
-  }
-
   auto tv0 = makeContigTensor(1);
 
   fusion.addInput(tv0);
@@ -4248,7 +4248,13 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
   pred_checker.handle(gpulw.run()->topLevelExprs());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {input1});
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    EXPECT_THAT(
+        [&]() { fe.compileFusion(&fusion, {input1}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+  }
   auto cg_outputs = fe.runFusion({input1});
 
   testValidate(&fusion, cg_outputs, {input1}, __LINE__, __FILE__);
@@ -5697,7 +5703,6 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
 
 TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   // Repro for https://github.com/csarofeen/pytorch/issues/2463
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5723,7 +5728,12 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   at::Tensor t0 = at::randn({12800, 8, 8, 8}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  if (!deviceMajorMinorCheck(8)) {
+    EXPECT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+  }
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
