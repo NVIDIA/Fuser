@@ -13,25 +13,35 @@ namespace nvfuser {
 
 void MinimumDeviceVersion::handle(Val* val) {
   if (val->dtype() == DataType::BFloat16) {
-    ensureVersion({7, 0});
+    ensureVersion(
+        {8, 0},
+        "Fusion contains BFloat16 values which was introduced in Ampere (8.0)");
   }
 }
 
 void MinimumDeviceVersion::handle(MmaOp* mma_op) {
   if (isTuring(mma_op->macro())) {
-    ensureVersion({7, 0});
+    ensureVersion({7, 0}, "Fusion contains a Turing MMA macro");
   } else if (isAmpere(mma_op->macro())) {
-    ensureVersion({8, 0});
+    ensureVersion({8, 0}, "Fusion contains an Ampere MMA macro");
   } else if (isHopper(mma_op->macro())) {
-    ensureVersion({9, 0});
+    ensureVersion({9, 0}, "Fusion contains a Hopper MMA macro");
   } else {
-    NVF_ERROR("MmaOp ", mma_op->toString(), " has macro ", toString(mma_op->macro()), " which does not appear to be Turing, Ampere, or Hopper");
+    NVF_ERROR(
+        "MmaOp ",
+        mma_op->toString(),
+        " has macro ",
+        toString(mma_op->macro()),
+        " which does not appear to be Turing, Ampere, or Hopper");
   }
 }
 
-void MinimumDeviceVersion::ensureVersion(std::pair<int, int> version) {
+void MinimumDeviceVersion::ensureVersion(
+    std::pair<int, int> version,
+    std::string reason) {
   if (version > min_version_) {
     min_version_ = version;
+    reason_ = reason;
   }
 }
 

@@ -331,6 +331,30 @@ void FusionExecutor::compileFusion(
   lowered_->run();
 
   kir::Kernel* kernel = lowered_->kernel();
+
+  const kir::KernelSummary& kernel_summary = kernel->summary();
+
+  // TODO: this replicates the target GPU version computation from
+  // executor_utils.
+  int major = 0, minor = 0;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(properties, major, minor, compile_to_sass);
+
+  NVF_CHECK(
+      major < kernel_summary.min_device_version.first ||
+          (major == kernel_summary.min_device_version.first &&
+           minor < kernel_summary.min_device_version.second),
+      "Target compute capability is ",
+      major,
+      ".",
+      minor,
+      " but this fusion requires at least ",
+      kernel_summary.min_device_version.first,
+      ".",
+      kernel_summary.min_device_version.second,
+      ". Reason: ",
+      kernel_summary.min_device_version_reason);
+
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
@@ -377,8 +401,6 @@ void FusionExecutor::compileFusion(
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
-
-  const kir::KernelSummary& kernel_summary = kernel->summary();
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if

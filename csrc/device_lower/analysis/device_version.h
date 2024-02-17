@@ -26,15 +26,15 @@ class ComputeAtMap;
 //! that will be able to run the generated kernel.
 class MinimumDeviceVersion : IterVisitor {
  public:
-  static std::pair<int, int> compute(Fusion* fusion) {
+  static std::pair<std::pair<int, int>, std::string> compute(Fusion* fusion) {
     MinimumDeviceVersion mdv;
     mdv.traverse(fusion);
-    return mdv.min_version_;
+    return {mdv.min_version_, mdv.reason_};
   }
 
  private:
-  using IterVisitor::traverse;
   using IterVisitor::handle;
+  using IterVisitor::traverse;
 
   //! Check dtypes of all Vals. BFloat16 requires Ampere (8.0+)
   void handle(Val* v) final;
@@ -43,11 +43,11 @@ class MinimumDeviceVersion : IterVisitor {
   void handle(MmaOp* mma_op) final;
 
   //! bump min_version_ to at least this value
-  void ensureVersion(std::pair<int, int> version);
+  void ensureVersion(std::pair<int, int> version, std::string reason);
 
  private:
   std::pair<int, int> min_version_ = {0, 0};
+  std::string reason_;
 };
 
 } // namespace nvfuser
-

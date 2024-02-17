@@ -8743,8 +8743,8 @@ TEST_F(NVFuserTest, UnsupportedBFloat) {
   FusionExecutor fe;
   EXPECT_THAT(
       [&]() { GpuLower(&fusion).run(); },
-      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Reason: Fusion contains BFloat16")));
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 

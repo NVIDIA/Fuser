@@ -109,7 +109,10 @@ struct KernelSummary {
   std::vector<VectorizedSetInfo> vectorized_set_info;
 
   //! Minimum compute capability of device that can execute this kernel
-  std::pair<int, int> min_device_version_;
+  std::pair<int, int> min_device_version;
+
+  //! Plain text description of why min_device_version_ is required
+  std::string min_device_version_reason;
 };
 
 class KernelPerformanceProfile {

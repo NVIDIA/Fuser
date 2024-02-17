@@ -367,7 +367,8 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
 
   // Determines minimum device version necessary to compile and run this fusion.
-  min_device_version_ = MinimumDeviceVersion::compute(fusion_);
+  std::tie(min_device_version, min_device_version_reason) =
+      MinimumDeviceVersion::compute(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
