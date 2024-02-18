@@ -2736,6 +2736,73 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
   }
 }
 
+// This shape of input (N=16) with the N=8 macro and tile size 128, 16, 128
+// caused problems in https://github.com/NVIDIA/Fuser/pull/1770
+TEST_F(NVFuserTest, FusionAmpereMatmulProblematicSize_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 13712, N = 16, K = 13712;
+
+  // NOTE: cublass NN = nvfuser TT
+  for (auto layout : {MmaLayout::TT}) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    auto tv3 = castOp(DataType::Half, tv2);
+
+    fusion.addOutput(tv3);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 16, 128);
+    gemm_tile.warp_tile = GemmTile(32, 16, 128);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 3;
+    params.splitk_factor = 1;
+    params.use_smem_epilogue = true;
+    params.promote_prologue_smem_reuse = true;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput2D(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
