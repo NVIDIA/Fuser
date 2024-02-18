@@ -116,6 +116,65 @@ TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
   EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
 }
 
+TEST_F(MoveSplitCatTest, Cancellable_MultiplePermutesInBetween) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 10});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 3, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 3, 5});
+  TensorView* s2 = slice(in, {0, 0, 5}, {2, 3, 10});
+  // dim=2 is the split dimension.
+  s0 = permute(s0, {1, 2, 0});
+  s1 = permute(s1, {1, 2, 0});
+  s2 = permute(s2, {1, 2, 0});
+  // dim=1 is the split dimension.
+  s0 = permute(s0, {1, 2, 0});
+  s1 = permute(s1, {1, 2, 0});
+  s2 = permute(s2, {1, 2, 0});
+  // dim=0 is the split dimension.
+  TensorView* out = cat({s0, s1, s2}, /*dim=*/0);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3, 10}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+}
+
+TEST_F(MoveSplitCatTest, Noncancellable_WrongAxis) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 2, 4});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 2, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 2, 4});
+  // dim=2 is the split dimension.
+  s0 = permute(s0, {1, 2, 0});
+  s1 = permute(s1, {1, 2, 0});
+  // After permutation, dim=1 is the split dimension. However, the following
+  // `cat` is along dim=0.
+  TensorView* out = cat({s0, s1}, /*dim=*/0);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 2, 4}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+}
+
 TEST_F(MoveSplitCatTest, Noncancellable_SomeButNotAllArePermuted) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
