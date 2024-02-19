@@ -112,7 +112,8 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     return;
   }
   TensorView* in = op->in()->as<TensorView>();
-  if (const auto& iter = alloc_order_map_.find(in); iter != alloc_order_map_.end()) {
+  if (const auto& iter = alloc_order_map_.find(in);
+      iter != alloc_order_map_.end()) {
     AllocationOrder out_order;
     int64_t out_rank = static_cast<int64_t>(out->nDims());
 
