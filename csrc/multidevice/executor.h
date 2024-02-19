@@ -30,7 +30,7 @@ namespace nvfuser {
        parallel type ParallelType::DIDx
 
   We make the following assumptions on the Fusion:
-  - Only the outmost (non-reduction) axis is allowed to be parallelized 
+  - Only the outmost (non-reduction) axis is allowed to be parallelized
     with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
   - We only support 1D device meshes for now
   - We only support TensorView, not Scalars

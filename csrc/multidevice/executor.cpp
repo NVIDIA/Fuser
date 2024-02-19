@@ -22,9 +22,7 @@ namespace {
 // copy the fusion and replace the original outputs to the ones given as
 // argument returns the copied fusion and a copy-to-original Vals map
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(
-    Fusion* fusion,
-    const std::set<Val*>& outputs) {
+copyFusionAndChangeOutputs(Fusion* fusion, const std::set<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
