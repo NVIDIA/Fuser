@@ -24,9 +24,9 @@ namespace nvfuser {
 using testing::_;
 using testing::ElementsAre;
 
-using LayoutInferenceTest = NVFuserTest;
+using AllocationOrderInferenceTest = NVFuserTest;
 
-TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
+TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
