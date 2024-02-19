@@ -8752,8 +8752,6 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  const int batch_size = 128;
-  const int hidden_size = 10240;
   DataType input_dtype = DataType::Half;
   auto tv0 = makeContigTensor(2, input_dtype);
   auto tv1 = makeContigTensor(2, DataType::Float);
@@ -8778,40 +8776,34 @@ TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
   //      |--------------------------|
   // tv7 has two consumers, tv8 and tv9.
   // tv8 is a consumer of the reduction output.
-  // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the pre-reduction set through tv2 and tv8 is in the post-reduction
-  // set.
+  // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
+  // pre-reduction set through tv2 and tv8 is in the post-reduction set.
   ComputeAtRootDomainMap root_map;
   root_map.build();
-  auto shouldNotMapCheck = [&root_map](
-                               TensorView* tva, TensorView* tvb, int axis) {
-    NVF_CHECK(
-        !root_map.canMap(
-            tva->domain(),
+  auto shouldMapCheck =
+      [&root_map](TensorView* tva, TensorView* tvb, int axis, bool should_map) {
+        NVF_CHECK(
+            root_map.canMap(
+                tva->domain(),
+                tva->getRootDomain().at(axis),
+                tvb->domain(),
+                tvb->getRootDomain().at(axis)) == should_map,
+            "Expected map between: ",
             tva->getRootDomain().at(axis),
-            tvb->domain(),
-            tvb->getRootDomain().at(axis)),
-        "Should not be mappable: ",
-        tva->getRootDomain().at(axis),
-        " of ",
-        tva,
-        " and ",
-        tvb->getRootDomain().at(axis),
-        " of ",
-        tvb);
-  };
-  shouldNotMapCheck(tv7, tv8, 1);
-  shouldNotMapCheck(tv7, tv9, 1);
-
-  auto options = at::TensorOptions()
-                     .dtype(data_type_to_aten(input_dtype))
-                     .device(at::kCUDA, 0);
-  auto options_fp32 = at::TensorOptions()
-                          .dtype(data_type_to_aten(DataType::Float))
-                          .device(at::kCUDA, 0);
-  auto t0 = at::randn({batch_size, hidden_size}, options);
-  auto t1 = at::randn({batch_size, hidden_size}, options_fp32);
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+            " of ",
+            tva,
+            " and ",
+            tvb->getRootDomain().at(axis),
+            " of ",
+            tvb,
+            " is ",
+            should_map ? "True" : "False",
+            ", but got ",
+            should_map ? "False" : "True");
+      };
+  shouldMapCheck(tv2, tv9, 1, true);
+  shouldMapCheck(tv7, tv8, 1, false);
+  shouldMapCheck(tv7, tv9, 1, false);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
