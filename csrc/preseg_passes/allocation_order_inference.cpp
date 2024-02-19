@@ -95,10 +95,12 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
   }
   TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
   TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
-  if (lhs == nullptr && propagateAllocationOrder(rhs, out)) {
-    return;
-  } else if (rhs == nullptr && propagateAllocationOrder(lhs, out)) {
-    return;
+  if (lhs == nullptr) {
+    // propagate rhs when lhs is not a tensor
+    propagateAllocationOrder(rhs, out);
+  } else if (rhs == nullptr) {
+    // propagate lhs when rhs is not a tensor
+    propagateAllocationOrder(lhs, out);
   } else { // lhs != nullptr && rhs != nullptr
     auto lhs_iter = alloc_order_map_.find(lhs);
     auto rhs_iter = alloc_order_map_.find(rhs);
