@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/optimization_pass.h>
+#include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 // Fusion may have tensors with const extents and symbolic extents. This pass
 // replaces symbolic extents with const extents if they are mapped to the exact
@@ -24,4 +24,4 @@ class ExactMappedExtentSubstitutionPass
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes
