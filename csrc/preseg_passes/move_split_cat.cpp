@@ -26,18 +26,30 @@ class CancelSplitCat {
  public:
   CancelSplitCat(Fusion* fusion)
       : fusion_(fusion),
-        id_model_(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true) {}
+        id_model_for_merging_(
+            fusion,
+            /*build_graphs=*/true,
+            /*allow_self_mapping=*/true),
+        id_model_for_propagation_(
+            fusion,
+            /*build_graphs=*/true,
+            /*allow_self_mapping=*/true) {}
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
   // merges ops in between.
   void run();
 
  private:
-  // Returns true when Exprs in the frontier can be horizontally merged and
-  // applied on the unsplit tensor.
+  // Returns true when Exprs between `slices` and `pads` can be horizontally
+  // merged and applied on the input of the split.
   bool horizontallyMergeable(
-      const std::vector<Expr*>& frontier,
-      int64_t& split_axis);
+      const std::vector<Expr*>& slices,
+      const std::vector<PadOp*>& pads);
+
+  int64_t propagateCatAxis(
+      const std::vector<IterDomain*>& source,
+      const std::vector<IterDomain*>& destination,
+      int64_t cat_axis);
 
   // Finds the canceling split of `cat` and returns the input TensorView of the
   // split. A split (implemented as multiple `slice`s) and a cat cancel when
@@ -64,57 +76,70 @@ class CancelSplitCat {
 
   Fusion* fusion_;
 
-  IdModel id_model_;
+  // TODO(wujingyue): keep two `IdGraph`s not two `IdModel`s. An `IdModel`
+  // contains multiple graphs and we only care about the exact graph in it.
+  IdModel id_model_for_merging_;
+  IdModel id_model_for_propagation_;
 };
 
+bool sameOp(const std::vector<Expr*>& frontier) {
+  return std::adjacent_find(
+             frontier.begin(), frontier.end(), [](Expr* lhs, Expr* rhs) {
+               return !lhs->sameOp(rhs);
+             }) == frontier.end();
+}
+
 bool CancelSplitCat::horizontallyMergeable(
-    const std::vector<Expr*>& frontier,
-    int64_t& split_axis) {
-  NVF_ERROR(!frontier.empty());
+    const std::vector<Expr*>& slices,
+    const std::vector<PadOp*>& pads) {
+  NVF_ERROR(slices.size() == pads.size());
+  NVF_ERROR(!slices.empty());
 
-  // Check all Exprs in `frontier`
-  // 1. have the same op type and attributes,
-  // 2. transform IDs in the same way, and
-  // 3. don't resize the split axis.
-
-  if (std::adjacent_find(
-          frontier.begin(), frontier.end(), [](Expr* lhs, Expr* rhs) {
-            return !lhs->sameOp(rhs);
-          }) != frontier.end()) {
-    return false;
-  }
-
-  if (auto* set = dynamic_cast<LoadStoreOp*>(frontier[0])) {
-    if (set->opType() == LoadStoreOpType::Set) {
-      auto* set_out = set->out()->as<TensorView>();
-      std::optional<std::vector<int64_t>> permutation =
-          ir_utils::computePermutation(
-              set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
-      if (!permutation.has_value()) {
+  // FIXME: make it a class member.
+  ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
+  {
+    const std::vector<IterDomain*>& first_rfactor =
+        slices[0]->output(0)->as<TensorView>()->getMaybeRFactorDomain();
+    size_t num_dims = first_rfactor.size();
+    for (size_t i = 1; i < slices.size(); i++) {
+      const std::vector<IterDomain*>& rfactor =
+          slices[i]->output(0)->as<TensorView>()->getMaybeRFactorDomain();
+      if (rfactor.size() != num_dims) {
         return false;
       }
-
-      for (size_t i = 1; i < frontier.size(); i++) {
-        auto* other_set_out =
-            frontier[i]->as<LoadStoreOp>()->out()->as<TensorView>();
-        std::optional<std::vector<int64_t>> other_permutation =
-            ir_utils::computePermutation(
-                other_set_out->getRootDomain(),
-                other_set_out->getMaybeRFactorDomain());
-        if (!other_permutation.has_value()) {
-          return false;
-        }
-        if (*permutation != *other_permutation) {
-          return false;
-        }
+      for (size_t j = 0; j < num_dims; j++) {
+        exact_graph.mapVals(first_rfactor[j], rfactor[j]);
       }
-
-      split_axis = (*permutation)[split_axis];
-      return true;
     }
   }
 
-  return false;
+  for (PadOp* pad : pads) {
+    auto* pad_out = pad->out()->as<TensorView>();
+    if (id_model_for_merging_.hasSelfMapping(pad_out)) {
+      return false;
+    }
+  }
+
+  {
+    const std::vector<IterDomain*>& first_root =
+        pads[0]->out()->as<TensorView>()->getRootDomain();
+    size_t num_dims = first_root.size();
+    for (size_t i = 1; i < pads.size(); i++) {
+      const std::vector<IterDomain*>& root =
+          pads[i]->out()->as<TensorView>()->getRootDomain();
+      if (root.size() != num_dims) {
+        return false;
+      }
+      for (size_t j = 0; j < num_dims; j++) {
+        if (!exact_graph.disjointValSets().strictAreMapped(
+                first_root[j], root[j])) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
 }
 
 // If `exprs` are `SliceOp`s that form a split, returns the base tensor of the
@@ -198,29 +223,89 @@ TensorView* exprsFormSplit(
   return split_in;
 }
 
+int64_t CancelSplitCat::propagateCatAxis(
+    const std::vector<IterDomain*>& source,
+    const std::vector<IterDomain*>& destination,
+    int64_t cat_axis) {
+  ValGraph& exact_graph =
+      id_model_for_propagation_.idGraph(IdMappingMode::EXACT);
+  ValGroup cat_dim = exact_graph.toGroup(destination[cat_axis]);
+  while (
+      std::none_of(source.begin(), source.end(), [&](IterDomain* source_dim) {
+        return exact_graph.toGroup(source_dim) == cat_dim;
+      })) {
+    const ExprGroups& defining_groups = exact_graph.getDefinitions(cat_dim);
+    if (defining_groups.size() != 1) {
+      return -1;
+    }
+    ExprGroup defining_group = defining_groups.front();
+    Expr* def = defining_group->front();
+    // FIXME: make this a function so we can early return.
+    if (Split* split = dynamic_cast<Split*>(def)) {
+      if (exact_graph.toGroup(split->outer()) == cat_dim) {
+        cat_dim = exact_graph.toGroup(split->in());
+      } else {
+        return -1;
+      }
+    } else if (Merge* merge = dynamic_cast<Merge*>(def)) {
+      cat_dim = exact_graph.toGroup(merge->outer());
+    } else {
+      return -1;
+    }
+  }
+
+  cat_axis = std::find_if(
+                 source.begin(),
+                 source.end(),
+                 [&](IterDomain* source_dim) {
+                   return exact_graph.toGroup(source_dim) == cat_dim;
+                 }) -
+      source.begin();
+  return cat_axis;
+}
+
 TensorView* CancelSplitCat::findCancelingSplit(
     CatOp* cat,
     std::vector<Expr*>& use_def_chain) {
   NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
 
-  // `frontier` initially contains the preceding Exprs of the `PadOp`s. Then, we
+  // `PadOp`s that produce `cat`'s inputs.
+  std::vector<PadOp*> pads;
+  pads.reserve(cat->inputs().size());
+  // `frontier` initially contains the `Expr`s that precede `pads`. Then, we
   // repeatedly try to move the frontier up in lockstep as long as Exprs in the
   // frontier can be horizontally merged and applied on the unsplit tensor.
   std::vector<Expr*> frontier;
   frontier.reserve(cat->inputs().size());
   for (Val* in : cat->inputs()) {
     auto* pad = in->definition()->as<PadOp>();
+    pads.push_back(pad);
     frontier.push_back(pad->in()->definition());
   }
 
   // Exit the loop when any Expr in `frontier` is a slice or a null.
-  int64_t split_axis = cat->concatenatedDim();
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
-    if (!horizontallyMergeable(frontier, std::ref(split_axis))) {
+    if (!sameOp(frontier)) {
       return nullptr;
     }
+
+    auto supported = [](Expr* e) -> bool {
+      if (e->isA<ViewOp>()) {
+        return true;
+      }
+      if (auto* set = dynamic_cast<LoadStoreOp*>(e)) {
+        if (set->opType() == LoadStoreOpType::Set) {
+          return true;
+        }
+      }
+      return false;
+    };
+    if (!supported(frontier[0])) {
+      return nullptr;
+    }
+
     use_def_chain.push_back(frontier[0]);
 
     // Advance the frontier in lockstep.
@@ -231,6 +316,19 @@ TensorView* CancelSplitCat::findCancelingSplit(
           e);
       e = e->input(0)->definition();
     }
+  }
+
+  if (!horizontallyMergeable(frontier, pads)) {
+    return nullptr;
+  }
+
+  // Find the corresponding split_axis.
+  int64_t split_axis = propagateCatAxis(
+      frontier[0]->as<SliceOp>()->out()->getMaybeRFactorDomain(),
+      pads[0]->out()->as<TensorView>()->getRootDomain(),
+      cat->concatenatedDim());
+  if (split_axis == -1) {
+    return nullptr;
   }
 
   TensorView* split_in = exprsFormSplit(frontier, split_axis);
