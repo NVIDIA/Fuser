@@ -13,7 +13,7 @@ namespace nvfuser {
 
 namespace {
 
-int countNonBroadcastID(TensorView* tv) {
+int countNonBroadcastID(const TensorView* tv) {
   int count = 0;
   std::for_each(
       tv->getMaybeRFactorDomain().begin(),
@@ -103,7 +103,8 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
         return;
       }
 
-      if (countNonBroadcastID(lhs_iter->first) >= countNonBroadcastID(rhs_iter->first) {
+      if (countNonBroadcastID(lhs_iter->first) >=
+          countNonBroadcastID(rhs_iter->first)) {
         format_map_[out] = lhs_iter->second;
         return;
       } else {
