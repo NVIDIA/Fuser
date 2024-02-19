@@ -40,7 +40,7 @@ TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  auto updated_layout = inferenceMemoryFormat(&fusion);
+  auto updated_layout = inferenceAllocationOrder(&fusion);
   EXPECT_THAT(updated_layout[tv1], ElementsAre(0, 2, 3, 1));
 }
 
@@ -63,7 +63,7 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  auto updated_layout = inferenceMemoryFormat(&fusion);
+  auto updated_layout = inferenceAllocationOrder(&fusion);
   EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
   EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
 }
@@ -86,7 +86,7 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
 
-    auto updated_layout = inferenceMemoryFormat(&fusion);
+    auto updated_layout = inferenceAllocationOrder(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
   }
@@ -111,7 +111,7 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
 
-    auto updated_layout = inferenceMemoryFormat(&fusion);
+    auto updated_layout = inferenceAllocationOrder(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
   }
@@ -139,7 +139,7 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
     tv1->setAllocationDomain(tv1_format, true);
 
-    auto updated_layout = inferenceMemoryFormat(&fusion);
+    auto updated_layout = inferenceAllocationOrder(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
     EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 1, 3));
   }
@@ -167,7 +167,7 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
     tv1->setAllocationDomain(tv1_format, true);
 
-    auto updated_layout = inferenceMemoryFormat(&fusion);
+    auto updated_layout = inferenceAllocationOrder(&fusion);
     EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 2, 1, 3));
     EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 1, 3));
   }

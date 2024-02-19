@@ -11,14 +11,22 @@
 
 namespace nvfuser {
 
-using MemoryFormat = std::vector<int64_t>;
-
-// Propagate memory format from input to the entire fusion. It does NOT modify
-// any fusion IR, but instead stores the propagated memory format as an
-// unordered_map from TensorView to permutation.
+// allocation order is the permutation to apply on a tensor view's rfactor
+// domain to its allocation domain.
 //
-// See details in Note [ Memory Format Propagation ]
-std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
+// i.e. For a channels last 4d tensor, we mark it as (0, 2, 3, 1). This is
+// trying to present it more consistently with how we construct it with c++ API.
+//     std::vector<IterDomain*> tv0_nhwc = {
+//         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+//     tv0->setAllocationDomain(tv0_nhwc, true);
+using AllocationOrder = std::vector<int64_t>;
+
+// Propagate allocation order from input to the entire fusion. It does NOT
+// modify any fusion IR, but instead stores the propagated allocation order as
+// an unordered_map from TensorView to permutation.
+//
+// See details in Note [ Allocation Order Propagation ]
+std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion);
 
 } // namespace nvfuser

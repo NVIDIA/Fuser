@@ -26,10 +26,10 @@ int countNonBroadcastID(const TensorView* tv) {
   return count;
 }
 
-class MemoryFormatInferencer : public OptOutConstDispatch {
+class AllocationOrderInferencer : public OptOutConstDispatch {
  public:
-  MemoryFormatInferencer(
-      std::unordered_map<const TensorView*, MemoryFormat>& format_map)
+  AllocationOrderInferencer(
+      std::unordered_map<const TensorView*, AllocationOrder>& format_map)
       : format_map_(format_map) {}
 
  private:
@@ -43,18 +43,18 @@ class MemoryFormatInferencer : public OptOutConstDispatch {
   //   void handle(const ExpandOp*) override;
 
  private:
-  // format_map_ records the stride order (memory format) of each TensorView.
+  // format_map_ records the allocation order of each TensorView.
   // Since it only handles permutation from a rfactor domain to allocation
   // domain, it can be interpreted as:
   //
   // e.g. TV0 rfactor domain [i0, i1, i2]
   //            alloc domain [i0, i2, i1]
-  //           memory format   0,  2,  1
-  std::unordered_map<const TensorView*, MemoryFormat>& format_map_;
+  //        allocation order   0,  2,  1
+  std::unordered_map<const TensorView*, AllocationOrder>& format_map_;
 };
 
-// UnaryOp propagation forward memory format from input to output
-void MemoryFormatInferencer::handle(const UnaryOp* op) {
+// UnaryOp propagation forward allocation order from input to output
+void AllocationOrderInferencer::handle(const UnaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
@@ -65,18 +65,18 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
   }
 }
 
-// BinaryOp propagation tries to merge the memory format of both inputs
+// BinaryOp propagation tries to merge the allocation order of both inputs
 //
-//   1. when there's only one operand has a recorded memory format, it forwards
-//   that. This could happen when: we have inputs without recorded memory
-//   format, or one of the operands being a scalar;
-//   2. When both tensor have recorded memory format. The one tensor with more
-//   non-broadcast iterdomain will be dominating the output memory format. The
-//   motivation behind it to avoid breaking memory format propagation from
-//   binary operation against unsqueezed vector tensors.
+//   1. when there's only one operand has a recorded allocation order, it
+//   forwards that. This could happen when: we have inputs without recorded
+//   allocation order, or one of the operands being a scalar;
+//   2. When both tensor have recorded allocation order. The one tensor with
+//   more non-broadcast iterdomain will be dominating the output allocation
+//   order. The motivation behind it to avoid breaking allocation order
+//   propagation from binary operation against unsqueezed vector tensors.
 //
-//   In the event of a tie, we'll just propagate the memory format of lhs.
-void MemoryFormatInferencer::handle(const BinaryOp* op) {
+//   In the event of a tie, we'll just propagate the allocation order of lhs.
+void AllocationOrderInferencer::handle(const BinaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
@@ -97,7 +97,7 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
     auto lhs_iter = format_map_.find(lhs);
     auto rhs_iter = format_map_.find(rhs);
     if (lhs_iter != format_map_.end() && rhs_iter != format_map_.end()) {
-      // if both memory format agree, we just propagate it as-is.
+      // if both allocation order agree, we just propagate it as-is.
       if (lhs_iter->second == rhs_iter->second) {
         format_map_[out] = lhs_iter->second;
         return;
@@ -118,13 +118,13 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
       format_map_[out] = rhs_iter->second;
       return;
     }
-    // we could reach here when neither operands has recorded memory format.
+    // we could reach here when neither operands has recorded allocation order.
     // We'll skip it for output
   }
 }
 
 // BroadcastOp propagation:
-//   1. preserves all memory format of input iterdomain;
+//   1. preserves all allocation order of input iterdomain;
 //   2. stacks all added broadcast iter domain on outputs as outer dimensions in
 //   their natural position
 //
@@ -146,20 +146,20 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
 //       concat([b3, b4], [i0, i2, i1])
 //
 //   note 2:
-//       computing the new output memory format
+//       computing the new output allocation order
 //       We'll scan through the rfactor domain of output where:
 //       a. insert any broadcast iterdomain index as we encounter them
 //       b. adjust the index of entry from input's rfactor domain
 //
 //   so output TV1 will have stride order {1, 4, 0, 3, 2}
-void MemoryFormatInferencer::handle(const BroadcastOp* op) {
+void AllocationOrderInferencer::handle(const BroadcastOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
   TensorView* in = op->in()->as<TensorView>();
   if (const auto& iter = format_map_.find(in); iter != format_map_.end()) {
-    MemoryFormat out_format;
+    AllocationOrder out_format;
     int64_t out_rank = static_cast<int64_t>(out->nDims());
 
     int broadcast_seen_so_far = 0;
@@ -190,23 +190,23 @@ void MemoryFormatInferencer::handle(const BroadcastOp* op) {
 
 } // namespace
 
-// Note [ Memory Format Propagation ]
+// Note [ Allocation Order Propagation ]
 //
-// The propagation tries to propagate memory format from inputs to the entire
+// The propagation tries to propagate allocation order from inputs to the entire
 // fusion:
 //   1. Iterates through all inputs, looking for TensorView with allocation
 //   domain that's a permutation of its corresponding rfactor domain and record
-//   it as the memory format of the tensor;
-//   2. Traverse the fusion IR, propagate memory format and record results in
+//   it as the allocation order of the tensor;
+//   2. Traverse the fusion IR, propagate allocation order and record results in
 //   memory_format_map.
-std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
+std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion) {
-  std::unordered_map<const TensorView*, MemoryFormat> memory_format_map;
+  std::unordered_map<const TensorView*, AllocationOrder> memory_format_map;
 
   // Note: we only consider simple permutation of allocation domain to rfactor
   // domain.
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    std::optional<MemoryFormat> permutation = ir_utils::computePermutation(
+    std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
         tv->getMaybeAllocationDomain());
     if (permutation.has_value()) {
@@ -214,8 +214,9 @@ std::unordered_map<const TensorView*, MemoryFormat> inferenceMemoryFormat(
     }
   }
 
-  // Initialize MemoryFormatInferencer with memory format of input tensor views
-  MemoryFormatInferencer infer(memory_format_map);
+  // Initialize AllocationOrderInferencer with allocation order of input tensor
+  // views
+  AllocationOrderInferencer infer(memory_format_map);
   for (auto expr : fusion->exprs()) {
     infer.dispatch(expr);
   }
