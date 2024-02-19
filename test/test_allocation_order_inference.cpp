@@ -24,9 +24,9 @@ namespace nvfuser {
 using testing::_;
 using testing::ElementsAre;
 
-using LayoutInferenceTest = NVFuserTest;
+using AllocationOrderInferenceTest = NVFuserTest;
 
-TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
+TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -50,7 +50,7 @@ TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
   EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
 }
 
-TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
+TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
