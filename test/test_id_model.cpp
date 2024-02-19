@@ -920,4 +920,41 @@ TEST_F(IdModelTest, LoopPromotion8) {
   }
 }
 
+TEST_F(IdModelTest, SomeButNotAllArePermuted) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 2, 10});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 2, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 2, 5});
+  TensorView* s2 = slice(in, {0, 0, 5}, {2, 2, 10});
+  s0 = permute(s0, {1, 0, 2});
+  s2 = permute(s2, {1, 0, 2});
+  TensorView* out = cat({s0, s1, s2}, /*dim=*/-1);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  IdModel(fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
+}
+
+TEST_F(IdModelTest, PermutedDifferently) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 2, 2, 10});
+  TensorView* s0 = slice(in, {0, 0, 0, 0}, {2, 2, 2, 2});
+  TensorView* s1 = slice(in, {0, 0, 0, 2}, {2, 2, 2, 5});
+  TensorView* s2 = slice(in, {0, 0, 0, 5}, {2, 2, 2, 10});
+  s0 = permute(s0, {2, 1, 0, 3});
+  s1 = permute(s1, {1, 0, 2, 3});
+  s2 = permute(s2, {2, 1, 0, 3});
+  TensorView* out = cat({s0, s1, s2}, /*dim=*/-1);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  IdModel(fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
+}
+
 } // namespace nvfuser
