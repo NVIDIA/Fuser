@@ -95,16 +95,10 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
   }
   TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
   TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
-  if (lhs == nullptr) {
-    if (auto rhs_iter = format_map_.find(rhs); rhs_iter != format_map_.end()) {
-      format_map_[out] = rhs_iter->second;
-      return;
-    }
-  } else if (rhs == nullptr) {
-    if (auto lhs_iter = format_map_.find(lhs); lhs_iter != format_map_.end()) {
-      format_map_[out] = lhs_iter->second;
-      return;
-    }
+  if (lhs == nullptr && propagateAllocationOrder(rhs, out)) {
+    return;
+  } else if (rhs == nullptr && propagateAllocationOrder(lhs, out)) {
+    return;
   } else { // lhs != nullptr && rhs != nullptr
     auto lhs_iter = format_map_.find(lhs);
     auto rhs_iter = format_map_.find(rhs);
@@ -114,19 +108,19 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
         format_map_[out] = lhs_iter->second;
         return;
       }
-
       if (countNonBroadcastID(lhs_iter->first) >=
           countNonBroadcastID(rhs_iter->first)) {
         format_map_[out] = lhs_iter->second;
         return;
-      } else {
-        format_map_[out] = rhs_iter->second;
-        return;
       }
-    } else if (lhs_iter != format_map_.end()) {
+      format_map_[out] = rhs_iter->second;
+      return;
+    }
+    if (lhs_iter != format_map_.end()) {
       format_map_[out] = lhs_iter->second;
       return;
-    } else if (rhs_iter != format_map_.end()) {
+    }
+    if (rhs_iter != format_map_.end()) {
       format_map_[out] = rhs_iter->second;
       return;
     }

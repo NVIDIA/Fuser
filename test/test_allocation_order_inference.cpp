@@ -44,7 +44,7 @@ TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
   EXPECT_THAT(updated_layout[tv1], ElementsAre(0, 2, 3, 1));
 }
 
-TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
+TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
   {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -100,7 +100,8 @@ TEST_F(LayoutInferenceTest, BinaryOpPropagation) {
     FusionGuard fg(&fusion);
 
     // Testing propagation between two tensors
-    // tv0 and tv1 has the same number of non-broadcast iter domains, so lhs operand would propagate its allocation order.
+    // tv0 and tv1 has the same number of non-broadcast iter domains, so lhs
+    // operand would propagate its allocation order.
     auto tv0 = makeSymbolicTensor({-1, -1, 1, 1});
     fusion.addInput(tv0);
     auto tv1 = makeSymbolicTensor({-1, -1, 1, 1});
