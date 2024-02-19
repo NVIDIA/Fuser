@@ -104,7 +104,8 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
   } else { // lhs != nullptr && rhs != nullptr
     auto lhs_iter = alloc_order_map_.find(lhs);
     auto rhs_iter = alloc_order_map_.find(rhs);
-    if (lhs_iter != alloc_order_map_.end() && rhs_iter != alloc_order_map_.end()) {
+    if (lhs_iter != alloc_order_map_.end() &&
+        rhs_iter != alloc_order_map_.end()) {
       // if both allocation order agree, we just propagate it as-is.
       if (lhs_iter->second == rhs_iter->second) {
         alloc_order_map_[out] = lhs_iter->second;
