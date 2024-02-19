@@ -33,15 +33,17 @@ class AllocationOrderInferencer : public IterVisitor {
       std::unordered_map<const TensorView*, AllocationOrder>& format_map)
       : format_map_(format_map) {}
 
- private:
-  void dispatch(const UnaryOp*) override;
+ protected:
+  using IterVisitor::handle;
+
+  void handle(UnaryOp*) override;
   // TODO: Add more propagation rules
-  // void handle(const BinaryOp*) override;
-  // void handle(const BroadcastOp*) override;
-  // void handle(const Reduction*) override;
-  // void handle(const LoadStoreOp*) override;
-  // void handle(const SqueezeOp*) override;
-  // void handle(const ExpandOp*) override;
+  // void handle(BinaryOp*) override;
+  // void handle(BroadcastOp*) override;
+  // void handle(Reduction*) override;
+  // void handle(LoadStoreOp*) override;
+  // void handle(SqueezeOp*) override;
+  // void handle(ExpandOp*) override;
 
  private:
   // format_map_ records the allocation order of each TensorView.
@@ -55,7 +57,7 @@ class AllocationOrderInferencer : public IterVisitor {
 };
 
 // UnaryOp propagation forward allocation order from input to output
-void AllocationOrderInferencer::dispatch(const UnaryOp* op) {
+void AllocationOrderInferencer::handle(UnaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
