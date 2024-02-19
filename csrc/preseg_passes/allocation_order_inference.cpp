@@ -37,9 +37,9 @@ class AllocationOrderInferencer : public IterVisitor {
   using IterVisitor::handle;
 
   void handle(UnaryOp*) override;
+  void handle(BroadcastOp*) override;
   // TODO: Add more propagation rules
   // void handle(BinaryOp*) override;
-  // void handle(BroadcastOp*) override;
   // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
   // void handle(SqueezeOp*) override;
@@ -65,6 +65,71 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
   TensorView* in = op->in()->as<TensorView>();
   if (auto iter = format_map_.find(in); iter != format_map_.end()) {
     format_map_[out] = iter->second;
+  }
+}
+
+// BroadcastOp propagation:
+//   1. preserves all allocation order of input iterdomain;
+//   2. stacks all added broadcast iter domain on outputs as outer dimensions in
+//   their natural position
+//
+// e.g.
+//   TV0 rfactor dom [i0, i1, i2] @ stride order {0, 2, 1}
+//    |    alloc dom [i0, i2, i1]
+//    |
+//    |
+//    BroadcastOp
+//    |
+//    v
+//   TV1 rfactor dom [i0, b3, i1, i2, b4]
+//         alloc dom [b3, b4, i0, i2, i1]  *see note 1
+//                     1,  4,
+//                             0,  3,  2   *see note 2
+//   note 1:
+//       keeping the alloc domain from input [i0, i2, i1]
+//       stack all broadcast in rfactor [b3, b4].
+//       concat([b3, b4], [i0, i2, i1])
+//
+//   note 2:
+//       computing the new output allocation order
+//       We'll scan through the rfactor domain of output where:
+//       a. insert any broadcast iterdomain index as we encounter them
+//       b. adjust the index of entry from input's rfactor domain
+//
+//   so output TV1 will have stride order {1, 4, 0, 3, 2}
+void AllocationOrderInferencer::handle(const BroadcastOp* op) {
+  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  if (out == nullptr) {
+    return;
+  }
+  TensorView* in = op->in()->as<TensorView>();
+  if (const auto& iter = format_map_.find(in); iter != format_map_.end()) {
+    AllocationOrder out_format;
+    int64_t out_rank = static_cast<int64_t>(out->nDims());
+
+    int broadcast_seen_so_far = 0;
+    std::vector<int64_t> offset_table(in->nDims(), 0);
+    int offset_entry = 0;
+
+    for (auto i : c10::irange(out_rank)) {
+      if (op->isBroadcastDim(i)) {
+        broadcast_seen_so_far++;
+        // broadcast dimensions are default to outer dimensions
+        // see note 2.a
+        out_format.push_back(i);
+      } else {
+        // adjusting entry point by recording index compensation
+        // i.e. broadcast dimensions inserted on the left of the old iterdomain
+        // see note 2.b
+        offset_table[offset_entry++] = broadcast_seen_so_far;
+      }
+    }
+
+    for (auto i : c10::irange(in->nDims())) {
+      auto format_entry = iter->second[i];
+      out_format.push_back(format_entry + offset_table[format_entry]);
+    }
+    format_map_[out] = out_format;
   }
 }
 

@@ -26,6 +26,30 @@ using testing::ElementsAre;
 
 using LayoutInferenceTest = NVFuserTest;
 
+TEST_F(LayoutInferenceTest, BroadcastOpPropagation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 =
+      broadcast(tv0, {true, false, false, true, false, true, false, true});
+  fusion.addOutput(tv2); // (0, 2, 3, 1) -> (0, 3, 5, 7, 1, 4, 6, 2)
+  auto tv3 = broadcast(tv1, {true, false, true, true});
+  fusion.addOutput(tv3);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  auto updated_layout = inferenceAllocationOrder(&fusion);
+  EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
+  EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
+}
+
 TEST_F(LayoutInferenceTest, UnaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
