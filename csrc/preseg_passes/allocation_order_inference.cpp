@@ -100,28 +100,28 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
   } else if (rhs == nullptr && propagateAllocationOrder(lhs, out)) {
     return;
   } else { // lhs != nullptr && rhs != nullptr
-    auto lhs_iter = format_map_.find(lhs);
-    auto rhs_iter = format_map_.find(rhs);
-    if (lhs_iter != format_map_.end() && rhs_iter != format_map_.end()) {
+    auto lhs_iter = alloc_order_map_.find(lhs);
+    auto rhs_iter = alloc_order_map_.find(rhs);
+    if (lhs_iter != alloc_order_map_.end() && rhs_iter != alloc_order_map_.end()) {
       // if both allocation order agree, we just propagate it as-is.
       if (lhs_iter->second == rhs_iter->second) {
-        format_map_[out] = lhs_iter->second;
+        alloc_order_map_[out] = lhs_iter->second;
         return;
       }
       if (countNonBroadcastID(lhs_iter->first) >=
           countNonBroadcastID(rhs_iter->first)) {
-        format_map_[out] = lhs_iter->second;
+        alloc_order_map_[out] = lhs_iter->second;
         return;
       }
-      format_map_[out] = rhs_iter->second;
+      alloc_order_map_[out] = rhs_iter->second;
       return;
     }
-    if (lhs_iter != format_map_.end()) {
-      format_map_[out] = lhs_iter->second;
+    if (lhs_iter != alloc_order_map_.end()) {
+      alloc_order_map_[out] = lhs_iter->second;
       return;
     }
-    if (rhs_iter != format_map_.end()) {
-      format_map_[out] = rhs_iter->second;
+    if (rhs_iter != alloc_order_map_.end()) {
+      alloc_order_map_[out] = rhs_iter->second;
       return;
     }
     // we could reach here when neither operands has recorded allocation order.
