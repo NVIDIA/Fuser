@@ -22,7 +22,21 @@ namespace nvfuser {
   The MultiDeviceExecutor executes a Fusion on a multi-device setting.
   It is instantiated from a Fusion and a Communicator.
 
-  Here is a summary of the different steps.
+  The Fusion must be scheduled prior to the instantiation of the
+  MultiDeviceExecutor. One can use the multidevice scheduling API to specify
+  the desired tensor sharding. It is composed of two aspects:
+    *) Set each tensor's DeviceMesh, through TensorView::setDeviceMesh
+    *) parallelize each tensor axis, possibly with the multidevice sharding
+       parallel type ParallelType::DIDx
+
+  We make the following assumptions on the Fusion:
+  - Only the outmost (non-reduction) axis is allowed to be parallelized 
+    with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
+  - We only support 1D device meshes for now
+  - We only support TensorView, not Scalars
+  - We only support static shapes
+
+  Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
   - resharding "Set" exprs are automatically inserted in the fusion where a
     network communication is needed. See the function insertReshardings.
@@ -45,11 +59,14 @@ namespace nvfuser {
        multidevice/communications.h) and are posted on the stream.
        "Wait" primitives are also posted on the stream.
 
-  Later, the MultiDeviceExecutor should be integrated into FusionExecutorCache.
-  Also, the steps described above should be divided into compilation,
-  allocation, runtime etc.
-  This will be done along the way when we will have a better symbolic
-  representation of the multidevice module
+  TODOS:
+  *) the MultiDeviceExecutor should be integrated into FusionExecutorCache.
+  *) The different steps should be divided into compilation, allocation,
+     runtime etc. This will be done along the way when we will have better
+     symbolic representation of the multidevice modules
+  *) Allocation of buffers needs to be reimplemented
+  *) Need to work on auto-scheduling, in particular, to combine inter-/intra-
+     device scheduling.
 */
 class MultiDeviceExecutor {
  public:

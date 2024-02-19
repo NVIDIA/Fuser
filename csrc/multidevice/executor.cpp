@@ -24,7 +24,7 @@ namespace {
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
 copyFusionAndChangeOutputs(
     Fusion* fusion,
-    const std::unordered_set<Val*>& outputs) {
+    const std::set<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
@@ -68,8 +68,7 @@ copyFusionAndChangeOutputs(
 // be reimplemented
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
-  std::unordered_set<Val*> vals_to_allocate;
-  std::unordered_set<Val*> vals_to_not_allocate;
+  std::set<Val*> vals_to_allocate;
   for (auto group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
