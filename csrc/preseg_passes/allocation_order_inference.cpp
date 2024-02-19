@@ -139,10 +139,10 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
 //   domain that's a permutation of its corresponding rfactor domain and record
 //   it as the allocation order of the tensor;
 //   2. Traverse the fusion IR, propagate allocation order and record results in
-//   memory_format_map.
+//   alloc_order_map.
 std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion) {
-  std::unordered_map<const TensorView*, AllocationOrder> memory_format_map;
+  std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
 
   // Note: we only consider simple permutation of allocation domain to rfactor
   // domain.
@@ -151,17 +151,17 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
     if (permutation.has_value()) {
-      memory_format_map[tv] = permutation.value();
+      alloc_order_map[tv] = permutation.value();
     }
   }
 
   // Initialize AllocationOrderInferencer with allocation order of input tensor
   // views
-  AllocationOrderInferencer infer(memory_format_map);
+  AllocationOrderInferencer infer(alloc_order_map);
   infer.traverse(fusion);
 
   // return the propagated map
-  return memory_format_map;
+  return alloc_order_map;
 }
 
 } // namespace nvfuser
