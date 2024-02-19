@@ -47,7 +47,7 @@ def norm_fwd_fusion(
         weight = fd.ops.cast(weight, dtype=DataType.Float)
         bias = fd.ops.cast(bias, dtype=DataType.Float)
 
-    var, mean = fd.ops.var_mean(input, axes=reduction_axes, correction=0, keepdim=False)
+    var, mean = fd.ops.var_mean(input, dims=reduction_axes, correction=0, keepdim=False)
 
     eps = fd.define_scalar(eps, dtype=DataType.Double)
     var_eps = fd.ops.add(var, eps)
@@ -155,10 +155,10 @@ def norm_bwd_fusion(
 
     mean = fd.ops.broadcast(mean, bcast_mask)
 
-    grad_sum = fd.ops.sum(grad, axes=reduction_axes, keepdim=False)
+    grad_sum = fd.ops.sum(grad, dims=reduction_axes, keepdim=False)
 
     x_sub_mean = fd.ops.sub(input, mean)
-    dot_p = fd.ops.sum(fd.ops.mul(grad, x_sub_mean), axes=reduction_axes, keepdim=False)
+    dot_p = fd.ops.sum(fd.ops.mul(grad, x_sub_mean), dims=reduction_axes, keepdim=False)
 
     grad_mean = fd.ops.broadcast(fd.ops.mul(grad_sum, norm), bcast_mask)
     proj_scale = fd.ops.mul(fd.ops.mul(dot_p, norm), fd.ops.mul(invstd, invstd))
@@ -340,23 +340,23 @@ def norm_bwd_benchmark(
         # PyTorch expects running mean and variance to be of same type as input.
         if norm == "batch_norm":
             eager_output = torch.nn.functional.batch_norm(
-                at_inputs,
-                running_mean.to(dtype),
-                running_var.to(dtype),
-                weight=weight,
-                bias=bias,
+                at_inputs.to(torch.double),
+                running_mean.to(torch.double),
+                running_var.to(torch.double),
+                weight=weight.to(torch.double),
+                bias=bias.to(torch.double),
                 training=True,
             )
         elif norm == "instance_norm":
             eager_output = torch.nn.functional.instance_norm(
-                at_inputs,
-                running_mean.to(dtype),
-                running_var.to(dtype),
-                weight=weight,
-                bias=bias,
+                at_inputs.to(torch.double),
+                running_mean.to(torch.double),
+                running_var.to(torch.double),
+                weight=weight.to(torch.double),
+                bias=bias.to(torch.double),
             )
 
-        eager_output.backward(at_grads)
+        eager_output.backward(at_grads.to(torch.double))
 
         if channels_last:
             eager_grad = at_inputs.grad.permute((0, *range(2, num_dims), 1))

@@ -814,7 +814,7 @@ void Fusion::aliasOutputToInput(
   }
 }
 
-const AliasInfo& Fusion::getOutputAlias(Val* output) const {
+const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
   static AliasInfo no_alias_info{
       .type = AllocationType::NoAlias,
       .aliased_io = nullptr,
