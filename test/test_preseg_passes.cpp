@@ -12,8 +12,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
-#include <optimization/optimization_pass.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -23,7 +23,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
   class DerivedPass : public OptimizationPass<DerivedPass> {
@@ -161,7 +161,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Double, tv);
     // (input)double -> float -> half -> float -> double
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)double -> half -> double
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -182,7 +182,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)double -> float -> double -> half
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)double -> half
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -204,7 +204,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)double -> float -> half -> float -> double -> half
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)double -> half
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -223,7 +223,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> float
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // TODO: should I have copied the tensor to avoid an aliased output?!
     // simplified as (input)
@@ -250,7 +250,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     // (input)float -> double -> half -> float -> double -> float -> double ->
     // float -> double -> float
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)float -> half -> float
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -273,7 +273,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> half -> float -> bfloat16 -> float
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)float -> half -> bfloat16 -> float
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -299,7 +299,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     // (input)int32 -> double -> complex double -> int64 -> bfloat16 -> float ->
     // double
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)int32 -> bfloat16 -> double
     auto ref_tv = castOp(DataType::BFloat16, tv0);
@@ -322,7 +322,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double(output0) -> half -> double -> float(output1)
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)float -> double(output0) -> half -> float(output1)
     auto ref_tv = castOp(DataType::Double, tv0);
@@ -345,7 +345,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)float -> half -> bfloat16 -> half
     fusion->addOutput(tv);
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)float -> half -> bfloat -> half
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -628,4 +628,4 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes
