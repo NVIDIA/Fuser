@@ -37,8 +37,8 @@ class AllocationOrderInferencer : public IterVisitor {
   using IterVisitor::handle;
 
   void handle(UnaryOp*) override;
+  void handle(BinaryOp*) override;
   // TODO: Add more propagation rules
-  // void handle(BinaryOp*) override;
   // void handle(BroadcastOp*) override;
   // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
@@ -65,6 +65,64 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
   TensorView* in = op->in()->as<TensorView>();
   if (auto iter = format_map_.find(in); iter != format_map_.end()) {
     format_map_[out] = iter->second;
+  }
+}
+
+// BinaryOp propagation tries to merge the allocation order of both inputs
+//
+//   1. when there's only one operand has a recorded allocation order, it
+//   forwards that. This could happen when: we have inputs without recorded
+//   allocation order, or one of the operands being a scalar;
+//   2. When both tensor have recorded allocation order. The one tensor with
+//   more non-broadcast iterdomain will be dominating the output allocation
+//   order. The motivation behind it to avoid breaking allocation order
+//   propagation from binary operation against unsqueezed vector tensors.
+//
+//   In the event of a tie, we'll just propagate the allocation order of lhs.
+void AllocationOrderInferencer::handle(BinaryOp* op) {
+  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  if (out == nullptr) {
+    return;
+  }
+  TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
+  TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
+  if (lhs == nullptr) {
+    if (auto rhs_iter = format_map_.find(rhs); rhs_iter != format_map_.end()) {
+      format_map_[out] = rhs_iter->second;
+      return;
+    }
+  } else if (rhs == nullptr) {
+    if (auto lhs_iter = format_map_.find(lhs); lhs_iter != format_map_.end()) {
+      format_map_[out] = lhs_iter->second;
+      return;
+    }
+  } else { // lhs != nullptr && rhs != nullptr
+    auto lhs_iter = format_map_.find(lhs);
+    auto rhs_iter = format_map_.find(rhs);
+    if (lhs_iter != format_map_.end() && rhs_iter != format_map_.end()) {
+      // if both allocation order agree, we just propagate it as-is.
+      if (lhs_iter->second == rhs_iter->second) {
+        format_map_[out] = lhs_iter->second;
+        return;
+      }
+
+      if (countNonBroadcastID(lhs_iter->first) >=
+          countNonBroadcastID(rhs_iter->first)) {
+        format_map_[out] = lhs_iter->second;
+        return;
+      } else {
+        format_map_[out] = rhs_iter->second;
+        return;
+      }
+    } else if (lhs_iter != format_map_.end()) {
+      format_map_[out] = lhs_iter->second;
+      return;
+    } else if (rhs_iter != format_map_.end()) {
+      format_map_[out] = rhs_iter->second;
+      return;
+    }
+    // we could reach here when neither operands has recorded allocation order.
+    // We'll skip it for output
   }
 }
 
