@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
-#include <optimization/layout_inference.h>
+#include <preseg_passes/layout_inference.h>
 
 namespace nvfuser {
 
