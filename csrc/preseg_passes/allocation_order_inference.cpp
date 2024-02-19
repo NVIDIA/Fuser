@@ -8,7 +8,7 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <preseg_passes/layout_inference.h>
+#include <preseg_passes/allocation_order_inference.h>
 
 namespace nvfuser {
 

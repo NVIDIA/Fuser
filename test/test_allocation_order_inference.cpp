@@ -12,7 +12,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/layout_inference.h>
+#include <preseg_passes/allocation_order_inference.h>
 
 #include <test/utils.h>
 #include <test/validator.h>
