@@ -153,13 +153,12 @@ TEST_F(AllocationOrderInferenceTest, TensorFactoryBinaryOpPropagation) {
   auto tv3 = add(tv1, tv0);
   fusion.addOutput(tv3);
 
-  std::vector<IterDomain*> tv0_c_last = {
-      tv0->axis(1), tv0->axis(0)};
+  std::vector<IterDomain*> tv0_c_last = {tv0->axis(1), tv0->axis(0)};
   tv0->setAllocationDomain(tv0_c_last, true);
 
-  // tv1 is tensor created by factory method, its layout shouldn't be propagated to output
-  std::vector<IterDomain*> tv1_c_last = {
-      tv1->axis(0), tv1->axis(1)};
+  // tv1 is tensor created by factory method, its layout shouldn't be propagated
+  // to output
+  std::vector<IterDomain*> tv1_c_last = {tv1->axis(0), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_c_last, true);
 
   auto updated_layout = inferenceAllocationOrder(&fusion);

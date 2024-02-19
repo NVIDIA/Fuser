@@ -97,38 +97,42 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
   TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
   if (lhs == nullptr) {
     // propagate rhs when lhs is not a tensor
+    // Note: rhs could also be non-tensor, which we'll just skip setting
+    // allocation order for output and return
     propagateAllocationOrder(rhs, out);
-  } else if (rhs == nullptr) {
+    return;
+  }
+  if (rhs == nullptr) {
     // propagate lhs when rhs is not a tensor
     propagateAllocationOrder(lhs, out);
-  } else { // lhs != nullptr && rhs != nullptr
-    auto lhs_iter = alloc_order_map_.find(lhs);
-    auto rhs_iter = alloc_order_map_.find(rhs);
-    if (lhs_iter != alloc_order_map_.end() &&
-        rhs_iter != alloc_order_map_.end()) {
-      // if both allocation order agree, we just propagate it as-is.
-      if (lhs_iter->second == rhs_iter->second) {
-        alloc_order_map_[out] = lhs_iter->second;
-        return;
-      }
-      if (countNonBroadcastID(lhs_iter->first) >=
-          countNonBroadcastID(rhs_iter->first)) {
-        alloc_order_map_[out] = lhs_iter->second;
-        return;
-      }
-      alloc_order_map_[out] = rhs_iter->second;
-      return;
-    }
-    if (lhs_iter != alloc_order_map_.end()) {
-      alloc_order_map_[out] = lhs_iter->second;
-      return;
-    }
-    if (rhs_iter != alloc_order_map_.end()) {
-      alloc_order_map_[out] = rhs_iter->second;
-      return;
-    }
-    // we could reach here when neither operands has recorded allocation order.
-    // We'll skip it for output
+    return;
+  }
+
+  // both operands are tensors
+  auto lhs_iter = alloc_order_map_.find(lhs);
+  auto rhs_iter = alloc_order_map_.find(rhs);
+
+  if (rhs_iter == alloc_order_map_.end()) {
+    propagateAllocationOrder(lhs, out);
+    return;
+  }
+  if (lhs_iter == alloc_order_map_.end()) {
+    propagateAllocationOrder(rhs, out);
+    return;
+  }
+
+  // we have allocation order recorded for both tensor
+  // if both allocation order agree, we just propagate it
+  if (lhs_iter->second == rhs_iter->second) {
+    alloc_order_map_[out] = lhs_iter->second;
+    return;
+  }
+  // otherwise, we propagate the one with more non-broadcast iterdomains.
+  if (countNonBroadcastID(lhs_iter->first) >=
+      countNonBroadcastID(rhs_iter->first)) {
+    alloc_order_map_[out] = lhs_iter->second;
+  } else {
+    alloc_order_map_[out] = rhs_iter->second;
   }
 }
 
