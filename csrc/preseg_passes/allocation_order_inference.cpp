@@ -113,7 +113,7 @@ void AllocationOrderInferencer::handle(const BroadcastOp* op) {
   }
   TensorView* in = op->in()->as<TensorView>();
   if (const auto& iter = alloc_order_map_.find(in); iter != alloc_order_map_.end()) {
-    AllocationOrder out_format;
+    AllocationOrder out_order;
     int64_t out_rank = static_cast<int64_t>(out->nDims());
 
     int broadcast_seen_so_far = 0;
@@ -125,7 +125,7 @@ void AllocationOrderInferencer::handle(const BroadcastOp* op) {
         broadcast_seen_so_far++;
         // broadcast dimensions are default to outer dimensions
         // see note 2.a
-        out_format.push_back(i);
+        out_order.push_back(i);
       } else {
         // adjusting entry point by recording index compensation
         // i.e. broadcast dimensions inserted on the left of the old iterdomain
@@ -135,10 +135,10 @@ void AllocationOrderInferencer::handle(const BroadcastOp* op) {
     }
 
     for (auto i : c10::irange(in->nDims())) {
-      auto format_entry = iter->second[i];
-      out_format.push_back(format_entry + offset_table[format_entry]);
+      auto order_entry = iter->second[i];
+      out_order.push_back(order_entry + offset_table[order_entry]);
     }
-    alloc_order_map_[out] = out_format;
+    alloc_order_map_[out] = out_order;
   }
 }
 
