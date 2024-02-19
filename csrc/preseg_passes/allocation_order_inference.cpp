@@ -106,7 +106,7 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
 //       b. adjust the index of entry from input's rfactor domain
 //
 //   so output TV1 will have stride order {1, 4, 0, 3, 2}
-void AllocationOrderInferencer::handle(const BroadcastOp* op) {
+void AllocationOrderInferencer::handle(BroadcastOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
