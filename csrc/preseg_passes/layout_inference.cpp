@@ -7,6 +7,7 @@
 // clang-format on
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <preseg_passes/layout_inference.h>
 
 namespace nvfuser {
@@ -26,14 +27,14 @@ int countNonBroadcastID(const TensorView* tv) {
   return count;
 }
 
-class AllocationOrderInferencer : public OptOutConstDispatch {
+class AllocationOrderInferencer : public IterVisitor {
  public:
   AllocationOrderInferencer(
       std::unordered_map<const TensorView*, AllocationOrder>& format_map)
       : format_map_(format_map) {}
 
  private:
-  void handle(const UnaryOp*) override;
+  void dispatch(const UnaryOp*) override;
   // TODO: Add more propagation rules
   // void handle(const BinaryOp*) override;
   // void handle(const BroadcastOp*) override;
@@ -54,7 +55,7 @@ class AllocationOrderInferencer : public OptOutConstDispatch {
 };
 
 // UnaryOp propagation forward allocation order from input to output
-void AllocationOrderInferencer::handle(const UnaryOp* op) {
+void AllocationOrderInferencer::dispatch(const UnaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
@@ -94,9 +95,7 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
   // Initialize AllocationOrderInferencer with allocation order of input tensor
   // views
   AllocationOrderInferencer infer(memory_format_map);
-  for (auto expr : fusion->exprs()) {
-    infer.dispatch(expr);
-  }
+  infer.traverse(fusion);
 
   // return the propagated map
   return memory_format_map;
