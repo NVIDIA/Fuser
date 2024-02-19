@@ -88,7 +88,7 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
-        tv->getMaybeAllocationDomain());
+        TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
     if (permutation.has_value()) {
       memory_format_map[tv] = permutation.value();
     }
