@@ -19,7 +19,7 @@ int countNonBroadcastID(const TensorView* tv) {
       tv->getMaybeRFactorDomain().begin(),
       tv->getMaybeRFactorDomain().end(),
       [&](auto ptr_id) {
-        if (ptr_id->isBroadcast()) {
+        if (!ptr_id->isBroadcast()) {
           ++count;
         }
       });
