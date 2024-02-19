@@ -13,6 +13,19 @@ namespace nvfuser {
 
 namespace {
 
+int countNonBroadcastID(TensorView* tv) {
+  int count = 0;
+  std::for_each(
+      tv->getMaybeRFactorDomain().begin(),
+      tv->getMaybeRFactorDomain().end(),
+      [&](auto ptr_id) {
+        if (ptr_id->isBroadcast()) {
+          ++count;
+        }
+      });
+  return count;
+}
+
 class MemoryFormatInferencer : public OptOutConstDispatch {
  public:
   MemoryFormatInferencer(
@@ -55,23 +68,13 @@ void MemoryFormatInferencer::handle(const UnaryOp* op) {
 // BinaryOp propagation tries to merge the memory format of both inputs
 //
 //   1. when there's only one operand has a recorded memory format, it forwards
-//   that.
-//   2. When both tensor have recorded memory format. It breaks tie based on the
-//   innermost dimension. whichever operand has a "better match" dominates the
-//   output format, where a "better match" meaning "less broadcast dimensions on
-//   the inner dimension"
+//   that. This could happen when: we have inputs without recorded memory
+//   format, or one of the operands being a scalar;
+//   2. When both tensor have recorded memory format. The one tensor with more
+//   non-broadcast iterdomain will be dominating the output memory format. The
+//   motivation behind it to avoid breaking memory format propagation from
+//   binary operation against unsqueezed vector tensors.
 //
-// e.g.
-//   lhs TV0 rfactor_dom [i0, i1, b2]
-//                         0   2   1
-//   rhs TV0 rfactor_dom [i3, i4, b5]
-//                         0   1   2
-//   if we go from innermost to outermost order:
-//       TV0 has i1 -> b2 -> i0
-//       TV1 has b5 -> i4 -> i3
-//   we see that TV0 encounters a non-broadcast iter domain first, so TV0 is the
-//   dominating tensor. We'll produce an output with stride order identical to
-//   that of TV0 in the record.
 //   In the event of a tie, we'll just propagate the memory format of lhs.
 void MemoryFormatInferencer::handle(const BinaryOp* op) {
   TensorView* out = dynamic_cast<TensorView*>(op->out());
@@ -99,29 +102,14 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
         format_map_[out] = lhs_iter->second;
         return;
       }
-      // go from innermost to outermost until we find the first one that's
-      // non-broadcast
-      auto rank = lhs_iter->second.size();
-      NVF_ERROR(
-          rank == rhs_iter->second.size(),
-          "expect binary op operands to have same length of memory format");
-      for (auto i : c10::irange(rank)) {
-        if (!lhs_iter->first
-                 ->getMaybeRFactorDomain()[lhs_iter->second[rank - 1 - i]]
-                 ->isBroadcast()) {
-          format_map_[out] = lhs_iter->second;
-          return;
-        } else if (!rhs_iter->first
-                        ->getMaybeRFactorDomain()[rhs_iter
-                                                      ->second[rank - 1 - i]]
-                        ->isBroadcast()) {
-          format_map_[out] = rhs_iter->second;
-          return;
-        }
+
+      if (countNonBroadcastID(lhs_iter->first) >= countNonBroadcastID(rhs_iter->first) {
+        format_map_[out] = lhs_iter->second;
+        return;
+      } else {
+        format_map_[out] = rhs_iter->second;
+        return;
       }
-      // for all broadcast dimension, this is a special case for a tie.
-      // we propagate lhs format as a convention.
-      format_map_[out] = lhs_iter->second;
     } else if (lhs_iter != format_map_.end()) {
       format_map_[out] = lhs_iter->second;
       return;
@@ -129,6 +117,8 @@ void MemoryFormatInferencer::handle(const BinaryOp* op) {
       format_map_[out] = rhs_iter->second;
       return;
     }
+    // we could reach here when neither operands has recorded memory format.
+    // We'll skip it for output
   }
 }
 
