@@ -56,11 +56,11 @@ class AllocationOrderInferencer : public IterVisitor {
 
 // UnaryOp propagation forward allocation order from input to output
 void AllocationOrderInferencer::handle(UnaryOp* op) {
-  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
-  TensorView* in = op->in()->as<TensorView>();
+  auto* in = op->in()->as<TensorView>();
   propagateAllocationOrder(in, out);
 }
 
@@ -99,35 +99,38 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     return;
   }
   auto* in = op->in()->as<TensorView>();
-  if (const auto& iter = alloc_order_map_.find(in);
-      iter != alloc_order_map_.end()) {
-    AllocationOrder out_order;
-    auto out_rank = static_cast<int64_t>(out->nDims());
 
-    int broadcast_seen_so_far = 0;
-    std::vector<int64_t> offset_table(in->nDims(), 0);
-    int offset_entry = 0;
-
-    for (auto i : c10::irange(out_rank)) {
-      if (op->isBroadcastDim(i)) {
-        broadcast_seen_so_far++;
-        // broadcast dimensions are default to outer dimensions
-        // see note 2.a
-        out_order.push_back(i);
-      } else {
-        // adjusting entry point by recording index compensation
-        // i.e. broadcast dimensions inserted on the left of the old iterdomain
-        // see note 2.b
-        offset_table[offset_entry++] = broadcast_seen_so_far;
-      }
-    }
-
-    for (auto i : c10::irange(in->nDims())) {
-      auto order_entry = iter->second[i];
-      out_order.push_back(order_entry + offset_table[order_entry]);
-    }
-    alloc_order_map_[out] = out_order;
+  auto iter = alloc_order_map_.find(in);
+  // early return when there's no recorded allocation order for `in`
+  if (iter == alloc_order_map_.end()) {
+    return;
   }
+  AllocationOrder out_order;
+  auto out_rank = static_cast<int64_t>(out->nDims());
+
+  int broadcast_seen_so_far = 0;
+  std::vector<int64_t> offset_table(in->nDims(), 0);
+  int offset_entry = 0;
+
+  for (auto i : c10::irange(out_rank)) {
+    if (op->isBroadcastDim(i)) {
+      broadcast_seen_so_far++;
+      // broadcast dimensions are default to outer dimensions
+      // see note 2.a
+      out_order.push_back(i);
+    } else {
+      // adjusting entry point by recording index compensation
+      // i.e. broadcast dimensions inserted on the left of the old iterdomain
+      // see note 2.b
+      offset_table[offset_entry++] = broadcast_seen_so_far;
+    }
+  }
+
+  for (auto i : c10::irange(in->nDims())) {
+    auto order_entry = iter->second[i];
+    out_order.push_back(order_entry + offset_table[order_entry]);
+  }
+  alloc_order_map_[out] = out_order;
 }
 
 } // namespace
