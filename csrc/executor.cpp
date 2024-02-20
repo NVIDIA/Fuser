@@ -339,7 +339,10 @@ void FusionExecutor::compileFusion(
   std::pair<int, int> target_arch;
   bool compile_to_sass = false;
   executor_utils::queryTargetGPUVersion(
-      properties, target_arch.first, target_arch.second, compile_to_sass);
+      properties,
+      std::ref(target_arch.first),
+      std::ref(target_arch.second),
+      compile_to_sass);
 
   NVF_CHECK(
       target_arch >= kernel_summary.min_device_version,
