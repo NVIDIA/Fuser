@@ -232,14 +232,14 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   // std::tie(I2i, I1o) = IterDomain::swizzle(SwizzleType::XOR, I2i, I1o);
   // tv1->setAllocationDomain({I2o, I2i, I1o, I1i}, true);
 
-  tv1->split(0, 2);
-  tv1->split(-1, 2, false);
-  tv1->swizzle(SwizzleType::XOR, 1, 2);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 4);
+    tv->split(0, 2);
+    tv->split(-1, 2, false);
+    tv->swizzle(SwizzleType::XOR, 1, -2);
+  }
 
-  tv2->split(0, 2);
-  tv2->split(-1, 2, false);
-  tv2->swizzle(SwizzleType::XOR, 1, 2);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto inner_dim_size =
