@@ -340,6 +340,9 @@ class ComputeAtRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
+  //! Returns true if id in td is concretized
+  bool isConcretized(const TensorDomain* td, const IterDomain* id) const;
+
  private:
   //! Returns if key_a and key(td_b, id_b) are mapped to eachother (equivalent),
   //! or are the same key.

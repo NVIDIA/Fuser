@@ -339,7 +339,7 @@ class StmtSort : public IterVisitor {
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprs(
-      Fusion* fusion,
+      const Fusion* fusion,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);

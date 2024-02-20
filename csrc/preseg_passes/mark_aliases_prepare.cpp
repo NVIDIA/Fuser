@@ -8,10 +8,10 @@
 #include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/mark_aliases_prepare.h>
 #include <options.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
@@ -46,6 +46,12 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     // is compliant with `tv`'s existing layout before adding `tv` to
     // `alias_to_root_`. So the existing layout can remain unchanged.
     if (tv->hasAllocation()) {
+      continue;
+    }
+
+    // A scalar `tv` triggers a corner case that crashes
+    // `validateDomainEquivalence`.
+    if (tv->isZeroDim()) {
       continue;
     }
 
@@ -107,4 +113,4 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes
