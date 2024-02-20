@@ -340,23 +340,23 @@ def norm_bwd_benchmark(
         # PyTorch expects running mean and variance to be of same type as input.
         if norm == "batch_norm":
             eager_output = torch.nn.functional.batch_norm(
-                at_inputs,
-                running_mean.to(dtype),
-                running_var.to(dtype),
-                weight=weight,
-                bias=bias,
+                at_inputs.to(torch.double),
+                running_mean.to(torch.double),
+                running_var.to(torch.double),
+                weight=weight.to(torch.double),
+                bias=bias.to(torch.double),
                 training=True,
             )
         elif norm == "instance_norm":
             eager_output = torch.nn.functional.instance_norm(
-                at_inputs,
-                running_mean.to(dtype),
-                running_var.to(dtype),
-                weight=weight,
-                bias=bias,
+                at_inputs.to(torch.double),
+                running_mean.to(torch.double),
+                running_var.to(torch.double),
+                weight=weight.to(torch.double),
+                bias=bias.to(torch.double),
             )
 
-        eager_output.backward(at_grads)
+        eager_output.backward(at_grads.to(torch.double))
 
         if channels_last:
             eager_grad = at_inputs.grad.permute((0, *range(2, num_dims), 1))

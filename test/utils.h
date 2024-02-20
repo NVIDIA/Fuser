@@ -70,14 +70,6 @@ inline TensorView* makeSymbolicTensor(
   return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
-// allows overload resolution with size-1 initializer list
-inline TensorView* makeSymbolicTensor(
-    std::initializer_list<int64_t> shape,
-    DataType dtype = DataType::Float) {
-  std::vector<int64_t> vec_shape(shape.begin(), shape.end());
-  return makeSymbolicTensor(vec_shape, dtype);
-}
-
 // Make a non-contiguous tensor of compile-time known sizes
 inline TensorView* makeConcreteTensor(
     std::vector<int64_t> shape,
