@@ -3403,4 +3403,31 @@ TEST_F(ResizeTest, NoncancellableSplitAndCat_PermutedDifferently) {
   EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
 }
 
+TEST_F(ResizeTest, NoncancellableSplitAndCat_UnsupportedOps) {
+  // This test is to verify the optimization correctly bails out on unsupported
+  // ops. We could but don't merge a split and a cat when a broadcast is in
+  // between.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 2, 4});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 2, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 2, 4});
+  s0 = broadcast(s0, {false, true, false, false});
+  s1 = broadcast(s1, {false, true, false, false});
+  TensorView* out = cat({s0, s1}, /*dim=*/2);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 2, 4}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+}
+
 } // namespace nvfuser
