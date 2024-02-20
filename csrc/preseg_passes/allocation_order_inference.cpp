@@ -14,13 +14,6 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-int countNonBroadcastID(const TensorView* tv) {
-  return std::count_if(
-      tv->getMaybeRFactorDomain().begin(),
-      tv->getMaybeRFactorDomain().end(),
-      [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
-}
-
 class AllocationOrderInferencer : public IterVisitor {
  public:
   AllocationOrderInferencer(
@@ -121,9 +114,15 @@ void AllocationOrderInferencer::handle(BinaryOp* op) {
     alloc_order_map_[out] = lhs_iter->second;
     return;
   }
+  auto countNonBroadcastID = [](const TensorView* tv) {
+    return std::count_if(
+        tv->getMaybeRFactorDomain().begin(),
+        tv->getMaybeRFactorDomain().end(),
+        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
+  };
+
   // otherwise, we propagate the one with more non-broadcast iterdomains.
-  if (countNonBroadcastID(lhs_iter->first) >=
-      countNonBroadcastID(rhs_iter->first)) {
+  if (countNonBroadcastID(lhs) >= countNonBroadcastID(rhs)) {
     alloc_order_map_[out] = lhs_iter->second;
   } else {
     alloc_order_map_[out] = rhs_iter->second;
