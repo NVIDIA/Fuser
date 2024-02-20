@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <c10/core/DeviceType.h>
 
@@ -142,7 +143,7 @@ class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
 
-  explicit PrecomputedValues(Fusion* fusion);
+  NVF_API explicit PrecomputedValues(Fusion* fusion);
 
   //! Bind concrete values from fusion runtime inputs
   void bindInputs(const KernelArgumentHolder& args);
