@@ -211,6 +211,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
 )
@@ -428,6 +429,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_id_model.cpp
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
   ${NVFUSER_ROOT}/test/test_segmentation.cpp
+  ${NVFUSER_ROOT}/test/test_allocation_order_inference.cpp
 )
 
 if(BUILD_TEST)
