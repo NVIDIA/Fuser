@@ -730,8 +730,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "S";
     case ParallelType::Bulk:
       return "B";
-    case ParallelType::CPU:
-      return "CPU";
+    case ParallelType::Host:
+      return "Host";
     default:
       NVF_ERROR(false, "Unexpected ParallelType");
   }

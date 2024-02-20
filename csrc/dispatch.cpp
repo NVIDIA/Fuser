@@ -315,6 +315,13 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
 
+void OptOutConstDispatch::handle(const hir::ExecuteFusion* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const hir::SaveSlicedOutput* stmt) {
+  unhandled(stmt);
+}
+
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
@@ -334,5 +341,12 @@ M(assoc_comm::FlattenedAssocCommOp)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
+
+void OptOutDispatch::handle(hir::ExecuteFusion* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(hir::SaveSlicedOutput* stmt) {
+  unhandled(stmt);
+}
 
 } // namespace nvfuser

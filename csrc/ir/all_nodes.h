@@ -11,3 +11,4 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <kernel_ir.h>
+#include <host_ir.h>

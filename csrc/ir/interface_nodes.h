@@ -561,7 +561,7 @@ class NVF_API TensorView : public Val {
   void gpuAt(unsigned int pos) {
     gpu_at_pos_ = pos;
     for (unsigned int i = 0; i < pos && i < domain()->leaf().size(); i++) {
-      domain()->leaf().at(i)->parallelize(ParallelType::CPU);
+      domain()->leaf().at(i)->parallelize(ParallelType::Host);
     }
   }
 

@@ -106,7 +106,9 @@ class Val;
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
-  f(Resize);
+  f(Resize);                      \
+  f(hir::ExecuteFusion);          \
+  f(hir::SaveSlicedOutput);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -150,6 +152,11 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 
 } // namespace kir
+
+namespace hir {
+class ExecuteFusion;
+class SaveSlicedOutput;
+} // namespace hir
 
 namespace assoc_comm {
 class FlattenedAssocCommOp;

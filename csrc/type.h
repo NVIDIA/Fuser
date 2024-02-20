@@ -680,7 +680,7 @@ enum class ParallelType {
   Group,
   Bulk,
   Serial,
-  CPU
+  Host
 };
 
 std::unordered_set<ParallelType> allParallelTypesExcept(

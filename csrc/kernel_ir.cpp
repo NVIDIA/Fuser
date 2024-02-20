@@ -831,16 +831,16 @@ ForLoop::ForLoop(
     DoubleBufferLoopStage double_buffer_loop_stage)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+  // NVF_ERROR(
+  //     passkey.ir_container_->isA<kir::Kernel>(),
+  //     "IR type only valid for Kernel container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
   if (start == nullptr && iter_domain->isThread()) {
     start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
   }
-  if (start == nullptr && iter_domain->isCPUDim()) {
+  if (start == nullptr && iter_domain->isHostDim()) {
     start = FusionGuard::getCurFusion()->oneVal();
   }
   if (step == nullptr) {
@@ -928,7 +928,7 @@ bool ForLoop::isUnrollable() const {
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
       !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
-      !iter_domain()->isBroadcast() && !vectorize() && !iter_domain()->isCPUDim();
+      !iter_domain()->isBroadcast() && !vectorize() && !iter_domain()->isHostDim();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -1002,7 +1002,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim() || iter_domain()->isCPUDim()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() || iter_domain()->isHostDim()) {
     return true;
   }
 
