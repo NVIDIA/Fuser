@@ -234,7 +234,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
 
   tv2->split(0, 2);
   tv2->split(-1, 2, false);
-  tv2->swizzle(1, 2, SwizzleType::XOR);
+  tv2->swizzle(SwizzleType::XOR, 1, 2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto inner_dim_size =
