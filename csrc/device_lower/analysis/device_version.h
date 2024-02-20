@@ -24,7 +24,7 @@ class ComputeAtMap;
 
 //! Traverses a Fusion to find the minimum supported CUDA compute capability
 //! that will be able to run the generated kernel.
-class MinimumDeviceVersion : IterVisitor {
+class MinimumDeviceVersion : private IterVisitor {
  public:
   static std::pair<std::pair<int, int>, std::string> compute(Fusion* fusion) {
     MinimumDeviceVersion mdv;
