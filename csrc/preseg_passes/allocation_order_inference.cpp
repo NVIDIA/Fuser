@@ -106,7 +106,12 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     return;
   }
 
-  const auto& out_root_domain = TensorDomain::noReductions(out->getRootDomain());
+  auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+
+  const auto& in_root_domain = TensorDomain::noReductions(in->getMaybeRFactorDomain());
+
+
+
   size_t out_rank = out->nDims();
   std::vector<IterDomain*> alloc_domain;
   alloc_domain.reserve(out_rank);
@@ -118,7 +123,7 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
   }
 
   for (auto index : iter->second) {
-    alloc_domain.push_back(out_root_domain.at(index));
+    alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
   }
 
   std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
