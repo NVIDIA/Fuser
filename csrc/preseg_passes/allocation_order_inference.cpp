@@ -71,29 +71,30 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
 //   their natural position
 //
 // e.g.
-//   TV0 rfactor dom [i0, i1, i2] @ allocation order {0, 2, 1}
-//    |    alloc dom [i0, i2, i1]
+//   TV0 rfactor dom [i0', i1', i2'] @ allocation order {0, 2, 1}
+//    |    alloc dom [i0', i2', i1']
 //    |
 //    |
 //    BroadcastOp
 //    |
 //    v
 //   TV1 rfactor dom [i0, b3, i1, i2, b4]
-//         alloc dom [b3, b4, i0, i2, i1]  *see note 1
-//                     1,  4,
-//                             0,  3,  2   *see note 2
-//   note 1:
-//       keeping the alloc domain from input [i0, i2, i1]
-//       stack all broadcast in rfactor [b3, b4].
-//       concat([b3, b4], [i0, i2, i1])
 //
-//   note 2:
-//       computing the new output allocation order
-//       We'll scan through the rfactor domain of output where:
-//       a. insert any broadcast iterdomain index as we encounter them
-//       b. adjust the index of entry from input's rfactor domain
+//   step 0:
+//       scan through all iterdomain in output TV1's rfactor domain
+//       insert all broadcast domain to alloc_domain[b3, b4];
 //
-//   so output TV1 will have allocation order {1, 4, 0, 3, 2}
+//   step 1:
+//       computing iterdomain mapping from input to output;
+//       [i0', i2', i1'] -> [i0, i2, i1]
+//
+//   step 2:
+//       follow allocation order on input, insert the mapped iter domain on
+//       output to alloc_domain[b3, b4, i0, i2, i1];
+//
+//   step 3:
+//       compute permutation from alloc_domain to TV1's rfactor domain;
+//       so output TV1 will have allocation order {1, 4, 0, 3, 2}
 void AllocationOrderInferencer::handle(BroadcastOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
@@ -107,26 +108,27 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     return;
   }
 
-  auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
-
-  const auto& in_root_domain = TensorDomain::noReductions(in->getMaybeRFactorDomain());
-
-
-
   size_t out_rank = out->nDims();
   std::vector<IterDomain*> alloc_domain;
   alloc_domain.reserve(out_rank);
 
+  // step 0: insert all broadcast iterdomain in output
   for (auto i : c10::irange(out_rank)) {
     if (op->isBroadcastDim(i)) {
       alloc_domain.push_back(out->getMaybeRFactorDomain()[i]);
     }
   }
 
+  // step 1: compute root domain map
+  auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+  const auto& in_root_domain = TensorDomain::noReductions(in->getMaybeRFactorDomain());
+
+  // step 2: push each mapped iterdomain
   for (auto index : iter->second) {
     alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
   }
 
+  // step 3: compute permutatoin
   std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
       TensorDomain::noReductions(out->getMaybeRFactorDomain()),
       alloc_domain);
