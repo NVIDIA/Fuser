@@ -296,5 +296,12 @@ class CudaKernelTimer {
   float kernel_time_ms_ = 0;
 };
 
+//! Query the target GPU version number NVRTC compiles CUDA kernels for
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int& major,
+    int& minor,
+    bool& compile_to_sass);
+
 } // namespace executor_utils
 } // namespace nvfuser

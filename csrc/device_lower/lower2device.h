@@ -81,6 +81,14 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
+  const std::pair<int, int>& minDeviceVersion() const {
+    return min_device_version_;
+  }
+
+  const std::string& minDeviceVersionReason() const {
+    return min_device_version_reason_;
+  }
+
   std::shared_ptr<const ConcretizedBroadcastDomains>
   concretizedBroadcastDomains() {
     return concretized_broadcast_domains_;
@@ -252,6 +260,8 @@ class GpuLower : public NonCopyable {
   // would be safer to wrap all of these in unique pointers and remove the build
   // interface and default constructor. That way they couldn't be accessed
   // without being initialized.
+  std::pair<int, int> min_device_version_;
+  std::string min_device_version_reason_;
   std::shared_ptr<const ConcretizedBroadcastDomains>
       concretized_broadcast_domains_;
   ThreadPredicateMap thread_pred_map_;
