@@ -977,6 +977,9 @@ TEST_F(IdModelTest, PermutedDifferently) {
       exact_graph.disjointValSets().strictAreMapped(s1->axis(2), t1->axis(2)));
   EXPECT_TRUE(
       exact_graph.disjointValSets().strictAreMapped(s1->axis(3), t1->axis(3)));
+
+  EXPECT_FALSE(
+      exact_graph.disjointValSets().strictAreMapped(t0->axis(0), t1->axis(0)));
 }
 
 } // namespace nvfuser
