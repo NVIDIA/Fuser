@@ -171,17 +171,20 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
 }
 
-class TMATest : public NVFuserTest {
+using TMATestParams = std::tuple<MmaInputSmemSwizzle>;
+
+class TMALdstTest : public HopperTest,
+                    public ::testing::WithParamInterface<TMATestParams> {
+ protected:
+  MmaInputSmemSwizzle swizzle;
+
   void SetUp() override {
-    // requires Hopper or newer
-    if (!deviceMajorMinorCheck(9)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
-    NVFuserTest::SetUp();
+    // HopperTest::SetUp();
+    swizzle = std::get<0>(GetParam());
   }
 };
 
-TEST_F(TMATest, LoadCompleteTensor1D) {
+TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -198,14 +201,16 @@ TEST_F(TMATest, LoadCompleteTensor1D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 = at::arange(inner_dim_size, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor2D) {
+TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -222,15 +227,37 @@ TEST_F(TMATest, LoadCompleteTensor2D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
+  // for (auto tv : {tv1, tv2}) {
+  //   tv->split(0, 4);
+  //   tv->split(0, 2);
+  //   tv->split(-1, 2, false);
+  //   tv->swizzle(SwizzleType::XOR, 1, -2);
+  // }
+
+  // tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 = at::arange(32 * inner_dim_size, options).view({32,
+  inner_dim_size});
+  // auto t0 = at::arange(32 * 2, options)
+  //               .view({32 * 2, 1})
+  //               .expand({32 * 2, inner_dim_size / 2})
+  //               .contiguous()
+  //               .view({32, inner_dim_size});
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32, 255, false});
   auto cg_outputs = fe.runFusion({t0});
+
+  std::cout << cg_outputs[0] << std::endl;
+
+  std::cout << t0 << std::endl;
+
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor3D) {
+TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -249,14 +276,17 @@ TEST_F(TMATest, LoadCompleteTensor3D) {
   tv1->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 =
+      at::arange(16 * inner_dim_size, options).view({4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor4D) {
+TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -276,14 +306,17 @@ TEST_F(TMATest, LoadCompleteTensor4D) {
   tv1->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 =
+      at::arange(64 * inner_dim_size, options).view({4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor5D) {
+TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -304,14 +337,17 @@ TEST_F(TMATest, LoadCompleteTensor5D) {
   tv1->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 = at::arange(256 * inner_dim_size, options)
+                .view({4, 4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor1D) {
+TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -328,14 +364,16 @@ TEST_F(TMATest, StoreCompleteTensor1D) {
   tv2->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 = at::arange(inner_dim_size, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor2D) {
+TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -349,18 +387,64 @@ TEST_F(TMATest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    auto num_items_16bytes = 16 / dataTypeSize(tv0->dtype());
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    tv1->split(-1, inner_dim_size);
+    tv1->split(-1, num_items_16bytes);
+    tv1->split(0, 8 / swizzle_size);
+    tv1->split(0, swizzle_size);
+    tv1->swizzle(SwizzleType::XOR, 1, -2);
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+
   tv2->axis(0)->parallelize(ParallelType::Bulk);
   tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto t0 = at::arange(32 * inner_dim_size, options).view({32, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor3D) {
+//    0    4
+//    8   12
+//   16   20
+//   24   28
+//   36   32
+//   44   40
+//   52   48
+//   60   56
+//   64   68
+//   72   76
+//   80   84
+//   88   92
+//  100   96
+//  108  104
+//  116  112
+//  124  120
+//  128  132
+//  136  140
+//  144  148
+//  152  156
+//  164  160
+//  172  168
+//  180  176
+//  188  184
+//  192  196
+//  200  204
+//  208  212
+//  216  220
+//  228  224
+//  236  232
+//  244  240
+//  252  248
+
+TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -379,14 +463,17 @@ TEST_F(TMATest, StoreCompleteTensor3D) {
   tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 =
+      at::arange(16 * inner_dim_size, options).view({4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor4D) {
+TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -406,14 +493,17 @@ TEST_F(TMATest, StoreCompleteTensor4D) {
   tv2->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 =
+      at::arange(64 * inner_dim_size, options).view({4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor5D) {
+TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -434,18 +524,39 @@ TEST_F(TMATest, StoreCompleteTensor5D) {
   tv2->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto inner_dim_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
+  auto t0 = at::arange(256 * inner_dim_size, options)
+                .view({4, 4, 4, 4, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+std::string testNameTMALdstTest(
+    const testing::TestParamInfo<TMATestParams>& info) {
+  auto swizzle = std::get<0>(info.param);
+  return toString(swizzle);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TMALdstTest,
+    TMALdstTest,
+    testing::Values(
+        MmaInputSmemSwizzle::None,
+        MmaInputSmemSwizzle::B128,
+        MmaInputSmemSwizzle::B64,
+        MmaInputSmemSwizzle::B32),
+    testNameTMALdstTest);
+
+class TMAMiscTest : public HopperTest {};
+
 // Basically just StoreCompleteTensor1D, but with index hoisting disabled.
 // Because index hoisting is responsible making sure that tensor maps are
 // created on the host and passed as kernel argument, we need to make sure
 // that disabling index hoisting doesn't break this.
-TEST_F(TMATest, DisableIndexHoisting) {
+TEST_F(TMAMiscTest, DisableIndexHoisting) {
   DisableOptionsGuard opt_guard;
   opt_guard.getCurOptions().set(DisableOption::IndexHoist);
 

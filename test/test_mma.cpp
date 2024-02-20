@@ -180,16 +180,6 @@ INSTANTIATE_TEST_SUITE_P(
         all_dtypes),
     testName);
 
-class HopperBase : public NVFuserTest {
- protected:
-  void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
-    NVFuserTest::SetUp();
-  }
-};
-
 // For smem mma input tensors, the schedule does not matter, we just naively
 // parallelize it so the test runs faster.
 void naivelyParallelize(TensorView* tv) {
@@ -246,7 +236,7 @@ auto all_smem_swizzle_modes = testing::Values(
 using HopperMmaRSTestParams =
     std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
 
-class HopperRS : public HopperBase,
+class HopperRS : public HopperTest,
                  public ::testing::WithParamInterface<HopperMmaRSTestParams> {
  protected:
   MmaLayout layout;
@@ -255,7 +245,7 @@ class HopperRS : public HopperBase,
   MmaInputSmemSwizzle swizzle_b;
 
   void SetUp() override {
-    HopperBase::SetUp();
+    HopperTest::SetUp();
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
@@ -382,7 +372,7 @@ using HopperMmaSSTestParams = std::tuple<
     MmaInputSmemSwizzle,
     MmaInputSmemSwizzle>;
 
-class HopperSS : public HopperBase,
+class HopperSS : public HopperTest,
                  public ::testing::WithParamInterface<HopperMmaSSTestParams> {
  protected:
   MmaLayout layout;
@@ -392,7 +382,7 @@ class HopperSS : public HopperBase,
   MmaInputSmemSwizzle swizzle_b;
 
   void SetUp() override {
-    HopperBase::SetUp();
+    HopperTest::SetUp();
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
