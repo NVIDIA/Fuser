@@ -70,7 +70,7 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
 //   their natural position
 //
 // e.g.
-//   TV0 rfactor dom [i0, i1, i2] @ stride order {0, 2, 1}
+//   TV0 rfactor dom [i0, i1, i2] @ allocation order {0, 2, 1}
 //    |    alloc dom [i0, i2, i1]
 //    |
 //    |
@@ -92,17 +92,17 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
 //       a. insert any broadcast iterdomain index as we encounter them
 //       b. adjust the index of entry from input's rfactor domain
 //
-//   so output TV1 will have stride order {1, 4, 0, 3, 2}
+//   so output TV1 will have allocation order {1, 4, 0, 3, 2}
 void AllocationOrderInferencer::handle(BroadcastOp* op) {
-  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
-  TensorView* in = op->in()->as<TensorView>();
+  auto* in = op->in()->as<TensorView>();
   if (const auto& iter = alloc_order_map_.find(in);
       iter != alloc_order_map_.end()) {
     AllocationOrder out_order;
-    int64_t out_rank = static_cast<int64_t>(out->nDims());
+    auto out_rank = static_cast<int64_t>(out->nDims());
 
     int broadcast_seen_so_far = 0;
     std::vector<int64_t> offset_table(in->nDims(), 0);
