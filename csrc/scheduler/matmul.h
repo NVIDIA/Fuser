@@ -17,6 +17,12 @@
 
 namespace nvfuser {
 
+// Move the broadcast axes to the left on the specified number of inner
+// dimensions e.g.  (when number_of_inner_pos == 3):
+//      [... I0, B, I1] -> [... B, I0, I1]
+//  should probably be only used to order innermost mnk axes.
+void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3);
+
 NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
 
 class MatmulScheduler : public SchedulerEntry {

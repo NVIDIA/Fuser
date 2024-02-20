@@ -340,8 +340,8 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  NVF_API static std::vector<Expr*> getExprs(
-      Fusion* fusion,
+  static std::vector<Expr*> getExprs(
+      const Fusion* fusion,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);

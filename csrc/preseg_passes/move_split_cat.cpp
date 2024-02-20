@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/move_split_cat.h>
+#include <preseg_passes/move_split_cat.h>
 
 #include <vector>
 
@@ -16,7 +16,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -133,4 +133,4 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

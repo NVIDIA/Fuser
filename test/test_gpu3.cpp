@@ -8735,6 +8735,74 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
     }
   }
 }
+
+// Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
+// Needs to check consumer mapped with reduction inputs in
+// isReductionOutputMapped(), otherwise compute at root domain map
+// is wrong then leads to wrong compute at position and finally
+// expr sort failed.
+// After fix, there are two persistent buffers and can be further
+// reduced to one with a following step-2 to fix the issue in resolution
+// points detection.
+TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  // manual project tv2 to input, so tv7 is mapped with tv2.
+  auto tv5 = castOp(DataType::Float, tv0);
+  auto tv6 = div(tv5, tv4);
+  auto tv7 = set(tv1);
+  auto tv8 = add(tv7, tv6);
+  auto tv9 = add(tv2, tv7);
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+
+  // |--5------------------|
+  // 0 -> 2 -> r3 -> b4 -> 6 -> 8    9
+  // 1-------> 7----------------|
+  //           |---------------------|
+  //      |--------------------------|
+  // tv7 has two consumers, tv8 and tv9.
+  // tv8 is a consumer of the reduction output.
+  // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
+  // pre-reduction set through tv2 and tv8 is in the post-reduction set.
+  ComputeAtRootDomainMap root_map;
+  root_map.build();
+  auto shouldMapCheck =
+      [&root_map](TensorView* tva, TensorView* tvb, int axis, bool should_map) {
+        NVF_CHECK(
+            root_map.canMap(
+                tva->domain(),
+                tva->getRootDomain().at(axis),
+                tvb->domain(),
+                tvb->getRootDomain().at(axis)) == should_map,
+            "Expected map between: ",
+            tva->getRootDomain().at(axis),
+            " of ",
+            tva,
+            " and ",
+            tvb->getRootDomain().at(axis),
+            " of ",
+            tvb,
+            " is ",
+            should_map ? "True" : "False",
+            ", but got ",
+            should_map ? "False" : "True");
+      };
+  shouldMapCheck(tv2, tv9, 1, true);
+  shouldMapCheck(tv7, tv8, 1, false);
+  shouldMapCheck(tv7, tv9, 1, false);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
