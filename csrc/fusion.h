@@ -189,9 +189,6 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to generate registered outputs.
-  std::vector<Expr*> exprs();
-  //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to generate registered outputs.
   std::vector<Expr*> exprs() const;
 
   //! Return a vector of fusion inputs that feed this Val

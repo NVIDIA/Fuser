@@ -332,9 +332,6 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
   }
 }
 
-std::vector<Expr*> Fusion::exprs() {
-  return StmtSort::getExprs(this);
-}
 std::vector<Expr*> Fusion::exprs() const {
   return StmtSort::getExprs(this);
 }
