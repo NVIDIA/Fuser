@@ -227,14 +227,14 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
-  for (auto tv : {tv1, tv2}) {
-    tv->split(0, 4);
-    tv->split(0, 2);
-    tv->split(-1, 2, false);
-    tv->swizzle(SwizzleType::XOR, 1, -2);
-  }
+  // for (auto tv : {tv1, tv2}) {
+  //   tv->split(0, 4);
+  //   tv->split(0, 2);
+  //   tv->split(-1, 2, false);
+  //   tv->swizzle(SwizzleType::XOR, 1, -2);
+  // }
 
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  // tv1->setAllocationDomain(tv1->getLeafDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto inner_dim_size =

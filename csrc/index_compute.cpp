@@ -3310,7 +3310,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      MmaInputSmemSwizzle::B32,
+      MmaInputSmemSwizzle::B64,
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
