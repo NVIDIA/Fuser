@@ -11,6 +11,7 @@
 
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -23,7 +24,9 @@ namespace {
 
 class CancelSplitCat {
  public:
-  CancelSplitCat(Fusion* fusion) : fusion_(fusion) {}
+  CancelSplitCat(Fusion* fusion)
+      : fusion_(fusion),
+        id_model_(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true) {}
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
   // merges ops in between.
@@ -60,6 +63,8 @@ class CancelSplitCat {
   TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain);
 
   Fusion* fusion_;
+
+  IdModel id_model_;
 };
 
 bool CancelSplitCat::horizontallyMergeable(
