@@ -64,18 +64,7 @@ void MatmulScheduler::computeHeuristics(
   NVF_ERROR(params_ != nullptr);
 }
 
-namespace {
-
-// Returns true if given number is power of 2
-constexpr bool isPowOf2(int64_t x) {
-  return x > 1 && (x & (x - 1)) == 0;
-}
-
-// Move the broadcast axes to the left on the specified number of inner
-// dimensions e.g.  (when number_of_inner_pos == 3):
-//      [... I0, B, I1] -> [... B, I0, I1]
-//  should probably be only used to order innermost mnk axes.
-void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
+void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
   NVF_ERROR(int(tv->nDims()) >= number_of_inner_pos);
   std::vector<int> broadcast_pos;
   std::vector<int> nonbroadcast_pos;
@@ -101,6 +90,13 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 
   // Apply ordering.
   tv->reorder(order_map);
+}
+
+namespace {
+
+// Returns true if given number is power of 2
+constexpr bool isPowOf2(int64_t x) {
+  return x > 1 && (x & (x - 1)) == 0;
 }
 
 // Utility to check concrete static size:
