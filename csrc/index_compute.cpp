@@ -1112,7 +1112,7 @@ class UpdateLeafIndices : public IterVisitor {
         // Reduction axes on producer side could be visited on forward
         //  propagation pass and current implementation does not yet
         //  support reduciton on swizzled iterdomains, so un-indexed
-        //  reduction iterdomains are just ignored for now.
+        //  reduction iterdomains are just ignored for now. The same applies to BroadcastOp.
         NVF_ERROR(
             inner_id->isReduction() || inner_id->isBroadcast(),
             "Undefined index for ",
