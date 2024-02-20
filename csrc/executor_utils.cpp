@@ -108,8 +108,6 @@ std::string kernelPreamble() {
   return ss.str();
 }
 
-namespace {
-
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
@@ -159,6 +157,8 @@ void queryTargetGPUVersion(
     compile_to_sass = true;
   }
 }
+
+namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
