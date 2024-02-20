@@ -234,6 +234,11 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
+
+  std::cout << cg_outputs[0] << std::endl;
+
+  std::cout << t0 << std::endl;
+
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
