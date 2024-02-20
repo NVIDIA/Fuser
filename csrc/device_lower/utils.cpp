@@ -830,6 +830,28 @@ Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
   return u32addr;
 }
 
+Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
+  // See the comment above for getGridCommWorkBufferSize.
+  NVF_ERROR(
+      ptb.hasBID(),
+      "Detected  needing a grid sync but no grid bits set in bitmap.");
+  Val* buffer_size = GpuLower::current()->kernel()->oneVal();
+  for (auto pt : kParallelTypeBIDs) {
+    // Synchronized within pt, so all blocks of this PT use the same
+    // sync buffer location, and thus no need to expand the sync
+    // buffer size.
+    if (ptb.get(pt)) {
+      continue;
+    }
+    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    if (pt_dim == nullptr || pt_dim->isOneInt()) {
+      continue;
+    }
+    buffer_size = SimplifyingIrBuilder::mulExpr(buffer_size, pt_dim);
+  }
+  return buffer_size;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

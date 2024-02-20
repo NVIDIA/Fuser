@@ -35,9 +35,7 @@ namespace nvfuser {
 
 using SerialGridReductionTest = NVFuserTest;
 
-// Test that we are able to generate code for a serial reduction
-// TODO: remove this test once lowering of serial grid reductions is implemented
-TEST_F(SerialGridReductionTest, CodegenNodes) {
+TEST_F(SerialGridReductionTest, Scheduling) {
   for (bool serial : {true, false}) {
     for (int64_t num_warps : {4, 8}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
@@ -114,133 +112,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
         FusionExecutor fe;
         if (serial) {
-          fe.registerPostLoweringHook([](kir::Kernel* kernel) {
-            FusionGuard fg(kernel);
-
-            std::vector<Expr*>& top_level_exprs =
-                const_cast<std::vector<Expr*>&>(kernel->topLevelExprs());
-            kir::KernelSummary& summary =
-                const_cast<kir::KernelSummary&>(kernel->summary());
-            std::vector<const kir::Allocate*>& global_allocations =
-                summary.global_allocations;
-            // There should be a work buffer and a sync buffer allocated
-            ASSERT_EQ(global_allocations.size(), 2);
-
-            // Find the position of the last outer loop
-            size_t top_level_loop_pos = -1;
-            for (size_t i : c10::irange(top_level_exprs.size())) {
-              Expr* expr = top_level_exprs.at(i);
-              if (expr->isA<kir::ForLoop>()) {
-                top_level_loop_pos = i;
-              }
-            }
-
-            // This is a poor approximation of a traversal that would appear in
-            // a lowering pass to both set the isSerial() flag on grid
-            // reductions and insert wait/release syncs.
-            //
-            // tidx_scope is the inner-most fully parallelized scope. It is
-            // "top-level" in that its loops appear as top-level in the
-            // generated kernel
-            kir::Scope& tidx_scope = top_level_exprs.at(top_level_loop_pos)
-                                         ->as<kir::ForLoop>()
-                                         ->body() // BIDx
-                                         .at(0)
-                                         ->as<kir::ForLoop>()
-                                         ->body() // BIDy
-                                         .at(0)
-                                         ->as<kir::ForLoop>()
-                                         ->body() // TIDy
-                                         .at(0)
-                                         ->as<kir::ForLoop>()
-                                         ->body(); // TIDx
-            kir::Scope& B_scope = tidx_scope.exprs()
-                                      .at(5)
-                                      ->as<kir::ForLoop>()
-                                      ->body() // A (reduction loop)
-                                      .exprs()
-                                      .back()
-                                      ->as<kir::ForLoop>()
-                                      ->body(); // B
-            // We will need the store op output TensorIndex
-            LoadStoreOp* output_store_expr = B_scope.exprs()
-                                                 .back()
-                                                 ->as<kir::IfThenElse>()
-                                                 ->thenBody()
-                                                 .at(0)
-                                                 ->as<LoadStoreOp>();
-            // bidz_scope is the scope containing the GridReduction expression
-            kir::Scope& bidz_scope =
-                B_scope.exprs().at(4)->as<kir::ForLoop>()->body(); // BIDz
-            auto old_grop = bidz_scope.at(0)->as<kir::GridReduction>();
-            // Store the TensorIndex for the output tensor T1_g, so that we can
-            // re-use its index
-            auto t1_idx = output_store_expr->output(0)->as<kir::TensorIndex>();
-
-            // Create new TensorView and Allocate
-            auto output = kernel->outputs().at(0)->as<TensorView>();
-            Val* i0 = output->getRootDomain().at(0)->extent();
-            auto new_work_buf_tv =
-                TensorViewBuilder().shape(std::vector<Val*>{i0}).build();
-            new_work_buf_tv->setMemoryType(MemoryType::Global);
-            // associate the index of the output tensor with the work buffer
-            // NOTE: in actual lowering we would generate an index ourselves
-            // here, but this works for this test since the T1 store is inlined
-            // fully with the serial grid reduction.
-            Val* idx = t1_idx->index();
-
-            auto new_work_buf_idx =
-                IrBuilder::create<kir::TensorIndex>(new_work_buf_tv, idx);
-            auto new_work_buf_alloc = IrBuilder::create<kir::Allocate>(
-                new_work_buf_tv, MemoryType::Global, std::vector<Val*>{i0});
-            const kir::Allocate* orig_work_buf_alloc = global_allocations[0];
-            global_allocations[0] = new_work_buf_alloc;
-            // replace work buf alloc expr in top_level_exprs
-            for (auto i : c10::irange(top_level_exprs.size())) {
-              if (top_level_exprs[i] == orig_work_buf_alloc) {
-                top_level_exprs[i] = new_work_buf_alloc;
-              }
-            }
-            // replace work buf in kernel->parameters()
-            std::vector<Val*>& params =
-                const_cast<std::vector<Val*>&>(kernel->parameters());
-            for (auto i : c10::irange(params.size())) {
-              if (params[i] == orig_work_buf_alloc->buffer()) {
-                params[i] = new_work_buf_tv;
-              }
-            }
-            // replace the grid reduction Expr
-            auto new_grop = IrBuilder::create<kir::GridReduction>(
-                old_grop->getReductionOpType(),
-                old_grop->init(),
-                old_grop->out(),
-                old_grop->in(),
-                new_work_buf_alloc,
-                old_grop->sync_buffer(),
-                old_grop->entrance_index(),
-                old_grop->entrances(),
-                old_grop->isAllreduce(),
-                new_work_buf_idx);
-            new_grop = new_grop->withPredicate(old_grop->predicate())
-                           ->as<kir::GridReduction>();
-            new_grop = new_grop->withWritePredicate(old_grop->writePredicate())
-                           ->as<kir::GridReduction>();
-            bidz_scope.at(0) = new_grop;
-
-            auto sync_buf = global_allocations.at(1)->buffer();
-
-            std::vector<Expr*>& nonpar_top_level_exprs =
-                const_cast<std::vector<Expr*>&>(tidx_scope.exprs());
-            nonpar_top_level_exprs.insert(
-                nonpar_top_level_exprs.end() - 2,
-                IrBuilder::create<kir::BlockSerializeWait>(
-                    ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
-
-            nonpar_top_level_exprs.insert(
-                nonpar_top_level_exprs.end() - 1,
-                IrBuilder::create<kir::BlockSerializeRelease>(
-                    ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
-          });
+          tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
         }
         fe.compileFusion(fusion);
 

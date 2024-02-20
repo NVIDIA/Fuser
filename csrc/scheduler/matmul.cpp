@@ -64,18 +64,7 @@ void MatmulScheduler::computeHeuristics(
   NVF_ERROR(params_ != nullptr);
 }
 
-namespace {
-
-// Returns true if given number is power of 2
-constexpr bool isPowOf2(int64_t x) {
-  return x > 1 && (x & (x - 1)) == 0;
-}
-
-// Move the broadcast axes to the left on the specified number of inner
-// dimensions e.g.  (when number_of_inner_pos == 3):
-//      [... I0, B, I1] -> [... B, I0, I1]
-//  should probably be only used to order innermost mnk axes.
-void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
+void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
   NVF_ERROR(int(tv->nDims()) >= number_of_inner_pos);
   std::vector<int> broadcast_pos;
   std::vector<int> nonbroadcast_pos;
@@ -101,6 +90,13 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 
   // Apply ordering.
   tv->reorder(order_map);
+}
+
+namespace {
+
+// Returns true if given number is power of 2
+constexpr bool isPowOf2(int64_t x) {
+  return x > 1 && (x & (x - 1)) == 0;
 }
 
 // Utility to check concrete static size:
@@ -899,6 +895,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
+    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
+
     num_splitk_dims = 1;
   }
 
@@ -1098,8 +1096,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iS  rBz
     //
     // This reordering step lets us inline all but the last dim MNi3 (position
-    // nbatch + 7) which might be vectorized for the epilogue but which we
-    // can't vectorize for the gridReduce.
+    // nbatch + 7) which might be vectorized.
     //
     // NOTE: we need to do this reorder after the propagation above so that it
     // doesn't get reset.
@@ -1113,6 +1110,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         {num_batch_dims + 8, num_batch_dims + 7},
         {num_batch_dims + 9, num_batch_dims + 8},
     });
+    // Vectorize inner-most dimension
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 
   // auto inline for all tensors except register tensors

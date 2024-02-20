@@ -743,15 +743,6 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
-bool isSelectInput(TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SelectOp>()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
@@ -836,6 +827,10 @@ class ValidateDomainEquivalence : private IterVisitor {
       : initial_domain_({initial_domain.begin(), initial_domain.end()}),
         derived_domain_({derived_domain.begin(), derived_domain.end()}),
         frontier_({initial_domain.begin(), initial_domain.end()}) {
+    // empty domain are equivalent.
+    if (initial_domain.empty() && derived_domain.empty()) {
+      return;
+    }
     NVF_ERROR(!initial_domain.empty());
     NVF_ERROR(!derived_domain.empty());
     // Make sure there's no duplicate in the parameter vectors

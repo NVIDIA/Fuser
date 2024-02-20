@@ -13,6 +13,14 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+include(CMakeDependentOption)
+cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON
+	"USE_DISTRIBUTED" OFF)
+if (NVFUSER_DISTRIBUTED)
+  add_compile_definitions(NVFUSER_DISTRIBUTED)
+endif()
+message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
+
 if(NOT NVFUSER_CPP_STANDARD)
   set(NVFUSER_CPP_STANDARD 20)
 endif()
@@ -115,6 +123,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
@@ -194,12 +203,15 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/utils.cpp
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/mark_aliases_prepare.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -402,7 +414,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
   ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
+  ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
   ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
@@ -640,6 +652,7 @@ message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)

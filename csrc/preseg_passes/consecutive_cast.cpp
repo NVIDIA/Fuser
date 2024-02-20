@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/consecutive_cast.h>
+#include <preseg_passes/consecutive_cast.h>
 
 #include <ir/utils.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -191,4 +191,4 @@ void ConsecutiveCastPass::runPass(Fusion* fusion) {
   castOptimizationPass(fusion);
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

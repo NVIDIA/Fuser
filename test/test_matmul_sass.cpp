@@ -78,7 +78,7 @@ sass::Container getSASSFor(
   params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
   scheduleMatmul(&fusion, params);
 
-  auto inputs = matmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput2D(M, N, K, layout);
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -133,7 +133,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = matmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput2D(M, N, K, layout);
   const double alpha = 2.5;
 
   FusionExecutor fe;
