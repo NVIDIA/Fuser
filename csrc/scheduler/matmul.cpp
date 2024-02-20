@@ -812,7 +812,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   NVF_ERROR(a->uses().size() == 1);
-  NVF_ERROR(a->uses().size() == 1);
+  NVF_ERROR(b->uses().size() == 1);
   acw_smem = ir_utils::consumerTvsOf(a).at(0);
   acw_smem->definition()->as<LoadStoreOp>()->setOpType(load_op);
   acw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
