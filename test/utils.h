@@ -590,6 +590,12 @@ static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
     MmaLayout::TN,
     MmaLayout::NN};
 
+static auto kAllSmemSwizzleModes = testing::Values(
+    MmaInputSmemSwizzle::None,
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
+
 // Generic interface to get matmul op with the given layout.
 // The as_mul_sum flags creates a mul and sum ops instead of mma
 // to express matmuls. This flag only works for Ampere.
