@@ -126,7 +126,7 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
       alloc_domain);
 
   NVF_ERROR(permutation.has_value(), "allocation order propagation on broadcast op failed to compute valid permutation");
-  alloc_order_map_[out] = permutatoin.value();
+  alloc_order_map_[out] = permutation.value();
 }
 
 } // namespace
