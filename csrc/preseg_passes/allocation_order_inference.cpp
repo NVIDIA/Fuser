@@ -14,6 +14,19 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+int countNonBroadcastID(const TensorView* tv) {
+  int count = 0;
+  std::for_each(
+      tv->getMaybeRFactorDomain().begin(),
+      tv->getMaybeRFactorDomain().end(),
+      [&](auto ptr_id) {
+        if (!ptr_id->isBroadcast()) {
+          ++count;
+        }
+      });
+  return count;
+}
+
 class AllocationOrderInferencer : public IterVisitor {
  public:
   AllocationOrderInferencer(
