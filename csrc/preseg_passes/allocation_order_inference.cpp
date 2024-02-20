@@ -18,9 +18,7 @@ int countNonBroadcastID(const TensorView* tv) {
   return std::count_if(
       tv->getMaybeRFactorDomain().begin(),
       tv->getMaybeRFactorDomain().end(),
-      [&](auto ptr_id) {
-        return !ptr_id->isBroadcast();
-      });
+      [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
 }
 
 class AllocationOrderInferencer : public IterVisitor {

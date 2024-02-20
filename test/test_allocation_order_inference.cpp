@@ -70,7 +70,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
 
-    const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+    const auto inferred_layout =
+        preseg_passes::inferenceAllocationOrder(&fusion);
     EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(inferred_layout.at(tv6), ElementsAre(0, 2, 3, 1));
@@ -99,7 +100,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
     tv1->setAllocationDomain(tv1_format, true);
 
-    const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+    const auto inferred_layout =
+        preseg_passes::inferenceAllocationOrder(&fusion);
     EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 0, 2, 3));
     EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0, 2, 3));
   }
@@ -129,7 +131,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
     tv1->setAllocationDomain(tv1_format, true);
 
-    const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+    const auto inferred_layout =
+        preseg_passes::inferenceAllocationOrder(&fusion);
     EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 1, 3));
     EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0, 2, 3));
   }
