@@ -116,8 +116,8 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   std::unordered_map<const TensorView*, AllocationOrder> stride_mapping =
       inferenceAllocationOrder(fusion);
 
-  for (auto out_val : fusion->outputs()) {
-    auto out_tv = dynamic_cast<TensorView*>(out_val);
+  for (Val* out_val : fusion->outputs()) {
+    auto* out_tv = dynamic_cast<TensorView*>(out_val);
     // skip:
     //   1. non-tensor output;
     //   2. tensor output with allocation specified, assuming everything is
@@ -138,7 +138,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     auto rank = rfactor_dom.size();
     std::vector<IterDomain*> allocation_domain(rank, nullptr);
     for (auto i : c10::irange(rank)) {
-      allocation_domain.at(i) = rfactor_dom.at(mapped_entry->second.at(i));
+      allocation_domain[i] = rfactor_dom.at(mapped_entry->second.at(i));
     }
     out_tv->setAllocationDomain(allocation_domain, true);
   }
