@@ -243,6 +243,9 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
     for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
          i++) {
       Expr* to_replay = *i;
+      // TODO(wujingyue): instead of an op-type dispatch, try a more general
+      // approach suggested by @jacobhinkle:
+      // https://github.com/NVIDIA/Fuser/pull/1782#discussion_r1496123087.
       if (to_replay->isA<LoadStoreOp>()) {
         auto* set_out = to_replay->output(0)->as<TensorView>();
         std::vector<int64_t> permutation = *ir_utils::computePermutation(
