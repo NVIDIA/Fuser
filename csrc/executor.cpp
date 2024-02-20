@@ -332,31 +332,6 @@ void FusionExecutor::compileFusion(
 
   kir::Kernel* kernel = lowered_->kernel();
 
-  const kir::KernelSummary& kernel_summary = kernel->summary();
-
-  // TODO: this replicates the target GPU version computation from
-  // executor_utils.
-  std::pair<int, int> target_arch;
-  bool compile_to_sass = false;
-  executor_utils::queryTargetGPUVersion(
-      properties,
-      std::ref(target_arch.first),
-      std::ref(target_arch.second),
-      compile_to_sass);
-
-  NVF_CHECK(
-      target_arch >= kernel_summary.min_device_version,
-      "Target compute capability is ",
-      target_arch.first,
-      ".",
-      target_arch.second,
-      " but this fusion requires at least ",
-      kernel_summary.min_device_version.first,
-      ".",
-      kernel_summary.min_device_version.second,
-      ". Reason: ",
-      kernel_summary.min_device_version_reason);
-
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
@@ -403,6 +378,31 @@ void FusionExecutor::compileFusion(
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
+
+  const kir::KernelSummary& kernel_summary = kernel->summary();
+
+  // TODO: this replicates the target GPU version computation from
+  // executor_utils.
+  std::pair<int, int> target_arch;
+  bool compile_to_sass = false;
+  executor_utils::queryTargetGPUVersion(
+      properties,
+      std::ref(target_arch.first),
+      std::ref(target_arch.second),
+      compile_to_sass);
+
+  NVF_CHECK(
+      target_arch >= kernel_summary.min_device_version,
+      "Target compute capability is ",
+      target_arch.first,
+      ".",
+      target_arch.second,
+      " but this fusion requires at least ",
+      kernel_summary.min_device_version.first,
+      ".",
+      kernel_summary.min_device_version.second,
+      ". Reason: ",
+      kernel_summary.min_device_version_reason);
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
