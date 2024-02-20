@@ -21,7 +21,6 @@
 
 namespace nvfuser {
 
-using testing::_;
 using testing::ElementsAre;
 
 using AllocationOrderInferenceTest = NVFuserTest;
@@ -40,8 +39,8 @@ TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  auto updated_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(updated_layout[tv1], ElementsAre(0, 2, 3, 1));
+  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+  EXPECT_THAT(inferred_layout.at(tv1), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
