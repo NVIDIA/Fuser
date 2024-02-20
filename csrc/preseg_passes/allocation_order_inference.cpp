@@ -113,16 +113,16 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
 
   for (auto i : c10::irange(out_rank)) {
     if (op->isBroadcastDim(i)) {
-      alloc_domain.push_back(out->getMaybeRFactorDomain[i]);
+      alloc_domain.push_back(out->getMaybeRFactorDomain()[i]);
     }
   }
 
-  for (auto index : iter->second[i]) {
-    alloc_domain.push_back(out_roo_domain.at(index));
+  for (auto index : iter->second) {
+    alloc_domain.push_back(out_root_domain.at(index));
   }
 
   alloc_order_map_[out] = ir_utils::computePermutation(
-      TensorDomain::noReductions(out->getMaybeRFactorDomain());
+      TensorDomain::noReductions(out->getMaybeRFactorDomain()),
       alloc_domain);
 }
 
