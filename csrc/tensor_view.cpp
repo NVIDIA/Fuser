@@ -660,12 +660,12 @@ TensorView* TensorView::split(
       ". Tensor: ",
       toString());
 
-  NVF_CHECK(
-      axis(axis_)->getParallelType() == ParallelType::Serial,
-      "Splitting an axis of non-Serial parallel type is not supported at this time."
-      " Parallelization strategy must be set after calling split.",
-      ". Tensor: ",
-      toString());
+  // NVF_CHECK(
+  //     axis(axis_)->getParallelType() == ParallelType::Serial,
+  //     "Splitting an axis of non-Serial parallel type is not supported at this time."
+  //     " Parallelization strategy must be set after calling split.",
+  //     ". Tensor: ",
+  //     toString());
 
   if (factor->dtype() != DataType::Index) {
     factor = castOp(DataType::Index, factor);

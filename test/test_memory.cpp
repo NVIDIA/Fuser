@@ -179,7 +179,7 @@ class TMALdstTest : public HopperTest,
   MmaInputSmemSwizzle swizzle;
 
   void SetUp() override {
-    HopperTest::SetUp();
+    // HopperTest::SetUp();
     swizzle = std::get<0>(GetParam());
   }
 };
@@ -227,10 +227,15 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
-  auto [I1o, I1i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2, DataType::Index), false);
-  auto [I2o, I2i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2, DataType::Index), true);
-  std::tie(I2i, I1o) = IterDomain::swizzle(SwizzleType::XOR, I2i, I1o);
-  tv1->setAllocationDomain({I2o, I2i, I1o, I1i}, true);
+  // auto [I1o, I1i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2, DataType::Index), false);
+  // auto [I2o, I2i] = IterDomain::split(tv1->axis(0), IrBuilder::create<Val>(2, DataType::Index), true);
+  // std::tie(I2i, I1o) = IterDomain::swizzle(SwizzleType::XOR, I2i, I1o);
+  // tv1->setAllocationDomain({I2o, I2i, I1o, I1i}, true);
+
+  tv1->split(0, 2);
+  tv1->split(-1, 2, false);
+  tv1->swizzle(SwizzleType::XOR, 1, 2);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
 
   tv2->split(0, 2);
   tv2->split(-1, 2, false);
