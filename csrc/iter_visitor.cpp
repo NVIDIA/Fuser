@@ -876,7 +876,7 @@ void StmtSort::dispatch(Statement* stmt) {
 }
 
 std::vector<Expr*> StmtSort::getExprs(
-    Fusion* fusion,
+    const Fusion* fusion,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {

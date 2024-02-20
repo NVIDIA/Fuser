@@ -41,8 +41,8 @@ def test_reduction_benchmark(
         reduction_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     if not disable_validation:
-        eager_output = torch.sum(inputs[0], dim=reduction_axis)
-        fd.validate(inputs, [eager_output])
+        eager_output = torch.sum(inputs[0].to(torch.double), dim=reduction_axis)
+        fd.validate(inputs, [eager_output.to(dtype)])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
