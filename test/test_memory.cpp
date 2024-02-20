@@ -227,6 +227,15 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
+  auto [I1o, I1i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2), false);
+  auto [I2o, I2i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2), true);
+  std::tie(I2i, I1o) = IterDomain::swizzle(SwizzleType::XOR, I2i, I1o);
+  tv1->setAllocationDomain({I2o, I2i, I1o, I1i}, true);
+
+  tv2->split(0, 2);
+  tv2->split(-1, 2, false);
+  tv2->swizzle(1, 2, SwizzleType::XOR);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto inner_dim_size =
       getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
