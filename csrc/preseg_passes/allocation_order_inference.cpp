@@ -10,7 +10,7 @@
 #include <iter_visitor.h>
 #include <preseg_passes/allocation_order_inference.h>
 
-namespace nvfuser {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -112,4 +112,4 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
   return alloc_order_map;
 }
 
-} // namespace nvfuser
+} // namespace nvfuser::preseg_passes
