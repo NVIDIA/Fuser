@@ -15,16 +15,12 @@ namespace nvfuser::preseg_passes {
 namespace {
 
 int countNonBroadcastID(const TensorView* tv) {
-  int count = 0;
-  std::for_each(
+  return std::count_if(
       tv->getMaybeRFactorDomain().begin(),
       tv->getMaybeRFactorDomain().end(),
       [&](auto ptr_id) {
-        if (!ptr_id->isBroadcast()) {
-          ++count;
-        }
+        return !ptr_id->isBroadcast();
       });
-  return count;
 }
 
 class AllocationOrderInferencer : public IterVisitor {
@@ -69,7 +65,7 @@ class AllocationOrderInferencer : public IterVisitor {
 
 // UnaryOp propagation forward allocation order from input to output
 void AllocationOrderInferencer::handle(UnaryOp* op) {
-  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
@@ -89,12 +85,12 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
 //
 //   In the event of a tie, we'll just propagate the allocation order of lhs.
 void AllocationOrderInferencer::handle(BinaryOp* op) {
-  TensorView* out = dynamic_cast<TensorView*>(op->out());
+  auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
-  TensorView* lhs = dynamic_cast<TensorView*>(op->lhs());
-  TensorView* rhs = dynamic_cast<TensorView*>(op->rhs());
+  auto* lhs = dynamic_cast<TensorView*>(op->lhs());
+  auto* rhs = dynamic_cast<TensorView*>(op->rhs());
   if (lhs == nullptr) {
     // propagate rhs when lhs is not a tensor
     // Note: rhs could also be non-tensor, which we'll just skip setting
