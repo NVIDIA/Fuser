@@ -232,10 +232,11 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
       getBytesFromSwizzle(swizzle) / dataTypeSize(tv0->dtype());
   // auto t0 = at::arange(32 * inner_dim_size, options).view({32,
   // inner_dim_size});
-  auto t0 = at::arange(32, options)
-                .view({32, 1})
-                .expand({32, inner_dim_size})
-                .contiguous();
+  auto t0 = at::arange(32 * 2, options)
+                .view({32 * 2, 1})
+                .expand({32 * 2, inner_dim_size / 2})
+                .contiguous()
+                .view({32, inner_dim_size});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
