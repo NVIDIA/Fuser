@@ -8,8 +8,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <root_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -121,7 +121,8 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
 
   // step 1: compute root domain map
   auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
-  const auto& in_root_domain = TensorDomain::noReductions(in->getMaybeRFactorDomain());
+  const auto& in_root_domain =
+      TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
   // step 2: push each mapped iterdomain
   for (auto index : iter->second) {
@@ -130,10 +131,11 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
 
   // step 3: compute permutatoin
   std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-      TensorDomain::noReductions(out->getMaybeRFactorDomain()),
-      alloc_domain);
+      TensorDomain::noReductions(out->getMaybeRFactorDomain()), alloc_domain);
 
-  NVF_ERROR(permutation.has_value(), "allocation order propagation on broadcast op failed to compute valid permutation");
+  NVF_ERROR(
+      permutation.has_value(),
+      "allocation order propagation on broadcast op failed to compute valid permutation");
   alloc_order_map_[out] = permutation.value();
 }
 
