@@ -252,7 +252,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
                 .contiguous()
                 .view({32, inner_dim_size});
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32, 255, false});
   auto cg_outputs = fe.runFusion({t0});
 
   std::cout << cg_outputs[0] << std::endl;
