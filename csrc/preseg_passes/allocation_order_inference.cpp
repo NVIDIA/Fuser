@@ -10,7 +10,7 @@
 #include <iter_visitor.h>
 #include <preseg_passes/allocation_order_inference.h>
 
-namespace nvfuser {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -144,4 +144,4 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser
+} // namespace nvfuser::preseg_passes

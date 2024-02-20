@@ -10,7 +10,7 @@
 #include <fusion.h>
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser {
+namespace nvfuser::preseg_passes {
 
 // allocation order is the permutation to apply on a tensor view's rfactor
 // domain to its allocation domain.
@@ -38,4 +38,4 @@ class AllocationDomainPass : public OptimizationPass<AllocationDomainPass> {
   static void runPass(Fusion* fusion);
 };
 
-} // namespace nvfuser
+} // namespace nvfuser::preseg_passes
