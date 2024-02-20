@@ -9,7 +9,7 @@
 
 #include <fusion.h>
 
-namespace nvfuser {
+namespace nvfuser::preseg_passes {
 
 // allocation order is the permutation to apply on a tensor view's rfactor
 // domain to its allocation domain.
@@ -29,4 +29,4 @@ using AllocationOrder = std::vector<int64_t>;
 std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion);
 
-} // namespace nvfuser
+} // namespace nvfuser::preseg_passes
