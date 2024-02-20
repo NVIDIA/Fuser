@@ -227,8 +227,8 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->axis(0)->parallelize(ParallelType::Bulk);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
-  auto [I1o, I1i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2), false);
-  auto [I2o, I2i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2), true);
+  auto [I1o, I1i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2, DataType::Index), false);
+  auto [I2o, I2i] = IterDomain::split(tv1->axis(1), IrBuilder::create<Val>(2, DataType::Index), true);
   std::tie(I2i, I1o) = IterDomain::swizzle(SwizzleType::XOR, I2i, I1o);
   tv1->setAllocationDomain({I2o, I2i, I1o, I1i}, true);
 
