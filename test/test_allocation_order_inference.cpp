@@ -21,7 +21,6 @@
 
 namespace nvfuser {
 
-using testing::_;
 using testing::ElementsAre;
 
 using AllocationOrderInferenceTest = NVFuserTest;
