@@ -121,9 +121,12 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     alloc_domain.push_back(out_root_domain.at(index));
   }
 
-  alloc_order_map_[out] = ir_utils::computePermutation(
+  std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
       TensorDomain::noReductions(out->getMaybeRFactorDomain()),
       alloc_domain);
+
+  NVF_ERROR(permutation.has_value(), "allocation order propagation on broadcast op failed to compute valid permutation");
+  alloc_order_map_[out] = permutatoin.value();
 }
 
 } // namespace
