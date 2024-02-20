@@ -105,32 +105,25 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
   if (iter == alloc_order_map_.end()) {
     return;
   }
-  AllocationOrder out_order;
-  auto out_rank = static_cast<int64_t>(out->nDims());
 
-  int broadcast_seen_so_far = 0;
-  std::vector<int64_t> offset_table(in->nDims(), 0);
-  int offset_entry = 0;
+  const auto& out_root_domain = TensorDomain::noReductions(out->getRootDomain());
+  size_t out_rank = out->nDims();
+  std::vector<IterDomain*> alloc_domain;
+  alloc_domain.reserve(out_rank);
 
   for (auto i : c10::irange(out_rank)) {
     if (op->isBroadcastDim(i)) {
-      broadcast_seen_so_far++;
-      // broadcast dimensions are default to outer dimensions
-      // see note 2.a
-      out_order.push_back(i);
-    } else {
-      // adjusting entry point by recording index compensation
-      // i.e. broadcast dimensions inserted on the left of the old iterdomain
-      // see note 2.b
-      offset_table[offset_entry++] = broadcast_seen_so_far;
+      alloc_domain.push_back(out->getMaybeRFactorDomain[i]);
     }
   }
 
-  for (auto i : c10::irange(in->nDims())) {
-    auto order_entry = iter->second[i];
-    out_order.push_back(order_entry + offset_table[order_entry]);
+  for (auto index : iter->second[i]) {
+    alloc_domain.push_back(out_roo_domain.at(index));
   }
-  alloc_order_map_[out] = out_order;
+
+  alloc_order_map_[out] = ir_utils::computePermutation(
+      TensorDomain::noReductions(out->getMaybeRFactorDomain());
+      alloc_domain);
 }
 
 } // namespace
