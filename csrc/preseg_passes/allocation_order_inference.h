@@ -30,9 +30,7 @@ using AllocationOrder = std::vector<int64_t>;
 std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion);
 
-// Realize MemoryFormat propagation on fusion inputs to optimize MemoryFormat of
-// output tensor. This optimization pass currently only applies to fusion
-// outputs, but not intermediate tensors.
+// Realize allocation order propagation on fusion inputs to optimize allocation domain of output tensor. This optimization pass currently only applies to fusion outputs, but not intermediate tensors.
 class AllocationDomainPass : public OptimizationPass<AllocationDomainPass> {
   friend class OptimizationPass<AllocationDomainPass>;
 

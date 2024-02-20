@@ -112,9 +112,9 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
   return alloc_order_map;
 }
 
-void LayoutOptimizationPass::runPass(Fusion* fusion) {
-  std::unordered_map<const TensorView*, MemoryFormat> stride_mapping =
-      inferenceMemoryFormat(fusion);
+void AllocationDomainPass::runPass(Fusion* fusion) {
+  std::unordered_map<const TensorView*, AllocationOrder> stride_mapping =
+      inferenceAllocationOrder(fusion);
 
   for (auto out_val : fusion->outputs()) {
     auto out_tv = dynamic_cast<TensorView*>(out_val);

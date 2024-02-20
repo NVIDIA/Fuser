@@ -26,7 +26,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
-  OptimizationPass<LayoutOptimizationPass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
