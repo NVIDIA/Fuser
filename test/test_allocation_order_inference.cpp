@@ -45,7 +45,7 @@ TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  auto updated_layout = inferenceAllocationOrder(&fusion);
+  auto updated_layout = preseg_passes::inferenceAllocationOrder(&fusion);
   EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
   EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
 }
