@@ -866,7 +866,7 @@ void IdModel::buildAllGraphs() {
   // supported currently (but work with IdModel). Make sure the
   // validator is only created when it is indeed requested
   if (validate_) {
-    validator = std::make_unique<IdModelValidator>(fusion);
+    validator = std::make_unique<IdModelValidator>(fusion, allow_self_mapping_);
   }
 
   FusionGuard fg(fusion);
