@@ -17,7 +17,7 @@ namespace nvfuser {
 // have private access
 class IdModelValidator {
  public:
-  IdModelValidator(Fusion* fusion);
+  IdModelValidator(Fusion* fusion, bool allow_self_mapping = false);
 
   // Validate a given exact graph of IdModel by comparing it with
   // ComputeAtMap. Their maps should

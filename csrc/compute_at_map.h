@@ -185,7 +185,7 @@ class ComputeAtMap {
   ComputeAtMap& operator=(const ComputeAtMap&) = delete;
   ComputeAtMap(ComputeAtMap&&) = default;
   ComputeAtMap& operator=(ComputeAtMap&&) = default;
-  ComputeAtMap(Fusion* fusion);
+  ComputeAtMap(Fusion* fusion, bool allow_self_mapping = false);
 
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
