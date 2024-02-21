@@ -484,13 +484,13 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  // if (swizzle != MmaInputSmemSwizzle::None) {
-  //   for (auto tv : {tv1, tv2}) {
-  //     tv->merge(0);
-  //     scheduleTMASwizzle(tv, swizzleSize());
-  //   }
-  //   tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  // }
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);
   }
