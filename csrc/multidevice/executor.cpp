@@ -22,7 +22,7 @@ namespace {
 // copy the fusion and replace the original outputs to the ones given as
 // argument returns the copied fusion and a copy-to-original Vals map
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(Fusion* fusion, const std::set<Val*>& outputs) {
+copyFusionAndChangeOutputs(Fusion* fusion, const std::vector<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
@@ -66,7 +66,7 @@ copyFusionAndChangeOutputs(Fusion* fusion, const std::set<Val*>& outputs) {
 // be reimplemented
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
-  std::set<Val*> vals_to_allocate;
+  std::vector<Val*> vals_to_allocate;
   for (auto group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
@@ -76,7 +76,7 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate.insert(val);
+        vals_to_allocate.push_back(val);
       }
     }
   }
