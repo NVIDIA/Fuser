@@ -19,6 +19,8 @@
 #include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
 #include <utils.h>
+#include <visibility.h>
+
 namespace nvfuser {
 
 class SegmentedGroup;
@@ -57,7 +59,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
-  SchedulerRuntimeInfo(
+  NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const at::ArrayRef<c10::IValue>& aten_inputs);
 
@@ -138,7 +140,7 @@ class SchedulerEntry {
   //! Fusion runtime facing API,
   //!   builds a new entry with the given heuristics
   //!   corresponding to the given fusion
-  static std::unique_ptr<SchedulerEntry> makeEntry(
+  NVF_API static std::unique_ptr<SchedulerEntry> makeEntry(
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
@@ -148,7 +150,7 @@ class SchedulerEntry {
 
   //! External access for canSchedule utilities through SchedulerEntry
   //!  to avoid exposing a single function to the namespace
-  static bool canSchedule(
+  NVF_API static bool canSchedule(
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,

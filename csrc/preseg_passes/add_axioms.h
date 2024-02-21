@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <preseg_passes/optimization_pass.h>
+#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -14,7 +15,7 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
   friend class OptimizationPass<AddAxiomsPass>;
 
  protected:
-  static void runPass(Fusion* fusion);
+  NVF_API static void runPass(Fusion* fusion);
 };
 
 } // namespace nvfuser::preseg_passes

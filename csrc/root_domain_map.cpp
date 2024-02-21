@@ -437,22 +437,50 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
     // Input domains to the reduction domain
     const auto& input_keys = reduction_domain_inputs_.at(reduction_domain);
     // Check if any of the consumer domains is an input to the
-    // reduction
+    // reduction or is mapped with the reduction input domains
     auto it = std::find_if(
         consumer_domains.begin(),
         consumer_domains.end(),
         [&](const auto& consumer_domain) {
-          return std::find(
-                     input_keys.begin(), input_keys.end(), consumer_domain) !=
+          bool is_reduction_input =
+              std::find(
+                  input_keys.begin(), input_keys.end(), consumer_domain) !=
               input_keys.end();
+          if (is_reduction_input) {
+            return true;
+          }
+          bool is_mapped_with_reduction_input = std::any_of(
+              input_keys.begin(), input_keys.end(), [&](const auto& input_key) {
+                // canMap check requires concretized IDs for broadcast domain.
+                // For example, in softmax there are two consecutive
+                // reductions, one of the inputs to the 2nd reduction has a
+                // broadcast domain and it is not concretized until its
+                // consumer is visited where it will be concretized to its
+                // consumer's non-broadcast domain.
+                // Note that, the analaysis can only make a decision based on
+                // the current visited exprs. If the skipped tensor turns out
+                // to be an input to reduction domain and also used by the
+                // consumers, it becomes a persistent tensor.
+                if (input_key.id()->isBroadcast()) {
+                  if (!root_map.isConcretized(input_key.td(), input_key.id())) {
+                    return false;
+                  }
+                }
+                return root_map.canMap(
+                    consumer_domain.td(),
+                    consumer_domain.id(),
+                    input_key.td(),
+                    input_key.id());
+              });
+          return is_mapped_with_reduction_input;
         });
-    // None of the consumer domains is used for the reduction
-    // domain. They should be safe with respect to this reduction
-    // domain
+
+    // None of the consumer domains is used for the reduction.
+    // None of the consumer domains is mapped with the reduction input domains.
+    // Safe to map.
     if (it == consumer_domains.end()) {
       continue;
     }
-
     // A consumer domain that is an input to the reduction domain
     const DomainKey& input_to_reduction = *it;
 
@@ -667,6 +695,14 @@ std::unordered_set<const IterDomain*>& ComputeAtRootDomainMap::
   auto it = bcast_map_.find(key);
   NVF_ERROR(it != bcast_map_.end(), "Not found: ", key.toString());
   return it->second;
+}
+
+bool ComputeAtRootDomainMap::isConcretized(
+    const TensorDomain* td,
+    const IterDomain* id) const {
+  DomainKey key(td, id);
+  auto it = bcast_map_.find(key);
+  return it != bcast_map_.end();
 }
 
 std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::

@@ -7,12 +7,11 @@
 // clang-format on
 #include <test/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <ops/all_ops.h>
 
 #include <regex>
 #include <sstream>
+#include <string>
 #include <string_view>
 
 namespace nvfuser {
