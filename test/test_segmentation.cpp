@@ -227,4 +227,31 @@ TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(SegmentationTest, InputForwardingViaUnaryOps) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3}, DataType::BFloat16);
+  TensorView* out = castOp(DataType::Float, in);
+  out = neg(out);
+  out = sin(out);
+  out = add(out, IrBuilder::create<Val>(1.0f, DataType::Float));
+  // This `segment_set` is needed to trigger input forwarding. Otherwise, the
+  // whole fusion will be accepted by pointwise.
+  out = segment_set(out);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
+}
+
 } // namespace nvfuser

@@ -3889,10 +3889,13 @@ void SegmentCandidateFinder::forwardInputs() {
       } else {
         // If there are either no more uses, more than one use, or one use that
         // is not a UnaryOp, then we cannot extend the chain of unary Ops. In
-        // these cases we finalize this chain by saving the uop and its output.
-        excluded_inp_unary_exprs_.pushBack(uop);
+        // these cases we finalize this chain by saving its output as a
+        // forwarded input.
         forwarded_inputs.pushBack(uop->out());
       }
+      // Either way, `uop` is excluded from merging until `resolveInputsInGroup`
+      // adds it back to one of the segments.
+      excluded_inp_unary_exprs_.pushBack(uop);
     }
   }
 
