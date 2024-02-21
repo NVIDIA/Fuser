@@ -174,9 +174,9 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 class TMATest : public NVFuserTest {
  protected:
   void SetUp() override {
-    // if (cudaArchGuardShouldSkip(9, 0)) {
-    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    // }
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
     NVFuserTest::SetUp();
   }
 };
@@ -497,14 +497,12 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::arange(32 * innerDimSize(), options).view({32, innerDimSize()});
+  auto t0 = at::randn({32, innerDimSize()}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
-  // std::cout << "t0:\n" << t0 << std::endl;
-  // std::cout << "cg_outputs:\n" << cg_outputs[0] << std::endl;
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
