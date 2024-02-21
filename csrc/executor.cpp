@@ -1231,9 +1231,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
           "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
     }
 
-    if (grouped_iter_factor > 1) {
-      std::cout << "grouped_iter_factor: " << grouped_iter_factor << std::endl;
-    }
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *

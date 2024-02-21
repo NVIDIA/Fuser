@@ -2698,10 +2698,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto num_grouped_exprs = grouped_rop->numHorizontallyGroupedExprs();
 
-    std::cout << "GroupedReductionOp: num_grouped_iterations= "
-              << num_grouped_iterations
-              << ", num_grouped_exprs= " << num_grouped_exprs << std::endl;
-
     // special version where only iteration is grouped.
     // used for outer reduction with vectorized iteration domain.
     if (num_grouped_iterations > 1 && num_grouped_exprs == 1) {

@@ -129,8 +129,6 @@ class KernelIrScanner : private IrVisitor {
     }
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
-    std::cout << "GroupedReductionOp num_grouped_iterations= "
-              << num_grouped_iterations << std::endl;
   }
 
   void handle(GridWelford* grid_welford) final {
