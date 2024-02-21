@@ -597,17 +597,7 @@ TensorView* matmul(
     TensorView* a,
     TensorView* b,
     MmaLayout layout,
-    bool turing_or_later, // TODO: This is a temporary solution. Remove this!
     bool as_mul_sum = false);
-
-// Generic interface to get splitK-like batched matmul op with the given layout.
-// For splitK like batched matmul, there is only one batch dimension, and that
-// dimension should be right before the K dimension. This function currently
-// assume Ampere or Turing.
-TensorView* splitkLikeBatchedMatmul(
-    TensorView* a,
-    TensorView* b,
-    MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
@@ -656,6 +646,14 @@ at::Tensor matmulAtInput2D(
     const int K,
     const int B = 0,
     const int device = 0);
+
+// Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
+// insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
+// tensor view can be directly used as input to fusedMultiplySum.
+TensorView* canonicalizeInputToBMNK(
+    TensorView* tv,
+    MmaLayout layout,
+    MmaOperand operand);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
   if (at::cuda::getDeviceProperties(device_idx)->sharedMemPerBlockOptin <   \

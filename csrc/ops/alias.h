@@ -75,9 +75,20 @@ NVF_API TensorView* unsqueeze(TensorView* x, int dim);
 //! new to old positions. Positions are relative to the noReduction
 //! domain.
 //!
-//! \param inp Tensor to transpose
+//! \param x Tensor to transpose
 //! \param new2old vector mapping from new to old positions.
 NVF_API TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old);
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<int64_t>& new2old);
+
+//! Same as above, but with the TensorView::reorder-like API.
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::unordered_map<int, int>& old2new);
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<std::pair<const int, int>>& new2old);
 
 //! Transpose a tensor by swapping the two dimensions.
 NVF_API TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);

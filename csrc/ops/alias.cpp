@@ -308,6 +308,12 @@ TensorView* unsqueeze(TensorView* x, int dim) {
   return broadcast(x, broadcast_axes);
 }
 
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<int64_t>& new2old) {
+  return permute(x, std::vector<int64_t>(new2old));
+}
+
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   if (new2old.empty()) {
@@ -352,6 +358,21 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       x->getDataType().value());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<std::pair<const int, int>>& new2old) {
+  return permute(x, std::unordered_map<int, int>(new2old));
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::unordered_map<int, int>& old2new) {
+  auto y = set(x);
+  y->reorder(old2new);
+  y->commitLeafToRFactor();
+  return y;
 }
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {

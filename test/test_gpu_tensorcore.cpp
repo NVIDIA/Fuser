@@ -72,7 +72,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -133,7 +133,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -198,7 +198,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      auto tv2 = matmul(tv0, tv1, layout);
 
       fusion.addOutput(tv2);
 
@@ -270,7 +270,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -393,7 +393,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      auto tv2 = matmul(tv0, tv1, layout);
 
       fusion.addOutput(tv2);
 
@@ -1080,7 +1080,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -1763,7 +1763,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -1824,7 +1824,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -1887,7 +1887,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         fusion.addInput(tv0);
         fusion.addInput(tv1);
 
-        auto tv2 = matmul(tv0, tv1, layout, true);
+        auto tv2 = matmul(tv0, tv1, layout);
 
         fusion.addOutput(tv2);
 
@@ -1965,7 +1965,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           fusion.addInput(tv0);
           fusion.addInput(tv1);
 
-          auto tv2 = matmul(tv0, tv1, layout, true);
+          auto tv2 = matmul(tv0, tv1, layout);
 
           fusion.addOutput(tv2);
 
@@ -2038,7 +2038,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      auto tv2 = matmul(tv0, tv1, layout);
 
       fusion.addOutput(tv2);
 
@@ -2105,7 +2105,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -2156,7 +2156,7 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -2209,7 +2209,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -2351,7 +2351,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
     auto tv3 = castOp(DataType::Half, tv2);
 
     fusion.addOutput(tv3);
@@ -2449,7 +2449,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
     auto tv3 = relu(tv2);
 
     fusion.addOutput(tv3);
@@ -2553,7 +2553,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -2615,7 +2615,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
+    auto tv3 = matmul(tv0, tv1, layout);
     auto tv4 = broadcast(tv2, {false, true});
     auto tv5 = add(tv3, tv4); // bias
 
@@ -2677,7 +2677,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion.addOutput(tv2);
 
@@ -2740,7 +2740,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
+    auto tv3 = matmul(tv0, tv1, layout);
     auto tv4 = broadcast(tv2, {true, false, true});
     auto tv5 = add(tv3, tv4);
 
