@@ -14,7 +14,6 @@
 #include <transform_iter.h>
 
 #include <tuple>
-#include <typeinfo>
 
 namespace nvfuser {
 namespace {

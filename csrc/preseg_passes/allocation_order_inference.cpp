@@ -60,7 +60,7 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
   if (out == nullptr) {
     return;
   }
-  TensorView* in = op->in()->as<TensorView>();
+  auto* in = op->in()->as<TensorView>();
   propagateAllocationOrder(in, out);
 }
 

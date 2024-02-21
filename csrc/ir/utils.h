@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <algorithm>
 #include <iterator>
@@ -212,7 +213,10 @@ std::vector<int> normalizeOld2New(
 //! Warning: Invalidates provided Expr.
 //! Warning: Removes connection of reference through provided Expr.
 //! Warning: Creates new Expr defining substitute.
-Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
+NVF_API Expr* replaceValInExprInputs(
+    Expr* expr,
+    Val* reference,
+    Val* substitute);
 
 //! Replace old_val with new_val in all active uses as well as in fusion
 //! outputs.
@@ -242,7 +246,9 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes);
+NVF_API TensorView* rfactorHelper(
+    TensorView* red_tv,
+    const std::vector<int>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.
@@ -302,7 +308,7 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> producerTvsOf(const TensorView* tv);
+NVF_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 
 // Return immediate consumers of tv, this function will return all immediate
 // consumers of tv through Exprs.
@@ -312,7 +318,7 @@ std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
+NVF_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 
 // Return immediate siblings of tv, this function will return all immediate
 // siblings of tv through Exprs.
@@ -357,7 +363,7 @@ std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
 // returns all tensor views in fusion that are used between outputs and inputs.
-std::vector<TensorView*> allTvs(Fusion* fusion);
+NVF_API std::vector<TensorView*> allTvs(Fusion* fusion);
 
 // returns all tensor views used in the provided expressions
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
@@ -365,7 +371,7 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
 
 // returns all tensor views in fusion that are used between outputs and inputs
 // except the specified set.
-std::vector<TensorView*> allTvsExcept(
+NVF_API std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except);
 
@@ -376,7 +382,7 @@ Val* getReductionInitValOf(TensorView* tv);
 bool isReductionOp(const Expr*);
 
 // Returns if Expr is a reduction op with TensorView or TensorIndex
-bool isReductionTvOp(const Expr*);
+NVF_API bool isReductionTvOp(const Expr*);
 
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 bool isPointwiseTvOp(const Expr* expr);
@@ -470,7 +476,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! also an error if both a producer and consumer ID are included in
 //! ids as they partially have the same dependency with the initial
 //! domain.
-void validateDomainEquivalence(
+NVF_API void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
@@ -530,16 +536,16 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
 
 //! Check and return a cycle found in fusion, search starts from `to` and ends
 //! at `from`
-std::vector<Statement*> checkCycle(
+NVF_API std::vector<Statement*> checkCycle(
     Fusion* fusion,
     const std::unordered_set<Statement*>& from,
     const std::vector<Val*>& to);
 
 //! Check and return a cycle found in fusion
-std::vector<Statement*> checkCycle(Fusion* fusion);
+NVF_API std::vector<Statement*> checkCycle(Fusion* fusion);
 
 //! Check if a Val is a tensor size;
-bool isTensorSize(const Val* val);
+NVF_API bool isTensorSize(const Val* val);
 
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);

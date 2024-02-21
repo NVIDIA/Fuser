@@ -50,10 +50,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <sstream>
-#include <thread>
-#include <typeinfo>
 
 namespace nvfuser {
 
@@ -1841,8 +1838,15 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
 
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0, t1}));
+    ASSERT_THAT(
+        [&]() {
+          fe.compileFusion(&fusion, {t0, t1});
+        },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0, t1});
   }
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
@@ -1880,8 +1884,13 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
 
   FusionExecutor fe;
   if (!deviceMajorMinorCheck(8)) {
-    ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
+    ASSERT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
   }
 
   fe.compileFusion(&fusion, {t0});
@@ -3754,14 +3763,11 @@ TEST_F(NVFuserTest, FusionMatchedLeafPosWithoutReplayBroadcast_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionPrint_CUDA) {
-  auto dtypes = {
-      at::kFloat,
-      at::kDouble,
-      at::kHalf,
-      at::kBFloat16,
-      at::kInt,
-      at::kLong,
-      at::kBool};
+  std::vector<at::ScalarType> dtypes = {
+      at::kFloat, at::kDouble, at::kHalf, at::kInt, at::kLong, at::kBool};
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    dtypes.push_back(at::kBFloat16);
+  }
   for (auto dtype : dtypes) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -3830,10 +3836,11 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   }
 
   {
-    EXPECT_THAT(
+    ASSERT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("Conflicting sizes")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }
 
@@ -4190,12 +4197,6 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // requires ampere+ GPU
-  if (!deviceMajorMinorCheck(8)) {
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-    return;
-  }
-
   auto tv0 = makeContigTensor(1);
 
   fusion.addInput(tv0);
@@ -4248,7 +4249,17 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
   pred_checker.handle(gpulw.run()->topLevelExprs());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {input1});
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    ASSERT_THAT(
+        [&]() { fe.compileFusion(&fusion, {input1}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {input1});
+  }
+
   auto cg_outputs = fe.runFusion({input1});
 
   testValidate(&fusion, cg_outputs, {input1}, __LINE__, __FILE__);
@@ -5697,7 +5708,6 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
 
 TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   // Repro for https://github.com/csarofeen/pytorch/issues/2463
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5723,7 +5733,15 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   at::Tensor t0 = at::randn({12800, 8, 8, 8}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  if (!deviceMajorMinorCheck(8)) {
+    ASSERT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
+  }
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
@@ -7136,11 +7154,12 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
 }
 
 TEST_F(NVFuserTest, IsFinite_CUDA) {
-  for (const auto& [nvfuser_dtype, aten_dtype] :
-       std::vector<std::pair<DataType, at::ScalarType>>{
-           {DataType::Float, at::kFloat},
-           {DataType::Half, at::kHalf},
-           {DataType::BFloat16, at::kBFloat16}}) {
+  std::vector<std::pair<DataType, at::ScalarType>> dtypes{
+      {DataType::Float, at::kFloat}, {DataType::Half, at::kHalf}};
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    dtypes.push_back({DataType::BFloat16, at::kBFloat16});
+  }
+  for (const auto& [nvfuser_dtype, aten_dtype] : dtypes) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -7714,7 +7733,6 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto idx = IrBuilder::create<Val>(DataType::Index);
     auto i32 = IrBuilder::create<Val>(DataType::Int32);
     auto b = IrBuilder::create<Val>(DataType::Bool);
-    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
     auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
     auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
     DataType ptr_type =
@@ -7732,7 +7750,6 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     fusion->addInput(idx);
     fusion->addInput(i32);
     fusion->addInput(b);
-    fusion->addInput(bf16);
     fusion->addInput(cf);
     fusion->addInput(cd);
     fusion->addInput(ptr);
@@ -7745,7 +7762,11 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     output = IrBuilder::addExpr(output, idx);
     output = IrBuilder::addExpr(output, i32);
     output = IrBuilder::addExpr(output, b);
-    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+      auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+      fusion->addInput(bf16);
+      output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    }
     output = IrBuilder::addExpr(output, abs(cf));
     output = IrBuilder::addExpr(output, abs(cd));
     output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
@@ -7781,11 +7802,13 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     args.push(9L);
     args.push(10L);
     args.push(true);
-    args.push(12.3);
     args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
     args.push(t2.data_ptr<float>());
     args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+    if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+      args.push(12.3); // bf16
+    }
 
     auto ee = executor_utils::bindInputs(args, fusion.get());
 
@@ -8737,6 +8760,95 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
       }
     }
   }
+}
+
+// Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
+// Needs to check consumer mapped with reduction inputs in
+// isReductionOutputMapped(), otherwise compute at root domain map
+// is wrong then leads to wrong compute at position and finally
+// expr sort failed.
+// After fix, there are two persistent buffers and can be further
+// reduced to one with a following step-2 to fix the issue in resolution
+// points detection.
+TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  // manual project tv2 to input, so tv7 is mapped with tv2.
+  auto tv5 = castOp(DataType::Float, tv0);
+  auto tv6 = div(tv5, tv4);
+  auto tv7 = set(tv1);
+  auto tv8 = add(tv7, tv6);
+  auto tv9 = add(tv2, tv7);
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+
+  // |--5------------------|
+  // 0 -> 2 -> r3 -> b4 -> 6 -> 8    9
+  // 1-------> 7----------------|
+  //           |---------------------|
+  //      |--------------------------|
+  // tv7 has two consumers, tv8 and tv9.
+  // tv8 is a consumer of the reduction output.
+  // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
+  // pre-reduction set through tv2 and tv8 is in the post-reduction set.
+  ComputeAtRootDomainMap root_map;
+  root_map.build();
+  auto shouldMapCheck =
+      [&root_map](TensorView* tva, TensorView* tvb, int axis, bool should_map) {
+        NVF_CHECK(
+            root_map.canMap(
+                tva->domain(),
+                tva->getRootDomain().at(axis),
+                tvb->domain(),
+                tvb->getRootDomain().at(axis)) == should_map,
+            "Expected map between: ",
+            tva->getRootDomain().at(axis),
+            " of ",
+            tva,
+            " and ",
+            tvb->getRootDomain().at(axis),
+            " of ",
+            tvb,
+            " is ",
+            should_map ? "True" : "False",
+            ", but got ",
+            should_map ? "False" : "True");
+      };
+  shouldMapCheck(tv2, tv9, 1, true);
+  shouldMapCheck(tv7, tv8, 1, false);
+  shouldMapCheck(tv7, tv9, 1, false);
+}
+
+// Test that architectures before Ampere give helpful error message if BFloat16
+// is used
+TEST_F(NVFuserTest, UnsupportedBFloat) {
+  if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
+    GTEST_SKIP() << "Requires GPU capability below 8.0 to run.\n";
+  }
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3}, DataType::BFloat16);
+  auto tv1 = set(tv0);
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  FusionExecutor fe;
+  EXPECT_THAT(
+      [&]() { fe.compileFusion(&fusion); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Reason: Fusion contains BFloat16")));
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 

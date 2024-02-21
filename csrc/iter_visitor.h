@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <dispatch.h>
 #include <ir/base_nodes.h>
@@ -35,7 +35,7 @@ class Fusion;
  * would want this, but seems like it would be a reasonable request.
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class IterVisitor : public OptOutDispatch {
+class NVF_API IterVisitor : public OptOutDispatch {
  public:
   ~IterVisitor() override = default;
 
@@ -244,11 +244,13 @@ class BackwardVisitor : public OptOutDispatch {
 class DependencyCheck {
  public:
   // Returns if "dependency" is a dependency of "of".
-  static bool isDependencyOf(Val* dependency, Val* of);
+  NVF_API static bool isDependencyOf(Val* dependency, Val* of);
 
   // Finds a Val* path from "of" to "dependency". Returns that path.
   // deque.back() is "of", deque[0] is dependency if a chain exists.
-  static std::deque<Val*> getSingleDependencyChain(Val* dependency, Val* of);
+  NVF_API static std::deque<Val*> getSingleDependencyChain(
+      Val* dependency,
+      Val* of);
 
   // Finds all Val* paths from "of" to "dependency". Returns those paths.
   // deque[i].back() is "of", and deque[i][0] is "dependency". Returns an
@@ -264,7 +266,7 @@ class DependencyCheck {
 
   // Grab all values that exist between and including provided
   // vals. Returned values are topologicaly ordered, and unique.
-  static std::vector<Val*> getAllValsBetween(
+  NVF_API static std::vector<Val*> getAllValsBetween(
       const std::unordered_set<Val*>& dependencies,
       const std::vector<Val*>& of);
 
@@ -300,14 +302,14 @@ class StmtSort : public IterVisitor {
   // statement list in the fusion. i.e. all IterDomains, extents, and associated
   // expressions of them. Similarly, if traverse_attributes it will
   // grab all nodes associated as Expr attributes.
-  static std::vector<Statement*> getStmts(
+  NVF_API static std::vector<Statement*> getStmts(
       Fusion* fusion,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce 'to', including 'to'.
-  static std::vector<Statement*> getStmtsTo(
+  NVF_API static std::vector<Statement*> getStmtsTo(
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
@@ -330,7 +332,7 @@ class StmtSort : public IterVisitor {
   //
   // If traverse_members it will also extract all member nodes in the sorted
   // expr list in the fusion. i.e. all expressions on IterDomains, extents, etc
-  static std::vector<Statement*> getStmtsBetween(
+  NVF_API static std::vector<Statement*> getStmtsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -345,14 +347,14 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprsTo(
+  NVF_API static std::vector<Expr*> getExprsTo(
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprsBetween(
+  NVF_API static std::vector<Expr*> getExprsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -370,7 +372,7 @@ class InputsOf : public IterVisitor {
   void dispatch(Val* v) final;
 
  public:
-  static std::vector<Val*> output(Val* output_);
+  NVF_API static std::vector<Val*> output(Val* output_);
   static std::vector<Val*> outputs(const std::vector<Val*>& outputs_);
 };
 

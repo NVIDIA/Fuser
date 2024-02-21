@@ -7,21 +7,21 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
 
 namespace nvfuser {
 
-TensorView* select(TensorView* tv, int dim, Val* index);
+NVF_API TensorView* select(TensorView* tv, int dim, Val* index);
 
 // index_select
-TensorView* index_select(TensorView* input, int dim, TensorView* index);
+NVF_API TensorView* index_select(TensorView* input, int dim, TensorView* index);
 
 // torch.gather
-TensorView* torch_gather(TensorView* input, int dim, TensorView* index);
+NVF_API TensorView* torch_gather(TensorView* input, int dim, TensorView* index);
 
 // torch.scatter
 TensorView* scatterOp(
@@ -31,7 +31,7 @@ TensorView* scatterOp(
     TensorView* index,
     TensorView* src);
 
-TensorView* scatter(
+NVF_API TensorView* scatter(
     TensorView* self,
     int dim,
     TensorView* index,
@@ -41,6 +41,9 @@ TensorView* scatter(
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
 //! Note the order of the parameters follows the numpy order, which is
 //! different from torch_gather.
-TensorView* take_along_axis(TensorView* input, TensorView* index, int64_t dim);
+NVF_API TensorView* take_along_axis(
+    TensorView* input,
+    TensorView* index,
+    int64_t dim);
 
 } // namespace nvfuser
