@@ -174,6 +174,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     initStringStreamFormat(code_);
   }
 
+  // aligned array of registers used in the kernel
   std::unordered_set<Val*> aligned_array_of_regs_;
 
   using kir::ConstIrVisitor::handle;
@@ -248,10 +249,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return val_to_name_.at(v);
   }
 
-  // A wrapper around genVariableName that also appends the array suffix if the
-  // variable is an aligned array of registers. This avoid the type mismatch in
-  // template functions when one of the arguments is an aligned array
-  // (Array<T,N>) while another is a regular array T[N].
+  // If the variable is an aligned array, append ".array" to use the reguar
+  // array. This avoid the type mismatch in template functions when one of the
+  // arguments is an aligned array (Array<T,N>) while the other is a regular
+  // array T[N].
   std::string genVarForTemplateFunction(Val* v) {
     TensorView* tv = nullptr;
     if (v->isA<kir::TensorIndex>()) {
@@ -2822,7 +2823,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ">*>(&" << genVariableName(alias_tv)
                  << ");\n";
-        aligned_array_of_regs_.insert(tv);
+        if (alloc->memoryType() == MemoryType::Local) {
+          aligned_array_of_regs_.insert(tv);
+        }
       }
     } else {
       // Standard Memory Allocation
