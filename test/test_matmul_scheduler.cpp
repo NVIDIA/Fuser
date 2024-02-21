@@ -19,7 +19,17 @@
 namespace nvfuser {
 
 namespace {
-class MatmulSchedulerTest : public NVFuserTest {};
+class MatmulSchedulerTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    guard_ = std::make_unique<
+        nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>(
+        false);
+  }
+  std::unique_ptr<
+      nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>
+      guard_;
+};
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
 
@@ -28,7 +38,17 @@ using RelariveError = double;
 using ErrorThresholds = std::pair<AbsoluteError, RelariveError>;
 using TestCaseErrorThresholds = std::map<PrecisionsDesc, ErrorThresholds>;
 class PrecisionParametrizedTest
-    : public NVFuserFixtureParamTest<PrecisionsDesc> {};
+    : public NVFuserFixtureParamTest<PrecisionsDesc> {
+ protected:
+  void SetUp() override {
+    guard_ = std::make_unique<
+        nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>(
+        false);
+  }
+  std::unique_ptr<
+      nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>
+      guard_;
+};
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
   switch (type) {
