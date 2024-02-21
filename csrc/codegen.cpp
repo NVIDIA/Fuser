@@ -2712,7 +2712,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
       return genIterGroupedBlockReduction(
-          num_grouped_iterations,
+          (int)num_grouped_iterations,
           output,
           input,
           grouped_rop->initVal(0),
