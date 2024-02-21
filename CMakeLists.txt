@@ -22,9 +22,18 @@ if (NVFUSER_DISTRIBUTED)
 endif()
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
-if(NOT NVFUSER_CPP_STANDARD)
-  set(NVFUSER_CPP_STANDARD 20)
-endif()
+# We try to update which C++ standard we use together in lockstep across all
+# built libraries, and these variables control which that is. Generally we are
+# on C++20, but we still support a version of CUDA (11) that does not recognize
+# C++20 and so we drop back to 17 there. Also, we allow all of these to be
+# overridden by the user.
+# Note we do not use a global set_property on e.g. CXX_STANDARD. CMake globals
+# are footguns that should generally be avoided, because they are difficult to
+# target where and *only* where they are needed. See e.g.:
+# https://cliutils.gitlab.io/modern-cmake/chapters/intro/dodonot.html
+set(NVFUSER_C_STANDARD 17 CACHE STRING "C standard to use for C code")
+set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
+set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
@@ -266,8 +275,8 @@ target_include_directories(codegen_internal PUBLIC
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
 set_target_properties(codegen_internal PROPERTIES
-  C_STANDARD 17
-  CUDA_STANDARD 17 # CUDA 11 does not support C++20
+  C_STANDARD ${NVFUSER_C_STANDARD}
+  CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
@@ -306,8 +315,8 @@ target_link_libraries(nvfuser_codegen PRIVATE
   dl
 )
 set_target_properties(nvfuser_codegen PROPERTIES
-  C_STANDARD 17
-  CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
+  C_STANDARD ${NVFUSER_C_STANDARD}
+  CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
@@ -339,8 +348,8 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
 
   add_library(__nvfuser_ucc INTERFACE)
   set_target_properties(__nvfuser_ucc PROPERTIES
-    C_STANDARD 17
-    CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
@@ -425,8 +434,8 @@ if(BUILD_PYTHON)
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
   set_target_properties(nvfuser PROPERTIES
-    C_STANDARD 17
-    CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
@@ -437,8 +446,8 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
   set_target_properties(nvf_py_internal PROPERTIES
-    C_STANDARD 17
-    CUDA_STANDARD 17 # CUDA 11 does not support C++20, so we hardcode 17.
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
@@ -648,8 +657,8 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   add_executable(nvfuser_bench ${BENCHMARK_SRCS})
   set_target_properties(nvfuser_bench PROPERTIES
-    C_STANDARD 17
-    CUDA_STANDARD 17 # CUDA 11 does not yet support 20
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
