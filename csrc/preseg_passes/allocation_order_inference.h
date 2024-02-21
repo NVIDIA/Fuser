@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include <fusion.h>
+#include <preseg_passes/optimization_pass.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -28,5 +29,15 @@ using AllocationOrder = std::vector<int64_t>;
 // See details in Note [ Allocation Order Propagation ]
 std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion);
+
+// Realize allocation order propagation on fusion inputs to optimize allocation
+// domain of output tensor. This optimization pass currently only applies to
+// fusion outputs, but not intermediate tensors.
+class AllocationDomainPass : public OptimizationPass<AllocationDomainPass> {
+  friend class OptimizationPass<AllocationDomainPass>;
+
+ protected:
+  static void runPass(Fusion* fusion);
+};
 
 } // namespace nvfuser::preseg_passes
