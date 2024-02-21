@@ -14,7 +14,9 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-void allocationDomainUpdate(TensorView* tv, const AllocationOrder& alloc_order) {
+void allocationDomainUpdate(
+    TensorView* tv,
+    const AllocationOrder& alloc_order) {
   auto rfactor_dom = tv->getMaybeRFactorDomain();
 
   // Allocation order is only marked for non-reduction iterdomain
