@@ -9,8 +9,6 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <algorithm>
 #include <limits>
 

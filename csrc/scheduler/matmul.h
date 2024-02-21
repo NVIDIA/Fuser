@@ -13,6 +13,7 @@
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/registry.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -22,7 +23,7 @@ namespace nvfuser {
 //  should probably be only used to order innermost mnk axes.
 void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3);
 
-void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
+NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
 
 class MatmulScheduler : public SchedulerEntry {
  public:

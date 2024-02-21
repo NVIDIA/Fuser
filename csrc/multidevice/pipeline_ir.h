@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <ir/printer.h>
+#include <visibility.h>
 
 /*
   This file implements the IRs composing a Pipeline:
@@ -66,7 +67,7 @@ class PipelineStage : public Expr {
   Currently, PipelineVal is necessarily an input or output of a (unique)
   PipelineStage
 */
-class PipelineVal : public Val {
+class NVF_API PipelineVal : public Val {
  public:
   PipelineVal(IrBuilderPasskey passkey, Val* val);
   PipelineVal(const PipelineVal* src, IrCloner* ir_cloner);

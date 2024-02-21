@@ -1176,7 +1176,9 @@ class TestNvFuserFrontend(TestCase):
             return fd.execute((pred, a, b))[0]
 
         pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
-        list_of_dtype = [torch.float16, torch.bfloat16, torch.float32]
+        list_of_dtype = [torch.float16, torch.float32]
+        if not is_pre_ampere():
+            list_of_dtype.append(torch.bfloat16)
         for atype in list_of_dtype:
             for btype in list_of_dtype:
                 a = torch.randn((5,), device="cuda", dtype=atype)

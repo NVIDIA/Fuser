@@ -11,6 +11,7 @@
 #include <executor_kernel_arg.h>
 #include <serde/factory.h>
 #include <serde/fusion_cache_generated.h>
+#include <visibility.h>
 #include <functional>
 #include <memory>
 
@@ -43,7 +44,7 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);
 
-flatbuffers::Offset<Scalar> serializeScalar(
+NVF_API flatbuffers::Offset<Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t);

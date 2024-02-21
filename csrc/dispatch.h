@@ -7,11 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
-
 #include <utils.h>
+#include <visibility.h>
 
 #include <complex>
 #include <unordered_map>
@@ -253,7 +251,7 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
-class OptOutDispatch : public PolymorphicBase {
+class NVF_API OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -381,7 +379,7 @@ class OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class OptOutMutator : public PolymorphicBase {
+class NVF_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);
