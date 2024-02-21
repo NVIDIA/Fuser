@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <root_domain_map.h>
