@@ -1051,7 +1051,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(smem_epilogue, params);
+    // swizzleSharedMemory does not yet work properly for 16-bit epilogues. For
+    // now, we skip swizzling the smem_epilogue buffer entirely in this case,
+    // which leads to an 8-way bank conflict on the write to smem_epilogue.
+    // TODO: remove bank conflicts for 16-bit epilogue
+    if (dataTypeSize(smem_epilogue->dtype()) == 4) {
+      swizzleSharedMemory(smem_epilogue, params);
+    }
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
