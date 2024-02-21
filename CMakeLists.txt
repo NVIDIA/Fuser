@@ -27,6 +27,10 @@ message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 # on C++20, but we still support a version of CUDA (11) that does not recognize
 # C++20 and so we drop back to 17 there. Also, we allow all of these to be
 # overridden by the user.
+# Note we do not use a global set_property on e.g. CXX_STANDARD. CMake globals
+# are footguns that should generally be avoided, because they are difficult to
+# target where and *only* where they are needed. See e.g.:
+# https://cliutils.gitlab.io/modern-cmake/chapters/intro/dodonot.html
 set(NVFUSER_C_STANDARD 17 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
