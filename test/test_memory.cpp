@@ -497,7 +497,7 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(32 * innerDimSize(), options).view({32, innerDimSize()});
+  auto t0 = at::arange(32 * innerDimSize(), options).view({32, innerDimSize()});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
   // ASSERT_EQ(
