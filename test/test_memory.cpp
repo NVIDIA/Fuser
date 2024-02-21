@@ -174,9 +174,9 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 class TMATest : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(9, 0)) {
+    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
@@ -485,7 +485,11 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   if (swizzle != MmaInputSmemSwizzle::None) {
-    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);
@@ -517,7 +521,12 @@ TEST_P(TMALdstTest, StoreCompleteTensor3D) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   if (swizzle != MmaInputSmemSwizzle::None) {
-    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);
@@ -549,7 +558,13 @@ TEST_P(TMALdstTest, StoreCompleteTensor4D) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   if (swizzle != MmaInputSmemSwizzle::None) {
-    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);
@@ -581,7 +596,14 @@ TEST_P(TMALdstTest, StoreCompleteTensor5D) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   if (swizzle != MmaInputSmemSwizzle::None) {
-    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);

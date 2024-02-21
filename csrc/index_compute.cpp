@@ -3257,7 +3257,7 @@ Val* Index::cpAsyncBulkIndex(
       gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
 
-  int64_t dim = (int64_t)gmem_tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->getMaybeAllocationDomain().size();
   NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
