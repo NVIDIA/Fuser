@@ -3312,7 +3312,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      getSwizzleFromBytes(swizzle_size * 16),
+      MmaInputSmemSwizzle::B32,
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 

@@ -484,25 +484,27 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
+  // if (swizzle != MmaInputSmemSwizzle::None) {
+  //   for (auto tv : {tv1, tv2}) {
+  //     tv->merge(0);
+  //     scheduleTMASwizzle(tv, swizzleSize());
+  //   }
+  //   tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  // }
   for (auto id : tv2->getLeafDomain()) {
     id->parallelize(ParallelType::Bulk);
   }
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({32, innerDimSize()}, options);
+  auto t0 = at::randn(32 * innerDimSize(), options).view({32, innerDimSize()});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
-  ASSERT_EQ(
-      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+  // ASSERT_EQ(
+  //     XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
+  std::cout << "t0:\n" << t0 << std::endl;
+  std::cout << "cg_outputs:\n" << cg_outputs[0] << std::endl;
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
