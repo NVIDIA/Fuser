@@ -60,7 +60,7 @@ sass::Container getSASSFor(
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
 
   fusion.addOutput(tv2);
 
@@ -119,7 +119,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   fusion.addInput(tv1);
   fusion.addInput(s0);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = mul(s0, tv2);
 
   fusion.addOutput(tv3);
