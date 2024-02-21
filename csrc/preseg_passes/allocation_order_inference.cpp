@@ -14,7 +14,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-void allocationDomainUpdate(TensorView* tv, const AllocationOrder& order) {
+void allocationDomainUpdate(TensorView* tv, const AllocationOrder& alloc_order) {
   auto rfactor_dom = tv->getMaybeRFactorDomain();
 
   // Allocation order is only marked for non-reduction iterdomain
@@ -25,7 +25,7 @@ void allocationDomainUpdate(TensorView* tv, const AllocationOrder& order) {
   // specify allocation domain with non-reduction dimension per allocation
   // order.
   for (auto i : c10::irange(rank)) {
-    allocation_domain[i] = no_bc_rfactor_dom.at(mapped_entry->second.at(i));
+    allocation_domain[i] = no_bc_rfactor_dom.at(alloc_order.at(i));
   }
 
   // reduction iter domain's position in allocation domain doesn't matter,
