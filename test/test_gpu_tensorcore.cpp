@@ -63,8 +63,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -87,7 +90,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -121,8 +124,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::BFloat16);
-    auto tv1 = makeContigTensor(2, DataType::BFloat16);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::BFloat16);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::BFloat16);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -145,7 +151,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout, at::kBFloat16);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -183,8 +189,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
     for (auto layout : kAllSupportedMmaLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
@@ -207,7 +216,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput2D(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -252,8 +261,11 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
                   float& runtime) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -283,7 +295,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     fe.setMeasureKernelTimeFlag(true);
@@ -372,8 +384,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
     for (auto layout : kAllSupportedMmaLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
@@ -396,7 +411,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput2D(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1056,8 +1071,11 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -1076,7 +1094,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1736,8 +1754,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -1759,7 +1780,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1794,8 +1815,11 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -1814,7 +1838,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1854,8 +1878,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
       for (int k_size : {32, 48, 64}) {
         Fusion fusion;
         FusionGuard fg(&fusion);
-        auto tv0 = makeContigTensor(2, DataType::Half);
-        auto tv1 = makeContigTensor(2, DataType::Half);
+
+        auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+        auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+        auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
         fusion.addInput(tv0);
         fusion.addInput(tv1);
@@ -1885,7 +1912,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 true);
         scheduleMatmul(&fusion, params);
 
-        auto inputs = matmulAtInput2D(M, N, K, layout);
+        auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1929,8 +1956,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
         for (int k_size : {32, 48, 64}) {
           Fusion fusion;
           FusionGuard fg(&fusion);
-          auto tv0 = makeContigTensor(2, DataType::Half);
-          auto tv1 = makeContigTensor(2, DataType::Half);
+
+          auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+          auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+          auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
           fusion.addInput(tv0);
           fusion.addInput(tv1);
@@ -1962,7 +1992,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
 
           scheduleMatmul(&fusion, params);
 
-          auto inputs = matmulAtInput2D(M, N, K, layout);
+          auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
           FusionExecutor fe;
           NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1999,8 +2029,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
     for (int k_size : {32, 48, 64}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
@@ -2031,7 +2064,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               data_types);
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput2D(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2063,8 +2096,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -2087,7 +2123,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2164,8 +2200,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -2219,7 +2258,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2303,8 +2342,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -2354,7 +2396,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2398,8 +2440,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -2449,7 +2494,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2499,8 +2544,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -2520,7 +2568,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2556,8 +2604,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
     auto tv2 = makeContigTensor(1, DataType::Half);
 
     fusion.addInput(tv0);
@@ -2581,7 +2632,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto [aten_a, aten_b] = matmulAtInput2D(M, N, K, layout);
+    auto [aten_a, aten_b] = matmulAtInput3DTuring(M, N, K, layout);
     at::Tensor aten_bias = at::randn({M}, aten_a.options());
     std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 

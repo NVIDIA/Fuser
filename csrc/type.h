@@ -9,11 +9,9 @@
 
 #include <exceptions.h>
 #include <macros.h>
+#include <visibility.h>
 
 #include <c10/core/ScalarType.h>
-#include <c10/util/Exception.h>
-
-#include <c10/macros/Export.h>
 
 #include <polymorphic_value.h>
 
@@ -24,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <unordered_set>
 #include <variant>
 
@@ -234,7 +233,7 @@ inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
 
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
-DataType metaDataTypeOf(const Val* tv);
+NVF_API DataType metaDataTypeOf(const Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
@@ -309,9 +308,9 @@ DataType getTypeFromComplexType(DataType dtype);
 // Return the corresponding complex type of a scalar
 DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
-bool isSupportedTypeByDevice(DataType dtype);
+NVF_API bool isSupportedTypeByDevice(DataType dtype);
 
-int64_t dataTypeSize(DataType type);
+NVF_API int64_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here
 int64_t dataTypeSize(DataType type, DataType index_type);
@@ -877,28 +876,28 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 
 // If type cannot be found (i.e. codegen does not support provided type) returns
 // DataType::Null
-DataType aten_to_data_type(const at::ScalarType& scalar_type);
-at::ScalarType data_type_to_aten(const DataType& data_type);
+NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
+NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
 
-std::ostream& operator<<(std::ostream&, const ValType);
+NVF_API std::ostream& operator<<(std::ostream&, const ValType);
 std::ostream& operator<<(std::ostream&, const PredicateType);
-std::ostream& operator<<(std::ostream&, const DataType);
+NVF_API std::ostream& operator<<(std::ostream&, const DataType);
 std::ostream& operator<<(std::ostream&, const UnaryOpType);
-std::ostream& operator<<(std::ostream&, const BinaryOpType);
+NVF_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
 std::ostream& operator<<(std::ostream&, const TernaryOpType);
 std::ostream& operator<<(std::ostream&, const ScatterOpType);
 std::ostream& operator<<(std::ostream&, const RNGOpType);
-std::ostream& operator<<(std::ostream&, const ParallelType);
-std::ostream& operator<<(std::ostream&, const MemoryType);
-std::ostream& operator<<(std::ostream&, const IterType);
+NVF_API std::ostream& operator<<(std::ostream&, const ParallelType);
+NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
+NVF_API std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
-std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
+NVF_API std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
 std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
 std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
-std::ostream& operator<<(std::ostream&, const CacheOp&);
+NVF_API std::ostream& operator<<(std::ostream&, const CacheOp&);
 std::ostream& operator<<(std::ostream& os, const std::optional<bool>&);
 
 std::string stringifyThreadSize(const ParallelType);
@@ -907,15 +906,15 @@ std::string typePrefix(const DataType);
 
 // TODO: ThreadDim should be BlockDim and BlockDim should be GridDim
 // Returns if parallel type is TID[x, y, z]
-bool isParallelTypeThreadDim(ParallelType);
+NVF_API bool isParallelTypeThreadDim(ParallelType);
 // Returns if parallel type is BID[x, y, z]
-bool isParallelTypeBlockDim(ParallelType);
+NVF_API bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
-bool isParallelTypeThread(ParallelType);
+NVF_API bool isParallelTypeThread(ParallelType);
 // Returns if parallel type is DIDx
-bool isParallelTypeDeviceDim(ParallelType);
+NVF_API bool isParallelTypeDeviceDim(ParallelType);
 
-bool isParallelTypeVectorize(ParallelType);
+NVF_API bool isParallelTypeVectorize(ParallelType);
 
 std::optional<std::string> inline_op_str(const UnaryOpType);
 std::optional<std::string> inline_op_str(const BinaryOpType);

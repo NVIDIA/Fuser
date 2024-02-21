@@ -12,8 +12,6 @@
 
 #include <dispatch.h>
 
-#include <typeinfo>
-
 namespace nvfuser {
 
 template <typename T>

@@ -51,8 +51,11 @@ sass::Container getSASSFor(
     const bool promote_prologue_smem_reuse = false) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -78,7 +81,7 @@ sass::Container getSASSFor(
   params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
   scheduleMatmul(&fusion, params);
 
-  auto inputs = matmulAtInput2D(M, N, K, layout);
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -106,8 +109,11 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   FusionGuard fg(&fusion);
 
   auto s0 = IrBuilder::create<Val>(DataType::Double);
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -133,7 +139,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = matmulAtInput2D(M, N, K, layout);
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
   const double alpha = 2.5;
 
   FusionExecutor fe;

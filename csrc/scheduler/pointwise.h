@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/registry.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -165,7 +166,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
 
-LaunchParams schedulePointwise(
+NVF_API LaunchParams schedulePointwise(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs);
 

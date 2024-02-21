@@ -8,6 +8,7 @@
 #include <preseg_passes/pre_segmenter.h>
 
 #include <preseg_passes/add_axioms.h>
+#include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -25,6 +26,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

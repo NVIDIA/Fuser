@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -136,7 +136,7 @@ class DynamicTransformInitialInfo {
 //! of the fusion inputs
 class DynamicTransformConcretizationInfo {
  public:
-  DynamicTransformConcretizationInfo(
+  NVF_API DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator* expr_eval);
 
@@ -177,7 +177,8 @@ class DynamicTransformConcretizationInfo {
   //! resulting concretizations would be structurally equivalent. Note that
   //! pointers to Statements may differ between equivalent concretizations due
   //! to cloning before concretization.
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
+  NVF_API bool operator==(
+      const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
@@ -208,9 +209,9 @@ class DynamicTransformConcretizationInfo {
     return initial_info_->fusion();
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 
-  size_t hash() const;
+  NVF_API size_t hash() const;
 
  private:
   DynamicTransformConcretizationInfo(
@@ -247,11 +248,11 @@ class DynamicTransform {
   //! Get initial information before we have inputs. This analyzes the Fusion to
   //! determine whether it has dynamic operations, and caches their position for
   //! faster concretization once inputs are available.
-  static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
+  NVF_API static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
-  static void concretizeFusion(
+  NVF_API static void concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
 };
