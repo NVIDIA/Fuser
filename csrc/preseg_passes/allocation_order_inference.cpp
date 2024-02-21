@@ -14,6 +14,31 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+void allocationDomainUpdate(TensorView* tv, const AllocationOrder& order) {
+  auto rfactor_dom = tv->getMaybeRFactorDomain();
+
+  // Allocation order is only marked for non-reduction iterdomain
+  auto no_bc_rfactor_dom = TensorDomain::noReductions(rfactor_dom);
+  auto rank = no_bc_rfactor_dom.size();
+  std::vector<IterDomain*> allocation_domain(rank, nullptr);
+  allocation_domain.reserve(rfactor_dom.size());
+  // specify allocation domain with non-reduction dimension per allocation
+  // order.
+  for (auto i : c10::irange(rank)) {
+    allocation_domain[i] = no_bc_rfactor_dom.at(mapped_entry->second.at(i));
+  }
+
+  // reduction iter domain's position in allocation domain doesn't matter,
+  // insert them at the end
+  std::copy_if(
+      rfactor_dom.begin(),
+      rfactor_dom.end(),
+      std::back_inserter(allocation_domain),
+      [](const IterDomain* id) { return id->isReduction(); });
+
+  tv->setAllocationDomain(allocation_domain, true);
+}
+
 class AllocationOrderInferencer : public IterVisitor {
  public:
   AllocationOrderInferencer(
@@ -116,18 +141,11 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     }
 
     auto mapped_entry = stride_mapping.find(out_tv);
-    if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
+    if (mapped_entry == stride_mapping.end()) {
       continue;
     }
 
-    auto rfactor_dom = out_tv->getMaybeRFactorDomain();
-
-    auto rank = rfactor_dom.size();
-    std::vector<IterDomain*> allocation_domain(rank, nullptr);
-    for (auto i : c10::irange(rank)) {
-      allocation_domain[i] = rfactor_dom.at(mapped_entry->second.at(i));
-    }
-    out_tv->setAllocationDomain(allocation_domain, true);
+    allocationDomainUpdate(out_tv, mapped_entry->second);
   }
 }
 
