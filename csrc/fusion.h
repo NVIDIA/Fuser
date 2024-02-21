@@ -162,7 +162,7 @@ class NVF_API Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true)
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true, int indent_size = 0)
       const;
 
   //! Print to default debugging output stream
@@ -457,7 +457,6 @@ class NVF_API Fusion : public IrContainer {
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
 
- public:
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
 
@@ -469,7 +468,6 @@ class NVF_API Fusion : public IrContainer {
   //! definitions.
   void registerExpr(Expr* expr) override;
 
- protected:
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in
   //! Val::uses()

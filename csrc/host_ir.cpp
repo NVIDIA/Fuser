@@ -88,8 +88,7 @@ std::unique_ptr<HostFusion> makeHostFusionFromFusion(Fusion* fusion) {
         scope.push_back(expr);
     }
 
-    // std::cout << for_loop->toString() << std::endl;
-    // std::cout << sliced_input->toString() << std::endl;
+    host_fusion->top_level_exprs.push_back(for_loop);
 
     return host_fusion;
 }
@@ -112,18 +111,20 @@ ExecuteFusion::ExecuteFusion(IrBuilderPasskey passkey,
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExecuteFusion)
 
 std::string ExecuteFusion::toString(int indent_size) const {
+    int indent_increment = 2;
     std::stringstream ss;
-    ss << "Execute the following kernel, taking inputs :{\n";
+    indent(ss, indent_size) << "Execute the following kernel, taking inputs :{\n";
     for (auto input : inputs()) {
-        ss << "  " << input->toString() << "\n";
+        indent(ss, indent_size + indent_increment) << input->toString(indent_size + indent_increment) << "\n";
     }
-    ss << "} and outputs: {\n";
+    indent(ss, indent_size) << "} and outputs: {\n";
     for (auto output : outputs()) {
-        ss << "  " << output->toString() << "\n";
+        indent(ss, indent_size + indent_increment) <<  output->toString(indent_size + indent_increment) << "\n";
     }
-    ss << "}. Kernel:{";
-    fusion_->print(ss, false);
-    ss << "}" << std::endl;
+    indent(ss, indent_size) << "}. Kernel:{";
+    fusion_->print(ss, false, indent_size + indent_increment);
+    indent(ss, indent_size) << "\n";
+    indent(ss, indent_size) << "}" << std::endl;
     return ss.str();
 
 }
@@ -151,9 +152,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SaveSlicedOutput)
 
 std::string SaveSlicedOutput::toString(int indent_size) const {
     std::stringstream ss;
-    ss << "save " << src_->toString()
+    std::string indentation(" ", indent_size);
+    indent(ss, indent_size)  << "save " << src_->toString()
        << " to " << dst_->toString()
-       << " at index " << index_->toString();
+       << " at index " << index_->toString() << std::endl;
     return ss.str();
 
 }
@@ -167,6 +169,22 @@ std::string SaveSlicedOutput::toInlineString(int indent_size) const {
 bool SaveSlicedOutput::sameAs(const Statement* other) const {
     return false;
 }
+
+std::ostream& HostFusion::print(std::ostream& os, bool include_tensor_transforms, int indent_size) const {
+  os << "\n%HostFusion {\n";
+  IrMathPrinter op_exprs(os, indent_size);
+  op_exprs.handle(this);
+  NVF_ERROR(!include_tensor_transforms, "not implemented for now");
+//   if (include_tensor_transforms) {
+//     os << "\nTransformPrinter : \n";
+//     IrTransformPrinter t_exprs(os, indent_size);
+//     t_exprs.handle(this);
+//   }
+  os << "}\n";
+
+  return os;
+}
+
 
 } // namespace hir
 

@@ -30,7 +30,7 @@ namespace nvfuser {
 //!
 class IrMathPrinter : public IrPrinter {
  public:
-  IrMathPrinter(std::ostream& os) : IrPrinter(os) {}
+  IrMathPrinter(std::ostream& os, int indent_size = 0) : IrPrinter(os, indent_size) {}
 
   using IrPrinter::handle;
 
@@ -45,7 +45,7 @@ class IrMathPrinter : public IrPrinter {
 //!
 class IrTransformPrinter : public IrPrinter {
  public:
-  IrTransformPrinter(std::ostream& os) : IrPrinter(os) {}
+  IrTransformPrinter(std::ostream& os, int indent_size = 0) : IrPrinter(os, indent_size) {}
 
   using IrPrinter::handle;
 

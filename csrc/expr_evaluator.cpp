@@ -161,7 +161,7 @@ void ExpressionEvaluator::bind_(
             (int)tv->getDeviceMesh().vector().size(),
             evaluate_validate);
             1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
-      } else if (rfactor_domain[i]->isHostDim()) {
+      } else if (rfactor_domain[i]->isHostDim() && !rfactor_domain[i]->fusion()->isA<hir::HostFusion>()) {
         // Device dimensions extents will always be 1.
         // Ignore concrete extents because they hold the unsharded extents.
         NVF_CHECK(

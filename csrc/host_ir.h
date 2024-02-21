@@ -39,6 +39,30 @@ class ExecuteFusion : public Expr {
   std::unique_ptr<Fusion> fusion_;
 };
 
+// class ExecuteComm : public Expr {
+//  public:
+//   using Expr::Expr;
+//   ExecuteFusion(IrBuilderPasskey passkey, Fusion* fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
+
+//   ExecuteFusion(const ExecuteFusion& other) = delete;
+//   ExecuteFusion& operator=(const ExecuteFusion& other) = delete;
+//   ExecuteFusion(ExecuteFusion&& other) = delete;
+//   ExecuteFusion& operator=(ExecuteFusion&& other) = delete;
+
+//   NVFUSER_DECLARE_CLONE_AND_CREATE
+
+//   std::string toString(int indent_size = 0) const override;
+//   std::string toInlineString(int indent_size = 0) const override;
+//   virtual const char* getOpString() const override {
+//     return "ExecuteFusion";
+//   }
+
+//   bool sameAs(const Statement* other) const override;
+
+//  private:
+//   std::unique_ptr<Fusion> fusion_;
+// };
+
 class SaveSlicedOutput : public Expr {
  public:
   using Expr::Expr;
@@ -71,10 +95,23 @@ class HostFusion final : public Fusion {
   HostFusion(const HostFusion&) = delete;
   HostFusion& operator=(const HostFusion&) = delete;
 
+  //! Print this fusion to an output stream
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = false, int indent_size = 0) const;
+
+  const auto& topLevelExprs() const {
+    return top_level_exprs;
+  }
+
   Fusion* gpu_fusion;
+  std::vector<Expr*> top_level_exprs;
 };
 
 std::unique_ptr<HostFusion> makeHostFusionFromFusion(Fusion* fusion);
+
+// {
+//   postcomm
+//   executekernel
+// }
 
 } // namespace hir
 

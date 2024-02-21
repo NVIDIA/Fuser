@@ -24,6 +24,10 @@ class Kernel;
 class Scope;
 } // namespace kir
 
+namespace hir {
+class HostFusion;
+} // namespace hir
+
 void checkInlineable(const Expr* expr);
 static constexpr char const* kTab = "  ";
 
@@ -44,12 +48,10 @@ inline std::ostream& indent(std::ostream& os, int indent_size) {
 class IrPrinter {
  public:
   explicit IrPrinter(std::ostream& os, int indent_size = 0)
-      : os_(os), indent_size_(indent_size) {}
+      : indent_size(indent_size), os_(os){}
   virtual ~IrPrinter() = default;
 
-  void resetIndent() {
-    indent_size_ = 0;
-  }
+  int indent_size;
 
   bool printInline() const {
     return print_inline_;
@@ -72,15 +74,17 @@ class IrPrinter {
   virtual void handle(const kir::Kernel* kernel);
   virtual void handle(kir::Kernel& kernel);
 
+  virtual void handle(const hir::HostFusion* host_fusion);
+  virtual void handle(hir::HostFusion& host_fusion);
+
  protected:
   std::ostream& os() {
-    return os_;
+    return indent(os_, indent_size);
   }
 
  private:
   std::ostream& os_;
   bool print_inline_ = false;
-  int indent_size_ = 0;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);

@@ -92,7 +92,20 @@ TEST_F(HostForLoopTest, hostFusion) {
 
   auto host_fusion = hir::makeHostFusionFromFusion(fusion.get());
 
+  // debug()<< "\nunordered_exprs:\n";
+  // for (auto expr : host_fusion->unordered_exprs()) {
+  //   debug() << expr->toString() << std::endl;
+  // }
+
+  // debug()<< "\nHOST FUSION PRINT:\n";
   host_fusion->print(debug(), false);
+  // debug() << std::endl;
+
+  // debug()<< "\nexprs:\n";
+  // for (auto expr : host_fusion->exprs()) {
+  //   debug() << expr->toString() << std::endl;
+  // }
+
 }
 
 } // namespace nvfuser
