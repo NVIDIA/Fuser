@@ -129,9 +129,9 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
   }
 
-  // step 3: compute permutatoin
-  std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-      TensorDomain::noReductions(out->getMaybeRFactorDomain()), alloc_domain);
+  // step 3: compute permutation
+  std::optional<AllocationOrder> permutation =
+      ir_utils::computePermutation(out->getMaybeRFactorDomain(), alloc_domain);
 
   NVF_ERROR(
       permutation.has_value(),
