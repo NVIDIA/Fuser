@@ -145,7 +145,7 @@ class LaunchParams {
 
   bool operator==(const LaunchParams& other) const;
 
-  void print() const;
+  NVF_API void print() const;
 
   NVF_API std::string toString() const;
 

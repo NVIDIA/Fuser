@@ -262,17 +262,17 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! Returns the string of the compiled kernel
-  std::string kernelString() const {
+  NVF_API std::string kernelString() const {
     NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
   // Add preamble and wrap in namespace
-  std::string getStructuredCode(
+  NVF_API std::string getStructuredCode(
       const std::string& kernel,
       PrimDataType index_type) const;
 
-  std::string getStructuredCode() const;
+  NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
   const executor_utils::CompiledKernel& compiledKernel() const {
