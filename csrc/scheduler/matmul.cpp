@@ -71,8 +71,8 @@ void MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-    params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-    NVF_ERROR(params_ != nullptr);
+  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
 }
 
 void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
@@ -724,7 +724,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
-
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
