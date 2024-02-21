@@ -24,12 +24,11 @@ namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
   void SetUp() override {
-    guard_ = std::make_unique<
-        nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>(
-        false);
+    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
+        nvfuser::preseg_passes::AllocationDomainPass>>(false);
   }
-  std::unique_ptr<
-      nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>
+  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
+      nvfuser::preseg_passes::AllocationDomainPass>>
       guard_;
 };
 
@@ -43,12 +42,11 @@ class PrecisionParametrizedTest
     : public NVFuserFixtureParamTest<PrecisionsDesc> {
  protected:
   void SetUp() override {
-    guard_ = std::make_unique<
-        nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>(
-        false);
+    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
+        nvfuser::preseg_passes::AllocationDomainPass>>(false);
   }
-  std::unique_ptr<
-      nvfuser::preseg_passes::OptimizationPassGuard<AllocationDomainPass>>
+  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
+      nvfuser::preseg_passes::AllocationDomainPass>>
       guard_;
 };
 
