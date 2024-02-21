@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <device_lower/analysis/sync_information.h>
@@ -18,6 +17,7 @@
 #include <parallel_dimension_map.h>
 #include <utils.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <memory>
 #include <unordered_map>
@@ -113,6 +113,12 @@ struct KernelSummary {
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  //! Minimum compute capability of device that can execute this kernel
+  std::pair<int, int> min_device_version;
+
+  //! Plain text description of why min_device_version_ is required
+  std::string min_device_version_reason;
 };
 
 class KernelPerformanceProfile {
@@ -171,7 +177,7 @@ class KernelInternalProxy;
 //! Container for a lowered Kernel IR
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Kernel final : public Fusion {
+class NVF_API Kernel final : public Fusion {
   friend KernelInternalProxy;
 
  public:
@@ -268,7 +274,7 @@ class Kernel final : public Fusion {
 //! A special debugging proxy for Kernel.
 //!
 //! Should not be used for other than testing and debugging.
-class KernelInternalProxy {
+class NVF_API KernelInternalProxy {
  public:
   KernelInternalProxy(Kernel* kernel) : kernel_(kernel) {}
 

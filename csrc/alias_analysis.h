@@ -7,10 +7,13 @@
 // clang-format on
 #pragma once
 
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -21,7 +24,7 @@ struct Layout {
   // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
 
-  std::string toString(int indent_size = 0) const;
+  NVF_API std::string toString(int indent_size = 0) const;
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
@@ -61,7 +64,7 @@ class AliasAnalysisResult {
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
-  Layout preferredLayout(const Val* alias) const;
+  NVF_API Layout preferredLayout(const Val* alias) const;
 
   std::string toString(int indent_size) const;
 
@@ -109,8 +112,7 @@ class AliasAnalysisResult {
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
 // enable aliases; the latter, used by NoOpScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
-AliasAnalysisResult findAliases(
-    Fusion* fusion,
-    bool can_override_empty_allocation_domain = true);
+NVF_API AliasAnalysisResult
+findAliases(Fusion* fusion, bool can_override_empty_allocation_domain = true);
 
 } // namespace nvfuser

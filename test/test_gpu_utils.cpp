@@ -20,6 +20,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <system_error>
 
 namespace nvfuser {
