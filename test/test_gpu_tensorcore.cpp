@@ -63,8 +63,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -87,7 +90,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput2D(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(

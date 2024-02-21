@@ -1076,10 +1076,13 @@ class UpdateLeafIndices : public IterVisitor {
     if (!index_map_.count(in_id)) {
       // Reduction axes on producer side could be visited on forward
       //  propagation pass and current implementation does not yet
-      //  support reduciton on swizzled iterdomains, so un-indexed
-      //  reduction iterdomains are just ignored for now.
+      //  support reduction on swizzled iterdomains, so un-indexed
+      //  reduction iterdomains are just ignored for now. It is the same
+      //  for broadcast iterdomains.
       NVF_ERROR(
-          in_id->isReduction(), "Undefined index for ", in_id->toString());
+          in_id->isReduction() || in_id->isBroadcast(),
+          "Undefined index for ",
+          in_id->toString());
       return;
     }
 
