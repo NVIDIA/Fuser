@@ -20,7 +20,7 @@ namespace fs = std::experimental::filesystem;
 #include <unordered_map>
 #include <vector>
 
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -59,7 +59,7 @@ class KernelDb {
   //! Thread-Safe method to get the Meyer's singleton -- Interface
   static KernelDb& get();
   //! Thread-Safe method to get the Meyer's singleton -- For testing
-  static KernelDb& get(
+  NVF_API static KernelDb& get(
       const std::string& kernel_db_dir,
       const std::string& kernel_db_file,
       bool use_temp_dir = true,
@@ -78,14 +78,14 @@ class KernelDb {
   //! Query uses the string of the kernel code to lookup whether a cubin already
   //! exists for the given kernel.  Additionally, the compile args are also
   //! matched.
-  bool query(
+  NVF_API bool query(
       const std::string& kernel_code,
       const std::string& compile_args,
       std::string& kernel_signature,
       std::vector<char>& cubin) const;
   //! Write is used to write a new entry to the db upon compilation of a
   //! new fusion
-  bool write(
+  NVF_API bool write(
       const std::string& kernel_code,
       const std::string& compile_args,
       const std::string& kernel_signature,

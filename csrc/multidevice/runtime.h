@@ -13,6 +13,7 @@
 #include <multidevice/communicator.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -28,7 +29,7 @@ class MultiDeviceRuntime {
       : pipeline_(pipeline), comm_(comm) {}
 
   // Run the multidevice fusion with the given global inputs
-  std::vector<at::Tensor> runWithInput(std::vector<c10::IValue> inputs);
+  NVF_API std::vector<at::Tensor> runWithInput(std::vector<c10::IValue> inputs);
 
   // Returns the Communicator
   auto& comm() {
@@ -42,7 +43,7 @@ class MultiDeviceRuntime {
 
   // check if the runtime is valid returns an error msg.
   // An empty message means that the runtime is valid
-  std::string validate() const;
+  NVF_API std::string validate() const;
 
  private:
   friend class PipelineExecutor; // could remove friendship by passing pipeline_
