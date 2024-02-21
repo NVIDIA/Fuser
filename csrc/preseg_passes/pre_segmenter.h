@@ -8,12 +8,13 @@
 #pragma once
 
 #include <preseg_passes/optimization_pass.h>
+#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 
 //! PreSegmenter is an optimization group that runs right before fusion executor
 //! segments a fusion into multiple kernels.
-class PreSegmenter : public OptimizationPass<PreSegmenter> {
+class NVF_API PreSegmenter : public OptimizationPass<PreSegmenter> {
   friend class OptimizationPass<PreSegmenter>;
 
  protected:
