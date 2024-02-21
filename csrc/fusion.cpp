@@ -838,4 +838,22 @@ void Fusion::markOutputForEvaluation(Val* output) {
       .hide_output = false};
 }
 
+std::vector<Expr*> Fusion::getExprsToCodegen() {
+  std::vector<Expr*> exprs_requiring_codegen;
+  exprs_requiring_codegen.reserve(exprs().size());
+
+  for (auto expr: exprs()) {
+    bool is_expr_codegen = std::none_of(
+        expr->outputs().begin(),
+        expr->outputs().end(),
+        [this](Val* out) { 
+          return this->getOutputAlias(out).type != AllocationType::Evaluate;});
+    
+    if (is_expr_codegen) {
+      exprs_requiring_codegen.emplace_back(expr);
+    }
+  }
+  return exprs_requiring_codegen;
+}
+
 } // namespace nvfuser

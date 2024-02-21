@@ -267,6 +267,8 @@ class NVF_API Fusion : public IrContainer {
   // expression evaluator.
   void markOutputForEvaluation(Val* output);
 
+  std::vector<Expr*> getExprsToCodegen();
+
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
     permuted_input_map_.insert({index, permutation});

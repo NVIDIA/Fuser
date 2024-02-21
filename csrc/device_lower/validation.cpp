@@ -1006,7 +1006,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
+  auto exprs = fusion->getExprsToCodegen();
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
