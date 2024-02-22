@@ -352,7 +352,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
-  const int64_t register_overhead = has_exp_op ? 24l : 16l;
+  const int64_t register_overhead = has_exp_op ? 32l : 16l;
 
   // Target occupancy required to hide memory latency.
   // Used to calculate the maximum register count each thread can use.
