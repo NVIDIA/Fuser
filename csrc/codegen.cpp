@@ -20,7 +20,6 @@
 #include <cmath>
 #include <sstream>
 #include <typeindex>
-#include <typeinfo>
 #include <vector>
 
 namespace nvfuser {
@@ -175,6 +174,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     initStringStreamFormat(code_);
   }
 
+  // aligned array of registers used in the kernel
+  std::unordered_set<Val*> aligned_array_of_regs_;
+
   using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
@@ -245,6 +247,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           typePrefix(v->dtype()) + std::to_string(val_to_name_.size());
     }
     return val_to_name_.at(v);
+  }
+
+  // If the variable is an aligned array, append ".array" to use the reguar
+  // array. This avoid the type mismatch in template functions when one of the
+  // arguments is an aligned array (Array<T,N>) while the other is a regular
+  // array T[N].
+  std::string genVariableNameConvertAlignedArray(Val* v) {
+    TensorView* tv = nullptr;
+    if (v->isA<kir::TensorIndex>()) {
+      tv = v->as<kir::TensorIndex>()->view();
+    } else if (v->isA<TensorView>()) {
+      tv = v->as<TensorView>();
+    }
+    if (tv && aligned_array_of_regs_.count(tv)) {
+      return genVariableName(tv).append(".array");
+    } else {
+      return genVariableName(v);
+    }
   }
 
   // Generates the kernel function declaration
@@ -533,7 +553,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
     const auto def = s->definition();
-    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
+    const bool has_alloc = alloc_set_.find(s) != alloc_set_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
       if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
@@ -552,7 +572,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const NamedScalar* ns) final {
     if (ns->definition() != nullptr &&
-        alloc_map_.find(ns) == alloc_map_.end()) {
+        alloc_set_.find(ns) == alloc_set_.end()) {
       code_ << genInline(ns->definition());
     } else {
       code_ << genVariableName(ns);
@@ -1604,16 +1624,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
+
     NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
-
-    if (grop->isSerial()) {
-      generateSerialGridReduction(grop);
-      return;
-    }
 
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);
@@ -1693,11 +1713,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         block_flags,
         ArgumentBuilder().arg("gridDim"));
 
+    int64_t vectorize_size = ir_utils::getVectorizeSize(out->view());
+
+    ArgumentBuilder template_args;
+    template_args.arg("/*vec_size=*/").append(std::to_string(vectorize_size));
+
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(gen(out));
-    func_args.arg(gen(grop->in()));
+    func_args.arg("&").append(gen(out));
+    func_args.arg("&").append(gen(grop->in()));
     func_args.arg(gen(grop->init()));
-    func_args.arg(gen(grop->serialReductionTensor()));
+    func_args.arg("&").append(gen(grop->serialReductionTensor()));
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
     // Whether this is the first or last step
@@ -1720,7 +1745,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(read_pred);
     }
 
-    indent() << "reduction::serialReductionStep(\n";
+    indent() << "reduction::serialReductionStep<" << template_args << ">(\n";
     indent() << kTab << func_args << ");\n";
   }
 
@@ -2293,13 +2318,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableName(output.get(0)));
-    func_args.arg(genVariableName(output.get(1)));
-    func_args.arg(genVariableName(output.get(2)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(0)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(1)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(2)));
     // inputs
-    func_args.arg(genVariableName(input.get(0)));
-    func_args.arg(genVariableName(input.get(1)));
-    func_args.arg(genVariableName(input.get(2))).append("[0]");
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(0)));
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
+        .append("[0]");
 
     // global buf
     for (const auto i : c10::irange(3)) {
@@ -2768,7 +2794,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     NVF_ERROR(alloc->buffer() != nullptr);
-    alloc_map_.emplace(alloc->buffer(), alloc);
+    alloc_set_.emplace(alloc->buffer());
 
     if (!alloc->buffer()->isA<TensorView>()) {
       // Pointer TensorMap allocation must be const as kernel parametr assigned
@@ -2798,6 +2824,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ">*>(&" << genVariableName(alias_tv)
                  << ");\n";
+        if (alloc->memoryType() == MemoryType::Local) {
+          aligned_array_of_regs_.insert(tv);
+        }
       }
     } else {
       // Standard Memory Allocation
@@ -2824,6 +2853,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
                      << ", " << va.at(tv) << "> " << genVariableName(tv)
                      << ";\n";
+            aligned_array_of_regs_.insert(tv);
           } else {
             indent() << buffer_dtype << " " << genVariableName(tv) << "["
                      << genInline(size) << "];\n";
@@ -3185,7 +3215,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   bool vectorize_scope_ = false;
   //! Keep track of Allocate node for Val. Used to determine if Val
   //! should be inlined.
-  std::unordered_map<const Val*, const kir::Allocate*> alloc_map_;
+  std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values

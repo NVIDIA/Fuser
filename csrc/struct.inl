@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <visibility.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -109,7 +110,7 @@ inline Accessor StructHandle::operator->*(const std::string& key) const {
 // If a struct type is only used in kernel and we will never create an instance
 // on the host, we can just use this dummy struct as a placeholder for the
 // convenience
-struct NotImplementedStruct : public Struct {
+struct NVF_API NotImplementedStruct : public Struct {
   StructType type() const override;
 
   std::function<PolymorphicValue()> getter(

@@ -108,8 +108,6 @@ std::string kernelPreamble() {
   return ss.str();
 }
 
-namespace {
-
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
@@ -159,6 +157,8 @@ void queryTargetGPUVersion(
     compile_to_sass = true;
   }
 }
+
+namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
@@ -843,7 +843,14 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      NVF_ERROR(false, src, "\nCUDA NVRTC compile error: ", log_buf);
+      // Print CUDA starting at first global function
+      size_t kernel_start = src.find("__global__");
+      NVF_ERROR(
+          false,
+          "\n",
+          src.substr(kernel_start),
+          "\nCUDA NVRTC compile error: ",
+          log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
       debug() << log_buf << std::endl;

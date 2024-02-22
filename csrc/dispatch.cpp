@@ -5,13 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <type.h>
 
 #include <dispatch.h>
-
-#include <typeinfo>
 
 namespace nvfuser {
 
@@ -66,9 +65,6 @@ void Val::dispatch(T handler, Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
       ptr(handler)->handle(val);
@@ -344,12 +340,8 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
-    return;
-  }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
@@ -386,9 +378,6 @@ void Val::constDispatch(T handler, const Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
       ptr(handler)->handle(val);
@@ -664,12 +653,8 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
-    return;
-  }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
@@ -716,9 +701,6 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(mutator)->mutate(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
       ptr(mutator)->mutate(val);
@@ -853,10 +835,6 @@ void OptOutConstDispatch::handle(const kir::Predicate* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1059,10 +1037,7 @@ void OptOutConstDispatch::handle(const kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const PipelineStage* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
+void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 
@@ -1089,10 +1064,6 @@ void OptOutDispatch::handle(kir::Predicate* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::TensorIndex* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1295,10 +1266,7 @@ void OptOutDispatch::handle(kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
 
-void OptOutDispatch::handle(PipelineStage* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(PipelineCommunication* stmt) {
+void OptOutDispatch::handle(assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 

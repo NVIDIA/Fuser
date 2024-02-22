@@ -6,8 +6,8 @@
  */
 // clang-format on
 #pragma once
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
@@ -74,7 +74,7 @@ struct TrieNode {
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
   //! Serialize TrieNode using flatbuffers
-  flatbuffers::Offset<serde::TrieNode> serialize(
+  NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const std::map<RecordFunctor*, size_t>&
           map_record_functor_to_trie_node_id);
@@ -118,7 +118,7 @@ struct TrieNode {
 class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
-  FusionCache(size_t max_fusions);
+  FusionCache(size_t max_fusions, std::optional<int64_t> selected_device);
 
  public:
   //! Copy and Assignment of the FusionCache is not supported
@@ -129,29 +129,33 @@ class FusionCache {
   //! The next 4 public methods are the python interface methods
 
   //! Gets a pointer to the singleton and creates a new one if necessary
-  static FusionCache* get(
-      size_t max_fusions = 8192,
+  NVF_API static FusionCache* get(
+      size_t max_fusions = 16384,
+      std::optional<int64_t> selected_device = std::nullopt,
       bool load_from_default_workspace = true);
   //! Number of fusions cached
-  size_t numFusions() const;
+  NVF_API size_t numFusions() const;
+  //! Get device associated with this FusionCache
+  NVF_API std::optional<int64_t> deviceId() const;
   //! print cache contents
-  void print(std::ostream& os) const;
+  NVF_API void print(std::ostream& os) const;
   //! print cache stats
-  void stats(std::ostream& os) const;
+  NVF_API void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
-  static void reset();
+  NVF_API static void reset();
 
   //! Serialize Fusion Cache using flatbuffers
-  void serialize(std::string filename) const;
+  NVF_API void serialize(std::string filename) const;
   //! Deserialize Fusion Cache using flatbuffers
-  void deserialize(std::string filename);
+  NVF_API void deserialize(std::string filename);
 
   //! The rest of the public methods are only used in C++
 
   //! Thread-Unsafe: Queries the current trie node to see if a record matches
   //! one of its children
-  std::optional<TrieNode*> queryChildren(TrieNode* node, RecordFunctor* rec)
-      const;
+  NVF_API std::optional<TrieNode*> queryChildren(
+      TrieNode* node,
+      RecordFunctor* rec) const;
   //! Query a Fusion's Schedules based on fusion id or cache id
   FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
   //! Lookup the User Schedule Id and return null if one does not exist.
@@ -167,14 +171,14 @@ class FusionCache {
       int device) const;
   //! Thread-Safe: Creates a child node for the current cache entry and an
   //! optional fusion_id is returned if the new entry is terminal
-  TrieNode* createChild(TrieNode* node, RecordFunctor* rec);
+  NVF_API TrieNode* createChild(TrieNode* node, RecordFunctor* rec);
   //! Lookup the User Schedule based on Id
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
       int device);
   //! Get the root Trie ptr
-  TrieNode* rootTriePtr();
+  NVF_API TrieNode* rootTriePtr();
 
  private:
   //! The static pointer to the FusionCache
@@ -184,6 +188,9 @@ class FusionCache {
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_;
+  //! A separate process is created for each device in a distributed setting.
+  //! Each FusionCache becomes associated with a device.
+  std::optional<int64_t> device_id_;
   //! The root (start) of the prefix tree to start a cache look up of a given
   //! fusion definition.
   std::unique_ptr<TrieNode> root_;
@@ -210,6 +217,6 @@ class FusionCache {
 //! import atexit
 //! atexit.register(nvfuser.serialize)
 //! '''
-void serialize();
+NVF_API void serialize();
 
 } // namespace nvfuser::python_frontend

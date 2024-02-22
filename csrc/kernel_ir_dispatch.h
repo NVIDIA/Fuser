@@ -33,7 +33,7 @@ class Scope;
 //
 // Provides a simple base class to inherit from for typical lowering passes on
 // Expr list
-class IrVisitor : public OptOutDispatch {
+class NVF_API IrVisitor : public OptOutDispatch {
  public:
   std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
 
