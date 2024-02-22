@@ -3680,7 +3680,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
       continue;
     }
 
-    auto expr_group = expr2group.at(expr);
+    SegmentedGroup* expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (isFusionInput(inp)) {
         expr_group->input_vals.push_back(inp);
@@ -3850,6 +3850,35 @@ void SegmentCandidateFinder::findSegments() {
   }
 }
 
+// Decides whether we should forward an input (or a forwarded input) of a
+// fusion. Currently, we forward an input only when its single use is a UnaryOp.
+// Therefore, this function returns `v`'s single unary use or nullptr if it
+// decides not to forward.
+UnaryOp* shouldForward(Val* v) {
+  const std::vector<Expr*>& uses = v->uses();
+  // Just allow stripping out input with single use.
+  // Stripping out multi-used inputs can lead to:
+  // (1) Fragmentation of the DAG, increased segments, see test in #1301.
+  // (2) Miss detection of persistent buffers, see issue #1607.
+  if (uses.size() != 1) {
+    return nullptr;
+  }
+
+  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
+  if (unary_use == nullptr) {
+    return nullptr;
+  }
+
+  // Don't forward an input to an output yet. Doing that would lead to an empty
+  // group that ought to work in theory but doesn't work in practice with the
+  // downstream logic. See #1813 for an example.
+  if (unary_use->out()->isFusionOutput()) {
+    return nullptr;
+  }
+
+  return unary_use;
+}
+
 void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
@@ -3859,38 +3888,21 @@ void SegmentCandidateFinder::forwardInputs() {
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
     std::deque<UnaryOp*> to_visit;
-    for (auto inp : completeFusion()->inputs()) {
-      // Just allow stripping out input with single use.
-      // Stripping out multi-used inputs can lead to:
-      // (1) Fragmentation of the DAG, increased segments, see test in #1301.
-      // (2) Miss detection of persistent buffers, see issue #1607.
-      const auto& input_uses = inp->uses();
-      // Add single-use input if it is a UnaryOp
-      if (input_uses.size() == 1 && input_uses.at(0)->isA<UnaryOp>()) {
-        to_visit.push_back(input_uses.at(0)->as<UnaryOp>());
+    for (Val* inp : completeFusion()->inputs()) {
+      if (UnaryOp* unary_use = shouldForward(inp)) {
+        to_visit.push_back(unary_use);
       }
     }
 
     while (!to_visit.empty()) {
       UnaryOp* uop = to_visit.front();
       to_visit.pop_front();
-      if (uop->out()->isFusionOutput()) {
-        continue;
-      }
 
-      // uop is a UnaryOp so there is a single output. Here we look at that
-      // output's further uses
-      const auto& output_uses = uop->out()->uses();
-
-      if (output_uses.size() == 1 && output_uses[0]->isA<UnaryOp>()) {
-        // If there is a single use which is also a UnaryOp, visit it to try
-        // and extend the chain of unaryOps
-        to_visit.emplace_back(output_uses[0]->as<UnaryOp>());
+      if (UnaryOp* unary_use = shouldForward(uop->out())) {
+        to_visit.push_back(unary_use);
       } else {
-        // If there are either no more uses, more than one use, or one use that
-        // is not a UnaryOp, then we cannot extend the chain of unary Ops. In
-        // these cases we finalize this chain by saving its output as a
-        // forwarded input.
+        // We cannot extend the chain of unary ops, so we finalize this chain by
+        // saving its output as a forwarded input.
         forwarded_inputs.pushBack(uop->out());
       }
       // Either way, `uop` is excluded from merging until `resolveInputsInGroup`

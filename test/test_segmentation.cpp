@@ -227,11 +227,11 @@ TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(SegmentationTest, InputForwardingViaUnaryOps) {
+TEST_F(SegmentationTest, InputForwardingUntilBinary) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({2, 3}, DataType::BFloat16);
+  TensorView* in = makeContigConcreteTensor({2, 3}, DataType::Half);
   TensorView* out = castOp(DataType::Float, in);
   out = neg(out);
   out = sin(out);
@@ -245,13 +245,41 @@ TEST_F(SegmentationTest, InputForwardingViaUnaryOps) {
 
   FusionExecutorCache fec(std::move(fusion));
 
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
+}
+
+TEST_F(SegmentationTest, InputForwardingUntilOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create two chains of ops so the test triggers input forwarding. With one
+  // chain, the whole fusion will be accepted by pointwise.
+  TensorView* in0 = makeContigTensor(2);
+  TensorView* in1 = makeContigTensor(2);
+  TensorView* out0 = tanh(in0);
+  out0 = sin(out0);
+  TensorView* out1 = sin(in1);
+  out1 = tanh(out1);
+
+  fusion->addInput(in0);
+  fusion->addInput(in1);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({in_tensor, in_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
