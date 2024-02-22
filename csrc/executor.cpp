@@ -331,6 +331,7 @@ void FusionExecutor::compileFusion(
   lowered_->run();
 
   kir::Kernel* kernel = lowered_->kernel();
+
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
@@ -379,6 +380,29 @@ void FusionExecutor::compileFusion(
   }
 
   const kir::KernelSummary& kernel_summary = kernel->summary();
+
+  // TODO: this replicates the target GPU version computation from
+  // executor_utils.
+  std::pair<int, int> target_arch;
+  bool compile_to_sass = false;
+  executor_utils::queryTargetGPUVersion(
+      properties,
+      std::ref(target_arch.first),
+      std::ref(target_arch.second),
+      compile_to_sass);
+
+  NVF_CHECK(
+      target_arch >= kernel_summary.min_device_version,
+      "Target compute capability is ",
+      target_arch.first,
+      ".",
+      target_arch.second,
+      " but this fusion requires at least ",
+      kernel_summary.min_device_version.first,
+      ".",
+      kernel_summary.min_device_version.second,
+      ". Reason: ",
+      kernel_summary.min_device_version_reason);
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
@@ -1414,7 +1438,8 @@ void validateCooperativeLaunch(
   auto grid_size =
       launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
   auto max_active_blocks = num_blocks_per_SM *
-      at::cuda::getDeviceProperties(device_index)->multiProcessorCount;
+      at::cuda::getDeviceProperties((c10::DeviceIndex)device_index)
+          ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
@@ -1836,7 +1861,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.smem()));
       const int64_t device_id =
           static_cast<unsigned char>(options_.device.index());
-      const auto prop = at::cuda::getDeviceProperties(device_id);
+      const auto prop =
+          at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
           ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
       const int hw_max_warps =

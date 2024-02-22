@@ -163,7 +163,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true, true);
+    auto tv2 = matmul(tv0, tv1, layout, true);
     fusion.addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
 
@@ -211,7 +211,7 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     fusion->addInput(tv0);
     fusion->addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true, true);
+    auto tv2 = matmul(tv0, tv1, layout, true);
     fusion->addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 

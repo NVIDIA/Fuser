@@ -43,17 +43,12 @@ bool hasRequiredSmemSize(size_t required_size) {
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(
-    Fusion* fusion,
-    MmaLayout layout,
-    MatmulParams params,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-) {
+void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
 
-  auto c = matmul(a, b, layout, turing_or_later);
+  auto c = matmul(a, b, layout);
 
   // Cast the output so that we perform an HSH matmul, which is what at::matmul
   // will perform
@@ -153,17 +148,12 @@ static void SingleMatmulBase(
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
-  // Architecture
-  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
-  bool turing_or_later = properties->major >= 8 ||
-      (properties->major == 7 && properties->minor >= 5);
-
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
   // Define fusion graph
-  setupMatmul(fusion, layout, params, turing_or_later);
+  setupMatmul(fusion, layout, params);
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
@@ -182,11 +172,9 @@ static void SingleMatmulBase(
   auto launch_constraints = LaunchParams();
   FusionExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
-  if (turing_or_later) {
-    NVF_CHECK(
-        getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
-        "Shared memory bank conflict not removed.");
-  }
+  NVF_CHECK(
+      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      "Shared memory bank conflict not removed.");
 
   std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
 
@@ -314,11 +302,6 @@ static void SingleMatmulPartitionedK(
   }
   int64_t Ki = K / splitk_factor;
 
-  // Architecture
-  auto properties = at::cuda::getDeviceProperties(0);
-  bool turing_or_later = properties->major >= 8 ||
-      (properties->major == 7 && properties->minor >= 5);
-
   at::manual_seed(0);
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -332,7 +315,7 @@ static void SingleMatmulPartitionedK(
   fusion->addInput(b);
 
   // batch matmul
-  auto c = splitkLikeBatchedMatmul(a, b, layout);
+  auto c = matmul(a, b, layout);
 
   fusion->addOutput(c);
 
@@ -357,11 +340,9 @@ static void SingleMatmulPartitionedK(
   FusionExecutor fe;
   auto lparams = LaunchParams();
   fe.compileFusion(fusion, args, lparams, cparams);
-  if (turing_or_later) {
-    NVF_CHECK(
-        getBankConflictInfo(fe.kernel(), lparams).empty(),
-        "Shared memory bank conflict not removed.");
-  }
+  NVF_CHECK(
+      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      "Shared memory bank conflict not removed.");
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
@@ -455,14 +436,9 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   FusionExecutor fe;
   fe.compileFusion(fusion, args, lparams, cparams);
 
-  auto properties = at::cuda::getDeviceProperties(0);
-  bool turing_or_later = properties->major >= 8 ||
-      (properties->major == 7 && properties->minor >= 5);
-  if (turing_or_later) {
-    NVF_CHECK(
-        getBankConflictInfo(fe.kernel(), lparams).empty(),
-        "Shared memory bank conflict not removed.");
-  }
+  NVF_CHECK(
+      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      "Shared memory bank conflict not removed.");
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs, lparams);
