@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -17,25 +17,10 @@
 #include <test/validator.h>
 
 namespace nvfuser {
-namespace {
 
-inline at::Tensor shardInputTensor(at::Tensor tensor, std::vector<int64_t>& devices, int deviceId) {
-  int i = 0;
-  auto it = find (devices.begin(), devices.end(), deviceId);
-  if (it != devices.end()) {
-    i = *it;
-  }
-  return tensor.index({at::indexing::Slice(i, i+1), "..."});
-}
-} // namespace
+class ShardingTest : public MultiDeviceTest {};
 
-class ShardingTest
-    : public MultiDeviceTest,
-      public ::testing::WithParamInterface<bool> {
-};
-
-TEST_P(ShardingTest, UnshardedGlobalInput) {
-  auto concreteTV = GetParam();
+TEST_F(ShardingTest, UnshardedGlobalInput) {
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -45,7 +30,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   DeviceMesh mesh(devices);
   std::vector<int64_t> input_size = {num_devices, 3};
 
-  TensorView* tv0 = concreteTV ? makeConcreteTensor(input_size) : makeContigTensor(2);
+  TensorView* tv0 = makeConcreteTensor(input_size);
   TensorView* tv1 = add(tv0, tv0);
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = add(tv2, tv2);
@@ -72,11 +57,10 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
 
-TEST_P(ShardingTest, ShardGlobalInput) {
-  auto concreteTV = GetParam();
+TEST_F(ShardingTest, ShardGlobalInput) {
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -86,7 +70,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   DeviceMesh mesh(devices);
   std::vector<int64_t> unsharded_input_size = {num_devices, 3, 2};
 
-  TensorView* tv0 = concreteTV ? makeConcreteTensor(unsharded_input_size) : makeContigTensor(2);
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_size);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);
@@ -101,20 +85,14 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 
   auto x = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardInputTensor(x, devices, communicator->deviceId())};
+      shardTensor(x, mesh, communicator->deviceId())};
   auto ref_outputs = x * 2;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    OutermostAxis,
-    ShardingTest,
-    ::testing::Values(true, false)
-);
 
 } // namespace nvfuser
 #endif

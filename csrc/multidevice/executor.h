@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
 #include <c10/core/DeviceType.h>
@@ -21,6 +21,52 @@ namespace nvfuser {
 /*
   The MultiDeviceExecutor executes a Fusion on a multi-device setting.
   It is instantiated from a Fusion and a Communicator.
+
+  The Fusion must be scheduled prior to the instantiation of the
+  MultiDeviceExecutor. One can use the multidevice scheduling API to specify
+  the desired tensor sharding. It is composed of two aspects:
+    *) Set each tensor's DeviceMesh, through TensorView::setDeviceMesh
+    *) parallelize each tensor axis, possibly with the multidevice sharding
+       parallel type ParallelType::DIDx
+
+  We make the following assumptions on the Fusion:
+  - Only the outmost (non-reduction) axis is allowed to be parallelized
+    with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
+  - We only support 1D device meshes for now
+  - We only support TensorView, not Scalars
+  - We only support static shapes
+
+  Summary of the different steps performed by the MultiDeviceExecutor:
+  I. At instantiation:
+  - resharding "Set" exprs are automatically inserted in the fusion where a
+    network communication is needed. See the function insertReshardings.
+  - the Fusion is segmented into segments which can be of two types:
+      1) compute segments, composed of non-Resharding expressions only,
+         that can be purely execute on a single device
+      or
+      2) communication, composed of exactly one resharding expression, which
+         can be either a "Set" or "Reduce" Exprs.
+  - the runtime order of execution of the different segments is computed in
+    prepareRuntimeOrder
+
+  II. At runtime, through the method runWithInput:
+  - allocateRecvBuffers allocates on each device the necessary buffers to
+    store the data received from network communications
+  - Each (compute or comm) segment is executed separately, in order:
+    1) each compute segment is transformed into a fusion, compiled and executed
+       on a single device, see postKernel
+    2) each comm segment is lowered into a series of communications (defined in
+       multidevice/communications.h) and are posted on the stream.
+       "Wait" primitives are also posted on the stream.
+
+  TODOS:
+  *) the MultiDeviceExecutor should be integrated into FusionExecutorCache.
+  *) The different steps should be divided into compilation, allocation,
+     runtime etc. This will be done along the way when we will have better
+     symbolic representation of the multidevice modules
+  *) Allocation of buffers needs to be reimplemented
+  *) Need to work on auto-scheduling, in particular, to combine inter-/intra-
+     device scheduling.
 */
 class MultiDeviceExecutor {
  public:
@@ -35,7 +81,7 @@ class MultiDeviceExecutor {
   }
 
   // Returns the Fusion
-  auto fusion() const {
+  auto completeFusion() const {
     return staged_fusion_->completeFusion();
   }
 
@@ -65,18 +111,14 @@ class MultiDeviceExecutor {
   // 2) a Fusion comprised of one Expr, representing inter-device communication
   std::unique_ptr<SegmentedFusion> staged_fusion_;
   // Stores the order in which the pipeline's stage should be executed
-  std::vector<SegmentedGroup*> group_run_order_;
+  RuntimeWorkSpace workspace;
   // Cache Fusions, FusionExecutors, and Communications
   std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
   std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
-  std::unordered_map<
-      SegmentedGroup*,
-      std::vector<std::shared_ptr<Communication>>>
-      communications_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
-  std::map<SegmentedGroup*, bool> is_resharding_;
+  std::unordered_map<SegmentedGroup*, bool> is_resharding_;
 };
 
 } // namespace nvfuser

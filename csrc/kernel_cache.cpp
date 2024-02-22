@@ -15,8 +15,8 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
-#include <optimization/pre_segmenter.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -581,9 +581,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   NVF_ERROR(fusion->outputs().size() == outputs.size());
   size_t new_size = 0;
   for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
-    const AliasInfo* alias_info =
-        fusion->getOutputAlias(fusion->outputs()[out_index]).second;
-    if (alias_info == nullptr || !alias_info->hide_output) {
+    Val* out = fusion->outputs()[out_index];
+    if (!fusion->getOutputAlias(out).hide_output) {
       outputs[new_size] = outputs[out_index];
       new_size++;
     }
@@ -985,7 +984,8 @@ void FusionExecutorCache::deserialize(
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
-      device_runtimes.back()->deserialize(fb_fusion_kernel_runtime);
+      device_runtimes.back()->deserialize(
+          fb_fusion_kernel_runtime, args.getDeviceIndex());
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
@@ -1024,7 +1024,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       convertMetadataArg);
   args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
@@ -1042,11 +1042,11 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  if (serde_buffer == nullptr) {
+  if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
@@ -1115,7 +1115,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 void FusionKernelRuntime::deserialize(
-    const serde::FusionKernelRuntime* buffer) {
+    const serde::FusionKernelRuntime* buffer,
+    int8_t device_index) {
   // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
@@ -1147,6 +1148,7 @@ void FusionKernelRuntime::deserialize(
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
+        device_index,
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
         fusion_id_,
@@ -1331,6 +1333,9 @@ void FusionKernelRuntime::compileKernel(
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
+    fusion_to_run->printMath();
+  }
   FusionGuard fg(fusion_to_run.get());
   scheduler_entry->schedule(fusion_to_run.get());
   NVF_ERROR(

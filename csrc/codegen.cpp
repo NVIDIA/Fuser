@@ -20,7 +20,6 @@
 #include <cmath>
 #include <sstream>
 #include <typeindex>
-#include <typeinfo>
 #include <vector>
 
 namespace nvfuser {
@@ -533,7 +532,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
     const auto def = s->definition();
-    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
+    const bool has_alloc = alloc_set_.find(s) != alloc_set_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
       if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
@@ -552,7 +551,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const NamedScalar* ns) final {
     if (ns->definition() != nullptr &&
-        alloc_map_.find(ns) == alloc_map_.end()) {
+        alloc_set_.find(ns) == alloc_set_.end()) {
       code_ << genInline(ns->definition());
     } else {
       code_ << genVariableName(ns);
@@ -1604,16 +1603,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
+
     NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
-
-    if (grop->isSerial()) {
-      generateSerialGridReduction(grop);
-      return;
-    }
 
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);
@@ -1693,11 +1692,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         block_flags,
         ArgumentBuilder().arg("gridDim"));
 
+    int64_t vectorize_size = ir_utils::getVectorizeSize(out->view());
+
+    ArgumentBuilder template_args;
+    template_args.arg("/*vec_size=*/").append(std::to_string(vectorize_size));
+
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(gen(out));
-    func_args.arg(gen(grop->in()));
+    func_args.arg("&").append(gen(out));
+    func_args.arg("&").append(gen(grop->in()));
     func_args.arg(gen(grop->init()));
-    func_args.arg(gen(grop->serialReductionTensor()));
+    func_args.arg("&").append(gen(grop->serialReductionTensor()));
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
     // Whether this is the first or last step
@@ -1720,7 +1724,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(read_pred);
     }
 
-    indent() << "reduction::serialReductionStep(\n";
+    indent() << "reduction::serialReductionStep<" << template_args << ">(\n";
     indent() << kTab << func_args << ");\n";
   }
 
@@ -2768,7 +2772,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     NVF_ERROR(alloc->buffer() != nullptr);
-    alloc_map_.emplace(alloc->buffer(), alloc);
+    alloc_set_.emplace(alloc->buffer());
 
     if (!alloc->buffer()->isA<TensorView>()) {
       // Pointer TensorMap allocation must be const as kernel parametr assigned
@@ -3185,7 +3189,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   bool vectorize_scope_ = false;
   //! Keep track of Allocate node for Val. Used to determine if Val
   //! should be inlined.
-  std::unordered_map<const Val*, const kir::Allocate*> alloc_map_;
+  std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values

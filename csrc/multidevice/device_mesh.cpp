@@ -16,7 +16,7 @@ std::string DeviceMesh::toString() const {
   for (auto i : vector_) {
     ss << i << ", ";
   }
-  ss << "}, shape=" << tensor_.sizes();
+  ss << "}";
   return ss.str();
 }
 

@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <compute_at_map.h>
 #include <ir/all_nodes.h>
@@ -52,7 +52,7 @@ class TVDomainGuard {
  public:
   explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
   TVDomainGuard(const TVDomainGuard&) = delete;
-  TVDomainGuard(TVDomainGuard&&);
+  NVF_API TVDomainGuard(TVDomainGuard&&);
 
   //! An utility to access the tensordomain before the temporary
   //!  view. This is used to retrieve information, like swizzle
@@ -61,12 +61,12 @@ class TVDomainGuard {
     return prev_domain_;
   }
 
-  ~TVDomainGuard();
+  NVF_API ~TVDomainGuard();
 };
 
 // Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
-ir_utils::TVDomainGuard overrideContiguityGuard(
+NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
     TensorView* tv,
     bool contiguity);
 
@@ -94,10 +94,10 @@ std::vector<IterDomain*> iterDomainInputsOfOrderedAs(
 bool isTV(const Val* const);
 
 // Returns if Expr is a TensorView or TensorIndex Expr.
-bool isTvOp(const Expr*);
+NVF_API bool isTvOp(const Expr*);
 
 // Returns the first output of Expr that is a TensorView
-TensorView* getTvOutput(const Expr*);
+NVF_API TensorView* getTvOutput(const Expr*);
 
 // Returns the first input of Expr that is a TensorView
 TensorView* getTvInput(const Expr*);
@@ -162,7 +162,8 @@ bool isTensorScalarFillOp(const Expr* expr);
 //! Flattens all the scoped exprs, i.e. ForLoop and IfThenElse,
 //!  and returns all the exprs in all scopes in the original
 //!  linear textural order.
-std::vector<Expr*> flattenScopedExprs(const std::vector<Expr*>& loop_nests);
+NVF_API std::vector<Expr*> flattenScopedExprs(
+    const std::vector<Expr*>& loop_nests);
 
 //! Returns all swizzle ops between the set of iterdomains
 //!  in `from` and `to`.
@@ -298,9 +299,13 @@ bool isScalarExpr(Expr* expr);
 //!  IterDomain object.
 bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 
-// Get the uint32_t index of a scalar TensorView. This is usually used for
-// indexing special items in shared memory, like mbarrier.
-Val* u32IndexScalarSmemTv(TensorView* tv);
+//! Get the uint32_t index of a scalar TensorView. This is usually used for
+//! indexing special items in shared memory, like mbarrier.
+NVF_API Val* u32IndexScalarSmemTv(TensorView* tv);
+
+//! Get the size of a global sync buffer needed to perform a grid reduction for
+//! each axis in bitmap.
+Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 
 } // namespace lower_utils
 

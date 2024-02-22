@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <netdb.h>
 
 #include <multidevice/communicator.h>
@@ -23,10 +23,9 @@
 namespace nvfuser {
 
 std::map<CommunicatorBackend, std::string> communicator_backend_to_string = {
-  {CommunicatorBackend::nccl, "NCCL"},
-  {CommunicatorBackend::ucc, "UCC"},
-  {CommunicatorBackend::gloo, "GLOO"}
-};
+    {CommunicatorBackend::nccl, "NCCL"},
+    {CommunicatorBackend::ucc, "UCC"},
+    {CommunicatorBackend::gloo, "GLOO"}};
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
   return out << communicator_backend_to_string.at(cb);

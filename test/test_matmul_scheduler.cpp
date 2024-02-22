@@ -104,7 +104,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -146,9 +146,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = t2.to(at_accu_type);
@@ -205,7 +206,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = relu(tv2);
   auto tv4 = maybeCastOp(out_type, tv3);
 
@@ -241,8 +242,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = at::relu(t2);
   auto t4 = t3.to(at_out_type);
@@ -299,7 +300,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
 
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
@@ -344,9 +345,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = t2.to(at_accu_type);
@@ -404,7 +406,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = relu(tv2);
   auto tv5 = maybeCastOp(out_type, tv4);
@@ -442,8 +444,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = t2.to(at_out_type);
   auto t4 = at::relu(t2);
@@ -505,7 +507,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -553,9 +555,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = t2.to(at_accu_type);
@@ -615,7 +618,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = gelu(tv2);
   auto tv4 = maybeCastOp(out_type, tv3);
 
@@ -651,8 +654,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = at::gelu(t2);
   auto t4 = t3.to(at_out_type);
@@ -705,7 +708,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = gelu(tv2);
   auto tv5 = maybeCastOp(out_type, tv4);
@@ -743,8 +746,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = t2.to(at_out_type);
   auto t4 = at::gelu(t2);
@@ -804,7 +807,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -848,9 +851,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = t2.to(at_accu_type);
@@ -913,7 +917,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -960,9 +964,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   const int M = 504, N = 136, K = 248;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at_in_type, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at_in_type, M, N, K);
+  auto t2 =
+      matmulAtInput2D(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = t2.to(at_accu_type);
@@ -1009,7 +1014,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -1038,8 +1043,8 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
       toString(fusion_layout.getData()),
       ")");
 
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto tref = atMatmul(t0, t1, layout);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1071,7 +1076,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
 
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion->addInput(tv0);
     fusion->addInput(tv1);
@@ -1106,8 +1111,8 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
         toString(fusion_layout.getData()),
         ")");
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+    auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+    auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
     auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1141,7 +1146,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
 
   fusion->addInput(tv1);
   fusion->addInput(tv0);
@@ -1170,8 +1175,8 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
       toString(fusion_layout.getData()),
       ")");
 
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1203,7 +1208,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = castOp(DataType::Half, tv2);
 
   fusion->addInput(tv0);
@@ -1238,8 +1243,8 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   const int M = 504, N = 136, K = 1024;
 
   at::manual_seed(0);
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto tref = t2.to(at::kHalf);
 
@@ -1265,7 +1270,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = mul(s0, tv2);
 
   fusion->addInput(tv0);
@@ -1302,8 +1307,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   at::manual_seed(0);
   const double alpha = 2.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto tref = at::mul(t2, alpha).to(at::kFloat);
 
@@ -1329,7 +1334,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  auto tv2 = matmul(tv0, tv1, layout);
   auto tv3 = mul(s0, tv2);
   auto tv4 = castOp(DataType::Half, tv3);
 
@@ -1367,8 +1372,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   at::manual_seed(0);
   const double alpha = 2.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = at::mul(t2, alpha).to(at::kFloat);
   auto tref = t3.to(at::kHalf);
@@ -1399,7 +1404,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   auto tv2 = makeContigTensor(2, DataType::Half);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
 
   // tv4 := beta * C
   auto tv4 = mul(s0, tv2);
@@ -1441,9 +1446,9 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   at::manual_seed(0);
   const double beta = 2.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t2 = matmulAtInput2D(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
@@ -1478,7 +1483,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
 
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := alpha * (A x B)
   auto tv4 = mul(s0, tv3);
 
@@ -1524,9 +1529,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   at::manual_seed(0);
   const double alpha = 2.5;
   const double beta = 1.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t2 = matmulAtInput2D(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
@@ -1562,7 +1567,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
 
-  auto tv3 = matmul(tv0, tv1, layout, true);
+  auto tv3 = matmul(tv0, tv1, layout);
   // tv4 := alpha * (A x B)
   auto tv4 = mul(s0, tv3);
 
@@ -1612,9 +1617,9 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   at::manual_seed(0);
   const double alpha = 2.5;
   const double beta = 1.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t2 = matmulAtInput2D(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
@@ -1655,7 +1660,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   auto tv2 = makeContigTensor(2, DataType::Half);
   auto tv3 = makeContigTensor(1, DataType::Float);
 
-  auto tv4 = matmul(tv0, tv1, layout, true);
+  auto tv4 = matmul(tv0, tv1, layout);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv3);
@@ -1704,10 +1709,10 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   at::manual_seed(0);
   const double alpha = 2.5;
   const double beta = 1.5;
-  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
-  auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
-  auto t3 = matmulAtInput(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K);
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto t2 = matmulAtInput2D(layout, TensorMatmulPos::C, at::kHalf, M, N, K);
+  auto t3 = matmulAtInput2D(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K);
 
   auto t4 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   // t5 := (A x B) + bias
@@ -1745,7 +1750,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
     auto tv1 = makeContigTensor(3, DataType::Half);
 
     // tv2 := A x B
-    auto tv2 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout);
 
     fusion->addInput(tv0);
     fusion->addInput(tv1);
@@ -1783,8 +1788,10 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
     FusionExecutorCache executor_cache(std::move(fusion));
 
     at::manual_seed(0);
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
     auto t2 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -1820,7 +1827,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     auto tv2 = makeContigTensor(3, DataType::Float);
 
     // tv3 := A x B
-    auto tv3 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv3 = matmul(tv0, tv1, layout);
     // tv4 := alpha * (A x B)
     auto tv4 = mul(s0, tv3);
     // tv5 := beta * C
@@ -1870,9 +1877,12 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     const double alpha = 2.5;
     const double beta = 1.5;
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
-    auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kFloat, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t2 =
+        matmulAtInput2D(layout, TensorMatmulPos::C, at::kFloat, M, N, K, B);
 
     auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
     auto t4 = at::mul(t3, alpha).to(at::kFloat);
@@ -1913,7 +1923,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     auto tv2 = makeContigTensor(2, DataType::Float);
 
     // tv3 := A x B
-    auto tv3 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv3 = matmul(tv0, tv1, layout);
     // tv4 := alpha * (A x B)
     auto tv4 = mul(s0, tv3);
     // tv5 := beta * C
@@ -1966,9 +1976,11 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     const double alpha = 1.5;
     const double beta = 2.5;
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
-    auto t2 = matmulAtInput(layout, TensorMatmulPos::C, at::kFloat, M, N, K);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t2 = matmulAtInput2D(layout, TensorMatmulPos::C, at::kFloat, M, N, K);
 
     auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
     auto t4 = at::mul(t3, alpha).to(at::kFloat);
@@ -2007,7 +2019,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
     auto tv2 = makeContigTensor(2, DataType::Float);
 
     // tv3 := A x B
-    auto tv3 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv3 = matmul(tv0, tv1, layout);
     // tv4 := (A x B) + bias
     auto tv4 = biasEpilogue(tv3, tv2);
 
@@ -2048,10 +2060,12 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
     FusionExecutorCache executor_cache(std::move(fusion));
 
     at::manual_seed(0);
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
     auto t2 =
-        matmulAtInput(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K, B);
 
     auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
     auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
@@ -2085,7 +2099,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     auto tv2 = makeContigTensor(1, DataType::Float);
 
     // tv3 := A x B
-    auto tv3 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    auto tv3 = matmul(tv0, tv1, layout);
     // tv4 := (A x B) + bias
     auto tv4 = biasEpilogue(tv3, tv2);
 
@@ -2126,11 +2140,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     FusionExecutorCache executor_cache(std::move(fusion));
 
     at::manual_seed(0);
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
     // Explicitly make bias tensor a single dim by passing 0 for batch
     auto t2 =
-        matmulAtInput(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K, 0);
+        matmulAtInput2D(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K, 0);
 
     auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
     auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);

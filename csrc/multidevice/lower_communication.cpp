@@ -5,7 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
+#include <device_lower/utils.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
@@ -19,19 +20,20 @@ namespace {
 
 template <typename T>
 inline T getInitialValue(BinaryOpType op) {
+  // TODO: add other ops
   switch (op) {
     case BinaryOpType::Add:
+      // case BinaryOpType::BitwiseOr:
+      // case BinaryOpType::BitwiseXor:
       return 0;
     case BinaryOpType::Mul:
       return 1;
-    case BinaryOpType::Min:
-      return std::numeric_limits<T>::min();
     case BinaryOpType::Max:
-    case BinaryOpType::BitwiseAnd:
+      return std::numeric_limits<T>::min();
+    case BinaryOpType::Min:
       return std::numeric_limits<T>::max();
-    case BinaryOpType::BitwiseOr:
-    case BinaryOpType::BitwiseXor:
-      return 0;
+    // case BinaryOpType::BitwiseAnd:
+    //   return ~(T)0;
     default:
       NVF_ERROR(false, "invalid binary op type");
       return 0;
@@ -85,6 +87,10 @@ inline at::Tensor createDummyTensor(at::Tensor reference) {
 inline at::Tensor createDummyTensor(
     at::Tensor reference,
     BinaryOpType op_type) {
+  // TODO: support other types
+  NVF_ERROR(
+      reference.scalar_type() == at::kFloat,
+      "only float tensors are supported");
   return createDummyTensor(reference).fill_(getInitialValue<float>(op_type));
 }
 
@@ -410,6 +416,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
   const auto& sender_mesh = input_tv->getDeviceMesh();
   const auto& receiver_mesh = output_tv->getDeviceMesh();
+  const bool same_mesh = sender_mesh.vector() == receiver_mesh.vector();
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =
@@ -435,6 +442,13 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           static_cast<size_t>(output_tensor.size(0)) == 1,
       "Sharded dimension should have allocation size 1, but is ",
       output_tensor.size(0));
+  NVF_ERROR(!sender_mesh.vector().empty(), "sender mesh is empty");
+  NVF_ERROR(!receiver_mesh.vector().empty(), "receiver mesh is empty");
+
+  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh)) {
+    return {};
+  }
+
   if (is_reduction) {
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();
@@ -444,7 +458,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
         "Insert a `set` before the reduction to reshard")
     if (is_output_sharded) {
       NVF_ERROR(
-          receiver_mesh == sender_mesh,
+          same_mesh,
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
       lowerToReduceScatter(
@@ -455,7 +469,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           op_type,
           comms);
     } else {
-      if (receiver_mesh == sender_mesh) {
+      if (same_mesh) {
         lowerToAllreduce(
             my_device_index,
             sender_mesh,
@@ -484,7 +498,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           output_tensor,
           comms);
     } else if (is_input_sharded && !is_output_sharded) {
-      if (receiver_mesh == sender_mesh) {
+      if (same_mesh) {
         lowerToAllgather(
             my_device_index, sender_mesh, input_tensor, output_tensor, comms);
       } else {
@@ -511,21 +525,48 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 }
 
 bool isLowerableToCommunication(Expr* expr) {
+  NVF_ERROR(
+      ir_utils::isTvOp(expr),
+      "Non-tv op is not supported yet: ",
+      expr->toString());
   if (expr->isA<ReductionOp>()) {
-    auto out = expr->as<ReductionOp>()->out();
-    NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
-    auto out_tv = out->as<TensorView>();
-    NVF_ERROR(
-        out_tv->domain()->nDims() ==
-            TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() +
-                1,
-        "only reducing one-axis at a time is supported");
-    return true;
+    auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
+    auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
+    // get the reduced axis
+    std::vector<IterDomain*> reduction_axis;
+    std::copy_if(
+        out->getRootDomain().begin(),
+        out->getRootDomain().end(),
+        std::back_inserter(reduction_axis),
+        [](IterDomain* id) { return id->isReduction(); });
+    // check whether the reduction involves only one axis
+    if (reduction_axis.size() != 1) {
+      return false;
+    }
+    // We check whether the reduced axis is sharded on the input
+    const auto c2p_map = PairwiseRootDomainMap(in, out).mapConsumerToProducer();
+    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
+    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
+  } else {
+    return expr->isA<LoadStoreOp>() &&
+        (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
   }
-  return expr->isA<LoadStoreOp>() &&
-      (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
 }
 
 } // namespace nvfuser
 
+#else // NVFUSER_DISTRIBUTED
+
+#include <ir/base_nodes.h>
+
+namespace nvfuser {
+
+// This is just here so that things can compile even when/if USE_DISTRIBUTED is
+// not defined. The code paths aren't intended to be hit ever in such cases, so
+// the implementation is unimportant.
+bool isLowerableToCommunication(Expr*) {
+  return false;
+}
+
+} // namespace nvfuser
 #endif

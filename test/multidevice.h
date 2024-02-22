@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
 #include <chrono>
@@ -46,6 +46,20 @@ class MultiDeviceEnvironment : public testing::Environment {
 };
 
 class MultiDeviceTest : public NVFuserTest {
+ public:
+   static at::Tensor shardTensor(
+      at::Tensor tensor,
+      const DeviceMesh& mesh,
+      DeviceIdxType deviceId) {
+    int i = 0;
+    auto devices = mesh.vector();
+    auto it = find(devices.begin(), devices.end(), deviceId);
+    if (it != devices.end()) {
+      i = std::distance(devices.begin(), it);
+    }
+    return tensor.index({at::indexing::Slice(i, i + 1), "..."});
+  }
+  
  protected:
   void SetUp() override;
   void TearDown() override;
@@ -78,16 +92,10 @@ class CommunicationTest
 class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
-  void validate(DeviceIdxType tester = 0, bool auto_schedule = true);
-  void execute();
-  void executeAndValidate() {
-    execute();
-    validate();
-  }
+  void validate();
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
-  std::vector<at::Tensor> outputs;
 };
 
 } // namespace nvfuser

@@ -5210,7 +5210,7 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   args.push(t0);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5256,7 +5256,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   args.push(scalar);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5299,7 +5299,7 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   args.push(t0);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() <= 2);
 }
@@ -5772,66 +5772,6 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
       __FILE__,
       "",
       lparams);
-}
-
-TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeSymbolicTensor(2);
-  TensorView* tv1 = makeSymbolicTensor(1);
-  TensorView* tv2 = makeSymbolicTensor(2);
-
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-
-  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
-  TensorView* tv4 =
-      max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
-  TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
-                                   //  keeps normalization scheduler away)
-  TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
-
-  // Note: test alias;
-  fusion->aliasOutputToInput(tv6, tv0, AliasType::InplaceUpdate);
-  // TODO: support output on aliased fusion #1488
-  // remove tv7 after #1488
-  // fusion->addOutput(tv6);
-  TensorView* tv7 = add(tv6, IrBuilder::create<Val>(1.0)); // Group 0
-  fusion->addOutput(tv7);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({128, 65}, options);
-  at::Tensor t1 = at::randn({65}, options);
-  at::Tensor t2 = at::randn({128, 65}, options);
-
-  auto t3 = t0.add(1.0);
-  auto t4 = std::get<0>(at::max(t3, 0));
-  auto t5 = t4.add(t1);
-  auto t6 = t5.add(t2);
-  auto t7 = t6.add(1.0);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
-
-  // TODO: support output on aliased fusion #1488
-  // validating aliasing
-  // NVF_ERROR(outputs[0].data_ptr() == t0.data_ptr());
-
-  NVF_CHECK(
-      executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation didn't happen");
-  NVF_CHECK(
-      executor_cache.getMostRecentKernelRuntime()
-              ->fusionSegments()
-              ->groups()
-              .size() == 2,
-      "segmentation didn't happen as expected");
-
-  testValidate(
-      executor_cache.fusion(), outputs, {t0, t1, t2}, {t7}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionWelford1Output_CUDA) {
@@ -7904,7 +7844,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
     auto segmented_fusion =
-        SegmentCandidateFinder::segment(fusion_ptr.get(), args);
+        SegmentCandidateFinder::segment(fusion_ptr.get(), &args);
   }
 }
 
@@ -9034,12 +8974,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
-  NVF_ERROR(projectable.size() == 1);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  NVF_ERROR(projectable.size() == 2);
+  NVF_ERROR(projectable_inputs.size() == 2);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
-  NVF_ERROR(
-      isTvWithinVec(projectable, tv1) && !isTvWithinVec(projectable, tv7));
+  NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv7));
 
   NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
@@ -9066,9 +9005,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
           aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) *
-          (dataTypeSize(DataType::Half) + dataTypeSize(DataType::Float))));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {

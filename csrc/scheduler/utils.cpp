@@ -474,6 +474,74 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
+namespace {
+// This function checks if there is a broadcast tv in the dependencies between
+// the reduction_tv and the persistent_buffer. A tv is considered projectable
+// if its definition is a broadcast, has the same number of dimensions as the
+// reduction_tv, and each reduction dimension in reduction_tv corresponds to
+// a broadcast dimension in the broadcast tv.
+// Return the broadcast tv if there is one, otherwise return nullptr.
+TensorView* getBufferProjectableBroadcastsTv(
+    TensorView* reduction_tv,
+    TensorView* persistent_buffer) {
+  const auto& dep_vals =
+      DependencyCheck::getAllValsBetween({reduction_tv}, {persistent_buffer});
+  for (auto val : dep_vals) {
+    if (auto tv = dynamic_cast<TensorView*>(val)) {
+      if (!tv->definition()->isA<BroadcastOp>()) {
+        continue;
+      }
+      if (reduction_tv->nDims() != tv->nDims()) {
+        continue;
+      }
+      // Each reduction dimension the producer, must be mapped to a broadcast
+      // dimension in the consumer, otherwise it is not a valid broadcast after
+      // reduction.
+      bool is_broadcast_after_reduction = true;
+      for (auto i : c10::irange(reduction_tv->nDims())) {
+        if (reduction_tv->axis((int)i)->isReduction() &&
+            !tv->axis((int)i)->isBroadcast()) {
+          is_broadcast_after_reduction = false;
+          break;
+        }
+      }
+      if (is_broadcast_after_reduction) {
+        return tv;
+      }
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
+    const std::vector<TensorView*> reduction_tvs,
+    TensorView* persistent_buffer) {
+  std::vector<TensorView*> dep_reduction_tvs, target_broadcast_tvs;
+  dep_reduction_tvs.reserve(reduction_tvs.size());
+  for (auto tv : reduction_tvs) {
+    if (DependencyCheck::isDependencyOf(tv, persistent_buffer)) {
+      dep_reduction_tvs.push_back(tv);
+    }
+  }
+  // (1) The persistent buffer doesn't depend on any reduction tv
+  if (dep_reduction_tvs.empty()) {
+    return std::make_pair(true, target_broadcast_tvs);
+  }
+  // (2) It depends on reduction tv(s), but after each reduction tv, there is a
+  // broadcasted tv can be projected to.
+  target_broadcast_tvs.reserve(dep_reduction_tvs.size());
+  for (auto reduction_tv : dep_reduction_tvs) {
+    auto broadcast_tv =
+        getBufferProjectableBroadcastsTv(reduction_tv, persistent_buffer);
+    if (!broadcast_tv) {
+      return std::make_pair(false, target_broadcast_tvs);
+    }
+    target_broadcast_tvs.push_back(broadcast_tv);
+  }
+  return std::make_pair(true, target_broadcast_tvs);
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -543,12 +611,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
-    auto dep_vals = DependencyCheck::getAllValsBetween(
-        {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
 
-    // If there's a reduction between a persistent buffer and the inputs, it
-    // can't be projected backwards.
-    if (dep_vals.empty()) {
+    // can project to input if the persistent_buffer can be recalculated without
+    // doing reduction.
+    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+            .first) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -1057,9 +1124,10 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
-        ir_utils::isSelectInput(tv) || ir_utils::isIndexSelectLookupTv(tv)) {
-      // Right now, tensors that are input to the select op can't be cached as
-      // they must be in global memory.
+        ir_utils::isIndexSelectLookupTv(tv) ||
+        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(tv)) {
+      // Right now, tensors that are input to the slice, select, and pad ops
+      // can't be cached as they must be in global memory.
       continue;
     }
     auto cached_tv = tv->cacheAfter();
@@ -1432,10 +1500,16 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set) {
+    DisjointSets<IterDomain*>& disjoint_rfactor_set,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
   if (rfactor_dom.empty()) {
     return {};
+  }
+
+  DisjointRFactorSetInfo info;
+  if (!rfactor_reorder_map.empty()) {
+    rfactor_dom = TensorDomain::orderedAs(rfactor_dom, rfactor_reorder_map);
   }
 
   // Start naming id's based on 0 so the inner most dimension will always be
@@ -1491,7 +1565,6 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
       "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
-  DisjointRFactorSetInfo info;
   info.disjoint_sets_of_ref = disjoint_set_of_id;
   info.disjoint_set_ids = disjoint_group_ids;
   info.ref = of;
@@ -1501,7 +1574,8 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
 
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
-    DataType index_type) {
+    DataType index_type,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto fusion = reference_tv->fusion();
   FusionGuard fg(fusion);
 
@@ -1510,11 +1584,16 @@ BroadcastMultipleInformation getBroadcastMultiples(
   auto ref_root_domain =
       TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain());
 
+  if (!rfactor_reorder_map.empty()) {
+    ref_root_domain =
+        TensorDomain::orderedAs(ref_root_domain, rfactor_reorder_map);
+  }
+
   std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
   auto disjoint_rfactor_sets = disjointRFactorSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
-      fusion, reference_tv, disjoint_rfactor_sets);
+      fusion, reference_tv, disjoint_rfactor_sets, rfactor_reorder_map);
 
   auto ref_disjoint_sets = disjoint_set_information.disjoint_sets_of_ref;
   auto ref_disjoint_set_ids = disjoint_set_information.disjoint_set_ids;
@@ -1981,6 +2060,33 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
     old2new[old_pos] = new_pos;
   }
   return old2new;
+}
+
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
+    TensorView* tv) {
+  std::unordered_map<int, int> ret;
+  if (!tv->hasAllocation()) {
+    return ret;
+  }
+  const auto& alloc_dom = tv->getAllocationDomain();
+  const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
+  if (alloc_dom == maybe_rfactor_dom) {
+    return ret;
+  }
+  if (!std::is_permutation(
+          alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
+    return ret;
+  }
+  std::unordered_map<IterDomain*, int> alloc_index;
+  std::unordered_map<IterDomain*, int> rfactor_index;
+  for (auto i : c10::irange((int)alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[maybe_rfactor_dom[i]] = i;
+  }
+  for (auto iter_dom : alloc_dom) {
+    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  }
+  return ret;
 }
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {

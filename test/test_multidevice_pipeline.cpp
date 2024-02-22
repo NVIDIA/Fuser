@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -45,7 +45,7 @@ using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
 /* To run the following tests on several devices, pytorch must be installed
-   with the flag USE_DISTRIBUTED=1 and nccl support.
+   with the flag NVFUSER_DISTRIBUTED=1 and nccl support.
    Then simply run the tests on several processes, for example using mpirun
    on a node having at least 6 GPUs,
    e.g.: mpirun -np 6 build/nvfuser_tests
@@ -53,8 +53,8 @@ using namespace at::indexing;
 */
 
 TEST_F(PipelineTest, Pipeline) {
-  const std::vector<int64_t> input_shape1 = {3096, 1123};
-  const std::vector<int64_t> input_shape2 = {2048, 73, 81};
+  const std::vector<int64_t> input_shape1 = {6, 7};
+  const std::vector<int64_t> input_shape2 = {3, 5, 2};
   // ===========================================================
   //        FUSION
   // ===========================================================
@@ -128,11 +128,11 @@ TEST_F(PipelineTest, Pipeline) {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  executeAndValidate();
+  validate();
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
-//stage sharded?, is second
+// stage sharded?, is second
 // stage sharded?, do_reduction?)
 using PipelineTestTwoStagesParams =
     std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
@@ -174,7 +174,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
   if (is_stage0_sharded) {
     sharded_input_sizes[0] = 1;
   }
-  
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
@@ -199,9 +198,11 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
+  inputs = {
+      at::ones(sharded_input_sizes, tensor_options) *
+      communicator->deviceId()};
 
-  executeAndValidate();
+  validate();
 }
 
 namespace {
@@ -295,203 +296,6 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true),
         ::testing::Values(true)));
-
-TEST_F(PipelineTest, Overlap) {
-  // In this example we demonstrate how we can apply the optimization
-  // described in
-  // Overlap Communication with Dependent Computation via Decomposition in Large
-  // Deep Learning Models (acm.org)
-  // https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
-  // We simplify the setting as much as possible by considering a multi-device
-  // Pipeline with a simple "Gather" followed by a dependent compute. The paper
-  // suggest to slice those two operation and to interleave them to achieve
-  // better overlap. Consider the following Pipeline:
-
-  // /* Stage 0 */
-  // TensorView* tv0 = makeContigTensor(3);
-  // fusion->addInput(tv0);
-  // TensorView* tv1 = sum(tv0, {2});
-  // /* Stage 1 */
-  // TensorView* tv2 = set(tv1); // is lowered to a "Gather" communication
-  // TensorView* tv3 = sum(tv2, {1});
-  // fusion->addOutput(tv3);
-
-  // tv0->axis(0)->parallelize(ParallelType::DIDx);
-  // tv1->axis(0)->parallelize(ParallelType::DIDx);
-
-  // PipelineStageDescriptor stage0(false), stage1(false);
-  // stage0.addVal({tv0, tv1});
-  // stage1.addVal({tv2, tv3});
-
-  // stage0.mesh = {0, 1, 2, 3, 4, 5, 6, 7};
-  // stage1.mesh = {0};
-
-  const int64_t number_of_devices = communicator->size();
-  constexpr int64_t number_of_slices = 4;
-  constexpr int64_t extent_of_axis2 = 1024;
-  constexpr int64_t extent_of_slice = extent_of_axis2 / number_of_slices;
-  const std::vector<int64_t> input_extents = {
-      number_of_devices, 7, extent_of_axis2, 3};
-  assert(!(extent_of_axis2 % number_of_slices)); // for simplicity
-
-  FusionGuard fg(fusion.get());
-
-  // containers used later for adding ranges of tvs directly to the stages
-  std::unordered_set<Val*> from_stage0, from_stage1;
-  std::vector<Val*> to_stage0, to_stage1;
-
-  TensorView* tv0 = makeConcreteTensor(input_extents);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {3});
-  from_stage0.insert(tv0);
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView *tv1x, *tv2x, *tv3x;
-  std::vector<TensorView*> tv3_slices;
-  std::vector<Slice> slices{3};
-  for (int i = 0; i < number_of_slices; i++) {
-    slices.at(2).start = IrBuilder::create<Val>(i * extent_of_slice);
-    slices.at(2).stop = IrBuilder::create<Val>((i + 1) * extent_of_slice);
-    tv1x = slice(tv1, slices);
-    tv1x->axis(0)->parallelize(ParallelType::DIDx);
-    to_stage0.push_back(tv1x);
-
-    tv2x = set(tv1x);
-    from_stage1.insert(tv2x);
-    tv3x = sum(tv2x, {1});
-    tv3_slices.push_back(tv3x);
-  }
-  TensorView* tv3 = cat(tv3_slices, 1);
-  fusion->addOutput(tv3);
-  to_stage1.push_back(tv3);
-
-  // instead of using "slice/cat" it would be nicer to split the dimension and
-  // use "select/stack", but "stack" is not implemented in nvFuser at the moment
-
-  // stage0.addRange(from_stage0, to_stage0);
-  // stage1.addRange(from_stage1, to_stage1);
-  // std::vector<DeviceIdxType> devices(number_of_devices);
-  // std::iota(devices.begin(), devices.end(), 0);
-  // stage0.mesh = devices;
-  // stage1.mesh = {0};
-
-  // PipelineDescriptor descriptor {
-  //     .stage_descriptors{std::move(stage0), std::move(stage1)}};
-
-  // pipeline = std::make_unique<Pipeline>(std::move(fusion),
-  // std::move(descriptor));
-
-  // inputs = {at::ones(input_extents, tensor_options) *
-  // (communicator->deviceId() + 1)};
-
-  // executeAndValidate();
-}
-
-TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {
-  auto a_b = broadcast(a, {false, false, true}); // (x,y,b)
-  auto b_b = broadcast(b, {true, false, false}); // (b,y,z)
-
-  auto c = mul(a_b, b_b); // (x,y,z)
-  auto d = sum(c, {1}); // (x,r,z)
-  return d;
-}
-
-TEST_F(PipelineTest, matmul_summa) {
-  // use NMK for matrix dimensions instead (by convention)
-  if (communicator->deviceId()) {
-    return;
-  }
-  // Matrices dimensions
-  // a's shape=[x,y]
-  // b's shape=[y,z]
-  constexpr int64_t x = 12;
-  constexpr int64_t y = 18;
-  constexpr int64_t z = 24;
-  const std::vector<int64_t> a_extents = {x, y};
-  const std::vector<int64_t> b_extents = {y, z};
-
-  // Device Mesh
-  // [ 0 1 2
-  //   3 4 5 ]
-  constexpr int64_t N = 2;
-  constexpr int64_t M = 3;
-  DeviceMesh mesh({0, 1, 2, 3, 4, 5});
-  mesh.reshape({N, M});
-
-  auto fusion = std::make_unique<Fusion>();
-  auto fg = std::make_unique<FusionGuard>(fusion.get());
-
-  // a {DIDx{N}, x/N, DIDy{M}, y/M}
-  // b {DIDx{N}, y/N, DIDy{M}, z/M}
-  auto a = makeConcreteTensor(a_extents);
-  auto b = makeConcreteTensor(b_extents);
-  a->split(0, N, false);
-  a->split(2, M, false);
-  b->split(0, N, false);
-  b->split(2, M, false);
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  a->axis(0)->parallelize(ParallelType::DIDx);
-  a->axis(2)->parallelize(ParallelType::DIDy);
-  b->axis(0)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDy);
-  fusion->addInput(a);
-  fusion->addInput(b);
-
-  // a2 {DIDx{N}, x/N, y}
-  // b2 {y, DIDy{M}, z/M}
-  auto a2 = set(a);
-  auto b2 = set(b);
-  a2->split(0, N, false);
-  b2->split(1, M, false);
-  a2->setDeviceMesh(mesh);
-  b2->setDeviceMesh(mesh);
-  a2->axis(0)->parallelize(ParallelType::DIDx);
-  b2->axis(1)->parallelize(ParallelType::DIDy);
-
-  // a3 {DIDx{N}, x/N, y, b,  b }
-  // b3 {b,  b , y, DIDy{M}, z/M}
-  auto a3 = broadcast(a2, {false, false, true, true});
-  auto b3 = broadcast(b2, {true, true, false, false});
-  a3->split(0, N, false);
-  b3->split(3, M, false);
-  a3->setDeviceMesh(mesh);
-  b3->setDeviceMesh(mesh);
-  a3->axis(0)->parallelize(ParallelType::DIDx);
-  b3->axis(3)->parallelize(ParallelType::DIDy);
-
-  // c {DIDx{N}, x/N, y, DIDy{M}, z/M}
-  auto c = mul(a3, b3);
-  c->setDeviceMesh(mesh);
-  c->axis(0)->parallelize(ParallelType::DIDx);
-  c->axis(3)->parallelize(ParallelType::DIDy);
-
-  // d {DIDx{N}, x/N, r{y}, DIDy{M}, z/M}
-  auto d = sum(c, {2});
-  d->setDeviceMesh(mesh);
-  d->axis(0)->parallelize(ParallelType::DIDx);
-  d->axis(3)->parallelize(ParallelType::DIDy);
-  fusion->addOutput(d);
-
-  fusion->print();
-
-  inputs = {
-      at::randn(a_extents, tensor_options),
-      at::randn(b_extents, tensor_options)};
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), inputs);
-  auto ref_outputs = fe.runFusion(inputs);
-
-  std::cout << "a (concrete inputs): \n"
-            << inputs.at(0) << "\nb (concrete inputs): \n"
-            << inputs.at(1) << std::endl;
-  for (auto t : c10::irange(ref_outputs.size())) {
-    std::cout << "\noutput " << t << ":\n" << ref_outputs.at(t);
-  }
-  std::cout << std::endl;
-}
 
 } // namespace nvfuser
 

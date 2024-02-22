@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -28,9 +28,6 @@ void MultiDeviceEnvironment::SetUp() {
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
-  if (getNvFuserEnv("MULTIDEVICE_TIME_PRINT")) {
-    time_print_ = true;
-  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -50,41 +47,14 @@ void MultiDeviceTest::SetUp() {
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
   debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test =
-      multidevice_env->doBarrierAtTest() && communicator->is_available();
-  time_print = multidevice_env->timePrint() && communicator->is_available();
-  recordEvent("init");
+  do_barrier_at_test = multidevice_env->doBarrierAtTest();
 }
 
 void MultiDeviceTest::TearDown() {
-  if (do_barrier_at_test) {
-    recordEvent("final barrier");
+  if (do_barrier_at_test && communicator->is_available()) {
     communicator->barrier();
   }
-  recordEvent("cleanup");
-  if (time_print) {
-    printTimes();
-  }
   NVFuserTest::TearDown();
-}
-
-void MultiDeviceTest::recordEvent(const std::string name) {
-  times.push_back(std::make_pair(name, std::chrono::high_resolution_clock::now()));
-}
-
-void MultiDeviceTest::printTimes() {
-  std::stringstream ss;
-  auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-  ss << "Rank " << communicator->deviceId()
-     << " -- test " << test_info->test_suite_name() << "." << test_info->name()
-     << " -- Timestamps: {\n";
-  for (auto i: c10::irange(times.size() - 1)) {
-    auto [event_name, time] = times[i];
-    auto [_, next_time] = times[i+1];
-    ss << "  " << event_name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(next_time - time).count() << " ms\n";
-  }
-  ss << "}";
-  std::cout << ss.str() << std::endl;
 }
 
 void CommunicationTest::SetUp() {
@@ -114,6 +84,15 @@ void CommunicationTest::resetDstBuffers() {
 }
 
 namespace {
+
+void unshardTv(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+}
+
 
 void doSendRecv(
     DeviceIdxType sender,
@@ -146,8 +125,7 @@ void SendToTester(
     at::Tensor tensor,
     at::Tensor tester_tensor,
     DeviceIdxType tester,
-    Communicator* communicator,
-    bool debug_print) {
+    Communicator* communicator) {
   auto mesh = tv->getDeviceMesh();
   if (isSharded(tv)) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
@@ -184,7 +162,6 @@ c10::IValue allocate_unsharded_input(
     DeviceIdxType tester,
     TensorView* tv,
     at::Tensor sharded_input) {
-  // TODO: Extend to multi-dimension mesh
   std::vector<int64_t> unsharded_sizes;
   for (size_t i = 0; i < tv->nDims(); i++) {
     if (tv->axis(i)->isDeviceDim()) {
@@ -198,62 +175,68 @@ c10::IValue allocate_unsharded_input(
   unsharded_input.index_put_({tester, "..."}, sharded_input.index({0, "..."}));
   return unsharded_input;
 }
-} // namespace
 
 // Utility function used for validation in the tests
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
-void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
-  recordEvent("gather inputs at tester");
+void testValidateMultidevice(
+    MultiDeviceExecutor& runtime,
+    const at::ArrayRef<c10::IValue>& inputs,
+    const std::vector<at::Tensor>& outputs,
+    bool print,
+    DeviceIdxType tester = 0,
+    bool validate = true,
+    bool set_mem_type_to_global = true,
+    bool auto_schedule = false) {
   // gathering all the inputs at tester
   std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
-    TensorView* tv = runtime->fusion()->inputs().at(i)->as<TensorView>();
+    TensorView* tv = runtime.completeFusion()->inputs().at(i)->as<TensorView>();
     c10::IValue unsharded_input = isSharded(tv)
         ? allocate_unsharded_input(tester, tv, inputs.at(i).toTensor())
         : inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
-
     SendToTester(
         tv,
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
-        runtime->comm(),
-        debug_print);
+        runtime.comm());
   }
 
-  std::unique_ptr<FusionExecutorCache> unsharded_fec;
   // allocate output buffers for the tester
   std::vector<at::Tensor> unsharded_outputs;
-  std::unique_ptr<Fusion> fusion_copy;
-  if (runtime->comm()->deviceId() == tester) {
-    recordEvent("compile unsharded fusion and alloc output");
-    fusion_copy = std::make_unique<Fusion>(*runtime->fusion());
-    unshard(fusion_copy.get());
-    unsharded_fec =
-        std::make_unique<FusionExecutorCache>(std::move(fusion_copy));
-    unsharded_outputs = unsharded_fec->allocOutputSpace(unsharded_inputs);
+  if (runtime.comm()->deviceId() == tester) {
+    std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
+    auto original_to_copy_cloner =
+        Fusion::copy(runtime.completeFusion(), fusion_copy.get());
+
+    for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
+      unshardTv(tv);
+      tv->setMemoryType(MemoryType::Global);
+    }
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion_copy.get(), unsharded_inputs);
+    unsharded_outputs = fe.allocOutputSpace(unsharded_inputs);
   } else {
     // On non-tester devices, these tensors won't be used.
     // we copy the local outputs for convenience
     unsharded_outputs = outputs;
   }
 
-  recordEvent("gather outputs at tester");
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
     SendToTester(
-        runtime->fusion()->outputs().at(i)->as<TensorView>(),
+        runtime.completeFusion()->outputs().at(i)->as<TensorView>(),
         outputs.at(i),
         unsharded_outputs.at(i),
         tester,
-        runtime->comm(),
-        debug_print);
+        runtime.comm());
   }
 
-  if (runtime->comm()->deviceId() == tester) {
-    if (debug_print) {
+  if (runtime.comm()->deviceId() == tester) {
+    if (print) {
       std::stringstream ss;
       std::string indent = "  ";
       ss << "Obtained final outputs:{\n";
@@ -269,20 +252,28 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
       std::cout << ss.str() << std::endl;
     }
 
+    // sets all the memory type to global to avoid an execution error
+    auto fusion_ptr = runtime.completeFusion();
+    for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
+      unshardTv(tv);
+      if (set_mem_type_to_global) {
+        tv->setMemoryType(MemoryType::Global);
+      }
+    }
+
     // execute the fusion on one device without pipeline scheduling
     std::vector<at::Tensor> ref_outputs;
     if (auto_schedule) {
-      recordEvent("run unsharded fusion");
-      ref_outputs = unsharded_fec->runFusionWithInputs(unsharded_inputs);
+      auto fusion_unique_ptr = std::make_unique<Fusion>(*fusion_ptr);
+      FusionExecutorCache fec(std::move(fusion_unique_ptr));
+      ref_outputs = fec.runFusionWithInputs(unsharded_inputs);
     } else {
-      recordEvent("compile unsharded fusion");
       FusionExecutor fe;
-      fe.compileFusion(unsharded_fec->fusion(), unsharded_inputs);
-      recordEvent("run unsharded fusion");
+      fe.compileFusion(fusion_ptr, unsharded_inputs);
       ref_outputs = fe.runFusion(unsharded_inputs);
     }
 
-    if (debug_print) {
+    if (print) {
       std::stringstream ss;
       std::string indent = "  ";
       ss << "Expected outputs:{\n";
@@ -293,36 +284,37 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
       std::cout << ss.str() << std::endl;
     }
 
-    recordEvent("validate unsharded fusion");
-    testValidate(
-        unsharded_fec->fusion(),
-        unsharded_outputs,
-        unsharded_inputs,
-        ref_outputs,
-        __LINE__,
-        __FILE__);
+    if (validate) {
+      testValidate(
+          fusion_ptr,
+          unsharded_outputs,
+          unsharded_inputs,
+          ref_outputs,
+          __LINE__,
+          __FILE__);
+    }
   }
 }
 
 // Run and validate a pipeline
 // with given (possibly sharded) inputs
-void PipelineTest::execute() {
-  if (debug_print && !communicator->deviceId()) {
-    fusion->printKernel();
+void executeAndValidateMultiDeviceFusion(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::vector<c10::IValue>& inputs,
+    Communicator* communicator,
+    bool print) {
+  if (print && !communicator->deviceId()) {
+    fusion_ptr->printKernel();
   }
 
-  recordEvent("runtime instantiation");
-  runtime =
-      std::make_unique<MultiDeviceExecutor>(std::move(fusion), *communicator);
-  auto error_msg = runtime->validate();
-  if (error_msg != "") {
+  MultiDeviceExecutor runtime(std::move(fusion_ptr), *communicator);
+  if (auto error_msg = runtime.validate(); error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
 
-  recordEvent("run the multidevice fusion");
-  outputs = runtime->runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs);
 
-  if (debug_print) {
+  if (true) {
     std::stringstream ss;
     std::string indent = "  ";
     ss << "Device " << communicator->deviceId() << "'s outputs:{\n";
@@ -332,12 +324,21 @@ void PipelineTest::execute() {
     ss << "\n}";
     std::cout << ss.str() << std::endl;
   }
+
+  testValidateMultidevice(runtime, inputs, outputs, print);
 }
+
+} // namespace
 
 void PipelineTest::SetUp() {
   MultiDeviceTest::SetUp();
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
+}
+
+void PipelineTest::validate() {
+  executeAndValidateMultiDeviceFusion(
+      std::move(fusion), inputs, communicator, debug_print);
 }
 
 } // namespace nvfuser

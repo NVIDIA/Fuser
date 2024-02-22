@@ -96,11 +96,14 @@ TEST_F(MBarrierTest, Simple) {
     ASSERT_NE(smem_alloc_it, top_level_exprs.end());
     auto init = IrBuilder::create<kir::MBarrierInit>(
         mbarrier_index, IrBuilder::create<Val>(1024, DataType::UInt32));
+    auto sync = IrBuilder::create<kir::BlockSync>();
+    top_level_exprs.insert(smem_alloc_it, sync);
     top_level_exprs.insert(smem_alloc_it, init);
+    smem_alloc_it += 2;
 
     // Arrive and wait
-    auto sync_it = std::find_if(
-        top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
+    auto sync_it =
+        std::find_if(smem_alloc_it, top_level_exprs.end(), [](Expr* expr) {
           return expr->isA<kir::BlockSync>();
         });
     ASSERT_NE(sync_it, top_level_exprs.end());

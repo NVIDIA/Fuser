@@ -7,11 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
-
 #include <utils.h>
+#include <visibility.h>
 
 #include <complex>
 #include <unordered_map>
@@ -145,6 +143,10 @@ class EncodeTensorMapTiled;
 
 } // namespace kir
 
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
+
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
 class OptOutConstDispatch : public PolymorphicBase {
@@ -235,9 +237,10 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::AllocateFusedReduction*);
   virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
   virtual void handle(const kir::EncodeTensorMapTiled*);
+  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
-class OptOutDispatch : public PolymorphicBase {
+class NVF_API OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -325,6 +328,7 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
   virtual void handle(kir::EncodeTensorMapTiled* stmt);
+  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptInConstDispatch : public OptOutConstDispatch {
@@ -358,7 +362,7 @@ class OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class OptOutMutator : public PolymorphicBase {
+class NVF_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);

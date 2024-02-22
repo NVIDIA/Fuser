@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <deque>
 #include <list>
@@ -339,10 +340,6 @@ class SegmentedFusion {
     return complete_fusion_->outputs();
   }
 
-  Val* findAlias(Val* val) const {
-    return complete_fusion_->getOutputAlias(val).first;
-  }
-
   //! Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
@@ -350,9 +347,6 @@ class SegmentedFusion {
   std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
       const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
-
-  //! Inline Debug print for segmented fusion
-  std::string toString(int verbosity) const;
 
   //! Debug drawing for graphviz
   void draw();
@@ -563,7 +557,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     return segment(std::move(fusion_copy), inputs, options);
@@ -572,7 +566,7 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
@@ -598,20 +592,20 @@ class SegmentCandidateFinder {
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
 
-  static bool translateWelfordInFusion(
+  NVF_API static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
  private:
   // Perform segmentation on and take ownership of the given fusion
-  SegmentCandidateFinder(
+  NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
+      const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options);
 
   SegmentCandidateFinder(
@@ -664,8 +658,7 @@ class SegmentCandidateFinder {
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_->expressionEvaluator();
+    return runtimeInfo().expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
@@ -775,6 +768,8 @@ class SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
+  // This is allowed to be null in the multidevice case where the segmenter is
+  // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   //! Note:
@@ -793,7 +788,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  std::optional<KernelArgumentHolder> runtime_inputs_;
+  const KernelArgumentHolder* runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

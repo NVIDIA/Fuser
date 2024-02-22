@@ -5,13 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <type.h>
 
 #include <dispatch.h>
-
-#include <typeinfo>
 
 namespace nvfuser {
 
@@ -341,6 +340,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
+    return;
+  }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
@@ -648,6 +651,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::EncodeTensorMapTiled>()) {
     ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
+    return;
+  }
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
@@ -1030,6 +1037,10 @@ void OptOutConstDispatch::handle(const kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
 
+void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
+  unhandled(stmt);
+}
+
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
@@ -1252,6 +1263,10 @@ void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::EncodeTensorMapTiled* stmt) {
+  unhandled(stmt);
+}
+
+void OptOutDispatch::handle(assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 

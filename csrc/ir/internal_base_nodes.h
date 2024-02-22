@@ -36,10 +36,10 @@ struct AnalyzeViewResult;
 class IterDomainBuilder {
  public:
   // Match legacy constructor
-  IterDomainBuilder(Val* _start, Val* _extent);
+  NVF_API IterDomainBuilder(Val* _start, Val* _extent);
 
   // Grab all the parameters from id to set the IterDomainBuilder
-  IterDomainBuilder(const IterDomain* id);
+  NVF_API IterDomainBuilder(const IterDomain* id);
 
   // Resets defaults for rfactor, is padded dim, padded to size, and is mma
   // swizzle which should only be set during scheduling.
@@ -50,16 +50,16 @@ class IterDomainBuilder {
 
   IterDomainBuilder& start(Val* _start);
   IterDomainBuilder& extent(Val* _extent);
-  IterDomainBuilder& expanded_extent(Val* _expanded_extent);
+  NVF_API IterDomainBuilder& expanded_extent(Val* _expanded_extent);
   IterDomainBuilder& stop_offset(Val* _stop_offset);
   IterDomainBuilder& parallel_type(ParallelType _parallel_type);
-  IterDomainBuilder& iter_type(IterType _iter_type);
+  NVF_API IterDomainBuilder& iter_type(IterType _iter_type);
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
   IterDomainBuilder& is_mma_swizzled(bool _is_mma_swizzled);
 
-  IterDomain* build() const;
+  NVF_API IterDomain* build() const;
 
   // Must have start and extent at least
   IterDomainBuilder() = delete;
@@ -82,7 +82,7 @@ class IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class IterDomain : public Val {
+class NVF_API IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -452,7 +452,7 @@ class IterDomain : public Val {
 //! a tensor domain.
 class TensorDomain : public Val {
  public:
-  explicit TensorDomain(
+  NVF_API explicit TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<std::optional<bool>> contiguity = {});
@@ -526,7 +526,7 @@ class TensorDomain : public Val {
     return contiguity_;
   }
 
-  void setContiguity(const std::vector<std::optional<bool>>& contig);
+  NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
     return toDelimitedString(contiguity(), /*delim=*/" ");
@@ -558,7 +558,7 @@ class TensorDomain : public Val {
 
   bool hasVectorize() const;
 
-  bool hasSymbolicAxis() const;
+  NVF_API bool hasSymbolicAxis() const;
 
   std::optional<unsigned int> getReductionAxis() const;
 
@@ -607,7 +607,7 @@ class TensorDomain : public Val {
   // must satisfy root <= allocation <= leaf, that is, it must be within the
   // history between root and leaf domain. Because contiguity is always defined
   // w.r.t. the allocation domain, the contiguity must be updated accordingly.
-  void setAllocationDomain(
+  NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
 
@@ -676,8 +676,10 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& td,
       const std::unordered_map<int, int>& old2new);
 
-  static std::vector<IterDomain*> noReductions(const std::vector<IterDomain*>&);
-  static std::vector<IterDomain*> noBroadcasts(const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noReductions(
+      const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noBroadcasts(
+      const std::vector<IterDomain*>&);
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
@@ -685,7 +687,7 @@ class TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given rfactor_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<std::optional<bool>> getContiguityFilledWith(
+  NVF_API static std::vector<std::optional<bool>> getContiguityFilledWith(
       const std::vector<IterDomain*>& rfactor_domain,
       bool fill_value);
 
@@ -701,7 +703,7 @@ class TensorDomain : public Val {
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   std::vector<std::optional<bool>> contiguity_;
-  bool has_reduction_;
+  bool has_reduction_ = false;
 };
 
 } // namespace nvfuser
