@@ -3290,6 +3290,7 @@ Val* Index::eye(
 
 Val* Index::cpAsyncBulkIndex(
     TensorView* gmem_tv,
+    TensorView* smem_tv,
     TensorView* consumer,
     Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
@@ -3301,16 +3302,16 @@ Val* Index::cpAsyncBulkIndex(
       gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
 
-  int64_t dim = (int64_t)gmem_tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->getMaybeAllocationDomain().size();
   NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
   int64_t swizzle_size = 1;
   auto exprs = DependencyCheck::getAllExprsBetween(
-      {consumer->getMaybeRFactorDomain().begin(),
-       consumer->getMaybeRFactorDomain().end()},
-      {consumer->getMaybeAllocationDomain().begin(),
-       consumer->getMaybeAllocationDomain().end()});
+      {smem_tv->getMaybeRFactorDomain().begin(),
+       smem_tv->getMaybeRFactorDomain().end()},
+      {smem_tv->getMaybeAllocationDomain().begin(),
+       smem_tv->getMaybeAllocationDomain().end()});
   for (auto expr : exprs) {
     if (auto s = dynamic_cast<Swizzle*>(expr)) {
       swizzle_size = s->inX()->extent()->evaluate().as<int64_t>();
