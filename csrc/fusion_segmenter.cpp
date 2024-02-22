@@ -2483,6 +2483,12 @@ std::optional<ScheduleHeuristic> tryMerge(
     SegmentedGroup* b = nullptr) {
   FusionSegmentGuard fsg(segmented_fusion, a, b);
 
+  NVF_ERROR(
+      !segmented_fusion->completeFusion()->unordered_exprs().empty(),
+      "We shouldn't attempt to merge empty fusions. "
+      "This might not indicate a bug, "
+      "but it's definitely a change of world view that we should be aware of.");
+
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
@@ -2498,6 +2504,13 @@ std::optional<ScheduleHeuristic> tryMerge(
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
   FusionSegmentGuard fsg(segmented_fusion, segmented_groups);
+
+  NVF_ERROR(
+      !segmented_fusion->completeFusion()->unordered_exprs().empty(),
+      "We shouldn't attempt to merge empty fusions. "
+      "This might not indicate a bug, "
+      "but it's definitely a change of world view that we should be aware of.");
+
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
