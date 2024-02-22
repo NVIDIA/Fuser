@@ -33,7 +33,7 @@ Mark one of the virtual functions as NVF_API. Use the destructor for this.
 If the destructor is not already virtual, mark it so now. An object with
 virtual functions should always have a virtual destructor.
 
-### I see that <Foo> is visible but I do not think it needs to be.
+### I see that `Foo` is visible but I do not think it needs to be.
 
 You are probably correct! Please fix it. You can do this by removing the
 `NVF_API` macro from the relevant place and compiling + linking. If linking
