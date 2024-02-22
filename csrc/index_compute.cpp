@@ -3823,7 +3823,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
          {"coordinate", coordinate}},
         ss.str());
   }
-
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
   // Step 5: Compute the expected bytes for the complete_tx mechanism
