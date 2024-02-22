@@ -48,7 +48,9 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
 
-  auto c = matmul(a, b, layout);
+  a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
+  b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
+  auto c = fusedMultiplySum(a, b, {-1});
 
   // Cast the output so that we perform an HSH matmul, which is what at::matmul
   // will perform
@@ -315,7 +317,9 @@ static void SingleMatmulPartitionedK(
   fusion->addInput(b);
 
   // batch matmul
-  auto c = matmul(a, b, layout);
+  a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
+  b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
+  auto c = fusedMultiplySum(a, b, {-1});
 
   fusion->addOutput(c);
 
