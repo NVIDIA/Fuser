@@ -219,9 +219,10 @@ int64_t getMaxRegisterCountPerThread(
 }
 
 // Returns the maximum persistent batch size.
-// For example: assuming we have 64K registers per SM and 28 warps per SM.
-// Each thread can use up to 72 registers. Then minus the register overhead 16,
-// there are 56 registers or 224 bytes to store the persistent buffer.
+// For example: assuming we have 64K registers per SM and 28 warps (864 threads)
+// per SM. Each thread can use up to 72 registers. Then minus the register
+// overhead 16, there are 56 registers or 224 bytes to store the persistent
+// buffer.
 // (1) If each reduction element has 1 fp32 buffer and vectorized by 8,
 //     [buffer_bytes_per_batch] = 4 * 8 = 32. Then the maximum persistent
 //      batch size is 224 / 32 = 7
@@ -351,9 +352,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
-  const int64_t register_overhead = 16l;
+  const int64_t register_overhead = has_exp_op ? 24l : 16l;
 
-  // Target occupancy required to hide memory latency
+  // Target occupancy required to hide memory latency.
+  // Used to calculate the maximum register count each thread can use.
+  // Used to calculate the maximum persistent batch size.
   // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100.
   const int64_t target_warps_per_sm = 28l;
