@@ -90,15 +90,13 @@ enum class AllocationType : int {
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
-  // For example, the output of a ViewOp is merely a pointer arithmetic of the
-  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
-  // cheaply compute the output tensor.
-  PointerArithmetic,
-  // To evaluate outputs which are not aliases.
-  // TODO: This will merged with PointerArithmetic in the next PR.
-  //       PointerArithmetic requires aliased_io != nullptr while for evaluating
-  //       a non-aliased output, aliased_io = nullptr. So keeping them separate
-  //       initially.
+  // This is used to cheaply compute the output tensor using
+  // `ExpressionEvaluator` (instead of a kernel) for:
+  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // pointer arithmetic of the input.  In this case, aliased_io is a non-null
+  // tensor.
+  // 2. To evaluate output tensors which are not aliases. For example, default
+  // scheduling in matmul when EnableOption::MatmulExprEval is set.
   Evaluate,
 };
 
@@ -262,10 +260,6 @@ class NVF_API Fusion : public IrContainer {
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
-
-  // Marks a non-aliased output to be evaluated through
-  // expression evaluator.
-  void markOutputForEvaluation(Val* output);
 
   std::vector<Expr*> getExprsToCodegen();
 

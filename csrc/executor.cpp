@@ -977,7 +977,7 @@ at::Tensor allocateOutput(
     return alloc_tensor;
   }
 
-  if (alias_info.type == AllocationType::Evaluate) {
+  if (alias_info.type == AllocationType::Evaluate && !alias_info.aliased_io) {
     // Compute non-aliased outputs that were marked for expr evaluator.
     at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
     return out_tensor;
@@ -986,7 +986,7 @@ at::Tensor allocateOutput(
   Val* aliased_io = alias_info.aliased_io;
   NVF_ERROR(
       aliased_io != nullptr,
-      "The other two AllocationTypes currently must have an `aliased_io`.");
+      "Other cases of AllocationTypes currently must have an `aliased_io`.");
   NVF_ERROR(
       aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
       aliased_io->toInlineString(),
@@ -1001,15 +1001,16 @@ at::Tensor allocateOutput(
   auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
 
   if (alias_info.type == AllocationType::InplaceUpdate) {
-    // Unlike for `AllocationType::PointerArithmetic`, don't use
+    // Unlike for `AllocationType::Evaluate`, don't use
     // ExpressionEvaluator to compute the output tensor. This is because
     // the output tensor may hold different data from the input, e.g., an
     // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
     // would trigger non-trivial host computation.
     return aliased_io_tensor;
   }
-
-  NVF_ERROR(alias_info.type == AllocationType::PointerArithmetic);
+  
+  // Outputs which are pointer arithmetic of input tensor.
+  NVF_ERROR(alias_info.type == AllocationType::Evaluate);
   at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
   NVF_ERROR(
       out_tensor.is_alias_of(aliased_io_tensor),

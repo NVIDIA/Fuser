@@ -39,7 +39,7 @@ void markAliases(Fusion* fusion) {
     }
 
     fusion->aliasOutputToInput(
-        out, aliased_io, AllocationType::PointerArithmetic);
+        out, aliased_io, AllocationType::Evaluate);
     vlog(
         "Marked ",
         ir_utils::varName(out),

@@ -33,7 +33,8 @@ void MatmulScheduler::schedule(Fusion* fusion) {
   // Skip scheduling if Matmul will be expression evaluated.
   if (isOptionEnabled(EnableOption::MatmulExprEval)) {
     NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->markOutputForEvaluation(fusion->outputs()[0]);
+    fusion->aliasOutputToInput(
+        fusion->outputs()[0], nullptr, AllocationType::Evaluate);
     scheduler_debug_utils::log(
         __FILE__,
         ":",

@@ -794,23 +794,32 @@ void Fusion::aliasOutputToInput(
     if (input->getDataType().value() != output->getDataType().value()) {
       output = castOp(input->getDataType().value(), output);
     }
-  }
 
-  NVF_ERROR(
+    NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  // Let integration hide any output that wasn't a fusion output when
-  // `aliasOutputToInput` was called. For example, running mean and var for
-  // batch norm.
-  io_alias_[output] = AliasInfo{
-      .type = type,
-      .aliased_io = input,
-      .hide_output = !output->isFusionOutput()};
+    // Let integration hide any output that wasn't a fusion output when
+    // `aliasOutputToInput` was called. For example, running mean and var for
+    // batch norm.
+    io_alias_[output] = AliasInfo{
+        .type = type,
+        .aliased_io = input,
+        .hide_output = !output->isFusionOutput()};
 
-  // TODO: output should be marked at the end of fusion definition #1488
-  if (!output->isFusionOutput()) {
-    addOutput(output);
+    // TODO: output should be marked at the end of fusion definition #1488
+    if (!output->isFusionOutput()) {
+      addOutput(output);
+    }
+    return;
   }
+
+  // AllocationType::Evaluate
+  NVF_ERROR(type == AllocationType::Evaluate);
+  NVF_CHECK(
+      output->isFusionOutput(),
+      "Only fusion outputs can be expression evaluated.");
+  io_alias_[output] =
+      AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
 }
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
@@ -826,16 +835,6 @@ const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
 
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
-}
-
-void Fusion::markOutputForEvaluation(Val* output) {
-  NVF_CHECK(
-      output->isFusionOutput(),
-      "Only fusion outputs can be expression evaluaed.");
-  io_alias_[output] = AliasInfo{
-      .type = AllocationType::Evaluate,
-      .aliased_io = nullptr,
-      .hide_output = false};
 }
 
 std::vector<Expr*> Fusion::getExprsToCodegen() {

@@ -1518,8 +1518,7 @@ void ExprSegmentationSorter::sort() {
       [this](Val* out) {
         return (
             fusion_->getOutputAlias(out).type !=
-                AllocationType::PointerArithmetic &&
-            fusion_->getOutputAlias(out).type != AllocationType::Evaluate);
+                AllocationType::Evaluate);
       });
 
   // Not putting the exprs between fusion inputs and allKnownVals() here
