@@ -121,9 +121,7 @@ inline void checkConcreteStaticDim(IterDomain* id) {
 //! If the input tensorview is not stored in shared memory, the function will
 //! skip the actual swizzle. This is used to help the domain mapping between
 //! mma_result and the epilogue tensor.
-void swizzleSharedMemory(
-    TensorView* shared_mem_tv,
-    const MatmulParams& params) {
+void swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Set skip to skip all consecutive reduction domains starting from the
   //  innermost dimension.
   int skip = 0;
@@ -552,7 +550,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
-  swizzleSharedMemory(shared_mem_tv, params);
+  swizzleSharedMemory(shared_mem_tv);
   // Assuming we are always vectorizing smem write by 128b at the moment:
   //   TODO: would need a data-type and alignment dependent interface
   //    to support non-vectorizable shapes.
@@ -906,7 +904,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
     // are mapped between mma_result and smem_epilogue.
-    swizzleSharedMemory(mma_result, params);
+    swizzleSharedMemory(mma_result);
   }
 
   // Schedule warp tile
@@ -1050,7 +1048,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(smem_epilogue, params);
+    swizzleSharedMemory(smem_epilogue);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,

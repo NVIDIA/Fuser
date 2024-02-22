@@ -348,9 +348,6 @@ class SegmentedFusion {
       const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
-  //! Inline Debug print for segmented fusion
-  std::string toString(int verbosity) const;
-
   //! Debug drawing for graphviz
   void draw();
 

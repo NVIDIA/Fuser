@@ -476,6 +476,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_alias.cpp
   ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/test/test_allocation_order_inference.cpp
+  ${NVFUSER_ROOT}/test/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
   ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp

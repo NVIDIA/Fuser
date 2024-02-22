@@ -388,7 +388,7 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
     int device = 0;
-#if NVF_TORCH_VERSION_GREATER(2, 2, 0)
+#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
     // c10::cuda uses DeviceIndex instead of int
     // https://github.com/pytorch/pytorch/pull/119142
     c10::DeviceIndex device_index;
@@ -589,6 +589,12 @@ static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
     MmaLayout::NT,
     MmaLayout::TN,
     MmaLayout::NN};
+
+static auto kAllSmemSwizzleModes = testing::Values(
+    MmaInputSmemSwizzle::None,
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
 
 // Generic interface to get matmul op with the given layout.
 // The as_mul_sum flags creates a mul and sum ops instead of mma

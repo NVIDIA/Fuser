@@ -9,6 +9,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <root_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -51,9 +52,9 @@ class AllocationOrderInferencer : public IterVisitor {
   using IterVisitor::handle;
 
   void handle(UnaryOp*) override;
+  void handle(BroadcastOp*) override;
   void handle(BinaryOp*) override;
   // TODO: Add more propagation rules
-  // void handle(BroadcastOp*) override;
   // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
   // void handle(SqueezeOp*) override;
@@ -89,6 +90,80 @@ void AllocationOrderInferencer::handle(UnaryOp* op) {
   }
   auto* in = op->in()->as<TensorView>();
   propagateAllocationOrder(in, out);
+}
+
+// BroadcastOp propagation:
+//   1. preserves all allocation order of input iterdomain;
+//   2. stacks all added broadcast iter domain on outputs as outer dimensions in
+//   their natural position
+//
+// e.g.
+//   TV0 rfactor dom [i0', i1', i2'] @ allocation order {0, 2, 1}
+//    |    alloc dom [i0', i2', i1']
+//    |
+//    |
+//    BroadcastOp
+//    |
+//    v
+//   TV1 rfactor dom [i0, b3, i1, i2, b4]
+//
+//   step 0:
+//       scan through all iterdomain in output TV1's rfactor domain
+//       insert all broadcast domain to alloc_domain[b3, b4];
+//
+//   step 1:
+//       computing iterdomain mapping from input to output;
+//       [i0', i2', i1'] -> [i0, i2, i1]
+//
+//   step 2:
+//       follow allocation order on input, insert the mapped iter domain on
+//       output to alloc_domain[b3, b4, i0, i2, i1];
+//
+//   step 3:
+//       compute permutation from alloc_domain to TV1's rfactor domain;
+//       so output TV1 will have allocation order {1, 4, 0, 3, 2}
+void AllocationOrderInferencer::handle(BroadcastOp* op) {
+  auto* out = dynamic_cast<TensorView*>(op->out());
+  if (out == nullptr) {
+    return;
+  }
+  auto* in = op->in()->as<TensorView>();
+
+  auto iter = alloc_order_map_.find(in);
+  // early return when there's no recorded allocation order for `in`
+  if (iter == alloc_order_map_.end()) {
+    return;
+  }
+
+  size_t out_rank = out->nDims();
+  std::vector<IterDomain*> alloc_domain;
+  alloc_domain.reserve(out_rank);
+
+  // step 0: insert all broadcast iterdomain in output
+  for (auto i : c10::irange(out_rank)) {
+    if (op->isBroadcastDim(i)) {
+      alloc_domain.push_back(out->getMaybeRFactorDomain()[i]);
+    }
+  }
+
+  // step 1: compute root domain map
+  auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+  const auto& in_root_domain =
+      TensorDomain::noReductions(in->getMaybeRFactorDomain());
+
+  // step 2: push each mapped iterdomain
+  for (auto index : iter->second) {
+    alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
+  }
+
+  // step 3: compute permutation
+  std::optional<AllocationOrder> permutation =
+      ir_utils::computePermutation(out->getMaybeRFactorDomain(), alloc_domain);
+
+  NVF_ERROR(
+      permutation.has_value(),
+      "allocation order propagation on broadcast op failed to compute valid permutation");
+  alloc_order_map_[out] = permutation.value();
 }
 
 // BinaryOp propagation tries to merge the allocation order of both inputs

@@ -3290,6 +3290,7 @@ Val* Index::eye(
 
 Val* Index::cpAsyncBulkIndex(
     TensorView* gmem_tv,
+    TensorView* smem_tv,
     TensorView* consumer,
     Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
@@ -3300,21 +3301,23 @@ Val* Index::cpAsyncBulkIndex(
   NVF_ERROR(
       gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
-  NVF_ERROR(
-      gmem_tv->getMaybeRFactorDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  NVF_ERROR(
-      gmem_tv->getMaybeAllocationDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  for (auto id : consumer->getMaybeRFactorDomain()) {
-    NVF_ERROR(
-        id->isBulk(),
-        "cpAsyncBulkIndex only support whole tensor copy for now.");
-  }
 
-  int64_t dim = (int64_t)gmem_tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->getMaybeAllocationDomain().size();
   NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
+
+  int64_t swizzle_size = 1;
+  auto exprs = DependencyCheck::getAllExprsBetween(
+      {smem_tv->getMaybeRFactorDomain().begin(),
+       smem_tv->getMaybeRFactorDomain().end()},
+      {smem_tv->getMaybeAllocationDomain().begin(),
+       smem_tv->getMaybeAllocationDomain().end()});
+  for (auto expr : exprs) {
+    if (auto s = dynamic_cast<Swizzle*>(expr)) {
+      swizzle_size = s->inX()->extent()->evaluate().as<int64_t>();
+      break;
+    }
+  }
 
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
@@ -3354,7 +3357,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      MmaInputSmemSwizzle::None,
+      getSwizzleFromBytes(swizzle_size * 16),
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 

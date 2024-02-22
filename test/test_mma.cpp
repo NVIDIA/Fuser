@@ -237,12 +237,6 @@ auto all_hopper_macros = testing::Values(
     MmaMacro::Hopper_64_248_16,
     MmaMacro::Hopper_64_256_16);
 
-auto all_smem_swizzle_modes = testing::Values(
-    MmaInputSmemSwizzle::None,
-    MmaInputSmemSwizzle::B128,
-    MmaInputSmemSwizzle::B64,
-    MmaInputSmemSwizzle::B32);
-
 using HopperMmaRSTestParams =
     std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
 
@@ -372,7 +366,7 @@ INSTANTIATE_TEST_SUITE_P(
         all_hopper_macros,
         all_dtypes,
         testing::Values(MmaLayout::TT, MmaLayout::TN),
-        all_smem_swizzle_modes),
+        kAllSmemSwizzleModes),
     testNameHopperRS);
 
 using HopperMmaSSTestParams = std::tuple<
@@ -552,8 +546,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_hopper_macros,
         all_dtypes,
         all_mma_layouts,
-        all_smem_swizzle_modes,
-        all_smem_swizzle_modes),
+        kAllSmemSwizzleModes,
+        kAllSmemSwizzleModes),
     testNameHopperSS);
 
 } // namespace nvfuser

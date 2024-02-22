@@ -11,6 +11,8 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/mma_utils.h>
 #include <test/utils.h>
@@ -19,7 +21,18 @@
 namespace nvfuser {
 
 namespace {
-class MatmulSchedulerTest : public NVFuserTest {};
+class MatmulSchedulerTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    // allocation order set by the pass breaks matmul tests
+    // see issue https://github.com/NVIDIA/Fuser/issues/1810
+    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
+        nvfuser::preseg_passes::AllocationDomainPass>>(false);
+  }
+  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
+      nvfuser::preseg_passes::AllocationDomainPass>>
+      guard_;
+};
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
 
@@ -28,7 +41,18 @@ using RelariveError = double;
 using ErrorThresholds = std::pair<AbsoluteError, RelariveError>;
 using TestCaseErrorThresholds = std::map<PrecisionsDesc, ErrorThresholds>;
 class PrecisionParametrizedTest
-    : public NVFuserFixtureParamTest<PrecisionsDesc> {};
+    : public NVFuserFixtureParamTest<PrecisionsDesc> {
+ protected:
+  void SetUp() override {
+    // allocation order set by the pass breaks matmul tests
+    // see issue https://github.com/NVIDIA/Fuser/issues/1810
+    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
+        nvfuser::preseg_passes::AllocationDomainPass>>(false);
+  }
+  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
+      nvfuser::preseg_passes::AllocationDomainPass>>
+      guard_;
+};
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
   switch (type) {
