@@ -8,7 +8,6 @@
 #include <index_compute.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
 #include <contiguity.h>
@@ -1077,10 +1076,13 @@ class UpdateLeafIndices : public IterVisitor {
     if (!index_map_.count(in_id)) {
       // Reduction axes on producer side could be visited on forward
       //  propagation pass and current implementation does not yet
-      //  support reduciton on swizzled iterdomains, so un-indexed
-      //  reduction iterdomains are just ignored for now.
+      //  support reduction on swizzled iterdomains, so un-indexed
+      //  reduction iterdomains are just ignored for now. It is the same
+      //  for broadcast iterdomains.
       NVF_ERROR(
-          in_id->isReduction(), "Undefined index for ", in_id->toString());
+          in_id->isReduction() || in_id->isBroadcast(),
+          "Undefined index for ",
+          in_id->toString());
       return;
     }
 
@@ -1099,23 +1101,65 @@ class UpdateLeafIndices : public IterVisitor {
     auto outer_id = merge->outer();
     auto inner_id = merge->inner();
 
+    // Nothing need to be done when mappings for the output axes
+    // already exist.
+    if (index_map_.find(out_id) != index_map_.end()) {
+      return;
+    }
+
+    if (outer_id->isBroadcast()) {
+      if (!index_map_.count(inner_id)) {
+        // Reduction axes on producer side could be visited on forward
+        //  propagation pass and current implementation does not yet
+        //  support reduciton on swizzled iterdomains, so un-indexed
+        //  reduction iterdomains are just ignored for now. The same applies to
+        //  BroadcastOp.
+        NVF_ERROR(
+            inner_id->isReduction() || inner_id->isBroadcast(),
+            "Undefined index for ",
+            inner_id->toString());
+        return;
+      }
+
+      NVF_ERROR(
+          index_map_.find(inner_id) != index_map_.end(), "Inner ID not found");
+
+      index_map_[out_id] = index_map_[inner_id];
+      extent_map_[out_id] = getExtent(inner_id);
+      return;
+    } else if (inner_id->isBroadcast()) {
+      if (!index_map_.count(outer_id)) {
+        // Reduction axes on producer side could be visited on forward
+        //  propagation pass and current implementation does not yet
+        //  support reduciton on swizzled iterdomains, so un-indexed
+        //  reduction iterdomains are just ignored for now.
+        NVF_ERROR(
+            outer_id->isReduction() || outer_id->isBroadcast(),
+            "Undefined index for ",
+            outer_id->toString());
+        return;
+      }
+
+      NVF_ERROR(
+          index_map_.find(outer_id) != index_map_.end(), "Outer ID not found");
+
+      index_map_[out_id] = index_map_[outer_id];
+      extent_map_[out_id] = getExtent(outer_id);
+      return;
+    }
+
     if (!index_map_.count(outer_id) || !index_map_.count(inner_id)) {
       // Reduction axes on producer side could be visited on forward
       //  propagation pass and current implementation does not yet
       //  support reduciton on swizzled iterdomains, so un-indexed
       //  reduction iterdomains are just ignored for now.
       NVF_ERROR(
-          outer_id->isReduction() && inner_id->isReduction(),
+          (outer_id->isReduction() || outer_id->isBroadcast()) &&
+              (inner_id->isReduction() || inner_id->isBroadcast()),
           "Undefined index for ",
           outer_id->toString(),
           " and ",
           inner_id->toString());
-      return;
-    }
-
-    // Nothing need to be done when mappings for the output axes
-    // already exist.
-    if (index_map_.find(out_id) != index_map_.end()) {
       return;
     }
 

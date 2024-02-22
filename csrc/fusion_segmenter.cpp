@@ -4220,7 +4220,7 @@ void SegmentCandidateFinder::finalize() {
     resolveScalarsInGroup(group);
   }
 
-  // Resolve all the scalar expressions needed in each group
+  // Resolve all the input expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveInputsInGroup(group);
   }
