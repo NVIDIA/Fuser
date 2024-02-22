@@ -198,8 +198,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
 
   inputs = {
-      at::ones(sharded_input_sizes, tensor_options) *
-      communicator->deviceId()};
+      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
 
   validate();
 }

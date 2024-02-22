@@ -39,10 +39,7 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
   fusion->addInput(tv0);
   fusion->addOutput(tv5);
 
-  // TODO: split
-  // tv2->split(sharded_dim, num_devices, false);
   tv2->axis(0)->parallelize(ParallelType::DIDx);
-  // tv3->split(sharded_dim, num_devices, false);
   tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3, tv4, tv5};
@@ -57,7 +54,12 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {ref_outputs},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(ShardingTest, ShardGlobalInput) {
@@ -91,7 +93,12 @@ TEST_F(ShardingTest, ShardGlobalInput) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {ref_outputs},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

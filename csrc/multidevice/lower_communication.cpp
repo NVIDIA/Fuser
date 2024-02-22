@@ -119,8 +119,7 @@ CommParams createParamsForGatherScatter(
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      auto sliced_buf =
-          root_buf.index({at::indexing::Slice(i, i+1), "..."});
+      auto sliced_buf = root_buf.index({at::indexing::Slice(i, i + 1), "..."});
       ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
     // The scatter/gather semantics imposes the root to be both
@@ -193,7 +192,8 @@ void lowerToAllgather(
   CommParams params;
   params.team = mesh.vector();
   for (auto i : c10::irange(mesh.vector().size())) {
-    params.dst_bufs.push_back(output_tensor.index({at::indexing::Slice(i, i+1), "..."}));
+    params.dst_bufs.push_back(
+        output_tensor.index({at::indexing::Slice(i, i + 1), "..."}));
   }
   params.src_bufs = {input_tensor};
 
@@ -382,7 +382,8 @@ void lowerToReduceScatter(
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
   for (auto i : c10::irange(mesh.vector().size())) {
-    auto sliced_buf = input_tensor.index({at::indexing::Slice(0, 1), static_cast<int>(i), "..."});
+    auto sliced_buf = input_tensor.index(
+        {at::indexing::Slice(0, 1), static_cast<int>(i), "..."});
     params.src_bufs.push_back(sliced_buf);
   }
 

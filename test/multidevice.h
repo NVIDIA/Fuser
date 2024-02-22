@@ -41,7 +41,7 @@ class MultiDeviceEnvironment : public testing::Environment {
 
 class MultiDeviceTest : public NVFuserTest {
  public:
-   static at::Tensor shardTensor(
+  static at::Tensor shardTensor(
       at::Tensor tensor,
       const DeviceMesh& mesh,
       DeviceIdxType deviceId) {
@@ -53,7 +53,7 @@ class MultiDeviceTest : public NVFuserTest {
     }
     return tensor.index({at::indexing::Slice(i, i + 1), "..."});
   }
-  
+
  protected:
   void SetUp() override;
   void TearDown() override;
