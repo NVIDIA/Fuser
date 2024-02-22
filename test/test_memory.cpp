@@ -172,20 +172,109 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 }
 
 class TMATest : public NVFuserTest {
+ protected:
   void SetUp() override {
-    // requires Hopper or newer
-    if (!deviceMajorMinorCheck(9)) {
+    if (cudaArchGuardShouldSkip(9, 0)) {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
   }
 };
 
-TEST_F(TMATest, LoadCompleteTensor1D) {
+// Check that there is an xor "^" somewhere in the kernel
+class XorFinder : private kir::IrVisitor {
+ private:
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+  bool found = false;
+
+  // We recursively goes into val's definition and its inputs and outputs, this
+  // is used to prevent infinite recursion
+  std::unordered_set<Expr*> visited;
+
+  void handle(kir::TensorIndex* ti) final {
+    handle(ti->index());
+  }
+
+  void handle(Val* v) {
+    if (v->definition() != nullptr) {
+      dispatch(v->definition());
+    }
+  }
+
+  void dispatch(Expr* expr) final {
+    if (found || !visited.insert(expr).second) {
+      return;
+    }
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+    if (expr->isA<BinaryOp>()) {
+      auto bin_op = expr->as<BinaryOp>();
+      if (bin_op->getBinaryOpType() == BinaryOpType::BitwiseXor) {
+        found = true;
+        return;
+      }
+    }
+    for (auto val : expr->inputs()) {
+      dispatch(val);
+    }
+    for (auto val : expr->outputs()) {
+      dispatch(val);
+    }
+  }
+
+ public:
+  static bool findXor(kir::Kernel* kernel) {
+    XorFinder finder;
+    finder.handle(kernel->topLevelExprs());
+    return finder.found;
+  }
+};
+
+using TMATestParams = std::tuple<MmaInputSmemSwizzle, DataType>;
+
+class TMALdstTest : public TMATest,
+                    public ::testing::WithParamInterface<TMATestParams> {
+ protected:
+  MmaInputSmemSwizzle swizzle;
+  DataType dtype;
+
+  int64_t innerDimSize() const {
+    return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  }
+
+  int64_t swizzleSize() const {
+    return getBytesFromSwizzle(swizzle) / 16;
+  }
+
+  void SetUp() override {
+    TMATest::SetUp();
+    swizzle = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+  }
+};
+
+// Assuming tv is currently scheduled as a 1D flat tensor, schedule the TMA
+// swizzle for it.
+void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
+  // split as core matrices of 8 x 16B
+  tv->split(0, 16 / dataTypeSize(tv->dtype()));
+  tv->split(0, 8);
+  // [N, 8, 16B]
+  // swizzle the inner dim of rows of different core matrices
+  tv->split(1, swizzle_size);
+  tv->split(0, swizzle_size);
+  // [N/swizzle_size, swizzle_size, 8/swizzle_size, swizzle_size, 16B]
+  tv->swizzle(SwizzleType::XOR, 1, 3);
+}
+
+TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(1);
+  auto tv0 = makeContigConcreteTensor({innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -197,19 +286,20 @@ TEST_F(TMATest, LoadCompleteTensor1D) {
 
   tv1->axis(0)->parallelize(ParallelType::Bulk);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor2D) {
+TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
+  auto tv0 = makeContigConcreteTensor({-1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -219,22 +309,33 @@ TEST_F(TMATest, LoadCompleteTensor2D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+  for (auto id : tv1->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({32, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor3D) {
+TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
+  auto tv0 = makeContigConcreteTensor({-1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -244,23 +345,34 @@ TEST_F(TMATest, LoadCompleteTensor3D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+  for (auto id : tv1->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor4D) {
+TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(4);
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -270,24 +382,35 @@ TEST_F(TMATest, LoadCompleteTensor4D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-  tv1->axis(3)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+  for (auto id : tv1->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, LoadCompleteTensor5D) {
+TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(5);
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -297,25 +420,36 @@ TEST_F(TMATest, LoadCompleteTensor5D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-  tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->axis(4)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    for (auto tv : {tv1, tv2}) {
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      tv->merge(0);
+      scheduleTMASwizzle(tv, swizzleSize());
+    }
+    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  }
+  for (auto id : tv1->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor1D) {
+TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(1);
+  auto tv0 = makeContigConcreteTensor({innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -327,19 +461,20 @@ TEST_F(TMATest, StoreCompleteTensor1D) {
 
   tv2->axis(0)->parallelize(ParallelType::Bulk);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor2D) {
+TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
+  auto tv0 = makeContigConcreteTensor({-1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -349,22 +484,29 @@ TEST_F(TMATest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+  }
+  for (auto id : tv2->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({32, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor3D) {
+TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
+  auto tv0 = makeContigConcreteTensor({-1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -374,23 +516,29 @@ TEST_F(TMATest, StoreCompleteTensor3D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+  }
+  for (auto id : tv2->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 8, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor4D) {
+TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(4);
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -400,24 +548,29 @@ TEST_F(TMATest, StoreCompleteTensor4D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(2)->parallelize(ParallelType::Bulk);
-  tv2->axis(3)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+  }
+  for (auto id : tv2->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, StoreCompleteTensor5D) {
+TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(5);
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1, -1, innerDimSize()}, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -427,25 +580,48 @@ TEST_F(TMATest, StoreCompleteTensor5D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(2)->parallelize(ParallelType::Bulk);
-  tv2->axis(3)->parallelize(ParallelType::Bulk);
-  tv2->axis(4)->parallelize(ParallelType::Bulk);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    GTEST_SKIP() << "Swizzle for TMA store is not supported yet";
+  }
+  for (auto id : tv2->getLeafDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4, innerDimSize()}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+std::string testNameTMALdstTest(
+    const testing::TestParamInfo<TMATestParams>& info) {
+  auto swizzle = std::get<0>(info.param);
+  auto dtype = std::get<1>(info.param);
+  std::stringstream ss;
+  ss << toString(swizzle) << "_" << dtype;
+  return ss.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TMALdstTest,
+    TMALdstTest,
+    testing::Combine(
+        kAllSmemSwizzleModes,
+        testing::Values(DataType::Half, DataType::Float, DataType::Double)),
+    testNameTMALdstTest);
+
+class TMAMiscTest : public TMATest {};
 
 // Basically just StoreCompleteTensor1D, but with index hoisting disabled.
 // Because index hoisting is responsible making sure that tensor maps are
 // created on the host and passed as kernel argument, we need to make sure
 // that disabling index hoisting doesn't break this.
-TEST_F(TMATest, DisableIndexHoisting) {
+TEST_F(TMAMiscTest, DisableIndexHoisting) {
   DisableOptionsGuard opt_guard;
   opt_guard.getCurOptions().set(DisableOption::IndexHoist);
 
@@ -467,7 +643,7 @@ TEST_F(TMATest, DisableIndexHoisting) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
