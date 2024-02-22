@@ -77,6 +77,10 @@ struct PairPointerEquals {
   }
 };
 
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
+void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
+
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -257,8 +261,6 @@ class FusionKernelRuntime {
 
   //! Access the list of schedulers maintained in this runtime instance
   NVF_API const std::vector<SchedulerEntryPtr>& schedulers() const;
-
-  void prepareRuntimeOrder();
 
  private:
   //! Entries indexed by groupID:

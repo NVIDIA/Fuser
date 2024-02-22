@@ -18,6 +18,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
@@ -1425,6 +1426,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
     case MmaOperand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
+        setAllocationDomain(getLeafDomain(), true);
         mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
       }
       break;

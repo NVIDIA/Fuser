@@ -8762,73 +8762,6 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   }
 }
 
-// Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
-// Needs to check consumer mapped with reduction inputs in
-// isReductionOutputMapped(), otherwise compute at root domain map
-// is wrong then leads to wrong compute at position and finally
-// expr sort failed.
-// After fix, there are two persistent buffers and can be further
-// reduced to one with a following step-2 to fix the issue in resolution
-// points detection.
-TEST_F(NVFuserTest, CaRootDomainMapConsumerMappedWithReductionInput) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  DataType input_dtype = DataType::Half;
-  auto tv0 = makeContigTensor(2, input_dtype);
-  auto tv1 = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = castOp(DataType::Float, tv0);
-  auto tv3 = sum(tv2, {1});
-  auto tv4 = broadcast(tv3, {false, true});
-  // manual project tv2 to input, so tv7 is mapped with tv2.
-  auto tv5 = castOp(DataType::Float, tv0);
-  auto tv6 = div(tv5, tv4);
-  auto tv7 = set(tv1);
-  auto tv8 = add(tv7, tv6);
-  auto tv9 = add(tv2, tv7);
-  fusion->addOutput(tv8);
-  fusion->addOutput(tv9);
-
-  // |--5------------------|
-  // 0 -> 2 -> r3 -> b4 -> 6 -> 8    9
-  // 1-------> 7----------------|
-  //           |---------------------|
-  //      |--------------------------|
-  // tv7 has two consumers, tv8 and tv9.
-  // tv8 is a consumer of the reduction output.
-  // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
-  // pre-reduction set through tv2 and tv8 is in the post-reduction set.
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
-  auto shouldMapCheck =
-      [&root_map](TensorView* tva, TensorView* tvb, int axis, bool should_map) {
-        NVF_CHECK(
-            root_map.canMap(
-                tva->domain(),
-                tva->getRootDomain().at(axis),
-                tvb->domain(),
-                tvb->getRootDomain().at(axis)) == should_map,
-            "Expected map between: ",
-            tva->getRootDomain().at(axis),
-            " of ",
-            tva,
-            " and ",
-            tvb->getRootDomain().at(axis),
-            " of ",
-            tvb,
-            " is ",
-            should_map ? "True" : "False",
-            ", but got ",
-            should_map ? "False" : "True");
-      };
-  shouldMapCheck(tv2, tv9, 1, true);
-  shouldMapCheck(tv7, tv8, 1, false);
-  shouldMapCheck(tv7, tv9, 1, false);
-}
-
 // Test that architectures before Ampere give helpful error message if BFloat16
 // is used
 TEST_F(NVFuserTest, UnsupportedBFloat) {
@@ -8849,6 +8782,54 @@ TEST_F(NVFuserTest, UnsupportedBFloat) {
       [&]() { fe.compileFusion(&fusion); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Reason: Fusion contains BFloat16")));
+}
+
+// Issue #1470 reproduction:
+// `nvfuser_index_t T5[4]` is aliased as `Array<float, 4> T9`.
+// `float T4[4]` is aliased as `auto& T10 = T4`.
+// Using `T9` and `T10` in `welfordGroupOuter` function causes a compilation
+// error due to type mismatch: `T9` is an aligned array, while `T10` is a
+// regular array. Should generate fun<>(T9.array, T10) instead of
+// fun<>(T9, T10).
+TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 8192;
+  const int hidden_size = 1024;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = Welford(tv2, {0});
+  auto tv4 = broadcast(tv3.avg, {true, false});
+  auto tv5 = div(tv2, tv4);
+
+  auto tv6 = exp(tv5);
+  auto tv7 = Welford(tv6, {0});
+  auto tv8 = broadcast(tv7.avg, {true, false});
+  auto tv9 = div(tv6, tv8);
+
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv9);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getOuterPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  scheduleOuterPersistentKernel(fusion, *persistent_params);
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  FusionExecutor fe;
+  fe.compileFusion(
+      fusion, args, persistent_params->lparams, persistent_params->cparams);
+  auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
