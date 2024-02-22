@@ -143,8 +143,10 @@ void PipelineTest::validate() {
   recordEvent("validate unsharded fusion");
   GTEST_ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
   for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
-    GTEST_ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
-    auto output_tv = runtime->completeFusion()->outputs().at(i)->as<TensorView>();
+    GTEST_ASSERT_TRUE(
+        runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
+    auto output_tv =
+        runtime->completeFusion()->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
       continue;
     }

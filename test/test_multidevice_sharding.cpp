@@ -57,7 +57,12 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {ref_outputs},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(ShardingTest, ShardGlobalInput) {
@@ -91,7 +96,12 @@ TEST_F(ShardingTest, ShardGlobalInput) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {ref_outputs},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
