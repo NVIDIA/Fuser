@@ -653,6 +653,7 @@ enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
   DIDx,
+  DIDy,
   BIDz,
   BIDy,
   BIDx,
@@ -679,6 +680,10 @@ static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
+
+static constexpr std::array<ParallelType, 2> kParallelTypeDIDs = {
+    ParallelType::DIDx,
+    ParallelType::DIDy};
 
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,

@@ -686,6 +686,8 @@ static const char* parallel_type2string(ParallelType t) {
   switch (t) {
     case ParallelType::DIDx:
       return "deviceIdx.x";
+    case ParallelType::DIDy:
+      return "deviceIdx.y";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -1335,7 +1337,7 @@ bool isParallelTypeBlockDim(ParallelType ptype) {
 }
 
 bool isParallelTypeDeviceDim(ParallelType ptype) {
-  return ptype == ParallelType::DIDx;
+  return ptype == ParallelType::DIDx || ptype == ParallelType::DIDy;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {

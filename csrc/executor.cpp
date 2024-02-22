@@ -266,7 +266,7 @@ void FusionExecutor::compileFusion(
     std::vector<Val*> output_extents;
     for (const auto id : maybe_rfactor_domain) {
       Val* extent = nullptr;
-      if (id->isReduction() || id->isStride()) {
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast() && id->hasExpandedExtent()) {
         extent = id->expandedExtent();
@@ -916,8 +916,11 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
+    } else if (id->isDeviceDim()) {
+      symbolic_sizes.push_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     }
-    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     if (id->hasExpandedExtent()) {
       NVF_ERROR(
           id->isBroadcast(),

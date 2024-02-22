@@ -3764,6 +3764,7 @@ void SegmentCandidateFinder::findSegments() {
       ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
   if (options_.run_translate_welford && has_welford_ops) {
+    NVF_ERROR(runtime_inputs_);
     if (TranslateApplicableWelford::run(
             segmented_fusion_.get(), *runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
@@ -3780,9 +3781,8 @@ void SegmentCandidateFinder::findSegments() {
       group->setHeuristic(deriveHeuristic(group));
     }
   }
-
   // Remove all scalar edges since they do not represent actual
-  //  dependency among segmented groups.
+  // dependency among segmented groups.
   removeScalarEdges();
 
   // Run pre-merge heuristics
