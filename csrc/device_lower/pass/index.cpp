@@ -1428,7 +1428,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   // indexing ldst op
   auto out = lowerDstIndex(ldst->out(), {}, true);
-  auto in = Index::cpAsyncBulkIndex(in_tv, out_tv, mbarrier_index, for_loops_);
+  auto in = Index::cpAsyncBulkIndex(
+      in_tv, out_tv, out_tv, mbarrier_index, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -1440,8 +1441,10 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+  auto in_tv = ldst->in()->as<TensorView>();
   auto out_tv = ldst->out()->as<TensorView>();
-  auto out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
+  auto out =
+      Index::cpAsyncBulkIndex(out_tv, in_tv, out_tv, nullptr, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
