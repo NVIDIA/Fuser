@@ -159,6 +159,21 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   return static_cast<int64_t>(device_indices.size());
 }
 
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh({});
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    unshard(tv);
+  }
+}
+
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   std::set<DeviceIdxType> ret;
   for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
