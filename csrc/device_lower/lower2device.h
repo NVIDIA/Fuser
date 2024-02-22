@@ -204,6 +204,31 @@ class GpuLower : public NonCopyable {
     return ldst_mbarrier_map_;
   }
 
+  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap() {
+    return ldst_mbarrier_token_map_;
+  }
+
+  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap()
+      const {
+    return ldst_mbarrier_token_map_;
+  }
+
+  std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() {
+    return mbarrier_token_smem_alloc_set_;
+  }
+
+  const std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() const {
+    return mbarrier_token_smem_alloc_set_;
+  }
+
+  std::unordered_map<const Expr*, Val*>& ldstMBarrierIndexMap() {
+    return ldst_mbarrier_index_map_;
+  }
+
+  const std::unordered_map<const Expr*, Val*>& ldstMBarrierIndexMap() const {
+    return ldst_mbarrier_index_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -326,6 +351,19 @@ class GpuLower : public NonCopyable {
   //! "extent mod split_factor == 0" and an error message for divisibility check
   //! for vectorization.
   std::vector<std::pair<const Val*, std::string>> validations_;
+
+  // Keep track of placeholders for tokens returned by arrive/expected tx
+  // mbarrier operations for each load/store operation that requires such
+  // synchronization
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map_;
+
+  // Collection of kir::Allocate for smem buffers used for mbarrier and token
+  // objects from cpAsyncBulk synchronization
+  std::unordered_set<const Expr*> mbarrier_token_smem_alloc_set_;
+
+  // Keep track what mbarrier object is used in load/store operation that
+  // requires such synchronization, required by indexing pass
+  std::unordered_map<const Expr*, Val*> ldst_mbarrier_index_map_;
 
   Fusion* fusion_ = nullptr;
 };
