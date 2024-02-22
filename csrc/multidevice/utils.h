@@ -41,11 +41,4 @@ int64_t requestedNumberOfDevices(Fusion*);
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
 
-// returns the number of device indices present accross all
-// device meshes in the Fusion
-int64_t requestedNumberOfDevices(Fusion*);
-
-void unshard(Fusion*);
-void unshard(TensorView*);
-
 } // namespace nvfuser

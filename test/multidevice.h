@@ -8,7 +8,6 @@
 #ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
-#include <chrono>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/executor.h>
@@ -34,15 +33,10 @@ class MultiDeviceEnvironment : public testing::Environment {
     return do_barrier_at_test_;
   }
 
-  bool timePrint() const {
-    return time_print_;
-  }
-
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
-  bool time_print_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
@@ -63,14 +57,10 @@ class MultiDeviceTest : public NVFuserTest {
  protected:
   void SetUp() override;
   void TearDown() override;
-  void printTimes();
-  void recordEvent(std::string);
   Communicator* communicator;
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool do_barrier_at_test;
-  bool time_print;
-  std::vector<std::pair<const std::string, std::chrono::time_point<std::chrono::high_resolution_clock>>> times;
 };
 
 class CommunicationTest

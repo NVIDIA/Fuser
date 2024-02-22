@@ -93,7 +93,6 @@ void unshardTv(TensorView* tv) {
   }
 }
 
-
 void doSendRecv(
     DeviceIdxType sender,
     DeviceIdxType receiver,
@@ -314,7 +313,7 @@ void executeAndValidateMultiDeviceFusion(
 
   auto outputs = runtime.runWithInput(inputs);
 
-  if (true) {
+  if (print) {
     std::stringstream ss;
     std::string indent = "  ";
     ss << "Device " << communicator->deviceId() << "'s outputs:{\n";

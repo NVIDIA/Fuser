@@ -388,7 +388,7 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
     int device = 0;
-#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
+#if NVF_TORCH_VERSION_GREATER(2, 2, 0)
     // c10::cuda uses DeviceIndex instead of int
     // https://github.com/pytorch/pytorch/pull/119142
     c10::DeviceIndex device_index;
