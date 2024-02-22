@@ -335,6 +335,9 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
+std::vector<Expr*> Fusion::exprs() const {
+  return StmtSort::getExprs(this);
+}
 
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
@@ -685,7 +688,7 @@ Expr* Fusion::definition(const Val* val) const {
 }
 
 // Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() {
+bool Fusion::isStochastic() const {
   for (auto expr : exprs()) {
     if (expr->isA<RNGOp>()) {
       // Note that RNGOps without seed is not stochastic since the random seed

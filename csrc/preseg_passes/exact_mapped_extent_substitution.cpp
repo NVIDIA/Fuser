@@ -7,11 +7,11 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/exact_mapped_extent_substitution.h>
 #include <options.h>
+#include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <root_domain_map.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 // Skip broadcast without expanded extent
@@ -97,4 +97,4 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

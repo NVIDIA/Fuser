@@ -121,7 +121,7 @@ void CommunicationTest::resetDstBuffers() {
 // run on a single device with the given (possibly sharded) inputs
 void PipelineTest::validate() {
   // execute the fusion on one device without pipeline scheduling
-  auto fusion_copy = std::make_unique<Fusion>(*runtime->fusion());
+  auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
   unshard(fusion_copy.get());
   FusionExecutorCache unsharded_fec(std::move(fusion_copy));
   recordEvent("run unsharded fusion");
@@ -142,9 +142,9 @@ void PipelineTest::validate() {
 
   recordEvent("validate unsharded fusion");
   GTEST_ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
-  for (int i : c10::irange(runtime->fusion()->outputs().size())) {
-    GTEST_ASSERT_TRUE(runtime->fusion()->outputs().at(i)->isA<TensorView>());
-    auto output_tv = runtime->fusion()->outputs().at(i)->as<TensorView>();
+  for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
+    GTEST_ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
+    auto output_tv = runtime->completeFusion()->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
       continue;
     }

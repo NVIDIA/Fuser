@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <maxinfo_propagator.h>
+#include <visibility.h>
 
 #include <algorithm>
 #include <unordered_map>
@@ -183,7 +182,7 @@ struct TransformReplayOptions {
   }
 };
 
-class TransformReplay {
+class NVF_API TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
   //
@@ -269,7 +268,8 @@ class TransformReplay {
       const TensorView* target);
 };
 
-class TransformPropagator : public MaxRootDomainInfoSpanningTree::Propagator {
+class NVF_API TransformPropagator
+    : public MaxRootDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 

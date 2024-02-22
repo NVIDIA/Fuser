@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <dispatch.h>
 
@@ -83,9 +83,9 @@ class IrPrinter {
   int indent_size_ = 0;
 };
 
-std::ostream& operator<<(std::ostream& os, const Statement* stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 std::ostream& operator<<(std::ostream& os, Fusion* f);
-std::ostream& operator<<(std::ostream& os, Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, Fusion& f);
 
 } // namespace nvfuser

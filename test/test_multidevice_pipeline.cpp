@@ -565,7 +565,7 @@ TEST_F(PipelineTest, matmuls_megatron_mlp) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+      runtime.completeFusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
 }
 
 TEST_F(PipelineTest, matmul_megatron_attention) {
@@ -666,7 +666,7 @@ TEST_F(PipelineTest, matmul_megatron_attention) {
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
-      runtime.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+      runtime.completeFusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
 

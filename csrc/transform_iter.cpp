@@ -12,7 +12,9 @@
 
 #include <c10/util/irange.h>
 
-#include <typeinfo>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace nvfuser {
 

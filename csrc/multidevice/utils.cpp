@@ -119,7 +119,6 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
   }
 }
-
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
@@ -153,7 +152,7 @@ void insertReshardings(Fusion* fusion) {
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   std::set<DeviceIdxType> device_indices;
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
     if (tv->hasDeviceMesh()) {
       std::copy(
           tv->getDeviceMesh().vector().begin(),
@@ -182,7 +181,9 @@ void unshard(Fusion* fusion) {
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   std::set<DeviceIdxType> ret;
   for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
-    for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
+    for (auto val : tvs) {
+      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
+      auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
       auto& mesh = tv->getDeviceMesh().vector();
       std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));

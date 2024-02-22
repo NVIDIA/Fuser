@@ -19,8 +19,10 @@ namespace nvfuser {
 
 namespace {
 
+// copy the fusion and replace the original outputs to the ones given as
+// argument returns the copied fusion and a copy-to-original Vals map
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
+copyFusionAndChangeOutputs(Fusion* fusion, const std::vector<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
@@ -57,10 +59,14 @@ copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
 } // namespace
 
 // TODO: use native allocator instead.
+// TODO: reimplement. The implementation here is very naive and wasteful since
+// we entirely copy the fusion, change the outputs to be the Vals we want to
+// allocate, and call allocOutputSpace which effectively compile and run the
+// Fusion. This function creates a potentially important overhead, it needs to
+// be reimplemented
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
-  std::unordered_set<Val*> vals_to_allocate;
-  std::unordered_set<Val*> vals_to_not_allocate;
+  std::vector<Val*> vals_to_allocate;
   for (auto group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
@@ -70,13 +76,13 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate.insert(val);
+        vals_to_allocate.push_back(val);
       }
     }
   }
 
   auto [fusion_copy, copy_to_original_map] =
-      copyFusionAndChangeOutputs(fusion(), vals_to_allocate);
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate);
   if (fusion_copy->outputs().empty()) {
     return {};
   }
@@ -110,7 +116,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
 
   for (auto group : staged_fusion_->groups()) {
-    NVF_ERROR(!group->exprs().empty() == 1, "invalid segmentation");
+    NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     is_resharding_[group] = std::any_of(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
@@ -122,9 +128,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
   // prepare the order in which to launch the kernels/comms
-  RuntimeWorkSpace workspace;
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
-  group_run_order_ = std::move(workspace.group_run_order);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -166,32 +170,27 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
 void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   // Lower the group into a vector of Communications
-  if (communications_.find(group) == communications_.end()) { // check if cached
-    NVF_ERROR(
-        group->exprs().size() == 1,
-        "Communication segments must contain only one Expr");
-    auto expr = group->exprs().at(0);
-    NVF_ERROR(
-        expr->inputs().size() == 1,
-        "Communication must have exactly one input");
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "Communication must have exactly one output");
-    auto input_val = expr->inputs().at(0);
-    auto output_val = expr->outputs().at(0);
-    at::Tensor input_tensor, output_tensor;
-    if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-      input_tensor = val_to_IValue_.at(input_val).toTensor();
-    }
-    if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-      output_tensor = val_to_IValue_.at(output_val).toTensor();
-    }
-    communications_.emplace(
-        group,
-        lowerCommunication(
-            comm_.deviceId(), expr, input_tensor, output_tensor));
+  NVF_ERROR(
+      group->exprs().size() == 1,
+      "Communication segments must contain only one Expr");
+  auto expr = group->exprs().at(0);
+  NVF_ERROR(
+      expr->inputs().size() == 1, "Communication must have exactly one input");
+  NVF_ERROR(
+      expr->outputs().size() == 1,
+      "Communication must have exactly one output");
+  auto input_val = expr->inputs().at(0);
+  auto output_val = expr->outputs().at(0);
+  at::Tensor input_tensor, output_tensor;
+  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
+    input_tensor = val_to_IValue_.at(input_val).toTensor();
   }
-  auto& communications = communications_[group];
+  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
+    output_tensor = val_to_IValue_.at(output_val).toTensor();
+  }
+
+  auto communications =
+      lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
 
   // post and wait communications
   for (auto& communication : communications) {
@@ -223,7 +222,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   // Run through the groups to launch kernels and comms
-  for (auto group : group_run_order_) {
+  for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
       postKernel(group);
     } else {
@@ -248,9 +247,9 @@ std::string MultiDeviceExecutor::validate() const {
     return "distributed configuration required";
   }
 
-  if (requestedNumberOfDevices(fusion()) > comm_.size()) {
+  if (requestedNumberOfDevices(completeFusion()) > comm_.size()) {
     return "the pipeline requests " +
-        std::to_string(requestedNumberOfDevices(fusion())) +
+        std::to_string(requestedNumberOfDevices(completeFusion())) +
         " GPUs to run, but there are only " + std::to_string(comm_.size()) +
         " ranks in the communicator";
   }
@@ -267,7 +266,7 @@ std::string MultiDeviceExecutor::validate() const {
 std::ostream& MultiDeviceExecutor::print() {
   int compute_segment_counter = 0;
   int communication_counter = 0;
-  for (auto group : group_run_order_) {
+  for (auto group : workspace.group_run_order) {
     if (is_resharding_[group]) {
       debug() << "Communication " << compute_segment_counter << ":{\n";
       for (const auto& comm :

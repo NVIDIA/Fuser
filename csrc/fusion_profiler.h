@@ -15,6 +15,7 @@
 #include <debug.h>
 #include <options.h>
 #include <utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -27,7 +28,7 @@ enum class ProfilerState {
   Processed,
 };
 
-std::ostream& operator<<(std::ostream&, const ProfilerState&);
+NVF_API std::ostream& operator<<(std::ostream&, const ProfilerState&);
 
 //! \class CudaEventTimer
 //! \brief A Cuda Events based timer that includes GPU time for kernels launched
@@ -206,18 +207,18 @@ class FusionProfiler {
   static FusionProfiler* get();
 
  public:
-  static void reset();
-  static ProfilerState state();
+  NVF_API static void reset();
+  NVF_API static ProfilerState state();
 
   //! Profiling Methods
-  static void start(bool cupti_disable = false);
-  static void stop();
+  NVF_API static void start(bool cupti_disable = false);
+  NVF_API static void stop();
   static void createSegments(size_t num);
   static void startCompile();
   static void stopCompile();
   static void inputBytesAccessed(int64_t bytes);
   static void outputBytesAccessed(int64_t bytes);
-  static const FusionProfile& profile();
+  NVF_API static const FusionProfile& profile();
   static SegmentProfiler& segment(size_t idx);
 
   //! Methods to capture Asynchronous CUPTI activity that get called from
