@@ -47,6 +47,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
+  fusion->addInput(a);
+  fusion->addInput(b);
 
   a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
   b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
@@ -56,8 +58,6 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
   // will perform
   auto d = castOp(DataType::Half, c);
 
-  fusion->addInput(a);
-  fusion->addInput(b);
   fusion->addOutput(d);
 
   scheduleMatmul(fusion, params);
