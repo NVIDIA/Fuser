@@ -47,15 +47,17 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
+  fusion->addInput(a);
+  fusion->addInput(b);
 
-  auto c = matmul(a, b, layout);
+  a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
+  b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
+  auto c = fusedMultiplySum(a, b, {-1});
 
   // Cast the output so that we perform an HSH matmul, which is what at::matmul
   // will perform
   auto d = castOp(DataType::Half, c);
 
-  fusion->addInput(a);
-  fusion->addInput(b);
   fusion->addOutput(d);
 
   scheduleMatmul(fusion, params);
@@ -315,7 +317,9 @@ static void SingleMatmulPartitionedK(
   fusion->addInput(b);
 
   // batch matmul
-  auto c = matmul(a, b, layout);
+  a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
+  b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
+  auto c = fusedMultiplySum(a, b, {-1});
 
   fusion->addOutput(c);
 
