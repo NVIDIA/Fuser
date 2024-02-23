@@ -1006,6 +1006,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
+  // To avoid errors in analysis when using ATen evaluation for matmul, only
+  // validate expressions that require codegen. See PR # 1775 and Issue #1812
   auto exprs = fusion->getExprsToCodegen();
 
   for (auto expr : exprs) {
