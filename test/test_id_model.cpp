@@ -16,7 +16,6 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
-#include <id_model/utils.h>
 #include <inlining.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
@@ -96,41 +95,15 @@ class IdModelTester : public IdModel {
 
     initializeLoopGraph(inlining_info);
 
-    VERBOSE() << "Initial loop graph:\n";
-    for (const auto& group :
-         idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-      VERBOSE() << nvfuser::toString(group) << std::endl;
-    }
-
     ValGraph iel_graph = buildIntersection(
         idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
     std::unordered_map<ValGroup, IterDomain*> root_promotion_map =
         buildInlineRootResolutionMap(iel_graph, inlining_info);
 
-    {
-      std::stringstream ss;
-      ss << "Step 1: Root promotion map\n";
-      for (const auto& [iel_group, promoted_id] : root_promotion_map) {
-        ss << "\t" << nvfuser::toString(iel_group) << " -> "
-           << promoted_id->name() << std::endl;
-      }
-      VERBOSE() << ss.str();
-    }
-
     auto iel_promotion_map = root_promotion_map;
 
     propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
-
-    {
-      std::stringstream ss;
-      ss << "Step 2: IEL promotion map\n";
-      for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
-        ss << "\t" << nvfuser::toString(iel_group) << " -> "
-           << promoted_id->name() << std::endl;
-      }
-      VERBOSE() << ss.str();
-    }
 
     return {
         std::move(iel_graph),
@@ -996,7 +969,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
         // produce_pos( 1 ) root domain : (bS4{1}, iS5{i0})
         validateIELResolution(
             tv->getRootDomain().at(0),
-            getTensorByName(all_tvs, 4)->getRootDomain().at(0),
+            tv4->getRootDomain().at(0),
             iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
             root_resolution_map);
@@ -1079,7 +1052,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // produce_pos( 1 ) root domain : (bS2{1}, iS3{5})
         validateIELResolution(
             tv->getRootDomain().at(0),
-            getTensorByName(all_tvs, 7)->getRootDomain().at(0),
+            tv7->getRootDomain().at(0),
             iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
             root_resolution_map);
@@ -1090,7 +1063,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // iS9{5}, bS10{1})
         validateIELResolution(
             tv->getRootDomain().at(2),
-            getTensorByName(all_tvs, 7)->getRootDomain().at(2),
+            tv7->getRootDomain().at(2),
             iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
             root_resolution_map);
