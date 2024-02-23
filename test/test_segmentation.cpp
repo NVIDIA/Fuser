@@ -282,4 +282,42 @@ TEST_F(SegmentationTest, InputForwardingUntilOutput) {
       fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = slice(tv1, {0}, {5});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = sum(tv1, {1});
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10, 20}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
