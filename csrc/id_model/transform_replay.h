@@ -16,6 +16,9 @@
 
 namespace nvfuser {
 
+// TODO: Consider merging this class with the existing replay
+// classes. The use cases are not exactly the same, so it isn't
+// immediately clear if they could be trivially merge.
 class ReplayTransform : OptInConstDispatch {
  public:
   // Replays expression_to_match with the provided ordered_inputs. Inputs should

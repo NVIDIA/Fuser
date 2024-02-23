@@ -1003,26 +1003,6 @@ bool hasUniqueOutputLoopGroups(
 
 } // namespace
 
-// Propagate promotion mappings from root domains to derived domains
-// by traversing IEL exprs. For each expr, if an input is promoted,
-// the output needs to be promoted too. If there's already a domain
-// that the output domain should be promoted to, create a mapping to it from
-// the promoted output domain. If not, a new domain is created by
-// replaying the expr with the promoted inputs.
-//
-// This is used twice when building the promotion map. The first time
-// it is used there's no loop graph promotion yet, so only the IEL
-// promotions are propagated. In that case, loop_graph_promotion_map
-// should be just empty.
-//
-// Propagation uses iel_promotion_map and
-// loop_graph_promotion_map. If both are available for an IEL group,
-// the former has the precedence. This is because when this function
-// is used for step 4, the given iel_promotion_map is empty and gets
-// populated during this propagation, whereas the loop promotion map
-// is not guaranteed to have the correct mappings for partially
-// inlined domains.
-//
 // The loop_graph pamameter may not be up-to-date.
 void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
@@ -1033,8 +1013,6 @@ void IdModel::propagatePromotionsInIELGraph(
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
   ValGraphStmtSort iel_stmt_sort(iel_graph);
-
-  // TODO-NM: The ordering might be non-deterministic
 
   for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
     NVF_ERROR(!iel_expr->empty());
