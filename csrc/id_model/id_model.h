@@ -206,14 +206,32 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
-  // Helper function for building loop promotion map. Propagate
-  // promotions of root IEL groups to leaf IEL groups
-  void propagatePromotionsInIELGraph(
-      const ValGraph& iel_graph,
-      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
-
-  // Same as the other version but also propagates promotoins of loop
-  // groups as well
+  // Helper function for building loop promotion map.
+  //
+  // Propagate promotion mappings from root IEL groups to intermediate
+  // and leaf IEL groups by traversing IEL exprs. For each expr, if an
+  // input is promoted, the output needs to be promoted too. If
+  // there's already an equivalent expr that uses the promoted inputs,
+  // create a mapping from the outputs of the IEL expr to the outputs
+  // of the equivalent expr. When require_loop_mapped_promotion is
+  // true, the equivalent expr needs to be already loop mapped. If no
+  // such expr is found, the IEL expr is replayed iwth the promoted
+  // inputs. require_loop_mapped_promotion is true when this function
+  // is used for step 3.
+  //
+  // This is used twice when building the promotion map. The first time
+  // it is used there's no loop graph promotion yet, so only the IEL
+  // promotions are propagated. In that case, loop_graph_promotion_map
+  // should be just empty.
+  //
+  // Propagation uses iel_promotion_map and
+  // loop_graph_promotion_map. If both are available for an IEL group,
+  // the former has the precedence. This is because when this function
+  // is used for step 4, the given iel_promotion_map starts as an
+  // empty map and gets populated during this propagation, so any
+  // mapping in the map is guaranteed to be the correct final mapping,
+  // whereas the loop graph may have invalid mappings for partially
+  // inlined domains.
   void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
@@ -221,6 +239,13 @@ class IdModel : public PolymorphicBase {
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
       bool require_loop_mapped_promotion);
 
+  // Same as the other propagatePromotionsInIELGraph but without loop
+  // graph map. This is used for step 2, where there's no loop
+  // graph map yet.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
+  
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
   std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
@@ -296,7 +321,7 @@ class IdModel : public PolymorphicBase {
   // Update the LOOP ID disjoint sets with resolved computeWith
   void updateComputeWith(TensorView* compute_with_tv);
 
-  // Replay Expr but with the inputs provided. IterDomainGraphss will be updated
+  // Replay Expr but with the inputs provided. ValGraphs will be updated
   // for all maps that have entries, adding the output iter domains of the
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);

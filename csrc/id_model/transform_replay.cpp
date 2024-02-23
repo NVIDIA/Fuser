@@ -176,4 +176,5 @@ void ReplacementTransformCloner::handle(const Resize* resize) {
   new_expr_ = IrBuilder::create<Resize>(
       resize_out, resize_in, resize->leftExpand(), resize->rightExpand());
 }
+
 } // namespace nvfuser
