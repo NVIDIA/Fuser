@@ -13,7 +13,7 @@
 
 #include <atomic>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 using FusionPass = std::function<void(Fusion*)>;
 
@@ -46,7 +46,7 @@ class OptimizationPass {
     return flag_.load();
   }
 
-  static void runPass(Fusion* fusion) {
+  NVF_API static void runPass(Fusion* fusion) {
     if (!flag_.load()) {
       return;
     }
@@ -83,4 +83,4 @@ class OptimizationPassGuard {
   bool prev_status_ = false;
 };
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

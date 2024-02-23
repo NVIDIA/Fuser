@@ -2,15 +2,10 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Preserve build options.
-set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
-
-# We will build gtest as static libs and embed it directly into the binary.
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
-
 # For gtest, we will simply embed it into our test binaries, so we will not need to install it.
 set(INSTALL_GTEST OFF CACHE BOOL "Install gtest." FORCE)
 set(BUILD_GMOCK ON CACHE BOOL "Build gmock." FORCE)
+set(gtest_hide_internal_symbols ON CACHE BOOL "Use symbol visibility" FORCE)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/third_party/googletest)
 
@@ -30,9 +25,6 @@ else()
   message("-- Found benchmark: ${BENCHMARK_LIBRARY}")
   set_property(TARGET benchmark PROPERTY IMPORTED_LOCATION ${BENCHMARK_LIBRARY})
 endif()
-
-# Recover build options.
-set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS} CACHE BOOL "Build shared libs" FORCE)
 
 # Cacheing variables to enable incremental build.
 # Without this is cross compiling we end up having to blow build directory

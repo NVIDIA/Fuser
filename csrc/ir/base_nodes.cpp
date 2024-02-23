@@ -19,13 +19,10 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
 #include <iostream>
-#include <stdexcept>
 #include <string>
-#include <typeinfo>
 #include <unordered_map>
 
 namespace nvfuser {

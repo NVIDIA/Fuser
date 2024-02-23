@@ -10,8 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <root_domain_map.h>
-
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -26,7 +25,7 @@ namespace nvfuser {
 //! When the mapped consumer domain is not broadcast, it means the
 //! producer broadcast domain is concretized, and its origin broadcast
 //! domains are marked as concretized.
-class ConcretizedBroadcastDomains : private IterVisitor {
+class NVF_API ConcretizedBroadcastDomains : private IterVisitor {
  public:
   ConcretizedBroadcastDomains() = delete;
   ConcretizedBroadcastDomains(Fusion* fusion);
