@@ -360,8 +360,8 @@ std::vector<std::byte> getKernelArgument(
     if (tv->isCpuScalar()) {
       return polymorphicValueToBytes(pv, tv->dtype(), index_type);
     } else {
-      auto metadata_val = IrBuilder::metadataExpr(tv);
-      auto metadata = ee.evaluate(metadata_val);
+      Val* metadata_val = IrBuilder::metadataExpr(tv);
+      PolymorphicValue metadata = ee.evaluate(metadata_val);
       return polymorphicValueToBytes(
           metadata, metadata_val->dtype(), index_type);
     }

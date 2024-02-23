@@ -203,18 +203,18 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
   std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
-    if (auto def = value->definition()) {
+    if (Expr* def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
-      for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
+      for (Val* i : def->inputs()) {
+        const PolymorphicValue& eval_i = evaluate(i);
         if (!eval_i.hasValue()) {
           return null_;
         }
         inputs.emplace_back(eval_i);
       }
-      auto outputs = def->evaluate(*this, inputs);
+      const std::vector<PolymorphicValue> outputs = def->evaluate(*this, inputs);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
