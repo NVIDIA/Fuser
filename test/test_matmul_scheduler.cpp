@@ -126,9 +126,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
   auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -137,9 +142,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   // tv6 := cast(tv5)
   auto tv6 = maybeCastOp(out_type, tv5);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
   fusion->addOutput(tv6);
 
   NVF_CHECK(
@@ -229,13 +231,16 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   // A - tv0, B - tv1
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
   auto tv3 = relu(tv2);
   auto tv4 = maybeCastOp(out_type, tv3);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
   fusion->addOutput(tv4);
 
   NVF_CHECK(
@@ -322,9 +327,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
   auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
 
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
@@ -336,9 +346,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto tv6 = relu(tv5);
   auto tv7 = maybeCastOp(out_type, tv6);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
   fusion->addOutput(tv7);
 
   NVF_CHECK(
@@ -429,14 +436,16 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   // A - tv0, B - tv1
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
   auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = relu(tv2);
   auto tv5 = maybeCastOp(out_type, tv4);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
   fusion->addOutput(tv3);
   fusion->addOutput(tv5);
 
@@ -529,9 +538,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
   auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -545,9 +559,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   auto tv7 = relu(tv5);
   auto tv8 = maybeCastOp(out_type, tv7);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
   fusion->addOutput(tv6);
   fusion->addOutput(tv8);
 
@@ -641,13 +652,15 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   // A - tv0, B - tv1
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
   auto tv3 = gelu(tv2);
   auto tv4 = maybeCastOp(out_type, tv3);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
   fusion->addOutput(tv4);
 
   NVF_CHECK(
@@ -731,14 +744,16 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   // A - tv0, B - tv1
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
   auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = gelu(tv2);
   auto tv5 = maybeCastOp(out_type, tv4);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
   fusion->addOutput(tv3);
   fusion->addOutput(tv5);
 
@@ -829,9 +844,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
   auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -842,9 +862,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto tv6 = gelu(tv5);
   auto tv7 = maybeCastOp(out_type, tv6);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
   fusion->addOutput(tv7);
 
   NVF_CHECK(
@@ -939,9 +956,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
   auto tv2 = makeContigTensor(1, out_type);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := cast(bias)
   auto tv4 = maybeCastOp(accu_type, tv2);
 
@@ -954,9 +976,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   auto tv7 = gelu(tv5);
   auto tv8 = maybeCastOp(out_type, tv7);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
   fusion->addOutput(tv6);
   fusion->addOutput(tv8);
 
@@ -1038,10 +1057,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-  auto tv2 = matmul(tv0, tv1, layout);
-
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
   fusion->addOutput(tv2);
 
   NVF_CHECK(
@@ -1100,10 +1122,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
 
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
-    auto tv2 = matmul(tv0, tv1, layout);
-
     fusion->addInput(tv0);
     fusion->addInput(tv1);
+
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
     fusion->addOutput(tv2);
 
     NVF_CHECK(
@@ -1170,10 +1195,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-  auto tv2 = matmul(tv0, tv1, layout);
-
   fusion->addInput(tv1);
   fusion->addInput(tv0);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
   fusion->addOutput(tv2);
 
   NVF_CHECK(
@@ -1231,12 +1259,14 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   // A - tv0, B - tv1
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-
-  auto tv2 = matmul(tv0, tv1, layout);
-  auto tv3 = castOp(DataType::Half, tv2);
-
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = castOp(DataType::Half, tv2);
+
   fusion->addOutput(tv3);
 
   NVF_CHECK(
@@ -1293,13 +1323,15 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   auto s0 = IrBuilder::create<Val>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-
-  auto tv2 = matmul(tv0, tv1, layout);
-  auto tv3 = mul(s0, tv2);
-
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(s0);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = mul(s0, tv2);
+
   fusion->addOutput(tv3);
 
   NVF_CHECK(
@@ -1357,14 +1389,16 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   auto s0 = IrBuilder::create<Val>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-
-  auto tv2 = matmul(tv0, tv1, layout);
-  auto tv3 = mul(s0, tv2);
-  auto tv4 = castOp(DataType::Half, tv3);
-
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(s0);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+  auto tv3 = mul(s0, tv2);
+  auto tv4 = castOp(DataType::Half, tv3);
+
   fusion->addOutput(tv4);
 
   NVF_CHECK(
@@ -1426,19 +1460,21 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(s0);
 
   // tv3 := A x B
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
 
   // tv4 := beta * C
   auto tv4 = mul(s0, tv2);
   // tv5 := A x B + beta * C
   auto tv5 = add(tv3, tv4);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  fusion->addInput(s0);
   fusion->addOutput(tv5);
 
   NVF_CHECK(
@@ -1506,8 +1542,15 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
 
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := alpha * (A x B)
   auto tv4 = mul(s0, tv3);
 
@@ -1516,11 +1559,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   // tv6 := alpha * (A x B) + beta * C
   auto tv6 = add(tv4, tv5);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  fusion->addInput(s0);
-  fusion->addInput(s1);
   fusion->addOutput(tv6);
 
   NVF_CHECK(
@@ -1590,8 +1628,15 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
 
-  auto tv3 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
   // tv4 := alpha * (A x B)
   auto tv4 = mul(s0, tv3);
 
@@ -1604,11 +1649,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   // tv8 := half(gelu(alpha * (A x B) + beta * C))
   auto tv8 = castOp(DataType::Half, tv7);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  fusion->addInput(s0);
-  fusion->addInput(s1);
   fusion->addOutput(tv8);
 
   NVF_CHECK(
@@ -1683,8 +1723,16 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   auto tv1 = makeContigTensor(2, DataType::Half);
   auto tv2 = makeContigTensor(2, DataType::Half);
   auto tv3 = makeContigTensor(1, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(tv3);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
 
-  auto tv4 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv4 = fusedMultiplySum(tv0, tv1, {-1});
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv3);
@@ -1695,12 +1743,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // tv8 := (alpha * ((A x B) + bias)) + (beta * C)
   auto tv8 = add(tv6, tv7);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  fusion->addInput(tv3);
-  fusion->addInput(s0);
-  fusion->addInput(s1);
   fusion->addOutput(tv8);
 
   NVF_CHECK(
@@ -1772,12 +1814,14 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
     // A - tv0, B - tv1
     auto tv0 = makeContigTensor(3, DataType::Half);
     auto tv1 = makeContigTensor(3, DataType::Half);
-
-    // tv2 := A x B
-    auto tv2 = matmul(tv0, tv1, layout);
-
     fusion->addInput(tv0);
     fusion->addInput(tv1);
+
+    // tv2 := A x B
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
     fusion->addOutput(tv2);
 
     NVF_CHECK(
@@ -1849,9 +1893,16 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     auto tv0 = makeContigTensor(3, DataType::Half);
     auto tv1 = makeContigTensor(3, DataType::Half);
     auto tv2 = makeContigTensor(3, DataType::Float);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+    fusion->addInput(s0);
+    fusion->addInput(s1);
 
     // tv3 := A x B
-    auto tv3 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     // tv4 := alpha * (A x B)
     auto tv4 = mul(s0, tv3);
     // tv5 := beta * C
@@ -1859,11 +1910,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     // tv6 := alpha * (A x B) + beta * C
     auto tv6 = add(tv4, tv5);
 
-    fusion->addInput(tv0);
-    fusion->addInput(tv1);
-    fusion->addInput(tv2);
-    fusion->addInput(s0);
-    fusion->addInput(s1);
     fusion->addOutput(tv6);
 
     NVF_CHECK(
@@ -1945,9 +1991,16 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     auto tv0 = makeContigTensor(3, DataType::Half);
     auto tv1 = makeContigTensor(3, DataType::Half);
     auto tv2 = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+    fusion->addInput(s0);
+    fusion->addInput(s1);
 
     // tv3 := A x B
-    auto tv3 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     // tv4 := alpha * (A x B)
     auto tv4 = mul(s0, tv3);
     // tv5 := beta * C
@@ -1958,11 +2011,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     // tv7 := alpha * (A x B) + beta * C
     auto tv7 = add(tv4, tv6);
 
-    fusion->addInput(tv0);
-    fusion->addInput(tv1);
-    fusion->addInput(tv2);
-    fusion->addInput(s0);
-    fusion->addInput(s1);
     fusion->addOutput(tv7);
 
     NVF_CHECK(
@@ -2041,15 +2089,17 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
     auto tv0 = makeContigTensor(3, DataType::Half);
     auto tv1 = makeContigTensor(3, DataType::Half);
     auto tv2 = makeContigTensor(2, DataType::Float);
-
-    // tv3 := A x B
-    auto tv3 = matmul(tv0, tv1, layout);
-    // tv4 := (A x B) + bias
-    auto tv4 = biasEpilogue(tv3, tv2);
-
     fusion->addInput(tv0);
     fusion->addInput(tv1);
     fusion->addInput(tv2);
+
+    // tv3 := A x B
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+    // tv4 := (A x B) + bias
+    auto tv4 = biasEpilogue(tv3, tv2);
+
     fusion->addOutput(tv4);
 
     NVF_CHECK(
@@ -2121,15 +2171,17 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     auto tv0 = makeContigTensor(3, DataType::Half);
     auto tv1 = makeContigTensor(3, DataType::Half);
     auto tv2 = makeContigTensor(1, DataType::Float);
-
-    // tv3 := A x B
-    auto tv3 = matmul(tv0, tv1, layout);
-    // tv4 := (A x B) + bias
-    auto tv4 = biasEpilogue(tv3, tv2);
-
     fusion->addInput(tv0);
     fusion->addInput(tv1);
     fusion->addInput(tv2);
+
+    // tv3 := A x B
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
+    // tv4 := (A x B) + bias
+    auto tv4 = biasEpilogue(tv3, tv2);
+
     fusion->addOutput(tv4);
 
     NVF_CHECK(

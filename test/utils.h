@@ -596,15 +596,6 @@ static auto kAllSmemSwizzleModes = testing::Values(
     MmaInputSmemSwizzle::B64,
     MmaInputSmemSwizzle::B32);
 
-// Generic interface to get matmul op with the given layout.
-// The as_mul_sum flags creates a mul and sum ops instead of mma
-// to express matmuls. This flag only works for Ampere.
-TensorView* matmul(
-    TensorView* a,
-    TensorView* b,
-    MmaLayout layout,
-    bool as_mul_sum = false);
-
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
