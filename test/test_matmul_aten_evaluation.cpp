@@ -34,7 +34,7 @@ class MatmulATenEvaluationTest : public NVFuserTest {
 };
 
 
-TEST(MatmulATenEvaluationTest, SingleMmaOp) {
+TEST_F(MatmulATenEvaluationTest, SingleMmaOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -72,7 +72,7 @@ TEST(MatmulATenEvaluationTest, SingleMmaOp) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST(MatmulATenEvaluationTest, MmaOpAndCast) {
+TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -111,7 +111,7 @@ TEST(MatmulATenEvaluationTest, MmaOpAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST(MatmulATenEvaluationTest, MatmulWithBias) {
+TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
