@@ -142,7 +142,10 @@ void ExpressionEvaluator::bind_(
         bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
       } else if (rfactor_domain[i]->isDeviceDim()) {
-        // Device dimensions extents will always be 1.
+        // Currently we have the restrictions: 
+        // (1) Devices parallelized axis extent == number of devices
+        // (2) Device parallelized axis cannot be split or merged
+        // Therefore, the device parallelized extents will always be 1.
         // Ignore concrete extents because they hold the unsharded extents.
         NVF_CHECK(
             1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
