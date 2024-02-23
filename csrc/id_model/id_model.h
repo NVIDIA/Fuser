@@ -199,10 +199,13 @@ class IdModel : public PolymorphicBase {
   // Propagate promotion mappings from root IEL groups to intermediate
   // and leaf IEL groups by traversing IEL exprs. For each expr, if an
   // input is promoted, the output needs to be promoted too. If
-  // there's already a domain that the output domain should be
-  // promoted to, create a mapping to it from the promoted output
-  // domain. If not, a new domain is created by replaying the expr
-  // with the promoted inputs.
+  // there's already an equivalent expr that uses the promoted inputs,
+  // create a mapping from the outputs of the IEL expr to the outputs
+  // of the equivalent expr. When require_loop_mapped_promotion is
+  // true, the equivalent expr needs to be already loop mapped. If no
+  // such expr is found, the IEL expr is replayed iwth the promoted
+  // inputs. require_loop_mapped_promotion is true when this function
+  // is used for step 3.
   //
   // This is used twice when building the promotion map. The first time
   // it is used there's no loop graph promotion yet, so only the IEL
