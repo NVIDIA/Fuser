@@ -674,7 +674,7 @@ class SegmentCandidateFinder {
   //! If we segmented on tv1, we would be producing an output for tv1 for 2
   //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
   //! tv0.
-  void resolveInputsInGroup(SegmentedGroup* group);
+  void resolveInputGroup(SegmentedGroup* group, Val* forwarded_input);
 
   //! Remove all scalar edges in group
   //!  (TODO: need structure better so we don't have to do this)
