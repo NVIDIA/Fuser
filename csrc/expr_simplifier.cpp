@@ -1399,7 +1399,18 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(Val* x, Val* y, const Context& context);
+struct hashValPair {
+  size_t operator()(const std::pair<Val*, Val*>& p) const {
+    return (size_t)p.first ^ (size_t)p.second;
+  }
+};
+
+using ValPairSet = std::unordered_set<std::pair<Val*, Val*>, hashValPair>;
+bool lessThan(
+    Val* x,
+    Val* y,
+    const Context& context,
+    ValPairSet* checked_vals = nullptr);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1527,15 +1538,38 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(Val* x, Val* y, const Context& context) {
+// checked_vals is used internally to prevent infinite recursion
+bool lessThan(
+    Val* x,
+    Val* y,
+    const Context& context,
+    ValPairSet* checked_vals) {
+  std::cout << "    prove::lessThan(" << x->toInlineString() << " , "
+            << y->toInlineString() << ")" << std::endl;
+  std::cout << "    Trying prove::lessEqual(" << x->toInlineString() << " , "
+            << y->toInlineString() << ")" << std::endl;
+  std::cout << "      assumptions:" << std::endl;
+  for (auto& [l, r] : context.getKnownLessThan()) {
+    std::cout << "        " << l->toInlineString() << " < "
+              << r->toInlineString() << std::endl;
+  }
+  for (auto& [l, r] : context.getKnownLessEqual()) {
+    std::cout << "        " << l->toInlineString()
+              << " <= " << r->toInlineString() << std::endl;
+  }
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
+    if (x->value() < y->value())
+      std::cout << "      = TRUE" << std::endl;
+    else
+      std::cout << "      = FALSE" << std::endl;
     return x->value() < y->value();
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
+    std::cout << "      = TRUE" << std::endl;
     return true;
   }
   // i1 % i2 < i2
@@ -1550,6 +1584,32 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  std::unique_ptr<ValPairSet> checked_val_ptr = nullptr;
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    // he we try to minimize re-proving these relations
+    if (checked_vals == nullptr) {
+      checked_val_ptr = std::make_unique<ValPairSet>();
+      checked_vals = checked_val_ptr.get();
+    }
+    checked_vals->emplace(
+        x, y); // skip current value to avoid infinite recursion
+    bool lta = checked_vals->find(std::make_pair(x, a)) != checked_vals->end()
+        ? false
+        : lessThan(x, a, context, checked_vals);
+    bool ltb = checked_vals->find(std::make_pair(b, y)) != checked_vals->end()
+        ? false
+        : lessThan(b, y, context, checked_vals);
+    // x < a implies x <= b
+    bool lea = lta ? true : lessEqual(x, a, context);
+    bool leb = ltb ? true : lessEqual(b, y, context);
+    if (
+        // x < a & a <= b & b <= y  -->  x < y
+        (lta && leb) ||
+        // x <= a & a <= b & b < y  -->  x < y
+        (lea && ltb)) {
       return true;
     }
   }
