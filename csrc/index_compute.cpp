@@ -3357,7 +3357,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      getSwizzleFromBytes(swizzle_size * 16),
+      getSwizzleFromBytes(swizzle_size * core_matrix_width_bytes),
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
