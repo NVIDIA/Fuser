@@ -1009,9 +1009,7 @@ bool hasUniqueInputLoopGroups(
 Expr* findMatchingExpr(
     const ExprGroup& iel_expr,
     const ValGraph& iel_graph,
-    const std::vector<IterDomain*>& maybe_promoted_inputs,
-    bool require_loop_mapped_promotion,
-    const ValGraph& loop_graph) {
+    const std::vector<IterDomain*>& maybe_promoted_inputs) {
   // Grab all uses of the promoted inputs
   ExprGroups maybe_promoted_input_uses;
   for (auto inp_id : maybe_promoted_inputs) {
@@ -1058,29 +1056,6 @@ Expr* findMatchingExpr(
       continue;
     }
 
-    // For the final loop promotion map, we want to find
-    // promotions within the same loop groups. Note that that's
-    // guaranteed when replayed.
-    if (require_loop_mapped_promotion) {
-      if (!loop_graph.disjointExprSets().permissiveAreMapped(
-              iel_expr->front(), maybe_promoted_input_use_group->front())) {
-        continue;
-      }
-      // This is just an extra sanity check. Make sure all exprs in
-      // the use group are mapped
-      NVF_ERROR(
-          std::all_of(
-              maybe_promoted_input_use_group->vector().begin(),
-              maybe_promoted_input_use_group->vector().end(),
-              [&](Expr* iel_use) {
-                return loop_graph.disjointExprSets().permissiveAreMapped(
-                    iel_expr->front(), iel_use);
-              }),
-          "Not all mapped: ",
-          nvfuser::toString(iel_expr),
-          "\n",
-          nvfuser::toString(maybe_promoted_input_use_group));
-    }
     return maybe_promoted_input_use;
   }
 
@@ -1091,10 +1066,7 @@ Expr* findMatchingExpr(
 
 void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
-    std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    const ValGraph& loop_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
-    bool require_loop_mapped_promotion) {
+    std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
   ValGraphStmtSort iel_stmt_sort(iel_graph);
@@ -1103,11 +1075,6 @@ void IdModel::propagatePromotionsInIELGraph(
     NVF_ERROR(!iel_expr->empty());
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
-
-    // Propagate loop graph promotion only when the inputs and outputs are
-    // not in the same loop group.
-    const bool loop_promote_inputs = !loop_graph_promotion_map.empty() &&
-        hasUniqueInputLoopGroups(iel_expr, iel_graph, loop_graph);
 
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
@@ -1127,19 +1094,6 @@ void IdModel::propagatePromotionsInIELGraph(
         continue;
       }
 
-      // Promote loops based on the loop promotion map. If the loop promotion
-      // map should be used and has an entry we should use that promotion.
-      if (loop_promote_inputs) {
-        const ValGroup& loop_copy_group =
-            loop_graph.toGroup(iel_inp_group->front());
-        auto inp_loop_promo_it = loop_graph_promotion_map.find(loop_copy_group);
-        if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
-          maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
-          an_input_was_promoted = true;
-          continue;
-        }
-      }
-
       // No promotion found. Just use the non-promoted domain
       maybe_promoted_inputs.push_back(iel_inp_group->front()->as<IterDomain>());
     }
@@ -1149,12 +1103,8 @@ void IdModel::propagatePromotionsInIELGraph(
       continue;
     }
 
-    Expr* promoted_expr = findMatchingExpr(
-        iel_expr,
-        iel_graph,
-        maybe_promoted_inputs,
-        require_loop_mapped_promotion,
-        idGraph(IdMappingMode::LOOP));
+    Expr* promoted_expr =
+        findMatchingExpr(iel_expr, iel_graph, maybe_promoted_inputs);
 
     bool replayed = false;
 
@@ -1190,13 +1140,6 @@ void IdModel::propagatePromotionsInIELGraph(
       }
     }
   }
-}
-
-void IdModel::propagatePromotionsInIELGraph(
-    const ValGraph& iel_graph,
-    std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
-  propagatePromotionsInIELGraph(
-      iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {}, false);
 }
 
 // Replay Expr but with the inputs provided.
