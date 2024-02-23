@@ -854,15 +854,15 @@ std::vector<Expr*> Fusion::getExprsToCodegen() {
   return exprs_requiring_codegen;
 }
 
-std::vector<Val*> getFusionOutputsRequiringCodegen() {
+std::vector<Val*> Fusion::getFusionOutputsRequiringCodegen() {
   std::vector<Val*> outs_requiring_codegen;
   outs_requiring_codegen.reserve(outputs().size());
   std::copy_if(
-      fusion_->outputs().begin(),
-      fusion_->outputs().end(),
+      outputs().begin(),
+      outputs().end(),
       std::back_inserter(outs_requiring_codegen),
       [this](Val* out) {
-        return (fusion_->getOutputAlias(out).type != AllocationType::Evaluate);
+        return (this->getOutputAlias(out).type != AllocationType::Evaluate);
       });
   return outs_requiring_codegen;
 }
