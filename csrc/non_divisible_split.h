@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
@@ -30,7 +30,7 @@ namespace nvfuser {
 //! a vectoried operation is predicated out entirely since we do not
 //! generate a fall-back non-vectorized else path. Runtime check is
 //! done for those domains.
-class NonDivisibleSplitInfo : public IterVisitor {
+class NVF_API NonDivisibleSplitInfo : public IterVisitor {
  public:
   void build(Fusion* fusion);
 

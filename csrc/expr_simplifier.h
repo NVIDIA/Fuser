@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
+#include <visibility.h>
 
 #include <vector>
 
@@ -646,7 +647,7 @@ RegisterType getRegisterType(Val* value);
 // potentially hide the error. The argument `preserve_error` specifies whether
 // we should disable these optimization, unless we can prove there won't be an
 // error.
-Val* simplifyExpr(
+NVF_API Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
     std::vector<Val*> assumptions = {},

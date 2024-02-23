@@ -13,6 +13,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 // TODO: If caching inputs would require persistence we are sending it to the
 // persistent kerenl scheduler. This isn't necessary if the only persistent
@@ -51,7 +52,7 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
       HeuristicSummary* data_cache = nullptr);
 };
 
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+NVF_API std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
@@ -61,7 +62,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void scheduleOuterPersistentKernel(
+NVF_API void scheduleOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 

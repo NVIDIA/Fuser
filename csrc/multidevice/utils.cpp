@@ -111,9 +111,10 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+  if (!tvs.empty()) {
+    scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+  }
 }
-
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
@@ -143,6 +144,48 @@ void insertReshardings(Fusion* fusion) {
     }
     shardAllLike(output, new_inputs);
   }
+}
+
+int64_t requestedNumberOfDevices(Fusion* fusion) {
+  std::set<DeviceIdxType> device_indices;
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (tv->hasDeviceMesh()) {
+      std::copy(
+          tv->getDeviceMesh().vector().begin(),
+          tv->getDeviceMesh().vector().end(),
+          std::inserter(device_indices, device_indices.begin()));
+    }
+  }
+  return static_cast<int64_t>(device_indices.size());
+}
+
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh({});
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    unshard(tv);
+  }
+}
+
+std::set<DeviceIdxType> involvedDevices(Expr* expr) {
+  std::set<DeviceIdxType> ret;
+  for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
+    for (auto val : tvs) {
+      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
+      auto& mesh = tv->getDeviceMesh().vector();
+      std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+    }
+  }
+  return ret;
 }
 
 } // namespace nvfuser

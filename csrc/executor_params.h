@@ -9,6 +9,7 @@
 #include <exceptions.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <optional>
 
@@ -61,7 +62,7 @@ class LaunchParams {
     assertValid();
   }
 
-  void assertValid();
+  NVF_API void assertValid();
 
   void setSmem(int64_t smem) {
     smem_ = smem;
@@ -134,19 +135,19 @@ class LaunchParams {
   void bind(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
-  int64_t getDim(ParallelType p_type) const;
+  NVF_API int64_t getDim(ParallelType p_type) const;
 
   // Returns raw value which may be UNINITIALIZED_VAL
-  const int64_t& getRawVal(ParallelType p_type) const;
+  NVF_API const int64_t& getRawVal(ParallelType p_type) const;
 
   // Returns false if value associated with p_type == UNINITIALIZED_VAL
-  bool hasDim(ParallelType p_type) const;
+  NVF_API bool hasDim(ParallelType p_type) const;
 
   bool operator==(const LaunchParams& other) const;
 
-  void print() const;
+  NVF_API void print() const;
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 
   //! Serialize LaunchParams using flatbuffers
   flatbuffers::Offset<serde::LaunchParams> serialize(

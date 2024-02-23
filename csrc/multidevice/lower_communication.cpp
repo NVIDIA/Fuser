@@ -10,7 +10,6 @@
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
-#include <multidevice/pipeline.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <limits>
@@ -406,24 +405,20 @@ TODO:
 */
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
     DeviceIdxType my_device_index,
-    PipelineCommunication* c,
+    Expr* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<std::shared_ptr<Communication>> comms;
   NVF_ERROR(
-      c->in()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>() &&
-          c->out()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+      c->inputs().size() == 1 && c->inputs().at(0)->isA<TensorView>() &&
+          c->outputs().size() == 1 && c->outputs().at(0)->isA<TensorView>(),
       "I/O must be TensorViews");
-  TensorView* input_tv =
-      c->in()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
-  TensorView* output_tv =
-      c->out()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
+  TensorView* input_tv = c->inputs().at(0)->as<TensorView>();
+  TensorView* output_tv = c->outputs().at(0)->as<TensorView>();
   at::Tensor dummy;
 
-  const auto& sender_mesh =
-      c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh;
-  const auto& receiver_mesh =
-      c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
+  const auto& sender_mesh = input_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
   const bool same_mesh = sender_mesh.vector() == receiver_mesh.vector();
 
   // Stores whether the I/O has its first axis parallelized on Didx
@@ -436,7 +431,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   NVF_ERROR(
       isLowerableToCommunication(original_expr),
       "Lowering expression ",
-      original_expr,
+      original_expr->toString(),
       " to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
 
