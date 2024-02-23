@@ -863,18 +863,7 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  // TODO: Common code as in expr_sort.cpp.
-  // Move to a helper function
-  std::vector<Val*> outs_requiring_codegen;
-  outs_requiring_codegen.reserve(fusion->outputs().size());
-  std::copy_if(
-      fusion->outputs().begin(),
-      fusion->outputs().end(),
-      std::back_inserter(outs_requiring_codegen),
-      [&fusion](Val* out) {
-        return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
-      });
-  traverseTo(outs_requiring_codegen);
+  traverseTo(fusion->getFusionOutputsRequiringCodegen());
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {

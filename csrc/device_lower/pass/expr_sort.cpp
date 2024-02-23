@@ -1509,15 +1509,8 @@ void ExprSegmentationSorter::sort() {
   // We skip generating code that computes only pointer-arithmetic outputs
   // or any output marked for expression evaluator (AllocationType::Evaluate).
   // Those outputs will be computed by ExpressionEvaluator.
-  std::vector<Val*> outs_requiring_codegen;
-  outs_requiring_codegen.reserve(fusion_->outputs().size());
-  std::copy_if(
-      fusion_->outputs().begin(),
-      fusion_->outputs().end(),
-      std::back_inserter(outs_requiring_codegen),
-      [this](Val* out) {
-        return (fusion_->getOutputAlias(out).type != AllocationType::Evaluate);
-      });
+  std::vector<Val*> outs_requiring_codegen =
+      fusion_->getFusionOutputsRequiringCodegen();
 
   // Not putting the exprs between fusion inputs and allKnownVals() here
   // because they are computed using the expr evaluator.
