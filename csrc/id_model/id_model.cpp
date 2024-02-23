@@ -958,48 +958,6 @@ ValGraph IdModel::buildIntersection(
 
 namespace {
 
-// When propagating loop promotions from inputs to outputs of an IEL
-// expr, we can't blindly apply loop promotion when all of the input
-// domains are loop mapped with the outputs.
-//
-// i.e. if we have the inlined domains from:
-// T2[i0*i1] pa(1) = T0[i0*b1]ca(1) + T1[i0*i1]ca(1)
-// The inlined loop group would be:
-//
-// i0, i1, b1, i0*i1, b0*i1
-// Then if we replayed the iel transformations they would be:
-// merge(i0, i1)
-// merge(i0, b1)
-//
-// So if we replayed them with loop promotion, then i0, i1, b1 would be
-// promoted to i0*i1, and the merges would be replayed.
-//
-// Therefore only promote i0*b1 to i0*i1, or i0*i1 to i0*i1 (i.e. don't
-// promote an input to any transformation within the loop group).
-//
-// So if we have an iel_expr make sure its inputs and outputs are not in
-// the same loop group.
-bool hasUniqueInputLoopGroups(
-    const ExprGroup& iel_expr,
-    const ValGraph& iel_graph,
-    const ValGraph& loop_graph) {
-  const std::vector<ValGroup> iel_inp_groups = iel_graph.inputGroups(iel_expr);
-
-  const std::vector<ValGroup> iel_out_groups = iel_graph.outputGroups(iel_expr);
-
-  ValGroups inp_loop_groups;
-  for (const ValGroup& iel_inp_group : iel_inp_groups) {
-    inp_loop_groups.pushBack(loop_graph.toGroup(iel_inp_group->front()));
-  }
-  ValGroups out_loop_groups;
-  for (const ValGroup& iel_out_group : iel_out_groups) {
-    out_loop_groups.pushBack(loop_graph.toGroup(iel_out_group->front()));
-  }
-
-  // Check if input groups that are not included in the output group set
-  return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
-}
-
 // Check if there's an equivalent expression as iel_expr that uses
 // maybe_promoted_inputs. This is used to avoid redundantly replaying
 // expressions.
