@@ -142,7 +142,7 @@ void ExpressionEvaluator::bind_(
         bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
       } else if (rfactor_domain[i]->isDeviceDim()) {
-        // Currently we have the restrictions: 
+        // Currently we have the restrictions:
         // (1) Devices parallelized axis extent == number of devices
         // (2) Device parallelized axis cannot be split or merged
         // Therefore, the device parallelized extents will always be 1.
