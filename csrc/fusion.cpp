@@ -796,8 +796,8 @@ void Fusion::aliasOutputToInput(
     }
 
     NVF_ERROR(
-      isAliasCompatible(input, output),
-      "The input and output values are not alias-compatible.");
+        isAliasCompatible(input, output),
+        "The input and output values are not alias-compatible.");
     // Let integration hide any output that wasn't a fusion output when
     // `aliasOutputToInput` was called. For example, running mean and var for
     // batch norm.
@@ -841,13 +841,12 @@ std::vector<Expr*> Fusion::getExprsToCodegen() {
   std::vector<Expr*> exprs_requiring_codegen;
   exprs_requiring_codegen.reserve(exprs().size());
 
-  for (auto expr: exprs()) {
+  for (auto expr : exprs()) {
     bool is_expr_codegen = std::none_of(
-        expr->outputs().begin(),
-        expr->outputs().end(),
-        [this](Val* out) { 
-          return this->getOutputAlias(out).type != AllocationType::Evaluate;});
-    
+        expr->outputs().begin(), expr->outputs().end(), [this](Val* out) {
+          return this->getOutputAlias(out).type != AllocationType::Evaluate;
+        });
+
     if (is_expr_codegen) {
       exprs_requiring_codegen.emplace_back(expr);
     }

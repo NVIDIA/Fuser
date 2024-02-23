@@ -11,12 +11,12 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/mma_utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
 
 namespace nvfuser {
 
@@ -32,7 +32,6 @@ class MatmulATenEvaluationTest : public NVFuserTest {
       nvfuser::preseg_passes::AllocationDomainPass>>
       guard_;
 };
-
 
 TEST_F(MatmulATenEvaluationTest, SingleMmaOp) {
   auto fusion = std::make_unique<Fusion>();

@@ -1516,9 +1516,7 @@ void ExprSegmentationSorter::sort() {
       fusion_->outputs().end(),
       std::back_inserter(outs_requiring_codegen),
       [this](Val* out) {
-        return (
-            fusion_->getOutputAlias(out).type !=
-                AllocationType::Evaluate);
+        return (fusion_->getOutputAlias(out).type != AllocationType::Evaluate);
       });
 
   // Not putting the exprs between fusion inputs and allKnownVals() here
