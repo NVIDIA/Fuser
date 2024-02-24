@@ -1117,4 +1117,16 @@ TEST_F(ExprSimplifierTest, FactorizeGcd) {
       simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
 }
 
+TEST_F(ExprSimplifierTest, ModByBound) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  Val* i0 = IrBuilder::create<Val>(DataType::Int);
+  Val* i1 = IrBuilder::create<Val>(DataType::Int);
+  std::vector<Val*> assumptions{
+      IrBuilder::ltExpr(i0, i1),
+  };
+  EXPECT_TRUE(simplifyExpr(IrBuilder::modExpr(i0, i1))->sameAs(i1));
+  EXPECT_TRUE(
+      simplifyExpr(IrBuilder::divExpr(i0, i1))->sameAs(fusion->zeroVal()));
+}
+
 } // namespace nvfuser
