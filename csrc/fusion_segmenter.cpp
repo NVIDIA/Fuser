@@ -3858,13 +3858,31 @@ void SegmentCandidateFinder::findSegments() {
     }
 
     if (forwarded_input->isScalar()) {
-      // Will be resolved in resolveScalarsInGroup.
+      // Will be resolved after this loop.
       continue;
     }
 
     resolveInputGroup(aux_group, forwarded_input);
     // aux_group will be removed from segmented_fusion_ by
     // cleanupForwardedInputs.
+  }
+
+  // Un-forward scalar inputs unconditionally. The loop above doesn't resolve
+  // forwarded scalar inputs because their consumer_edges are always empty due
+  // to `removeScalarEdges`.
+  for (SegmentedGroup* group : segmented_fusion_->groups()) {
+    std::vector<Val*> forwarded_scalar_inputs;
+    for (Val* input_val : group->inputs()) {
+      if (!input_val->isFusionInput() && input_val->isScalar()) {
+        forwarded_scalar_inputs.push_back(input_val);
+      }
+    }
+
+    group->input_vals = IterVisitor::getInputsTo(group->inputs());
+    auto input_exprs = StmtSort::getExprsTo(forwarded_scalar_inputs);
+    // Insert those expressions at the beginning of the group
+    group->exprs_.insert(
+        group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
   }
 
   // Do not require segments to be disjoint because after resolveInputGroup a
@@ -4215,11 +4233,7 @@ void SegmentCandidateFinder::resolveInputGroup(
     // TODO: helper function?
     SegmentedGroup* input_group = segmented_fusion_->newGroup();
     input_group->input_vals = IterVisitor::getInputsTo({forwarded_input});
-    std::vector<Expr*> input_exprs = StmtSort::getExprsTo({forwarded_input});
-    std::copy(
-        input_exprs.begin(),
-        input_exprs.end(),
-        std::back_inserter(input_group->exprs_));
+    input_group->exprs_ = StmtSort::getExprsTo({forwarded_input});
 
     for (SegmentedEdge*& edge : consumer->producer_edges) {
       if (edge->from == aux_group && edge->val == forwarded_input) {
