@@ -60,7 +60,9 @@ sass::Container getSASSFor(
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
   fusion.addOutput(tv2);
 
@@ -119,7 +121,9 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   fusion.addInput(tv1);
   fusion.addInput(s0);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
   auto tv3 = mul(s0, tv2);
 
   fusion.addOutput(tv3);

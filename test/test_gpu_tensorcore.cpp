@@ -72,7 +72,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -117,6 +119,133 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionAmperePrologueFusionBroadcast_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMmaLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput2D(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmpereProloguePointwise_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMmaLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv0 = castOp(DataType::Half, sin(tv0));
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    tv1 = castOp(DataType::Half, sin(tv1));
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.sin().to(at::kFloat),
+        inputs.second.sin().to(at::kFloat),
+        layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+  }
+}
+
 TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -133,7 +262,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -198,7 +329,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -270,7 +403,9 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -393,7 +528,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -1080,7 +1217,9 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1763,7 +1902,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1824,7 +1965,9 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1887,7 +2030,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         fusion.addInput(tv0);
         fusion.addInput(tv1);
 
-        auto tv2 = matmul(tv0, tv1, layout);
+        tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+        tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+        auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
         fusion.addOutput(tv2);
 
@@ -1965,7 +2110,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           fusion.addInput(tv0);
           fusion.addInput(tv1);
 
-          auto tv2 = matmul(tv0, tv1, layout);
+          tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+          tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+          auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
           fusion.addOutput(tv2);
 
@@ -2038,7 +2185,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -2105,7 +2254,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2156,7 +2307,9 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2209,7 +2362,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2351,7 +2506,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv3 = castOp(DataType::Half, tv2);
 
     fusion.addOutput(tv3);
@@ -2449,7 +2606,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv3 = relu(tv2);
 
     fusion.addOutput(tv3);
@@ -2553,7 +2712,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2615,7 +2776,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv4 = broadcast(tv2, {false, true});
     auto tv5 = add(tv3, tv4); // bias
 
@@ -2677,7 +2840,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2740,7 +2905,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv4 = broadcast(tv2, {true, false, true});
     auto tv5 = add(tv3, tv4);
 

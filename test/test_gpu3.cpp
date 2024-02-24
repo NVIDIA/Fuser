@@ -8783,6 +8783,54 @@ TEST_F(NVFuserTest, UnsupportedBFloat) {
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Reason: Fusion contains BFloat16")));
 }
+
+// Issue #1470 reproduction:
+// `nvfuser_index_t T5[4]` is aliased as `Array<float, 4> T9`.
+// `float T4[4]` is aliased as `auto& T10 = T4`.
+// Using `T9` and `T10` in `welfordGroupOuter` function causes a compilation
+// error due to type mismatch: `T9` is an aligned array, while `T10` is a
+// regular array. Should generate fun<>(T9.array, T10) instead of
+// fun<>(T9, T10).
+TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 8192;
+  const int hidden_size = 1024;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = Welford(tv2, {0});
+  auto tv4 = broadcast(tv3.avg, {true, false});
+  auto tv5 = div(tv2, tv4);
+
+  auto tv6 = exp(tv5);
+  auto tv7 = Welford(tv6, {0});
+  auto tv8 = broadcast(tv7.avg, {true, false});
+  auto tv9 = div(tv6, tv8);
+
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv9);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getOuterPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  scheduleOuterPersistentKernel(fusion, *persistent_params);
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  FusionExecutor fe;
+  fe.compileFusion(
+      fusion, args, persistent_params->lparams, persistent_params->cparams);
+  auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
