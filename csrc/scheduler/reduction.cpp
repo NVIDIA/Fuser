@@ -739,7 +739,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
     std::cout << "UNROLL: " << redu_unroll_factor << std::endl;
   }
 
-  gidim = iDimAvail();
 
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
@@ -758,7 +757,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
   }
 
   // If less than half wave of blocks, double blocks and halve unrolling
-  while(gidim * grdim * 2 <= device_multiprocessor_count && redu_unroll_factor >= 2){
+  while(grdim > 1 && gidim * grdim * 2 <= device_multiprocessor_count && redu_unroll_factor >= 2){
     grdim *= 2;
     redu_unroll_factor /=2;
   }
