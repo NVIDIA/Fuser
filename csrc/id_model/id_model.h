@@ -245,7 +245,7 @@ class IdModel : public PolymorphicBase {
   void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
-  
+
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
   std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
