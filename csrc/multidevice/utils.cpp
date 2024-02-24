@@ -173,4 +173,19 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
+std::vector<int64_t> unshardedSize(
+    TensorView* tv,
+    c10::IntArrayRef sharded_sizes) {
+  std::vector<int64_t> unsharded_sizes;
+  std::copy(
+      sharded_sizes.begin(),
+      sharded_sizes.end(),
+      std::back_inserter(unsharded_sizes));
+  if (isSharded(tv)) {
+    int num_devices = tv->getDeviceMesh().vector().size();
+    unsharded_sizes[0] = num_devices;
+  }
+  return unsharded_sizes;
+}
+
 } // namespace nvfuser

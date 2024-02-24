@@ -18,11 +18,13 @@
 
 namespace nvfuser {
 
-class ShardingTest : public MultiDeviceTest {};
+class ShardingTest : public MultiDeviceTest,
+                     public ::testing::WithParamInterface<bool> {};
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
-TEST_F(ShardingTest, UnshardedGlobalInput) {
+TEST_P(ShardingTest, UnshardedGlobalInput) {
+  auto concreteTv = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
@@ -31,7 +33,8 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
   DeviceMesh mesh(devices);
   std::vector<int64_t> input_size = {num_devices, 3};
 
-  TensorView* tv0 = makeContigConcreteTensor(input_size);
+  TensorView* tv0 =
+      concreteTv ? makeContigConcreteTensor(input_size) : makeContigTensor(2);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   TensorView* tv3 = sum(tv2, {1});
@@ -69,7 +72,8 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
 
 // Test memory allocation of multidevice fusion with sharded input
 // and replicated intermediates and output.
-TEST_F(ShardingTest, ShardGlobalInput) {
+TEST_P(ShardingTest, ShardGlobalInput) {
+  auto concreteTv = GetParam();
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -79,7 +83,8 @@ TEST_F(ShardingTest, ShardGlobalInput) {
   DeviceMesh mesh(devices);
   std::vector<int64_t> unsharded_input_size = {num_devices, 3, 2};
 
-  TensorView* tv0 = makeConcreteTensor(unsharded_input_size);
+  TensorView* tv0 = concreteTv ? makeConcreteTensor(unsharded_input_size)
+                               : makeContigTensor(3);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);
@@ -103,6 +108,10 @@ TEST_F(ShardingTest, ShardGlobalInput) {
   testValidate(
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }
+
+INSTANTIATE_TEST_SUITE_P(ConcreteInput, ShardingTest, ::testing::Values(true));
+
+INSTANTIATE_TEST_SUITE_P(SymbolicInput, ShardingTest, ::testing::Values(false));
 
 } // namespace nvfuser
 #endif

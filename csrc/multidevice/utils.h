@@ -32,7 +32,7 @@ bool isResharding(Expr* expr);
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
 
-// returns the number of device indices present accross all
+// Returns the number of device indices present accross all
 // device meshes in the Fusion
 int64_t requestedNumberOfDevices(Fusion*);
 
@@ -40,5 +40,10 @@ int64_t requestedNumberOfDevices(Fusion*);
 // Expr that is not directly lowerable to a series of communications
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
+
+// Returns the unsharded tensor size given sharded size and tv
+std::vector<int64_t> unshardedSize(
+    TensorView* tv,
+    c10::IntArrayRef sharded_sizes);
 
 } // namespace nvfuser
