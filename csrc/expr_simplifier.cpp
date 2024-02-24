@@ -1544,32 +1544,14 @@ bool lessThan(
     Val* y,
     const Context& context,
     ValPairSet* checked_vals) {
-  std::cout << "    prove::lessThan(" << x->toInlineString() << " , "
-            << y->toInlineString() << ")" << std::endl;
-  std::cout << "    Trying prove::lessEqual(" << x->toInlineString() << " , "
-            << y->toInlineString() << ")" << std::endl;
-  std::cout << "      assumptions:" << std::endl;
-  for (auto& [l, r] : context.getKnownLessThan()) {
-    std::cout << "        " << l->toInlineString() << " < "
-              << r->toInlineString() << std::endl;
-  }
-  for (auto& [l, r] : context.getKnownLessEqual()) {
-    std::cout << "        " << l->toInlineString()
-              << " <= " << r->toInlineString() << std::endl;
-  }
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
-    if (x->value() < y->value())
-      std::cout << "      = TRUE" << std::endl;
-    else
-      std::cout << "      = FALSE" << std::endl;
     return x->value() < y->value();
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
-    std::cout << "      = TRUE" << std::endl;
     return true;
   }
   // i1 % i2 < i2
