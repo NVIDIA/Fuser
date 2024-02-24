@@ -670,8 +670,8 @@ table IrContainer {
 }
 
 table AliasInfo {
-  value: long;
-  alias_type_enum: long;
+  allocation_type_enum: long;
+  aliased_io_value: long;
   hide_output: bool;
 }
 
