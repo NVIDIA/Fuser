@@ -180,12 +180,12 @@ flatbuffers::Offset<serde::Fusion> Fusion::serialize(
   fb_io_alias_keys.reserve(io_alias_.size());
   fb_io_alias_values.reserve(io_alias_.size());
   for (const auto& entry : io_alias_) {
-    fb_io_alias_keys.push_back(container.map(entry.first));
-    auto&& [val, info] = entry.second;
+    auto&& [val, info] = entry;
+    fb_io_alias_keys.push_back(container.map(val));
     fb_io_alias_values.push_back(serde::CreateAliasInfo(
         builder,
-        container.map(val),
         toUnderlying(info.type),
+        container.map(info.aliased_io),
         info.hide_output));
   }
 
@@ -289,13 +289,12 @@ void Fusion::deserialize(const serde::Fusion* buffer) {
         buffer->io_alias_values()->Get(index);
     NVF_ERROR(fb_alias_info != nullptr, "serde::AliasInfo is nullptr.");
 
-    Val* val_lhs = getVal<Val>(fb_alias_info->value());
-    AliasType at_type_enum =
-        static_cast<AliasType>(fb_alias_info->alias_type_enum());
+    Val* aliased_io_val = getVal<Val>(fb_alias_info->aliased_io_value());
+    AllocationType at_type_enum =
+        static_cast<AllocationType>(fb_alias_info->allocation_type_enum());
     io_alias_.emplace(
         key_val,
-        std::make_pair(
-            val_lhs, AliasInfo{at_type_enum, fb_alias_info->hide_output()}));
+        AliasInfo{at_type_enum, aliased_io_val, fb_alias_info->hide_output()});
   }
 
   for (const serde::Permutation* fb_permutation :
