@@ -1405,12 +1405,12 @@ struct hashValPair {
   }
 };
 
-using ValPairSet = std::unordered_set<std::pair<Val*, Val*>, hashValPair>;
+using ValPairMap = std::unordered_map<std::pair<Val*, Val*>, bool, hashValPair>;
 bool lessThan(
     Val* x,
     Val* y,
     const Context& context,
-    ValPairSet* checked_vals = nullptr);
+    ValPairMap* checked_rels = nullptr);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1538,12 +1538,12 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-// checked_vals is used internally to prevent infinite recursion
+// checked_rels is used internally to prevent infinite recursion
 bool lessThan(
     Val* x,
     Val* y,
     const Context& context,
-    ValPairSet* checked_vals) {
+    ValPairMap* checked_rels) {
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1569,21 +1569,24 @@ bool lessThan(
       return true;
     }
   }
-  std::unique_ptr<ValPairSet> checked_val_ptr = nullptr;
+  std::unique_ptr<ValPairMap> checked_rel_ptr = nullptr;
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     // he we try to minimize re-proving these relations
-    if (checked_vals == nullptr) {
-      checked_val_ptr = std::make_unique<ValPairSet>();
-      checked_vals = checked_val_ptr.get();
+    if (checked_rels == nullptr) {
+      checked_rel_ptr = std::make_unique<ValPairMap>();
+      checked_rels = checked_rel_ptr.get();
     }
-    checked_vals->emplace(
-        x, y); // skip current value to avoid infinite recursion
-    bool lta = checked_vals->find(std::make_pair(x, a)) != checked_vals->end()
-        ? false
-        : lessThan(x, a, context, checked_vals);
-    bool ltb = checked_vals->find(std::make_pair(b, y)) != checked_vals->end()
-        ? false
-        : lessThan(b, y, context, checked_vals);
+    auto xy = std::make_pair(x, y);
+    checked_rels->emplace(
+        xy, false); // skip current value to avoid infinite recursion
+    auto ita = checked_rels->find(std::make_pair(x, a));
+    bool lta = ita != checked_rels->end()
+        ? ita->second
+        : lessThan(x, a, context, checked_rels);
+    auto itb = checked_rels->find(std::make_pair(b, y));
+    bool ltb = itb != checked_rels->end()
+        ? itb->second
+        : lessThan(b, y, context, checked_rels);
     // x < a implies x <= b
     bool lea = lta ? true : lessEqual(x, a, context);
     bool leb = ltb ? true : lessEqual(b, y, context);
@@ -1592,6 +1595,7 @@ bool lessThan(
         (lta && leb) ||
         // x <= a & a <= b & b < y  -->  x < y
         (lea && ltb)) {
+      (*checked_rels)[xy] = true;
       return true;
     }
   }
