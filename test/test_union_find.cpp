@@ -56,12 +56,8 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
   //     3  *
   //   Class 3:
   //     4  *
-  auto c = uf.computeEquivalenceClasses();
-  EXPECT_EQ(c.size(), 5);
-  for (const auto i : c10::irange(c.size())) {
-    const auto& ci = c[i];
-    EXPECT_EQ(ci.size(), 1);
-    EXPECT_EQ(ci[0], i);
+  for (const auto i : c10::irange(uf.size())) {
+    EXPECT_EQ(uf.find(i), i);
   }
 
   uf.merge(3, 4);
@@ -76,16 +72,10 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
   //     4
   EXPECT_TRUE(uf.equiv(3, 4));
   EXPECT_FALSE(uf.equiv(2, 3));
-  EXPECT_EQ(c.size(), 5);
-  c = uf.computeEquivalenceClasses();
-  for (const auto i : c10::irange(3)) {
-    const auto& ci = c[i];
-    EXPECT_EQ(ci.size(), 1);
-    EXPECT_EQ(ci[0], i);
+  for (const auto i : c10::irange(4)) {
+    EXPECT_EQ(uf.find(i), i);
   }
-  EXPECT_EQ(c[3].size(), 2);
-  EXPECT_EQ(c[3][0], 3);
-  EXPECT_EQ(c[3][1], 4);
+  EXPECT_EQ(uf.find(4), 3);
 
   uf.enlarge(8);
   //   Class 0:
@@ -104,20 +94,14 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
   //   Class 6:
   //     7  *
   EXPECT_FALSE(uf.equiv(4, 7));
-  c = uf.computeEquivalenceClasses();
-  EXPECT_EQ(c.size(), 7);
-  for (const auto i : c10::irange(7)) {
-    if (i == 3) {
-      continue;
-    }
-    const auto& ci = c[i];
-    EXPECT_EQ(ci.size(), 1);
-    const auto ii = i < 3 ? i : i + 1; // index skip over i=3
-    EXPECT_EQ(ci[0], ii);
-  }
-  EXPECT_EQ(c[3].size(), 2);
-  EXPECT_EQ(c[3][0], 3);
-  EXPECT_EQ(c[3][1], 4);
+  EXPECT_EQ(uf.find(0), 0);
+  EXPECT_EQ(uf.find(1), 1);
+  EXPECT_EQ(uf.find(2), 2);
+  EXPECT_EQ(uf.find(3), 3);
+  EXPECT_EQ(uf.find(4), 3);
+  EXPECT_EQ(uf.find(5), 5);
+  EXPECT_EQ(uf.find(6), 6);
+  EXPECT_EQ(uf.find(7), 7);
 
   // Perform a couple more merges to check that ordering is sane
   uf.merge(6, 0); // 0 -> 6
@@ -139,45 +123,16 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
   for (auto expected_root : {1, 2, 5}) {
     EXPECT_EQ(uf.find(expected_root), expected_root);
   }
-  c = uf.computeEquivalenceClasses();
-  EXPECT_EQ(c.size(), 3);
-  EXPECT_EQ(c[0].size(), 3);
-  EXPECT_EQ(c[0][0], 0);
-  EXPECT_EQ(c[0][1], 2);
-  EXPECT_EQ(c[0][2], 6);
-  EXPECT_EQ(c[1].size(), 1);
-  EXPECT_EQ(c[1][0], 1);
-  EXPECT_EQ(c[2].size(), 4);
-  EXPECT_EQ(c[2][0], 3);
-  EXPECT_EQ(c[2][1], 4);
-  EXPECT_EQ(c[2][2], 5);
-  EXPECT_EQ(c[2][3], 7);
+  EXPECT_EQ(uf.find(0), 2);
+  EXPECT_EQ(uf.find(2), 2);
+  EXPECT_EQ(uf.find(6), 2);
 
-  // Verify that computing individual classes gives same results as these
-  for (auto i : c10::irange(c.size())) {
-    const auto& ci = c.at(i);
-    for (auto j : ci) {
-      // compute equivalence class directly for this element
-      const auto cj = uf.computeEquivalenceClass(j);
-      // check that this matches what's computed when computing all classes
-      EXPECT_EQ(cj, ci);
-    }
-  }
+  EXPECT_EQ(uf.find(1), 1);
 
-  // const versions of the above
-  const auto ufc = uf; // copy to const
-  EXPECT_EQ(ufc, uf); // check the copy worked properly
-  auto cc = ufc.computeEquivalenceClasses();
-  EXPECT_EQ(cc, c);
-  for (auto i : c10::irange(cc.size())) {
-    const auto& ci = cc.at(i);
-    for (auto j : ci) {
-      // compute equivalence class directly for this element
-      const auto cj = ufc.computeEquivalenceClass(j);
-      // check that this matches what's computed when computing all classes
-      EXPECT_EQ(cj, ci);
-    }
-  }
+  EXPECT_EQ(uf.find(3), 5);
+  EXPECT_EQ(uf.find(4), 5);
+  EXPECT_EQ(uf.find(5), 5);
+  EXPECT_EQ(uf.find(7), 5);
 
   // Test printing to string
   const auto s = uf.toString();

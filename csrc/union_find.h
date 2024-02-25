@@ -37,7 +37,7 @@ class UnionFind {
   //! This function runs in nearly linear time.
   template <typename OtherIndexType>
   UnionFind join(UnionFind<OtherIndexType>& other) {
-    TORCH_CHECK(
+    NVF_CHECK(
         size() == other.size(), "Cannot join differently-sized UnionFinds");
     UnionFind<IndexType> output(*this);
     for (IndexType i = 0; i < size(); ++i) {
@@ -61,7 +61,7 @@ class UnionFind {
   //! This function runs in quadratic time.
   template <typename OtherIndexType>
   UnionFind meet(UnionFind<OtherIndexType>& other) {
-    TORCH_CHECK(
+    NVF_CHECK(
         size() == other.size(), "Cannot meet differently-sized UnionFinds");
     UnionFind<IndexType> output(size());
     for (IndexType i = 0; i < size(); ++i) {
@@ -178,11 +178,11 @@ class UnionFind {
 
   //! Resize the data-structure to equal or larger size than current
   void enlarge(size_t new_size) {
-    TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
+    NVF_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
     if (new_size == 0) {
       return;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         new_size - 1 <=
             static_cast<size_t>(std::numeric_limits<IndexType>::max()),
         "Tried to enlarge UnionFind to size ",
@@ -204,7 +204,7 @@ class UnionFind {
 
   //! Determine root of element a without doing path compression
   IndexType find(IndexType a) const {
-    TORCH_CHECK(
+    NVF_CHECK(
         a < size(),
         "Tried to find root of element ",
         a,
@@ -299,101 +299,6 @@ class UnionFind {
     rank_[a] = rank_[orig_root] + 1;
   }
 
-  //! Compute a sorted vector of all elements equivalent to a.
-  std::vector<IndexType> computeEquivalenceClass(IndexType a) {
-    std::vector<IndexType> c;
-    const auto root_a = find(a);
-
-    for (const auto i : c10::irange(size())) {
-      const auto root_i = find(i);
-      if (root_i == root_a) {
-        c.push_back(i);
-      }
-    }
-
-    return c;
-  }
-
-  //! Const version of computeEquivalenceClass
-  std::vector<IndexType> computeEquivalenceClass(IndexType a) const {
-    std::vector<IndexType> c;
-    const auto root_a = find(a);
-
-    for (const auto i : c10::irange(size())) {
-      const auto root_i = find(i);
-      if (root_i == root_a) {
-        c.push_back(i);
-      }
-    }
-
-    return c;
-  }
-
-  //! Computes all equivalence classes as sorted vectors of ints. The classes
-  //! are sorted by their lowest members.
-  std::vector<std::vector<IndexType>> computeEquivalenceClasses() {
-    std::vector<std::vector<IndexType>> classes;
-    // First pass initializes a vector for each equivalence class
-    for (const auto i : c10::irange(size())) {
-      const auto root = find(i);
-      // Only process each class once, when passing its root
-      if (root == i) {
-        // Create new empty vector for this class to be filled on second pass
-        classes.emplace_back(0);
-      }
-    }
-    // root_to_class_num maps to position of a root element to index of class.
-    // This is initialized to classes.size() to indicate that the class has not
-    // yet been assigned a position. Those positions are assigned as next_class
-    // whenever we first encounter a member of the class.
-    std::vector<IndexType> root_to_class_num(size(), classes.size());
-    IndexType next_class = 0;
-    // Second pass inserts into class vectors in order
-    for (const auto i : c10::irange(size())) {
-      const auto root = find(i);
-      auto class_num = root_to_class_num.at(root);
-      if (class_num == classes.size()) {
-        // First element in this class
-        root_to_class_num.at(root) = next_class;
-        class_num = next_class++;
-      }
-      classes.at(class_num).push_back(i);
-    }
-    return classes;
-  }
-
-  //! Const version of computeEquivalenceClasses
-  std::vector<std::vector<IndexType>> computeEquivalenceClasses() const {
-    std::vector<std::vector<IndexType>> classes;
-    // First pass initializes a vector for each equivalence class
-    for (const auto i : c10::irange(size())) {
-      const auto root = find(i);
-      // Only process each class once, when passing its root
-      if (root == i) {
-        // Create new empty vector for this class to be filled on second pass
-        classes.emplace_back(0);
-      }
-    }
-    // root_to_class_num maps to position of a root element to index of class.
-    // This is initialized to classes.size() to indicate that the class has not
-    // yet been assigned a position. Those positions are assigned as next_class
-    // whenever we first encounter a member of the class.
-    std::vector<IndexType> root_to_class_num(size(), classes.size());
-    IndexType next_class = 0;
-    // Second pass inserts into class vectors in order
-    for (const auto i : c10::irange(size())) {
-      const auto root = find(i);
-      auto class_num = root_to_class_num.at(root);
-      if (class_num == classes.size()) {
-        // First element in this class
-        root_to_class_num.at(root) = next_class;
-        class_num = next_class++;
-      }
-      classes.at(class_num).push_back(i);
-    }
-    return classes;
-  }
-
   //! Resize to zero losing all merge information without altering reserved
   //! capacity
   void clear() {
@@ -408,22 +313,10 @@ class UnionFind {
       ind += "  ";
     }
 
-    ss << ind << "UnionFind:" << std::endl;
-    ss << ind << "  size=" << size() << std::endl;
+    ss << ind << "UnionFind (size=" << size() << "):" << std::endl;
 
-    const auto classes = computeEquivalenceClasses();
-
-    ss << ind << "  classes:" << std::endl;
-    for (const auto class_num : c10::irange(classes.size())) {
-      ss << ind << "    " << class_num << ")" << std::endl;
-      const auto& c = classes.at(class_num);
-      for (const auto i : c) {
-        ss << ind << "      " << std::to_string(i);
-        if (find(i) == i) {
-          ss << "  *"; // indicates root
-        }
-        ss << std::endl;
-      }
+    for (const auto i : c10::irange(size())) {
+      ss << ind << "  " << find(i) << std::endl;
     }
 
     return ss.str();
