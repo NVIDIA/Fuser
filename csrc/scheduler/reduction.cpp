@@ -656,6 +656,27 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
   // Start bdimx as a warp
   bdimx = std::min(min_warp_size, total_iteration_numel);
 
+
+  // Purely empirically found switch to start vectorization, tuned on v100,
+  // should check it's validity on other hardware or if we need to switch to
+  // size not n_elems
+  // if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
+  // Make sure we have one wave of blocks in the iteration dimension before
+  // doing vectorization This delays the use of both vectorization and grid
+  // reduction
+  const int64_t iter_unroll_factor_max = 4l;
+  iter_unroll_factor =
+      vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll_vect;
+  iter_unroll_factor = std::min(iter_unroll_factor, iter_unroll_factor_max);
+  iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
+  iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
+  iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+  if (vectorize_factor > 1 && iter_unroll_factor <= (int64_t)vectorize_factor) {
+    iter_unroll_factor =
+        std::min(iter_unroll_factor, (int64_t)vectorize_factor);
+  }
+  // }
+  
   if (total_iteration_numel > bdimx && total_iteration_numel < bdimx * 2) {
     // If rounding up would require less than 3/4 of the warp
     if ((total_iteration_numel % bdimx) * 4 < bdimx * 3) {
@@ -677,25 +698,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
         target_threads_in_block);
   }
 
-  // Purely empirically found switch to start vectorization, tuned on v100,
-  // should check it's validity on other hardware or if we need to switch to
-  // size not n_elems
-  // if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
-  // Make sure we have one wave of blocks in the iteration dimension before
-  // doing vectorization This delays the use of both vectorization and grid
-  // reduction
-  const int64_t iter_unroll_factor_max = 4l;
-  iter_unroll_factor =
-      vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll_vect;
-  iter_unroll_factor = std::min(iter_unroll_factor, iter_unroll_factor_max);
-  iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
-  iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
-  iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
-  if (vectorize_factor > 1 && iter_unroll_factor <= (int64_t)vectorize_factor) {
-    iter_unroll_factor =
-        std::min(iter_unroll_factor, (int64_t)vectorize_factor);
-  }
-  // }
 
   // Round bdimx to a nice value
   int64_t niceValue = 8;
@@ -716,6 +718,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
     bdimx = user_bdimx;
   }
 
+  gidim = iDimAvail();
+
   // Fill bdimy with left over threads
   bdimy = std::min(
       scheduler_utils::safeDiv(target_threads_in_block, bdimx),
@@ -726,11 +730,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
   // Move parallelization into unrolling the reduction dimension if
   // parallelizing iteration dimension didn't take the available unroll factor.
   if (iter_unroll_factor < max_unroll_vect && rDimAvail() > 2) {
-    redu_unroll_factor = std::min(
-        rDimAvail(),
-        scheduler_utils::safeDiv(max_unroll_vect, iter_unroll_factor));
-    redu_unroll_factor = std::min(max_redu_unroll, redu_unroll_factor);
-
+    redu_unroll_factor = std::min(rDimAvail(), max_redu_unroll);
     redu_unroll_factor = scheduler_utils::lastPow2(redu_unroll_factor);
   }
 
@@ -740,10 +740,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
   }
 
 
+
+  
+
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-  std::cout << "target_blocks: " << target_blocks << ", gidim: " << gidim
-            << ", initial_grdim: " << grdim << std::endl;
   // // Extend to go to target blocks, but keep 16 iterations per thread
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
@@ -755,9 +756,15 @@ std::shared_ptr<ReductionParams> outerReductionHeuristicNEW(
         // Expand to target blocks
         ceilDiv(target_blocks, gidim));
   }
+  std::cout << "target_blocks: " << target_blocks << ", gidim: " << gidim
+            << ", initial_grdim: " << grdim << std::endl;
 
-  // If less than half wave of blocks, double blocks and halve unrolling
-  while(grdim > 1 && gidim * grdim * 2 <= device_multiprocessor_count && redu_unroll_factor >= 2){
+
+  // If less than half wave of blocks, double blocks and halve unrolling.
+  // Just do this scale down once to avoid very small unrolling factors.
+  // We don't have to reach a full wave of blocks.
+  if (grdim > 1 && gidim * grdim * 2 <= device_multiprocessor_count &&
+         redu_unroll_factor >= 2) {
     grdim *= 2;
     redu_unroll_factor /=2;
   }
