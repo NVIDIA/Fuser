@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <index_compute.h>
@@ -13,6 +14,8 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <predicate_compute.h>
+#include <transform_iter.h>
+#include <transform_replay.h>
 
 #include <device_lower/pass/index.h>
 
@@ -22,7 +25,8 @@ Val* IndexLowering::lowerSrcIndex(
     Val* src,
     Val* dst,
     const std::unordered_map<IterDomain*, Val*>& override_index,
-    bool generate_pointer) const {
+    bool generate_pointer,
+    DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
     NVF_ERROR(dst->isA<TensorView>());
     return Index::getProducerIndex(
@@ -31,7 +35,8 @@ Val* IndexLowering::lowerSrcIndex(
         for_loops_,
         getRotatedLoop(),
         override_index,
-        generate_pointer);
+        generate_pointer,
+        as_type);
   } else {
     return src;
   }
@@ -40,10 +45,16 @@ Val* IndexLowering::lowerSrcIndex(
 Val* IndexLowering::lowerDstIndex(
     Val* dst,
     const std::unordered_map<int, Val*>& override_index,
-    bool generate_pointer) const {
+    bool generate_pointer,
+    DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(dst)) {
     return Index::getConsumerIndex(
-        tv, for_loops_, getRotatedLoop(), override_index, generate_pointer);
+        tv,
+        for_loops_,
+        getRotatedLoop(),
+        override_index,
+        generate_pointer,
+        as_type);
   } else {
     return dst;
   }
@@ -353,7 +364,7 @@ void IndexLowering::handle(const SelectOp* sop) {
   if (GpuLower::current()->kernel()->indexType() !=
       sop->input(1)->getDataType().value()) {
     lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
+        IrBuilder::create<Val>(GpuLower::current()->kernel()->indexType());
     IrBuilder::create<UnaryOp>(
         UnaryOpType::Cast, lowered_index_cast, lowered_index);
   }
@@ -601,10 +612,107 @@ void IndexLowering::handleBlockReduction(
   GpuLower::current()->propagateExprInfo(rop, back());
 }
 
+void IndexLowering::handleSerialGridReduction(
+    const ReductionOp* rop,
+    Val* out,
+    Val* in) {
+  const auto out_tv = out->as<kir::TensorIndex>()->view();
+  const auto out_domain = out_tv->domain();
+
+  // If we do a grid reduction we can't have a reduction axis that is not bound
+  // to a grid or block dim.
+  NVF_ERROR(
+      std::none_of(
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
+          [](IterDomain* id) {
+            return !id->isThread() && id->isReduction() &&
+                !id->extent()->isOneInt();
+          }),
+      "Found a reduction stage that has both a non-parallelized ",
+      "reduction and a grid reduction. This is not supported, ",
+      "please use rfactor to do the serialized reduction first, ",
+      "then the grid reduction. ",
+      rop->toString());
+
+  NVF_ERROR(!rop->isAllreduce(), "Serial grid allReduce is not implemented");
+
+  // Allocate global work buffer TensorIndex.
+  //
+  // For convenience, the global work buffer is allocated like the leaf domain
+  // of the ReductionOp output. In the future, we may want the allocation
+  // domain to be different in order to enable re-use of global output buffers
+  // for in-place reduction.
+  std::vector<IterDomain*> work_buffer_root;
+  work_buffer_root.reserve(out_tv->nDims());
+  for (IterDomain* id : out_tv->getLeafDomain()) {
+    work_buffer_root.push_back(IterDomainBuilder(id).build());
+  }
+  auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
+  auto work_buffer_tv = IrBuilder::create<TensorView>(
+      work_buffer_domain, out_tv->dtype(), MemoryType::Global);
+  Val* work_buffer_idx_val = nullptr;
+  for (auto v :
+       Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
+    work_buffer_idx_val = SimplifyingIrBuilder::addExpr(work_buffer_idx_val, v);
+  }
+
+  auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
+      work_buffer_tv,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          work_buffer_idx_val, for_loops_));
+
+  auto work_alloc = IrBuilder::create<kir::Allocate>(
+      work_buffer_tv, work_buffer_tv->getMemoryType());
+  pushBack(work_alloc);
+
+  // The thread predicate for GridReduction needs to be set
+  // separately from the main predicate. Do not combine them like
+  // other expressions.
+  const auto& thread_pred =
+      GpuLower::current()->threadPredMap().getPredicatedParallelTypes(out_tv);
+
+  auto serial_grid_reduction = IrBuilder::create<kir::GridReduction>(
+      rop->getReductionOpType(),
+      rop->init(),
+      out,
+      in,
+      // skip work_buffer, sync_buffer, entrance_ind, n_entrances for serial
+      // reduction node
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+      false,
+      work_buffer_idx);
+
+  serial_grid_reduction =
+      serial_grid_reduction->withThreadPredicate(thread_pred);
+
+  if (rop->predicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withPredicate(rop->predicate())
+            ->as<kir::GridReduction>();
+  }
+  if (rop->writePredicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withWritePredicate(rop->writePredicate())
+            ->as<kir::GridReduction>();
+  }
+
+  pushBack(serial_grid_reduction);
+  GpuLower::current()->propagateExprInfo(rop, back());
+}
+
 void IndexLowering::handleGridReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
+  if (rop->serialGridReductionRequested()) {
+    handleSerialGridReduction(rop, out, in);
+    return;
+  }
+
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
@@ -1120,8 +1228,8 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
     return false;
   }
-  auto tidx = static_cast<int>(tidx_val->evaluateInt());
-  auto tidy = static_cast<int>(tidy_val->evaluateInt());
+  auto tidx = static_cast<int>(tidx_val->evaluate());
+  auto tidy = static_cast<int>(tidy_val->evaluate());
 
   // TIDz and BIDz must be unused or just 1. This contraint can be
   // lifted if necessary.
@@ -1151,7 +1259,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluateInt();
+      num_grouped_iterations *= (int)axis->extent()->evaluate();
     }
   }
 
@@ -1282,27 +1390,266 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
-void IndexLowering::handle(const LoadStoreOp* ldst) {
-  const auto in = lowerSrcIndex(
-      ldst->in(),
-      ldst->out(),
-      {},
-      ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-  const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
-  auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
-                      ->withPredicate(ldst->predicate());
-  pushBack(new_ldst);
-  GpuLower::current()->propagateExprInfo(ldst, back());
+void IndexLowering::handle(const kir::MBarrierInit* minit) {
+  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
+      minit->threadCount());
+  pushBack(minit_indexed);
+  GpuLower::current()->propagateExprInfo(minit, minit_indexed);
 }
 
+void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
+  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
+      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  pushBack(minval_indexed);
+  GpuLower::current()->propagateExprInfo(minval, minval_indexed);
+}
+
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto in_tv = ldst->in()->as<TensorView>();
+
+  // indexing mbarrier
+  auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+  // arrive and expect_tx mbarrier
+  auto state = IrBuilder::create<Val>(DataType::UInt);
+  pushBack(IrBuilder::create<kir::Allocate>(
+      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(in_tv->dtype()));
+  for (auto id : in_tv->getLeafDomain()) {
+    expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
+  }
+  expect_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+  pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+      state, mbarrier_index, expect_bytes));
+
+  // indexing ldst op
+  auto out = lowerDstIndex(ldst->out(), {}, true);
+  auto in = Index::cpAsyncBulkIndex(
+      in_tv, out_tv, out_tv, mbarrier_index, for_loops_);
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+  // wait mbarrier
+  pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+}
+
+void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
+  auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+  auto in_tv = ldst->in()->as<TensorView>();
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto out =
+      Index::cpAsyncBulkIndex(out_tv, in_tv, out_tv, nullptr, for_loops_);
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+  // Waits on all the prior bulk async-groups to complete.
+  // TODO: we should not insert sync here. We should move this to
+  // insertRawThreadSynchronization or insertWarThreadSynchronization.
+  pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk));
+  pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0));
+}
+
+static DataType getMmaInputAType(MmaMacro macro) {
+  int warp_group_size = isHopper(macro) ? 128 : 32;
+  int size = getM(macro) * getK(macro) / warp_group_size /
+      2 /* halves per 32bit register */;
+  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+}
+
+static DataType getMmaInputBType(MmaMacro macro) {
+  int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
+      2 /* halves per 32bit register */;
+  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+}
+
+static inline DataType getMmaOutType(TensorView* mma_out) {
+  int64_t size = 1;
+  for (auto id : mma_out->getLeafDomain()) {
+    if (id->isMma() && !id->isReduction()) {
+      size *= id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
+}
+
+void IndexLowering::handle(const LoadStoreOp* ldst) {
+  Val* in = nullptr;
+  Val* out = nullptr;
+  if (ir_utils::isCpAsyncBulk(ldst)) {
+    if (ir_utils::isCpAsyncBulkLoad(ldst)) {
+      handleCpAsyncBulkLoad(ldst);
+    } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
+      handleCpAsyncBulkStore(ldst);
+    } else {
+      NVF_ERROR(false);
+    }
+  } else {
+    DataType as_type = DataType::Null;
+    if (ir_utils::isLdMatrixOp(ldst)) {
+      as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+              2};
+    } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      // For MMA accumulator initialization
+      as_type = getMmaOutType(ldst->out()->as<TensorView>());
+    }
+    in = lowerSrcIndex(
+        ldst->in(),
+        ldst->out(),
+        {},
+        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    auto new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+    GpuLower::current()->propagateExprInfo(ldst, back());
+  }
+}
+
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* matrixDescriptorEncode(Val* x) {
+  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
+  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
+  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  return IrBuilder::rShiftExpr(x_and, shift);
+}
+
+static Val* constructMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MmaInputSmemSwizzle swizzle) {
+  auto or0 = matrixDescriptorEncode(start_address);
+  auto or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt));
+  auto or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt));
+  auto or3 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
+  auto or4 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
+      IrBuilder::create<Val>(62, DataType::UInt));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
+          or3),
+      or4);
+}
+
+static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  const auto& alloc_domain = tv->getRootDomain();
+  const auto& leaf_domain = tv->getLeafDomain();
+  auto exprs = StmtSort::getExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {leaf_domain.begin(), leaf_domain.end()});
+  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
+  if (swizzle_exprs.empty()) {
+    return MmaInputSmemSwizzle::None;
+  }
+  NVF_ERROR(
+      swizzle_exprs.size() < 2,
+      "expected 2 or less swizzle expressions in mma input, got ",
+      swizzle_exprs.size());
+  auto swizzle = *swizzle_exprs.begin();
+  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+  return getSwizzleFromBytes(
+      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+}
+
+// Reference for smem strides:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
-  const auto a = lowerSrcIndex(mma->inA(), mma->out());
-  const auto b = lowerSrcIndex(mma->inB(), mma->out());
-  const auto out = lowerDstIndex(mma->out());
+  Val* a = nullptr;
+  Val* b = nullptr;
+  if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto tv = mma->inA()->as<TensorView>();
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    auto swizzle = getSwizzleMode(tv);
+    int64_t stride_bytes =
+        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+        /*number of core matrices*/ (getM(mma->macro()) / 8L) *
+        /*bytes per item*/ 2L;
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      // TODO: why???!!!
+      std::swap(leading_bytes, stride_bytes);
+    }
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        getSwizzleMode(tv));
+    a = IrBuilder::create<kir::TensorIndex>(
+        tv,
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    a = lowerSrcIndex(
+        mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
+  }
+  if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto tv = mma->inB()->as<TensorView>();
+    auto swizzle = getSwizzleMode(tv);
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    int64_t stride_bytes =
+        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+        /*number of core matrices, rounded up to handle padding */
+        roundUpToMultiple(getN(mma->macro()) / 8L,
+                          getBytesFromSwizzle(swizzle) / 16L) *
+        /*bytes per item*/ 2L;
+    if (swizzle != MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
+      // TODO: why???!!!
+      std::swap(leading_bytes, stride_bytes);
+    }
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        swizzle);
+    b = IrBuilder::create<kir::TensorIndex>(
+        tv,
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    b = lowerSrcIndex(
+        mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
+  }
+  const auto out = lowerDstIndex(
+      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(
-      out, a, b, mma->init(), mma->options(), mma->layout());
+      out, a, b, mma->init(), mma->macro(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
+  if (mma->isHopper()) {
+    // Waits on all the prior bulk async-groups to complete.
+    // TODO: we should not insert sync here. We should move this to
+    // insertRawThreadSynchronization or insertWarThreadSynchronization.
+    pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma));
+    pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0));
+  }
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
@@ -1374,14 +1721,24 @@ void IndexLowering::handle(const kir::GridSync* sync) {
   pushBack(const_cast<kir::GridSync*>(sync)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncWait* wait) {
+void IndexLowering::handle(const kir::AsyncWait* wait) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncWait*>(wait)); // NOLINT
+  pushBack(const_cast<kir::AsyncWait*>(wait)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
+void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
+  pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::BlockSerializeWait* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeWait*>(sync)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::BlockSerializeRelease* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeRelease*>(sync)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
@@ -1453,9 +1810,47 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
+// This is mostly copied from Index::getProducerPerDimLogicalIndex()
+Val* IndexLowering::getIterationIndexForBroadcast(
+    TensorView* producer_tv,
+    TensorView* consumer_tv,
+    IterDomain* broadcast_id) const {
+  NVF_ERROR(
+      broadcast_id->isBroadcast(),
+      "Expected broadcast ID but found ",
+      broadcast_id->toString());
+
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
+
+  // This replay has to be consistent with compute at index map.
+  BestEffortReplay replay_producer_as_consumer(
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+
+  const auto& c2p_map = replay_producer_as_consumer.getReplay();
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
+
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
+
+  const auto& index_map = producer_indexing.indexMap();
+  const auto index_it = index_map.find(broadcast_id);
+  NVF_ERROR(
+      index_it != index_map.end(),
+      "Could not find padded consumer IterDomain ",
+      broadcast_id->toString(),
+      " from consumer TensorView ",
+      consumer_tv->toString(),
+      " in index map for producer TensorView ",
+      producer_tv->toString());
+
+  return index_it->second;
+}
+
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (produer_idx >= 0 && produer_idx <
+  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
   //                           producer_extent) ?
   //     producer[producer_idx] :
   //     0;
@@ -1470,8 +1865,21 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
+  std::unordered_map<IterDomain*, Val*> override_index;
+  for (auto padded_axis : pad->getPaddedAxes()) {
+    auto padded_id = producer_doms.at(padded_axis);
+    if (padded_id->isBroadcast()) {
+      // When we pad a Broadcast IterDomain, we should not treat it as a
+      // Broadcast as we normally would. Instead, we will treat it as a regular
+      // Iteration domain with extent 1.
+      auto ind =
+          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
+      override_index.emplace(padded_id, ind);
+    }
+  }
+
   const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop());
+      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
 
   // Build a predicate for where
   Val* pred = IrBuilder::create<Val>(true);
@@ -1486,7 +1894,7 @@ void IndexLowering::handle(const PadOp* pad) {
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->extent())));
+                producer_idx, producer_root_id->getMaybeExpandedExtent())));
   }
 
   pushBack(IrBuilder::create<TernaryOp>(
@@ -1528,7 +1936,7 @@ void IndexLowering::handle(const CatOp* cat) {
     auto inp_concat_id = TensorDomain::noReductions(
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
-    cur_extent = add(cur_extent, inp_concat_id->extent());
+    cur_extent = add(cur_extent, inp_concat_id->getMaybeExpandedExtent());
     preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 

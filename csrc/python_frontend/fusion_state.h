@@ -9,12 +9,13 @@
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <serde/fusion_cache_generated.h>
+#include <visibility.h>
 
 namespace nvfuser::python_frontend {
 
 struct RecordFunctor;
 
-struct TORCH_CUDA_CU_API State {
+struct State {
   State(size_t _index, serde::StateType _stype)
       : index(_index), stype(_stype) {}
 
@@ -27,13 +28,11 @@ struct TORCH_CUDA_CU_API State {
   serde::StateType stype;
 };
 
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    const State& state);
+NVF_API std::ostream& operator<<(std::ostream& os, const State& state);
 
 //! FusionState contains the information used to build a new cpp Fusion object.
 //! Unlike FusionDefinition, it does not modify the FusionCache Trie structure.
-class TORCH_CUDA_CU_API FusionState {
+class FusionState {
  public:
   FusionState();
 
@@ -50,28 +49,28 @@ class TORCH_CUDA_CU_API FusionState {
   void printIr() const;
 
   //! Adds a Fusion IR Tensor/Scalar object
-  void addFusionState(Val* val);
+  NVF_API void addFusionState(Val* val);
   //! Adds a Fusion IR Vector of Scalars
   void addFusionStateVector(std::vector<Val*> val);
   //! Gets a Fusion IR Tensor/Scalar object
-  Val* getFusionState(size_t index) const;
+  NVF_API Val* getFusionState(size_t index) const;
   //! Gets a Fusion IR Vector of Scalars
-  std::vector<Val*> getFusionStateVector(size_t index) const;
+  NVF_API const std::vector<Val*>& getFusionStateVector(size_t index) const;
   //! Number of fusion states
-  size_t numFusionStates() const;
+  NVF_API size_t numFusionStates() const;
   //! Sets a Fusion IR Tensor/Scalar object
-  void setFusionState(size_t index, Val* val);
+  NVF_API void setFusionState(size_t index, Val* val);
   //! Sets a Fusion IR Vector of Scalars
-  void setFusionStateVector(size_t index, std::vector<Val*> val);
+  NVF_API void setFusionStateVector(size_t index, std::vector<Val*> val);
 
   //! Adds a Tensor/Scalar input to the Fusion object
-  void addInput(Val* input);
+  NVF_API void addInput(Val* input);
   //! Adds a Tensor/Scalar output to the Fusion object
-  void addOutput(Val* output);
+  NVF_API void addOutput(Val* output);
   //! Adds a Tensor/Scalar output to the Fusion object
   void addOutput(Val* output, const std::vector<int64_t>& permutation);
   //! Alias an Output to Input in the Fusion object
-  void aliasOutputToInput(Val* output, Val* input);
+  NVF_API void aliasOutputToInput(Val* output, Val* input);
 
   //! Add a Record
   void addRecord(RecordFunctor* record);

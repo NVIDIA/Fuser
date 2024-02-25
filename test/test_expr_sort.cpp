@@ -111,7 +111,7 @@ TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
   ASSERT_TRUE(tv2->getComputeAtPosition() == tv2->nDims())
       << "Unexpected computeAt position of tv2. " << tv2->toString();
 
-  ASSERT_NO_THROW({ GpuLower lower(&fusion); });
+  ASSERT_NO_THROW({ GpuLower(&fusion).run(); });
 }
 
 // Similar to IndirectNormalizationWithZeroDimTensors, but
@@ -156,7 +156,7 @@ TEST_F(ExprSortTest, IndirectInnerNormalization) {
   ASSERT_TRUE(tv2->getComputeAtPosition() == tv2->nDims())
       << "Unexpected computeAt position of tv2. " << tv2->toString();
 
-  ASSERT_NO_THROW({ GpuLower lower(&fusion); });
+  ASSERT_NO_THROW({ GpuLower(&fusion).run(); });
 }
 
 } // namespace nvfuser

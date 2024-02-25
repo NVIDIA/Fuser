@@ -7,9 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -22,11 +21,16 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
-  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization
+  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
+                  //!< before segmentation
+  FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
+  // TODO(wujingyue): name the following FusionIrSched
+  FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
+            //!< to `FusionExecutor::compileFusion`.
+  FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
+                //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
@@ -34,8 +38,6 @@ enum class DebugDumpOption {
   CudaToFile, //!< Dump CUDA Strings to File
   DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
              //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
   LaunchParam, //!< Dump the Launch parameters of kernel
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
@@ -52,6 +54,7 @@ enum class DebugDumpOption {
   Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
+  PreSegmenterLogging,
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
@@ -76,13 +79,11 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
-  Complex, //! Enable complex support on python
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
+  IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  StaticFusionCount, //! Enable using single static count in kernel name
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -114,6 +115,27 @@ enum class DisableOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+//! Options to set for Fusion Profiling.  Whenever the profiler
+//! is enabled, its output can be queried from the FusionProfile object.
+//! All options enable the profiler.
+//!
+//! These can be set through the `NVFUSER_PROF` environment variable
+//!
+enum class ProfilerOption {
+  Enable, //! Enables the profiler.
+  EnableNocupti, //! Enables the profiler, but disables CUPTI specific
+                 //! profiling inorder to measure true host time without
+                 //! overhead.
+  Print, //! Enables the profiler and prints the output to the console.
+  PrintNocupti, //! Enables the profiler, disables CUPTI specific
+                //! profiling inorder to measure true host time without
+                //! overhead, and prints the output to the console.
+  PrintVerbose, //! Enables the profiler and prints a complete set of columns
+                //! to the console.  WARNING: The output is will wrap on small
+                //! screens!
+  EndOfOption //! Placeholder for counting the number of elements
+};
+
 //! The base template class for the options such as EnableOption
 template <typename OptionEnum>
 class Options {
@@ -122,6 +144,10 @@ class Options {
 
   bool has(OptionEnum option) const {
     return options_.count(option);
+  }
+
+  bool hasAny() const {
+    return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
@@ -137,7 +163,7 @@ class Options {
     options_.erase(option_type);
   }
 
-  static std::unordered_map<OptionEnum, std::vector<std::string>>
+  NVF_API static std::unordered_map<OptionEnum, std::vector<std::string>>
   getOptionsFromEnv();
 
  protected:
@@ -147,7 +173,7 @@ class Options {
 //! Utility class to temporarily overrride the Enable options,
 //! including those provided by the environment variable
 template <typename OptionEnum>
-class TORCH_CUDA_CU_API OptionsGuard {
+class NVF_API OptionsGuard {
  public:
   OptionsGuard() : prev_options_(getCurOptions()) {}
 
@@ -155,7 +181,7 @@ class TORCH_CUDA_CU_API OptionsGuard {
     getCurOptions() = prev_options_;
   }
 
-  static Options<OptionEnum>& getCurOptions();
+  NVF_API static Options<OptionEnum>& getCurOptions();
 
  private:
   Options<OptionEnum> prev_options_;
@@ -163,53 +189,73 @@ class TORCH_CUDA_CU_API OptionsGuard {
 
 // DebugDump options
 template <>
-std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
     DebugDumpOption>::getOptionsFromEnv();
 
 using DebugDumpOptions = Options<DebugDumpOption>;
 
 template <>
-Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions();
+NVF_API Options<DebugDumpOption>& OptionsGuard<
+    DebugDumpOption>::getCurOptions();
 
 using DebugDumpOptionsGuard = OptionsGuard<DebugDumpOption>;
 
-TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
+NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
-    DebugDumpOption option);
+const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
 // Enable options
 template <>
-std::unordered_map<EnableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv();
 
 using EnableOptions = Options<EnableOption>;
 
-TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
+bool isOptionEnabled(EnableOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option);
+const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 
 template <>
-Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
+NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
 
 using EnableOptionsGuard = OptionsGuard<EnableOption>;
 
 // Disable options
 template <>
-std::unordered_map<DisableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv();
 
 using DisableOptions = Options<DisableOption>;
 
-TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
+NVF_API bool isOptionDisabled(DisableOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option);
+const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
 template <>
-Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
+NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
 using DisableOptionsGuard = OptionsGuard<DisableOption>;
+
+// Profiler Options
+
+template <>
+NVF_API std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+    ProfilerOption>::getOptionsFromEnv();
+
+using ProfilerOptions = Options<ProfilerOption>;
+
+// Specific queries for the Profiler Options
+bool isProfilerEnabled();
+bool isProfilerEnabledWithoutCupti();
+bool isProfilerPrintingEnabled();
+bool isProfilerPrintingVerbose();
+
+const std::vector<std::string>& getProfilerOptionArguments(
+    ProfilerOption option);
+
+template <>
+NVF_API Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
+
+using ProfilerOptionsGuard = OptionsGuard<ProfilerOption>;
 
 } // namespace nvfuser

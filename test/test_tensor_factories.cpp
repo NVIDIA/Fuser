@@ -62,25 +62,12 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::full({size}, 11, options));
-      expect.emplace_back(at::full({size, size}, 12, options));
-      expect.emplace_back(at::full({size, size}, 13, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 11, 12, 13});
 
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
         {size, 11, 12, 13},
-        expect,
         __LINE__,
         __FILE__);
   }
@@ -119,27 +106,10 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::zeros({size}, options));
-      expect.emplace_back(at::zeros({size, size}, options));
-      expect.emplace_back(at::zeros({size, size}, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size},
-        expect,
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
   }
 }
 
@@ -176,27 +146,10 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::ones({size}, options));
-      expect.emplace_back(at::ones({size, size}, options));
-      expect.emplace_back(at::ones({size, size}, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size},
-        expect,
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
   }
 }
 
@@ -218,8 +171,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
 
     Val* length = IrBuilder::create<Val>(DataType::Int);
 
-    Val* start = IrBuilder::newScalar(input_type);
-    Val* step = IrBuilder::newScalar(input_type);
+    Val* start = IrBuilder::create<Val>(input_type);
+    Val* step = IrBuilder::create<Val>(input_type);
     fusion->addInput(length);
     fusion->addInput(start);
     fusion->addInput(step);
@@ -227,8 +180,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
     fusion->addOutput(tv0);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-
-    const auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
     switch (dtype) {
       case at::kInt:
@@ -238,9 +189,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               int64_t start_ = (int64_t)start;
               int64_t step_ = (int64_t)step;
-              int64_t end_ = start_ + step_ * length;
-              auto a = at::arange(start_, end_, step_, options);
-
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -248,7 +196,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  {a},
                   __LINE__,
                   __FILE__);
             }
@@ -263,14 +210,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               double start_ = (double)start;
               double step_ = (double)step;
-
-              // Due to rounding error, it can be hard to guarantee the size of
-              // the output of arange to be exactly length, so we generate a
-              // larger tensor and truncate it to length.
-              double end_ = start_ + step_ * (length + 1);
-              auto a =
-                  at::arange(start_, end_, step_, options).narrow(0, 0, length);
-
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -278,7 +217,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  {a},
                   __LINE__,
                   __FILE__);
             }
@@ -327,23 +265,12 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
 
     FusionExecutorCache executor_cache(std::move(fusion));
 
-    const auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-
     for (auto start : starts_ends) {
       for (auto end : starts_ends) {
         for (auto step : steps) {
           if (std::signbit(end - start) != std::signbit(step)) {
             continue;
           }
-
-          at::Tensor a =
-              at::arange((int64_t)start, (int64_t)end, (int64_t)step, options);
-          at::Tensor b =
-              at::arange((double)start, (double)end, (double)step, options);
-          at::Tensor c =
-              at::arange((int64_t)start, (double)end, (double)step, options);
-          at::Tensor d =
-              at::arange((double)start, (double)end, (int64_t)step, options);
 
           auto cg_outputs = executor_cache.runFusionWithInputs(
               {(int64_t)start,
@@ -362,7 +289,6 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
                (double)start,
                (double)end,
                (double)step},
-              {a, b, c, d},
               __LINE__,
               __FILE__);
         }
@@ -404,92 +330,11 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::eye(size, options));
-      expect.emplace_back(at::eye(size, 15, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 15});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size, 15},
-        expect,
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size, 15}, __LINE__, __FILE__);
   }
-}
-
-TEST_F(TensorFactoryTest, ARangeScalarHoisting1) {
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    GTEST_SKIP() << "Index hoisting disabled";
-  }
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  Val* start_int = IrBuilder::create<Val>(DataType::Int);
-  Val* end_int = IrBuilder::create<Val>(DataType::Int);
-  Val* step_int = IrBuilder::create<Val>(DataType::Int);
-  fusion->addInput(start_int);
-  fusion->addInput(end_int);
-  fusion->addInput(step_int);
-  auto output1 = arange(start_int, end_int, step_int, DataType::Int);
-  auto output2 = full_like(output1, output1->axis(0)->extent(), DataType::Int);
-  fusion->addOutput(output1);
-  fusion->addOutput(output2);
-
-  int64_t start = 0, end = 100, step = 1;
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {start, end, step});
-  auto cg_outputs = fe.runFusion({start, end, step});
-
-  const auto options =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::arange(start, end, step, options);
-  at::Tensor t1 = at::full_like(t0, end - start, options);
-
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
-  int64_t i3;
-  i3 = i1 - i0;
-  int64_t i4;
-  i4 = abs(i3);
-  int64_t i5;
-  i5 = abs(i2);
-  int64_t i6;
-  i6 = ceilDiv(i4, i5);
-  nvfuser_index_t i7;
-  i7 = (nvfuser_index_t)(i6);
-  int64_t i8;
-  i8 = (int64_t)(i7);
-  #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
-    T0[i9] = (i0 + (i2 * i9));
-  }
-  #pragma unroll 1
-  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
-    T1[i10] = i8;
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  testValidate(
-      fusion.get(),
-      cg_outputs,
-      {start, end, step},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
 }
 
 TEST_F(TensorFactoryTest, TensorConstruct) {
@@ -534,8 +379,8 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   std::get<StructType>(unamed_dtype0.type).name = "";
   auto unamed_dtype1 = metaDataTypeOf(tv1);
   std::get<StructType>(unamed_dtype1.type).name = "";
-  auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
-  auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
+  auto meta0_copy1 = IrBuilder::create<Val>(unamed_dtype0);
+  auto meta1_copy1 = IrBuilder::create<Val>(unamed_dtype1);
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, meta0_copy1, meta0_copy0);
   IrBuilder::create<LoadStoreOp>(
@@ -563,6 +408,21 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto cg_outputs = fe.runFusion({input0, input1});
 
   testValidate(fusion.get(), cg_outputs, {input0, input1}, __LINE__, __FILE__);
+}
+
+TEST_F(TensorFactoryTest, NoInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(16);
+  Val* fill_value = IrBuilder::create<Val>(1.0);
+  TensorView* out = full({size}, fill_value, DataType::Float);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto out_tensors = executor_cache.runFusionWithInputs({});
+  testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

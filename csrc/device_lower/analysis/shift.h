@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <compute_at_map.h>
@@ -65,7 +64,7 @@ class AxisHaloInfo {
 
 //! Helper class for lowering tensors with halo. Only valid at the
 //! lowering time.
-class TORCH_CUDA_CU_API HaloInfo {
+class HaloInfo {
  public:
   //! Scan a fusion and collect all information for lowering
   HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map);

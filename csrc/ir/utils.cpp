@@ -134,8 +134,9 @@ std::vector<int> normalizeOld2New(
 
   // All available new positions
   std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
+  for (auto i : c10::irange(ndims)) {
     all_positions.insert((int)i);
+  }
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -191,10 +192,61 @@ struct SubstituteInExpr : public OptOutMutator {
 
 } // namespace ValReplacement
 
-Expr* replaceValInExpr(Expr* expr, Val* reference, Val* substitute) {
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
   return ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
+}
+
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
+  auto uses = old_val->uses();
+  for (auto use_of_old_val : uses) {
+    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+  }
+  if (old_val->isFusionOutput()) {
+    old_val->fusion()->replaceOutput(old_val, new_val);
+  }
+}
+
+Expr* transferDefinitionToNewOutputs(
+    Expr* expr,
+    const std::vector<Val*>& new_outputs) {
+  NVF_ERROR(
+      new_outputs.size() == expr->outputs().size(),
+      "Number of new outputs must match old outputs");
+  OptOutMutator mutator;
+  for (const auto i : c10::irange(new_outputs.size())) {
+    auto old_output = expr->outputs().at(i);
+    auto new_output = new_outputs.at(i);
+    if (new_output == old_output) {
+      continue;
+    }
+    NVF_ERROR(
+        !new_output->isConst(),
+        "Cannot transfer a definition Expr onto a const Val. Found new output ",
+        new_output->toString(),
+        " with constant value ",
+        new_output->value());
+    NVF_ERROR(
+        new_output->vtype() == old_output->vtype(),
+        "transforDefinitionToNewOutputs cannot change val type. Found ",
+        new_output->vtype(),
+        " and ",
+        old_output->vtype());
+    NVF_ERROR(
+        new_output->dtype() == old_output->dtype(),
+        "transforDefinitionToNewOutputs cannot change data type. Found ",
+        new_output->dtype(),
+        " and ",
+        old_output->dtype());
+    NVF_ERROR(
+        new_output->definition() == nullptr,
+        "New output ",
+        new_output->toString(),
+        " must not already have a definition.");
+    mutator.registerMutation(old_output, new_output);
+  }
+  return mutator.mutateExprOutputsOnly(expr);
 }
 
 TensorView* rfactorHelper(
@@ -223,15 +275,9 @@ TensorView* rfactorHelper(
 namespace {
 
 template <typename T>
-std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
-  std::vector<T*> unique_entries;
-  std::unordered_set<T*> inserted;
-  for (auto tv_entry : tv_deuqe) {
-    if (inserted.emplace(tv_entry).second) {
-      unique_entries.emplace_back(tv_entry);
-    }
-  }
-  return unique_entries;
+std::vector<T*> uniqueEntries(const std::vector<T*>& tv_vector) {
+  VectorOfUniqueEntries<T*> unique_vector(tv_vector.begin(), tv_vector.end());
+  return unique_vector.vector();
 }
 
 } // namespace
@@ -376,6 +422,19 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
   return uniqueEntries<TensorView>(all_tvs);
 }
 
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs) {
+  VectorOfUniqueEntries<TensorView*> all_tvs;
+  for (auto expr : exprs) {
+    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (const auto& tvs : {input_tvs, output_tvs}) {
+      all_tvs.pushBack(tvs.begin(), tvs.end());
+    }
+  }
+  return all_tvs;
+}
+
 std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except) {
@@ -389,64 +448,12 @@ std::vector<TensorView*> allTvsExcept(
   return result;
 }
 
-std::vector<Expr*> getReductionOps(Fusion* fusion) {
-  std::vector<Expr*> red_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<ReductionOp>() || expr->isA<GroupedReductionOp>() ||
-        expr->isA<WelfordOp>()) {
-      red_ops.push_back(expr);
-    }
-  }
-
-  return red_ops;
+std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
+  return getOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
-std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion) {
-  std::vector<IndexSelectOp*> idx_sel_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<IndexSelectOp>()) {
-      idx_sel_ops.push_back(expr->as<IndexSelectOp>());
-    }
-  }
-
-  return idx_sel_ops;
-}
-
-std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion) {
-  std::vector<TorchGatherOp*> torch_gather_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<TorchGatherOp>()) {
-      torch_gather_ops.push_back(expr->as<TorchGatherOp>());
-    }
-  }
-
-  return torch_gather_ops;
-}
-
-std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
-  std::vector<SelectOp*> select_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<SelectOp>()) {
-      select_ops.push_back(expr->as<SelectOp>());
-    }
-  }
-
-  return select_ops;
-}
-
-std::vector<MmaOp*> getMmaOps(Fusion* fusion) {
-  std::vector<MmaOp*> mma_ops;
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<MmaOp>()) {
-      mma_ops.push_back(expr->as<MmaOp>());
-    }
-  }
-
-  return mma_ops;
+bool hasAnyReductionOps(Fusion* fusion) {
+  return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
 namespace {
@@ -463,7 +470,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(fusion, allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getStmtsTo(allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -481,7 +488,7 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmtsTo(fusion, more, true, true);
+    auto more_stmts = StmtSort::getStmtsTo(more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
@@ -736,15 +743,6 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
-bool isSelectInput(TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SelectOp>()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
@@ -800,7 +798,6 @@ bool hasResizedRfactor(const TensorView* tv) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
-      tv->fusion(),
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
   return std::any_of(
@@ -830,6 +827,10 @@ class ValidateDomainEquivalence : private IterVisitor {
       : initial_domain_({initial_domain.begin(), initial_domain.end()}),
         derived_domain_({derived_domain.begin(), derived_domain.end()}),
         frontier_({initial_domain.begin(), initial_domain.end()}) {
+    // empty domain are equivalent.
+    if (initial_domain.empty() && derived_domain.empty()) {
+      return;
+    }
     NVF_ERROR(!initial_domain.empty());
     NVF_ERROR(!derived_domain.empty());
     // Make sure there's no duplicate in the parameter vectors
@@ -843,7 +844,6 @@ class ValidateDomainEquivalence : private IterVisitor {
         toDelimitedString(derived_domain));
 
     traverseBetween(
-        initial_domain.at(0)->fusion(),
         {initial_domain.begin(), initial_domain.end()},
         {derived_domain.begin(), derived_domain.end()});
 
@@ -1084,4 +1084,230 @@ bool isTensorStride(const Val* val) {
       isTensorAttr(val, "alloc_stride");
 }
 
+int64_t getVectorizeSize(const TensorView* tv) {
+  for (auto id : tv->getLeafDomain()) {
+    if (!isParallelTypeVectorize(id->getParallelType())) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(),
+        "Could not evaluate constant value bound to vectorized dim.");
+
+    return id->extent()->evaluate().as<int64_t>();
+  }
+  return 1;
+}
+
 } // namespace nvfuser::ir_utils
+
+namespace nvfuser::MmaOpUtils {
+
+// A helper for gathering details about TensorView object
+TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
+  TensorViewDetails details;
+  for (auto pos : c10::irange((int64_t)dims.size())) {
+    const auto axis = dims.at(pos);
+    if (axis->isReduction()) {
+      details.rdomains.push_back(pos);
+    } else if (axis->isBroadcast()) {
+      details.bcasts.push_back(pos);
+    } else {
+      details.cdomains.push_back(pos);
+    }
+  }
+  return details;
+}
+
+MmaLayout getInputLayout(
+    const TensorViewDetails& in_a,
+    const TensorViewDetails& in_b,
+    const MmaOp::AxesData& m_axes,
+    const MmaOp::AxesData& n_axes,
+    const MmaOp::AxesData& k_axes) {
+  // TT layout (b - broadcast, r - reduction):
+  // A = [M, K, b]
+  // B = [b, K, N]
+  // C = [M, r, N] (root domain)
+  if ((m_axes.front() < in_a.bcasts.front()) &&
+      (k_axes.front() < in_a.bcasts.front()) &&
+      (in_b.bcasts.front() < k_axes.front()) &&
+      (in_b.bcasts.front() < n_axes.front())) {
+    return MmaLayout::TT;
+  }
+  // TN layout (b - broadcast, r - reduction):
+  // A = [M, b, K]
+  // B = [b, N, K]
+  // C = [M, N, r] (root domain)
+  if ((m_axes.front() < in_a.bcasts.front()) &&
+      (in_a.bcasts.front() < k_axes.front()) &&
+      (in_b.bcasts.front() < n_axes.front()) &&
+      (in_b.bcasts.front() < k_axes.front())) {
+    return MmaLayout::TN;
+  }
+  // NT layout (b - broadcast, r - reduction):
+  // A = [K, M, b]
+  // B = [K, b, N]
+  // C = [r, M, N] (root domain)
+  if ((k_axes.front() < in_a.bcasts.front()) &&
+      (m_axes.front() < in_a.bcasts.front()) &&
+      (k_axes.front() < in_b.bcasts.front()) &&
+      (in_b.bcasts.front() < n_axes.front())) {
+    return MmaLayout::NT;
+  }
+  // NN layout (b - broadcast, r - reduction):
+  // A = [b, K, M]
+  // B = [N, K, b]
+  // C = [N, r, M] (root domain)
+  if ((in_a.bcasts.front() < k_axes.front()) &&
+      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
+      (k_axes.front() < in_b.bcasts.front())) {
+    return MmaLayout::NN;
+  }
+
+  NVF_ERROR(false, "Unsupported input layout");
+}
+
+MmaOpDetails getMmaOpDetails(
+    TensorView* out,
+    TensorView* in_a,
+    TensorView* in_b) {
+  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
+  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  const auto out_details = getDetailsFor(out->getRootDomain());
+
+  using AxesData = MmaOp::AxesData;
+
+  const auto getMOrNaxes = [](const AxesData& cdomains,
+                              const AxesData& bcasts,
+                              const AxesData& rdomains) {
+    AxesData result;
+    // For all concrete domains
+    for (const auto& cdomain : cdomains) {
+      // That are in broadcast domains but are not in reduction domains
+      if ((std::find(bcasts.begin(), bcasts.end(), cdomain) != bcasts.end()) &&
+          (std::find(rdomains.begin(), rdomains.end(), cdomain) ==
+           rdomains.end())) {
+        result.push_back(cdomain);
+      }
+    }
+    return result;
+  };
+
+  const auto getKaxes = [](const AxesData& cdomains_a,
+                           const AxesData& cdomains_b,
+                           const AxesData& rdomains) {
+    AxesData result;
+    // For all concrete domains from in_a
+    for (const auto& cdomain_a : cdomains_a) {
+      // That are in concrete domains in in_b and are in reduction domains
+      if ((std::find(cdomains_b.begin(), cdomains_b.end(), cdomain_a) !=
+           cdomains_b.end()) &&
+          (std::find(rdomains.begin(), rdomains.end(), cdomain_a) !=
+           rdomains.end())) {
+        result.push_back(cdomain_a);
+      }
+    }
+    return result;
+  };
+
+  const auto getBatchAxes = [](const TensorViewDetails& in_a_details,
+                               const TensorViewDetails& in_b_details,
+                               const TensorViewDetails& out_details) {
+    AxesData result;
+    // Batch candidates:
+    //  concrete domains that are in all of inputs and output
+    for (const auto& domain : in_a_details.cdomains) {
+      if ((std::find(
+               in_b_details.cdomains.begin(),
+               in_b_details.cdomains.end(),
+               domain) != in_b_details.cdomains.end()) &&
+          (std::find(
+               out_details.cdomains.begin(),
+               out_details.cdomains.end(),
+               domain) != out_details.cdomains.end())) {
+        result.push_back(domain);
+      }
+    }
+    // Batch candidates:
+    //  broadcast domains that are in all of inputs and output
+    for (const auto& domain : in_a_details.bcasts) {
+      if ((std::find(
+               in_b_details.bcasts.begin(),
+               in_b_details.bcasts.end(),
+               domain) != in_b_details.bcasts.end()) &&
+          (std::find(
+               out_details.bcasts.begin(), out_details.bcasts.end(), domain) !=
+           out_details.bcasts.end())) {
+        result.push_back(domain);
+      }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+  };
+
+  const auto validateInputDetails = [](const TensorViewDetails& details,
+                                       const std::string& desc) {
+    NVF_ERROR(!details.bcasts.empty(), desc, ": has no broadcast domains.");
+    NVF_ERROR(details.rdomains.empty(), desc, ": has reduction domains.");
+    NVF_ERROR(
+        details.cdomains.size() >= expected_gemm_cdomains,
+        desc,
+        ": has unsupported number of concrete domains, expected at least ",
+        expected_gemm_cdomains,
+        ", got ",
+        details.cdomains.size());
+  };
+
+  const auto validateOutputDetails = [](const TensorViewDetails& details,
+                                        const std::string& desc) {
+    // TODO: revise rules when add support for batch gemms
+    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
+    NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
+    NVF_ERROR(
+        (details.cdomains.size() >= expected_gemm_cdomains),
+        desc,
+        ": has unsupported number of concrete domains, expected at least ",
+        expected_gemm_cdomains,
+        ", got ",
+        details.cdomains.size());
+  };
+
+  validateInputDetails(in_a_details, "MmaOp input A");
+  validateInputDetails(in_b_details, "MmaOp input B");
+  validateOutputDetails(out_details, "MmaOp output");
+
+  MmaOpDetails details;
+
+  // For details, check MmaOpDetails
+  details.m_axes = getMOrNaxes(
+      in_a_details.cdomains, in_b_details.bcasts, out_details.rdomains);
+  details.n_axes = getMOrNaxes(
+      in_b_details.cdomains, in_a_details.bcasts, out_details.rdomains);
+  details.k_axes = getKaxes(
+      in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
+  details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
+
+  NVF_ERROR(
+      !details.m_axes.empty(),
+      "MmaOp inputs must define at least a single M dimension");
+  NVF_ERROR(
+      !details.n_axes.empty(),
+      "MmaOp inputs must define at least a single N dimension");
+  NVF_ERROR(
+      !details.k_axes.empty(),
+      "MmaOp inputs must define at least a single K dimension");
+
+  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
+  // rules may be needed
+  details.input_layout = getInputLayout(
+      in_a_details,
+      in_b_details,
+      details.m_axes,
+      details.n_axes,
+      details.k_axes);
+
+  return details;
+}
+
+} // namespace nvfuser::MmaOpUtils

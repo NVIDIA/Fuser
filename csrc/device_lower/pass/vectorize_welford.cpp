@@ -388,7 +388,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   // Declare a scalar variable of type dt and insert its allocation
   Val* defineScalar(DataType dt) {
-    Val* val = IrBuilder::newScalar(dt);
+    Val* val = IrBuilder::create<Val>(dt);
 
     auto alloc = IrBuilder::create<kir::Allocate>(
         val, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
@@ -565,6 +565,9 @@ class WelfordVectorizer : public kir::ExprMutator {
 
 std::vector<Expr*> vectorizeWelford(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::vectorizeWelford");
+  if (isOptionDisabled(DisableOption::WelfordVectorization)) {
+    return exprs;
+  }
   return WelfordVectorizer::vectorize(exprs);
 }
 

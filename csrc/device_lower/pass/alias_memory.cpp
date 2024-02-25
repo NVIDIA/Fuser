@@ -122,8 +122,7 @@ bool isSerialBroadcastResolution(
   //  traverse across view boundaries as we do in indexing. This
   //  should not result in false aliasing but may miss safe aliasing
   //  opportunities.
-  auto serial_loop_roots =
-      InputsOf::outputs(FusionGuard::getCurFusion(), serial_loop_concrete_ids);
+  auto serial_loop_roots = InputsOf::outputs(serial_loop_concrete_ids);
 
   // Collect exact concrete id's in producer's root domain
   std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
@@ -762,9 +761,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
     kir::IrVisitor::dispatch(expr);
-    if (ir_utils::isTvOp(expr)) {
-      collectLivenessInfoOfExpr(expr);
-    }
+    collectLivenessInfoOfExpr(expr);
   }
 
   void handle(kir::ForLoop* for_loop) final {
@@ -824,7 +821,7 @@ class AllocationInfoMap : private kir::IrVisitor {
             "Lower_alias_memory : dynamic sized register allocation");
         return;
       }
-      if (alloc->size()->evaluateInt() <= kRegisterSizeThreshold) {
+      if (alloc->size()->evaluate() <= kRegisterSizeThreshold) {
         should_try_alias = false;
       }
     }
@@ -868,10 +865,31 @@ class AllocationInfoMap : private kir::IrVisitor {
     return alloc_info;
   }
 
+  void collectLivenessInfoOfExprMBarrier(Expr* expr) {
+    const auto expr_pos = scope_map_.getExprPos(expr);
+
+    if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
+      auto alloc_info = getAllocInfoFromTV(init->mbarrier()->as<TensorView>());
+      alloc_info->inner_live_interval->markWrite(expr_pos);
+      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      alloc_info->outer_live_interval->markWrite(write_pos);
+    } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
+      auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
+      alloc_info->inner_live_interval->markRead(expr_pos);
+      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      alloc_info->outer_live_interval->markRead(write_pos);
+    }
+  }
+
   // Iterate over the inputs and outputs of exprs and update
   //  the liveness info of local buffers if applicaable.
   void collectLivenessInfoOfExpr(Expr* expr) {
-    if (!ir_utils::isTvOp(expr)) {
+    if (expr->isOneOf<kir::MBarrierInit, kir::MBarrierInvalidate>()) {
+      collectLivenessInfoOfExprMBarrier(expr);
+      return;
+    } else if (!ir_utils::isTvOp(expr)) {
       return;
     }
 
@@ -1184,21 +1202,25 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           auto this_tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
           auto reuse_tv =
               alloc_to_reuse->alloc_expr->buffer()->as<TensorView>();
-          // Check that either both tv's are vectorized acceses, or neither are.
-          // Vectorized allocations require correct alignment so they can only
-          // alias with other allocations with the right alignment
-          const auto& va = GpuLower::current()->vectorizedAccesses();
-          if ((va.find(this_tv) == va.end()) !=
-              (va.find(reuse_tv) == va.end())) {
-            return false;
-          }
 
-          // Shared memory is all aligned to 128 bits, local memory might not be
-          if (this_tv->getMemoryType() == MemoryType::Local &&
-              va.find(this_tv) != va.end()) {
-            // Make sure alignment matches
-            if (va.at(this_tv) != va.at(reuse_tv)) {
-              return false;
+          // Vectorized allocations require correct alignment so if [this_tv]
+          // is vectorized, the [reuse_tv] must be vectorized with the same
+          // or smaller factor.
+          // No need to check shared memory since it is always aligned to 16
+          // Bytes which is also the maximum vectorization width.
+          if (this_tv->getMemoryType() == MemoryType::Local) {
+            const auto& va = GpuLower::current()->vectorizedAccesses();
+            bool this_tv_vectorized = va.find(this_tv) != va.end();
+            if (this_tv_vectorized) {
+              bool reuse_tv_vectorized = va.find(reuse_tv) != va.end();
+              if (!reuse_tv_vectorized) {
+                return false;
+              }
+              int this_tv_alignment = va.at(this_tv);
+              int reuse_tv_alignment = va.at(reuse_tv);
+              if (this_tv_alignment > reuse_tv_alignment) {
+                return false;
+              }
             }
           }
         }
@@ -1322,7 +1344,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           continue;
         }
         if (!ir_utils::isPointwiseTvOp(tv_def) &&
-            !ir_utils::isReductionTvOp(tv_def)) {
+            !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
           if (isBroadcastTvOp(tv_def)) {
             info.has_broadcast_between = true;
           } else {
@@ -1904,10 +1926,20 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
  private:
   using kir::ExprMutator::dispatch;
+  using kir::ExprMutator::handle;
 
-  void dispatch(Expr* expr) final {
-    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
-
+  //! "Last read" positions are the ends of allocation lifetimes that correspond
+  //! to the beginnings of the open intervals upon which we need to ensure that
+  //! a sync exists. This function finds any sync intervals having "position" as
+  //! the last read, and adds the other end of the interval to
+  //! upcoming_first_writes_.
+  void processLastReads(int position) {
+    NVF_ERROR(
+        position == ++last_processed_position_,
+        "Expr position skipped visited out of order. Previous position was ",
+        last_processed_position_ - 1,
+        " but this position is ",
+        position);
     // Lifetime intervals are closed, so sync intervals are open. If this is the
     // first expr past a lifetime's last read, then add the corresponding upper
     // endpoint for the sync interval. Note that we add these before checking
@@ -1921,7 +1953,16 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       }
       upcoming_first_writes_.insert(it->second);
     }
+  }
 
+  //! "First write" positions are the beginnings of allocation lifetimes that
+  //! correspond to the ends of the open intervals upon which we need to ensure
+  //! that a sync exists. If we have not yet cleared sync intervals in
+  //! upcoming_first_writes_ with end positions equal to position, it means we
+  //! need to insert a sync just before this position. In that case, we register
+  //! a new sync for insertion. This function returns a bool indicating whether
+  //! a new sync was inserted.
+  bool processFirstWrites(Expr* expr, int position) {
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
@@ -1936,13 +1977,27 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       // Now that we have inserted a sync, we can safely clear any other
       // upcoming first writes.
       upcoming_first_writes_.clear();
-      kir::ExprMutator::dispatch(expr);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  //! This function will be called in such an order that the position of expr
+  //! is strictly increasing and skips no positions. We process the start and
+  //! end of each sync interval, with special handling of ENDFOR positions.
+  void dispatch(Expr* expr) final {
+    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
+
+    processLastReads(position);
+
+    bool inserted_sync = processFirstWrites(expr, position);
 
     // If we have a sync at this location, we can clear any upcoming first
-    // writes since they can be considered safe.
-    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+    // writes since they can be considered safe. If we just inserted a sync,
+    // there is no need to perform the hasBlockSync check as we know that
+    // upcoming_first_writes_ was just cleared.
+    if (!inserted_sync &&
+        lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Found blocking expression at position " << position
                 << std::endl;
@@ -1950,7 +2005,18 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       upcoming_first_writes_.clear();
     }
 
+    // This causes recursion into loops
     kir::ExprMutator::dispatch(expr);
+  }
+
+  //! Recurse into loop, then process ENDFOR position as a potential last read.
+  //! An ENDFOR cannot be a first write.
+  void handle(kir::ForLoop* loop) final {
+    kir::ExprMutator::handle(loop);
+
+    // We might have a last read outer position that is the end of a for loop.
+    processLastReads(
+        allocation_info_map_.getScopeMap().getLoopScopeInfo(loop)->end_pos);
   }
 
  private:
@@ -1967,6 +2033,10 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
   // Holds all new syncs we have inserted
   std::unordered_set<Expr*> inserted_syncs_;
+
+  // Used to check that we have processed each position once, in order. Note
+  // that positions start at 1.
+  int last_processed_position_ = 0;
 };
 
 // Insert missing synchronizations in cases where a TensorView is marked as

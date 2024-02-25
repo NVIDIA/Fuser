@@ -17,7 +17,6 @@
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
 
-#include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
 
 #include <mutex>
@@ -78,6 +77,10 @@ struct PairPointerEquals {
   }
 };
 
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
+void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
+
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -87,12 +90,21 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-class TORCH_CUDA_CU_API FusionKernelRuntime {
+//!
+//! When serde_buffer argument is a nullptr, we run the
+//! SegmentCandidateFinder::segment pass in the constructor and compile the
+//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
+//! executors_ objects from the flatbuffer binary.
+class FusionKernelRuntime {
  public:
-  explicit FusionKernelRuntime(
+  NVF_API explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      const serde::FusionKernelRuntime* serde_buffer = nullptr,
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -119,8 +131,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  //! Deerialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(const serde::FusionKernelRuntime* buffer);
+  //! Deserialize Fusion Kernel Runtime using flatbuffers
+  void deserialize(
+      const serde::FusionKernelRuntime* buffer,
+      int8_t device_index);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
@@ -135,11 +149,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  void compileFusionParallel(KernelArgumentHolder args);
+  NVF_API void compileFusionParallel(KernelArgumentHolder args);
 
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
@@ -209,7 +223,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //
   // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  NVF_API std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -246,9 +260,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  const std::vector<SchedulerEntryPtr>& schedulers() const;
-
-  void prepareRuntimeOrder();
+  NVF_API const std::vector<SchedulerEntryPtr>& schedulers() const;
 
  private:
   //! Entries indexed by groupID:
@@ -297,6 +309,16 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   std::mutex mutex_;
 
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
+
+  // ID of concretized fusion in FusionExecutorCache
+  int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
+
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
 };
@@ -312,7 +334,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 //! \note the uniqueness of the ide generated for a given input set is only
 //!   local to the instance of `InputsIdLookup`.
 //!
-class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
+class InputsIdLookup : public NonCopyable {
  public:
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
@@ -329,7 +351,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!
@@ -352,7 +374,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! However, if scalar_inputs_to_record is provided, then the values of scalar
   //! inputs at the integer locations specified in that argument will affect the
   //! returned ID.
-  IdLookupReturn lookupId(
+  NVF_API IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::unordered_set<size_t>& scalar_inputs_to_record = {},
       int8_t device = 0);
@@ -485,12 +507,14 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-class TORCH_CUDA_CU_API FusionExecutorCache {
+class FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  explicit FusionExecutorCache(std::unique_ptr<Fusion> fusion);
+  NVF_API explicit FusionExecutorCache(
+      std::unique_ptr<Fusion> fusion,
+      int64_t fusion_id = 0);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -501,7 +525,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
   //! WARING: Correctness is not guaranteed.
-  std::vector<at::Tensor> runFusionWithInputs(
+  NVF_API std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
@@ -513,7 +537,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
-  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs, int8_t device = 0);
+  NVF_API bool isCompiled(
+      const at::ArrayRef<c10::IValue>& inputs,
+      int8_t device = 0);
 
   Fusion* fusion() {
     return fusion_.get();
@@ -643,7 +669,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer);
+  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement
@@ -677,6 +703,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
+  using ConcreteInfo =
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>;
+
   //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
   //! map is a (device, concretization info) pair. In case fusion_ contains
   //! no dynamic transforms, the second part of the key is null. When a new set
@@ -685,7 +714,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      ConcreteInfo,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
       PairPointerHash,
       PairPointerEquals>
@@ -697,6 +726,12 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  //! Map each pair of device_id and concretization info to an integer id
+  std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
+      conc_info_id_map_;
+  //! For serialization, track a deterministic order for (device_id and
+  //! concretization info) pair
+  std::vector<ConcreteInfo> deterministic_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
@@ -717,57 +752,10 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
-};
 
-//! [ Note -- 2 level cache implementation ]
-//!
-//! Compiling PyTorch IR requires an addition translation to Fusion IR, which is
-//! cached using `GraphCache`.
-//!
-//! 2 level hierarchically nested cache is to handle the code generation and
-//! execution of a given PyTorch IR graph that is unique in its computational
-//! graph (see note on unique computational graph down).
-//!
-//! The nested cache structures are:
-//!     a. GraphCache
-//!        - GraphCache translates PyTorch IR into Fusion IR and pass it to a
-//!          `FusionExecutorCache`;
-//!        - GraphCache assumes all inputs to comply with profiling information,
-//!          mostly tensor size & contiguity (see note on unique computational
-//!          graph). The assumption is assured at runtime by
-//!          `prim::CudaFusionGuard`;
-//!     b. FusionExecutorCache
-//!        - has a single `Fusion`, FusionExecutorCache handles kernel schedule
-//!          and passed scheduled tensor to `FusionExecutor` to generate code;
-//!        - create `FusionExecutor` instances to handle heuristics from dynamic
-//!          shape (varying tensor sizes);
-//!        - create `FusionExecutor` instances to handle different devices;
-//!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
-//!          and launch parameters to reduce latency.
-//!
-class GraphCache {
- public:
-  //! TODO: we should probably change shared_ptr to unique_ptr, as we want to
-  //!       claim the ownership of the computational graph.
-  //! create GraphCache on a given graph;
-  //! We extract global stride index order and translate PyTorch JIT IR to
-  //! Fusion IR.
-  explicit GraphCache(const std::shared_ptr<torch::jit::Graph>& graph);
-
-  //! execute graph with given inputs
-  std::vector<at::Tensor> runGraphWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
-
- private:
-  //! construct FusionExecutorCache
-  void createFusion(const std::shared_ptr<torch::jit::Graph>& graph);
-
- private:
-  //! FusionExecutorCache that performs schedule and kernel execution;
-  std::unique_ptr<FusionExecutorCache> fusion_executor_cache_;
-
-  //! num of outputs
-  size_t num_of_outputs_ = 0;
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
 };
 
 } // namespace nvfuser

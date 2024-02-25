@@ -10,15 +10,17 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
+#include <tma.h>
 #include <type.h>
 #include <utils.h>
-
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -34,10 +36,18 @@ class TensorIndex;
 
 // Expressions
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
-class CpAsyncWait;
-class CpAsyncCommit;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierArriveExpectTx;
+class MBarrierWait;
+class BlockSerializeWait;
+class BlockSerializeRelease;
+class AsyncWait;
+class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -52,7 +62,7 @@ class AllocateFusedReduction;
 // Expr container
 class Scope;
 
-class TORCH_CUDA_CU_API Predicate final : public Val {
+class Predicate final : public Val {
  public:
   explicit Predicate(
       IrBuilderPasskey passkey,
@@ -66,7 +76,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
-  std::string toInlineString(int indent_size = 0) const override;
+  NVF_API std::string toInlineString(int indent_size = 0) const override;
 
   PredicateType predicate_type() const {
     return ptype_;
@@ -114,7 +124,8 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   }
 
   bool isTrivial() const {
-    return isConst() && value_->getBool() == true;
+    return isConst() && value_->value().is<bool>() &&
+        value_->value().as<bool>();
   }
 
  private:
@@ -135,9 +146,13 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   Val* value_ = nullptr;
 };
 
-class TORCH_CUDA_CU_API TensorIndex final : public Val {
+class NVF_API TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      DataType dtype = DataType::Null);
 
   Val* index() const {
     return index_;
@@ -157,11 +172,85 @@ class TORCH_CUDA_CU_API TensorIndex final : public Val {
   Val* index_ = nullptr;
 };
 
+// In theory, we should just put this struct into class Asm, but unfortunately,
+// due to compiler bug, we can not do that:
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88165
+struct AsmOptions {
+  bool volatile_ = false;
+  bool memory = false;
+  std::unordered_set<int64_t> readable_outputs = {};
+};
+
+class Asm final : public Expr {
+ public:
+  using Options = AsmOptions;
+
+  using Expr::Expr;
+
+  explicit Asm(
+      IrBuilderPasskey passkey,
+      const std::string& code,
+      const std::vector<Val*>& outputs,
+      const std::vector<Val*>& inputs,
+      const Options& options = Options());
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Asm";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const std::string& code() const {
+    return attribute<std::string>(0);
+  }
+
+  const Options& options() const {
+    return attribute<Options>(1);
+  }
+
+  Options& options() {
+    return attribute<Options>(1);
+  }
+
+  bool volatile_() const {
+    return options().volatile_;
+  }
+
+  bool& volatile_() {
+    return options().volatile_;
+  }
+
+  bool memory() const {
+    return options().memory;
+  }
+
+  bool& memory() {
+    return options().memory;
+  }
+
+  bool hasBooleanInput() const {
+    for (auto input : inputs()) {
+      if (input->dtype() == DataType::Bool) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
+  std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
+
+  std::string parameters() const;
+};
+
 //! Allocate is a lower level Node that describes a buffer of memory that
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
-class TORCH_CUDA_CU_API Allocate final : public Expr {
+class NVF_API Allocate final : public Expr {
  public:
   using Expr::Expr;
 
@@ -255,7 +344,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class TORCH_CUDA_CU_API BlockSync final : public Expr {
+class NVF_API BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -278,7 +367,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
 // Synchronize all blocks in device, implies cooperative group launch is
 // required.
-class TORCH_CUDA_CU_API GridSync final : public Expr {
+class NVF_API GridSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -305,51 +394,261 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
   }
 };
 
-// CpAsyncWait represents wait intrinsics for cp.async
-class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
+class NVF_API MBarrierInit final : public Expr {
  public:
   using Expr::Expr;
-
-  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
+  explicit MBarrierInit(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* thread_count);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncWait";
+    return "MBarrierInit";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* threadCount() const {
+    return input(1);
+  }
+};
+
+class NVF_API MBarrierInvalidate final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInvalidate";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+class NVF_API MBarrierArrive final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArrive";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
+class NVF_API MBarrierArriveExpectTx final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArriveExpectTx(
+      IrBuilderPasskey passkey,
+      Val* state,
+      Val* mbarrier,
+      Val* tx_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArriveExpectTx";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* txCount() const {
+    return input(1);
+  }
+};
+
+class NVF_API MBarrierWait final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* state() const {
+    return input(1);
+  }
+};
+
+// For all but first block in each reduction segment, first thread waits for
+// sync flag to indicate it is our turn to proceed (sync flag is incremented by
+// BlockSerializeRelease). Then block sync. This has the effect of
+// serializing blocks in each reduction segment. This is a block syncing
+// operation.
+class BlockSerializeWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeWait(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// This first performs a block sync. For all but last block in the reduction
+// segment, first thread then writes the next segment ID to the sync flag. When
+// used with BlockSerializeWait, this has the effect of serializing blocks in
+// order each reduction segment.
+class BlockSerializeRelease final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeRelease(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeRelease";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// AsyncWait represents wait intrinsics for cp.async, cp.async.bulk and
+// wgmma.mma_async
+class AsyncWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit AsyncWait(
+      IrBuilderPasskey passkey,
+      AsyncOpType async_op_type,
+      int64_t keep_stages = 0);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "AsyncWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* ptx() const;
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
 
   //! Returns the remaining number of stages that are not synchronized
   //!  after this op.
   int64_t keepStages() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 };
 
-// CpAsyncCommit represents commit intrinsics for cp.async
+// AsyncCommit represents commit intrinsics for cp.async
 //  A commit intrinsic communicates delimiter of transaction groups
 // to the async load hardware. Example usage see [Cicular buffer].
-class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
+class AsyncCommit final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncCommit(IrBuilderPasskey passkey);
+  explicit AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncCommit";
+    return "AsyncCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  const char* ptx() const;
+
+  //! Returns if the corresponding PTX needs a `:memory` in the end, this value
+  //! will be used to set AsmOptions::memory when lowering to inline PTX.
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
 };
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
 // in helpers.cu
-class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
+class InitMagicZero final : public Expr {
  public:
   using Expr::Expr;
 
@@ -367,7 +666,7 @@ class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
 
 // Simply prints "UPDATE_MAGIC_ZERO" in the code in accordance with magic_zero
 // in helpers.cu
-class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
+class UpdateMagicZero final : public Expr {
  public:
   using Expr::Expr;
 
@@ -384,7 +683,7 @@ class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
 };
 
 // TODO(kir): promote to IR node
-class TORCH_CUDA_CU_API Scope {
+class Scope {
  public:
   explicit Scope(Expr* owner) : owner_(owner) {}
 
@@ -475,7 +774,7 @@ class TORCH_CUDA_CU_API Scope {
 //! ForLoop may represent a part of an iteration domain representend
 //! by iter_domain_. In that case, the loop extent field, extent_, may
 //! be smaller than the extent of iter_domain_.
-class TORCH_CUDA_CU_API ForLoop final : public Expr {
+class NVF_API ForLoop final : public Expr {
  public:
   using Expr::Expr;
 
@@ -601,7 +900,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_CU_API IfThenElse final : public Expr {
+class NVF_API IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
@@ -647,8 +946,8 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
-class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
-  static constexpr int num_reduction_op_attr = 3;
+class GridReduction final : public ReductionOp {
+  static constexpr int num_reduction_op_attr = 4;
 
  public:
   using ReductionOp::ReductionOp;
@@ -663,7 +962,8 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
       Allocate* sync_buffer,
       Val* entrance_index,
       Val* entrances,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      TensorIndex* serial_reduction_tensor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -703,6 +1003,14 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
+  TensorIndex* serialReductionTensor() const {
+    return dynamic_cast<TensorIndex*>(attributeVal(num_reduction_op_attr + 5));
+  }
+
+  bool isSerial() const {
+    return serialReductionTensor() != nullptr;
+  }
+
   GridReduction* withThreadPredicate(
       const ParallelTypeBitmap& thread_predicate) {
     auto result = shallowCopy()->as<GridReduction>();
@@ -711,7 +1019,7 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
   }
 };
 
-class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
+class NVF_API GroupedGridReduction final : public GroupedReductionOp {
  public:
   using GroupedReductionOp::GroupedReductionOp;
 
@@ -802,7 +1110,7 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
-class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
+class NVF_API GridBroadcast final : public Expr {
  public:
   using Expr::Expr;
 
@@ -843,7 +1151,7 @@ class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
 //! reduction and sync buffers.
 //!
 //! TODO: Make this a subclass of WelfordOp
-class TORCH_CUDA_CU_API GridWelford final : public Expr {
+class GridWelford final : public Expr {
  public:
   using Expr::Expr;
 
@@ -913,7 +1221,7 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
+class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
  public:
   using GroupedWelfordOp::GroupedWelfordOp;
 
@@ -1007,7 +1315,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
 
 //! Represents a WelfordOp with the division by count is hoisted out
 //! of an innermost loop
-class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
+class NVF_API VectorizedWelfordOp final : public WelfordOp {
  public:
   using WelfordOp::WelfordOp;
 
@@ -1043,7 +1351,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
 };
 
 // Allocate an instance of the fused reduction class.
-class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
+class AllocateFusedReduction final : public Expr {
   explicit AllocateFusedReduction(IrBuilderPasskey passkey, Expr* grid_expr);
 
  public:
@@ -1092,7 +1400,7 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
   const ParallelTypeBitmap& threadPredicate() const;
 };
 
-class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+class GetRNGSeedAndOffsetFromHost : public Expr {
  public:
   using Expr::Expr;
 
@@ -1119,6 +1427,83 @@ class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
 
   int64_t& offsets() {
     return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// Expr for driver API cuTensorMapEncodeTiled
+class EncodeTensorMapTiled : public Expr {
+ public:
+  using Expr::Expr;
+
+  EncodeTensorMapTiled(
+      IrBuilderPasskey,
+      Val* output,
+      DataType data_type,
+      Val* global_address,
+      Val* global_dim,
+      Val* global_strides,
+      Val* box_dim,
+      Val* element_strides,
+      tma::TensorMapInterleave interleave,
+      MmaInputSmemSwizzle swizzle,
+      tma::TensorMapL2Promotion l2_promotion,
+      tma::TensorMapFloatOOBFill oob_fill);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EncodeTensorMapTiled";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* globalAddress() const {
+    return input(0);
+  }
+
+  Val* globalDim() const {
+    return input(1);
+  }
+
+  Val* globalStrides() const {
+    return input(2);
+  }
+
+  Val* boxDim() const {
+    return input(3);
+  }
+
+  Val* elementStrides() const {
+    return input(4);
+  }
+
+  const DataType& dataType() const {
+    return attribute<DataType>(0);
+  }
+
+  const int64_t& tensorRank() const {
+    return attribute<int64_t>(1);
+  }
+
+  const tma::TensorMapInterleave& interleave() const {
+    return attribute<tma::TensorMapInterleave>(2);
+  }
+
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
+  }
+
+  const tma::TensorMapL2Promotion& l2Promotion() const {
+    return attribute<tma::TensorMapL2Promotion>(4);
+  }
+
+  const tma::TensorMapFloatOOBFill& oobFill() const {
+    return attribute<tma::TensorMapFloatOOBFill>(5);
   }
 
   std::vector<PolymorphicValue> evaluate(

@@ -72,6 +72,30 @@ __device__ __inline__ __bfloat __int2bfloat(const int64_t i64) {
 #endif
 }
 
+__device__ __inline__ __bfloat __int2bfloat(const uint32_t i) {
+#if __CUDA_ARCH__ >= 900
+  __bfloat val;
+  asm("{  cvt.rn.bf16.u32 %0, %1;}\n"
+      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
+      : "r"(i));
+  return val;
+#else
+  return __float2bfloat(static_cast<float>(i));
+#endif
+}
+
+__device__ __inline__ __bfloat __int2bfloat(const uint64_t i64) {
+#if __CUDA_ARCH__ >= 900
+  __bfloat val;
+  asm("{  cvt.rn.bf16.u64 %0, %1;}\n"
+      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
+      : "l"(i64));
+  return val;
+#else
+  return __float2bfloat(static_cast<float>(i64));
+#endif
+}
+
 __device__ __inline__ __bfloat __bool2bfloat(const bool b) {
   return __int2bfloat((int)b);
 }
@@ -120,12 +144,44 @@ __device__ __inline__ int64_t __bfloat2int(const __bfloat h) {
 #endif
 }
 
+__device__ int __bfloat2uint32(const __bfloat h) {
+#if __CUDA_ARCH__ >= 900
+  int val;
+  asm("{  cvt.rzi.u32.bf16 %0, %1;}\n"
+      : "=r"(val)
+      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
+  return val;
+#else
+  return static_cast<int>(__bfloat2float(h));
+#endif
+}
+
+__device__ __inline__ int64_t __bfloat2uint(const __bfloat h) {
+#if __CUDA_ARCH__ >= 900
+  int64_t val;
+  asm("{  cvt.rzi.u64.bf16 %0, %1;}\n"
+      : "=l"(val)
+      : "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
+  return val;
+#else
+  return static_cast<int64_t>(__bfloat2float(h));
+#endif
+}
+
 __device__ __inline__ void __bfloat2int(const __bfloat h, int& output) {
   output = __bfloat2int32(h);
 }
 
 __device__ __inline__ void __bfloat2int(const __bfloat h, int64_t& output) {
   output = __bfloat2int(h);
+}
+
+__device__ __inline__ void __bfloat2int(const __bfloat h, uint32_t& output) {
+  output = __bfloat2uint32(h);
+}
+
+__device__ __inline__ void __bfloat2int(const __bfloat h, uint64_t& output) {
+  output = __bfloat2uint(h);
 }
 
 __device__ __inline__ nvfuser_index_t __bfloat2index(

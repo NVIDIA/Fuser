@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <dispatch.h>
 #include <exceptions.h>
 
@@ -38,7 +37,7 @@ namespace nvfuser {
 //    for example you can't use "~/temp/ir.dot" ("/home/user/temp/ir.dot"
 //    must be used instead)
 //
-class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
+class IrGraphGenerator : private OptInConstDispatch {
  public:
   enum class DetailLevel {
     ComputeOnly, // Only dataflow (compute) nodes
@@ -56,7 +55,7 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
       DetailLevel detail_level = DetailLevel::Basic,
       ExprColorMap* expr_color_map = nullptr);
 
-  static std::string toGraphviz(
+  NVF_API static std::string toGraphviz(
       const Fusion* fusion,
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);

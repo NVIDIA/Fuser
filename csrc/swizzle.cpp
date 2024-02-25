@@ -90,6 +90,20 @@ std::pair<Val*, Val*> dispatchSwizzle(
   }
 }
 
+std::pair<Val*, Val*> dispatchSwizzle(
+    SwizzleType type,
+    Val* x,
+    Val* y,
+    Val* maybe_size_x,
+    Val* maybe_size_y) {
+  switch (type) {
+    case SwizzleType::XOR:
+      return swizzles::Xor(x, y);
+    default:
+      NVF_ERROR(false, "Unsupported swizzle type");
+  }
+}
+
 std::pair<Val*, Val*> dispatchUnSwizzle(
     Swizzle2DType type,
     Val* x,

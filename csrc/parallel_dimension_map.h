@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -18,21 +19,21 @@
 namespace nvfuser {
 
 //! Maps TID/BID to its dimension.
-class TORCH_CUDA_CU_API ParallelDimensionMap {
+class ParallelDimensionMap {
  public:
   void build(Fusion* fusion);
 
   //! Returns the dimension of a ParallelType. nullptr is returned if
   //! a ParallelType is unused. If a dimension is not a constant, return
   //! blockDim/gridDim instead.
-  Val* get(ParallelType pt) const;
+  NVF_API Val* get(ParallelType pt) const;
 
   //! Returns the raw dimension of a ParallelType. nullptr is returned if
   //! a ParallelType is unused.
   Val* getRaw(ParallelType pt) const;
 
   //! True if the dimension of a ParallelType is known to be exact
-  bool isExact(ParallelType pt) const;
+  NVF_API bool isExact(ParallelType pt) const;
 
   std::string toString() const;
 

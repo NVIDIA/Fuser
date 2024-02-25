@@ -60,6 +60,22 @@ __device__ __inline__ __half __int2half(const int64_t i64) {
   return val;
 }
 
+__device__ __inline__ __half __int2half(const uint32_t i) {
+  __half val;
+  asm("{  cvt.rn.f16.u32 %0, %1;}\n"
+      : "=h"(__NVFUSER_HALF_TO_US(val))
+      : "r"(i));
+  return val;
+}
+
+__device__ __inline__ __half __int2half(const uint64_t i64) {
+  __half val;
+  asm("{  cvt.rn.f16.u64 %0, %1;}\n"
+      : "=h"(__NVFUSER_HALF_TO_US(val))
+      : "l"(i64));
+  return val;
+}
+
 __device__ __inline__ __half __bool2half(const bool b) {
   return __int2half((int)b);
 }
@@ -92,12 +108,36 @@ __device__ __inline__ int64_t __half2int(const __half h) {
   return val;
 }
 
+__device__ int __half2uint32(const __half h) {
+  int val;
+  asm("{  cvt.rzi.u32.f16 %0, %1;}\n"
+      : "=r"(val)
+      : "h"(__NVFUSER_HALF_TO_CUS(h)));
+  return val;
+}
+
+__device__ __inline__ int64_t __half2uint(const __half h) {
+  int64_t val;
+  asm("{  cvt.rzi.u64.f16 %0, %1;}\n"
+      : "=l"(val)
+      : "h"(__NVFUSER_HALF_TO_CUS(h)));
+  return val;
+}
+
 __device__ __inline__ void __half2int(const __half h, int& output) {
   output = __half2int32(h);
 }
 
 __device__ __inline__ void __half2int(const __half h, int64_t& output) {
   output = __half2int(h);
+}
+
+__device__ __inline__ void __half2int(const __half h, uint32_t& output) {
+  output = __half2uint32(h);
+}
+
+__device__ __inline__ void __half2int(const __half h, uint64_t& output) {
+  output = __half2uint(h);
 }
 
 __device__ __inline__ nvfuser_index_t __half2index(const __half h) {

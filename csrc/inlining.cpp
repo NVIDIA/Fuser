@@ -99,15 +99,23 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_vectorize,
     bool allow_unmappable) const {
   auto dom = tv->getLeafDomain();
-  auto iter = std::find_if(dom.begin(), dom.end(), [=](IterDomain* id) {
-    return !isAllowedID(
-        id,
-        tv,
-        best_effort,
-        allow_reduction,
-        allow_vectorize,
-        allow_unmappable);
-  });
+  auto iter = std::find_if(
+      dom.begin(),
+      dom.end(),
+      [this,
+       tv,
+       best_effort,
+       allow_reduction,
+       allow_vectorize,
+       allow_unmappable](IterDomain* id) {
+        return !isAllowedID(
+            id,
+            tv,
+            best_effort,
+            allow_reduction,
+            allow_vectorize,
+            allow_unmappable);
+      });
   return std::distance(dom.begin(), iter);
 }
 

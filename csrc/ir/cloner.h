@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <dispatch.h>
 #include <exceptions.h>
 #include <ir/builder.h>
+#include <visibility.h>
 
 #include <tuple>
 #include <unordered_map>
@@ -27,7 +27,7 @@ class IrContainer;
 //!   Fusion copy operations and the and limited scope of RecomputeTv below.
 //!   It is not intended for any other uses.
 //!
-class TORCH_CUDA_CU_API IrCloner {
+class IrCloner {
   friend class Statement;
   friend class IrBuilder;
 
@@ -36,7 +36,7 @@ class TORCH_CUDA_CU_API IrCloner {
   explicit IrCloner(IrContainer* container);
   virtual ~IrCloner() = default;
 
-  Statement* clone(const Statement* statement);
+  NVF_API Statement* clone(const Statement* statement);
 
   int64_t clone(int64_t x) {
     return x;
@@ -98,7 +98,7 @@ class TORCH_CUDA_CU_API IrCloner {
   }
 
  protected:
-  void registerClone(const Statement* src, Statement* clone);
+  NVF_API void registerClone(const Statement* src, Statement* clone);
   virtual Statement* handle(const Statement* s);
 
  protected:
@@ -117,10 +117,10 @@ class TORCH_CUDA_CU_API IrCloner {
 // Replicates all expressions used to generate the provided TensorView. Does not
 // replicate inputs. Does not replicate scalar values. In other words the value
 // provided will be recomputed from the inputs of the fusion.
-class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
+class RecomputeTv : private IrCloner {
  public:
   // Replicates expressions and values in provided expressions.
-  static TensorView* recompute(
+  NVF_API static TensorView* recompute(
       TensorView* tv,
       const std::vector<Val*>& from = {});
 
@@ -128,8 +128,6 @@ class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
   RecomputeTv(Fusion* fusion);
   Statement* handle(const Statement* s) override;
   Statement* handle(const TensorDomain*);
-
-  Fusion* fusion_;
 };
 
 //! Clone an IR node, forwarding the arguments to the IrCloner constructor.

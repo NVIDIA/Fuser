@@ -26,7 +26,7 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
         tv->getLeafDomain().begin(), tv->getLeafDomain().end());
     current_tv_ = tv;
     clearReachability();
-    traverseTo(fusion, domain_vals);
+    traverseTo(domain_vals);
     current_tv_ = nullptr;
   }
 
@@ -103,12 +103,12 @@ void NonDivisibleSplitInfo::propagateReachability(
 Val* NonDivisibleSplitInfo::getMaybeNonDivisibleExtent(Split* split) const {
   std::optional<int64_t> in_extent;
   if (split->in()->extent()->isConstInt()) {
-    in_extent = split->in()->extent()->evaluateInt();
+    in_extent = split->in()->extent()->evaluate().as<int64_t>();
   }
 
   std::optional<int64_t> factor;
   if (split->factor()->isConstInt()) {
-    factor = split->factor()->evaluateInt();
+    factor = split->factor()->evaluate().as<int64_t>();
   }
 
   if (in_extent.has_value() && factor.has_value() &&

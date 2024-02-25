@@ -220,6 +220,10 @@ static std::string data_type2string(DataType t) {
               return "nvfuser_index_t";
             case DataType::Int32:
               return "int";
+            case DataType::UInt:
+              return "uint64_t";
+            case DataType::UInt32:
+              return "uint32_t";
             case DataType::SMemAddress:
               return "unsigned";
             case DataType::ComplexFloat:
@@ -277,8 +281,6 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::PipelineVal:
-      return "PipelineVal";
     default:
       NVF_ERROR(false, "No string found for val type.");
   }
@@ -334,6 +336,8 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return false;
     default:
       return true;
@@ -452,6 +456,10 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<16>";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
@@ -676,6 +684,8 @@ static const char* rng_op_type2string(RNGOpType t) {
 
 static const char* parallel_type2string(ParallelType t) {
   switch (t) {
+    case ParallelType::DIDx:
+      return "deviceIdx.x";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -702,6 +712,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "G";
     case ParallelType::Serial:
       return "S";
+    case ParallelType::Bulk:
+      return "B";
     default:
       NVF_ERROR(false, "Unexpected ParallelType");
   }
@@ -722,7 +734,8 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::Unswitch,
       ParallelType::Mma,
       ParallelType::Group,
-      ParallelType::Serial};
+      ParallelType::Serial,
+      ParallelType::Bulk};
   for (auto t : except) {
     result.erase(t);
   }
@@ -752,6 +765,10 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive";
     case IdMappingMode::LOOP:
       return "loop";
+    case IdMappingMode::INNERMOST:
+      return "innermost";
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
       NVF_ERROR(false, "Unexpected IdMappingMode Type.");
@@ -811,10 +828,10 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:
       return "LdMatrixTranspose";
-    case LoadStoreOpType::CpAsyncCa:
-      return "CpAsyncCa";
-    case LoadStoreOpType::CpAsyncCg:
-      return "CpAsyncCg";
+    case LoadStoreOpType::CpAsync:
+      return "CpAsync";
+    case LoadStoreOpType::CpAsyncBulkTensorTile:
+      return "CpAsyncBulkTensorTile";
     default:
       NVF_ERROR(false, "Unexpected parallel type");
   }
@@ -825,14 +842,18 @@ constexpr unsigned int supported_switch_pair(PrimDataType t1, PrimDataType t2) {
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
 
-static const char* supported_casts2string(
-    const std::pair<DataType, DataType>& t) {
+static const char* supported_casts2string(std::pair<DataType, DataType> t) {
+  if (t.first == DataType::SMemAddress) {
+    t.first = DataType::UInt32;
+  }
   switch (supported_switch_pair(
       std::get<PrimDataType>(t.first.type),
       std::get<PrimDataType>(t.second.type))) {
     case supported_switch_pair(DataType::Index, DataType::Float):
     case supported_switch_pair(DataType::Int, DataType::Float):
     case supported_switch_pair(DataType::Int32, DataType::Float):
+    case supported_switch_pair(DataType::UInt, DataType::Float):
+    case supported_switch_pair(DataType::UInt32, DataType::Float):
     case supported_switch_pair(DataType::Double, DataType::Float):
     case supported_switch_pair(DataType::Bool, DataType::Float):
       return "(float)";
@@ -841,6 +862,8 @@ static const char* supported_casts2string(
       return "(float)std::real";
     case supported_switch_pair(DataType::Index, DataType::Int):
     case supported_switch_pair(DataType::Int32, DataType::Int):
+    case supported_switch_pair(DataType::UInt, DataType::Int):
+    case supported_switch_pair(DataType::UInt32, DataType::Int):
     case supported_switch_pair(DataType::Float, DataType::Int):
     case supported_switch_pair(DataType::Double, DataType::Int):
     case supported_switch_pair(DataType::Bool, DataType::Int):
@@ -850,6 +873,8 @@ static const char* supported_casts2string(
       return "(int64_t)std::real";
     case supported_switch_pair(DataType::Index, DataType::Int32):
     case supported_switch_pair(DataType::Int, DataType::Int32):
+    case supported_switch_pair(DataType::UInt, DataType::Int32):
+    case supported_switch_pair(DataType::UInt32, DataType::Int32):
     case supported_switch_pair(DataType::Float, DataType::Int32):
     case supported_switch_pair(DataType::Double, DataType::Int32):
     case supported_switch_pair(DataType::Bool, DataType::Int32):
@@ -857,8 +882,32 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::ComplexFloat, DataType::Int32):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Int32):
       return "(int32_t)std::real";
+    case supported_switch_pair(DataType::Index, DataType::UInt):
+    case supported_switch_pair(DataType::Int, DataType::UInt):
+    case supported_switch_pair(DataType::Int32, DataType::UInt):
+    case supported_switch_pair(DataType::UInt32, DataType::UInt):
+    case supported_switch_pair(DataType::Float, DataType::UInt):
+    case supported_switch_pair(DataType::Double, DataType::UInt):
+    case supported_switch_pair(DataType::Bool, DataType::UInt):
+      return "(uint64_t)";
+    case supported_switch_pair(DataType::ComplexFloat, DataType::UInt):
+    case supported_switch_pair(DataType::ComplexDouble, DataType::UInt):
+      return "(uint64_t)std::real";
+    case supported_switch_pair(DataType::Index, DataType::UInt32):
+    case supported_switch_pair(DataType::Int, DataType::UInt32):
+    case supported_switch_pair(DataType::Int32, DataType::UInt32):
+    case supported_switch_pair(DataType::UInt, DataType::UInt32):
+    case supported_switch_pair(DataType::Float, DataType::UInt32):
+    case supported_switch_pair(DataType::Double, DataType::UInt32):
+    case supported_switch_pair(DataType::Bool, DataType::UInt32):
+      return "(uint32_t)";
+    case supported_switch_pair(DataType::ComplexFloat, DataType::UInt32):
+    case supported_switch_pair(DataType::ComplexDouble, DataType::UInt32):
+      return "(uint32_t)std::real";
     case supported_switch_pair(DataType::Int, DataType::Index):
     case supported_switch_pair(DataType::Int32, DataType::Index):
+    case supported_switch_pair(DataType::UInt, DataType::Index):
+    case supported_switch_pair(DataType::UInt32, DataType::Index):
     case supported_switch_pair(DataType::Float, DataType::Index):
     case supported_switch_pair(DataType::Double, DataType::Index):
     case supported_switch_pair(DataType::Bool, DataType::Index):
@@ -869,6 +918,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Index, DataType::Double):
     case supported_switch_pair(DataType::Int, DataType::Double):
     case supported_switch_pair(DataType::Int32, DataType::Double):
+    case supported_switch_pair(DataType::UInt, DataType::Double):
+    case supported_switch_pair(DataType::UInt32, DataType::Double):
     case supported_switch_pair(DataType::Float, DataType::Double):
     case supported_switch_pair(DataType::Bool, DataType::Double):
       return "(double)";
@@ -877,9 +928,11 @@ static const char* supported_casts2string(
       return "(double)std::real";
     case supported_switch_pair(DataType::Float, DataType::Bool):
     case supported_switch_pair(DataType::Double, DataType::Bool):
-    case supported_switch_pair(DataType::Int32, DataType::Bool):
-    case supported_switch_pair(DataType::Int, DataType::Bool):
     case supported_switch_pair(DataType::Index, DataType::Bool):
+    case supported_switch_pair(DataType::Int, DataType::Bool):
+    case supported_switch_pair(DataType::Int32, DataType::Bool):
+    case supported_switch_pair(DataType::UInt, DataType::Bool):
+    case supported_switch_pair(DataType::UInt32, DataType::Bool):
       return "(bool)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Bool):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Bool):
@@ -887,6 +940,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Index, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Int, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Int32, DataType::ComplexDouble):
+    case supported_switch_pair(DataType::UInt, DataType::ComplexDouble):
+    case supported_switch_pair(DataType::UInt32, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Double, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Float, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Bool, DataType::ComplexDouble):
@@ -895,6 +950,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Index, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Int, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Int32, DataType::ComplexFloat):
+    case supported_switch_pair(DataType::UInt, DataType::ComplexFloat):
+    case supported_switch_pair(DataType::UInt32, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Double, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Float, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Bool, DataType::ComplexFloat):
@@ -905,8 +962,10 @@ static const char* supported_casts2string(
       return "__float2half";
     case supported_switch_pair(DataType::Double, DataType::Half):
       return "__double2half";
-    case supported_switch_pair(DataType::Int32, DataType::Half):
     case supported_switch_pair(DataType::Int, DataType::Half):
+    case supported_switch_pair(DataType::Int32, DataType::Half):
+    case supported_switch_pair(DataType::UInt, DataType::Half):
+    case supported_switch_pair(DataType::UInt32, DataType::Half):
     case supported_switch_pair(DataType::Index, DataType::Half):
       return "__int2half";
     case supported_switch_pair(DataType::Bool, DataType::Half):
@@ -923,6 +982,10 @@ static const char* supported_casts2string(
       return "__half2int32";
     case supported_switch_pair(DataType::Half, DataType::Int):
       return "__half2int";
+    case supported_switch_pair(DataType::Half, DataType::UInt32):
+      return "__half2uint32";
+    case supported_switch_pair(DataType::Half, DataType::UInt):
+      return "__half2uint";
     case supported_switch_pair(DataType::Half, DataType::Index):
       return "__half2index";
     case supported_switch_pair(DataType::Half, DataType::Bool):
@@ -938,8 +1001,10 @@ static const char* supported_casts2string(
       return "__double2bfloat";
     case supported_switch_pair(DataType::Half, DataType::BFloat16):
       return "__half2bfloat";
-    case supported_switch_pair(DataType::Int32, DataType::BFloat16):
     case supported_switch_pair(DataType::Int, DataType::BFloat16):
+    case supported_switch_pair(DataType::Int32, DataType::BFloat16):
+    case supported_switch_pair(DataType::UInt, DataType::BFloat16):
+    case supported_switch_pair(DataType::UInt32, DataType::BFloat16):
     case supported_switch_pair(DataType::Index, DataType::BFloat16):
       return "__int2bfloat";
     case supported_switch_pair(DataType::Bool, DataType::BFloat16):
@@ -958,6 +1023,10 @@ static const char* supported_casts2string(
       return "__bfloat2int32";
     case supported_switch_pair(DataType::BFloat16, DataType::Int):
       return "__bfloat2int";
+    case supported_switch_pair(DataType::BFloat16, DataType::UInt32):
+      return "__bfloat2uint32";
+    case supported_switch_pair(DataType::BFloat16, DataType::UInt):
+      return "__bfloat2uint";
     case supported_switch_pair(DataType::BFloat16, DataType::Index):
       return "__bfloat2index";
     case supported_switch_pair(DataType::BFloat16, DataType::Bool):
@@ -1086,6 +1155,21 @@ std::ostream& operator<<(std::ostream& out, const IterType bt) {
   return out << iter_type2string(bt);
 }
 
+std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
+  switch (swizzle) {
+    case SwizzleType::NoSwizzle:
+      os << "NoSwizzle";
+      break;
+    case SwizzleType::XOR:
+      os << "Xor";
+      break;
+    default:
+      NVF_ERROR(false, "undefined 2D swizzle");
+      break;
+  }
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
   switch (swizzle) {
     case Swizzle2DType::NoSwizzle:
@@ -1138,6 +1222,31 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       break;
   }
   return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
+  switch (cache_op) {
+    case CacheOp::Unspecified:
+      os << "Unspecified";
+      break;
+    case CacheOp::AllLevels:
+      os << "AllLevels";
+      break;
+    case CacheOp::Streaming:
+      os << "Streaming";
+      break;
+    case CacheOp::Global:
+      os << "Global";
+      break;
+    default:
+      NVF_ERROR(false, "undefined cache operator");
+      break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>& b) {
+  return os << (b.has_value() ? (*b ? "t" : "f") : "n");
 }
 
 std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
@@ -1203,6 +1312,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
+    case DataType::UInt:
+    case DataType::UInt32:
     case DataType::SMemAddress:
       return "i";
     case DataType::ComplexFloat:
@@ -1221,6 +1332,10 @@ bool isParallelTypeThreadDim(ParallelType ptype) {
 bool isParallelTypeBlockDim(ParallelType ptype) {
   return ptype == ParallelType::BIDx || ptype == ParallelType::BIDy ||
       ptype == ParallelType::BIDz;
+}
+
+bool isParallelTypeDeviceDim(ParallelType ptype) {
+  return ptype == ParallelType::DIDx;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <type.h>
@@ -64,9 +65,6 @@ void Val::dispatch(T handler, Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
       ptr(handler)->handle(val);
@@ -206,6 +204,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<Merge>());
     return;
   }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
+    return;
+  }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
     return;
@@ -238,6 +240,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
   }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
+    return;
+  }
   if (expr->isStrictlyA<kir::BlockSync>()) {
     ptr(handler)->handle(expr->as<kir::BlockSync>());
     return;
@@ -246,12 +252,40 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -302,15 +336,15 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
+  if (expr->isStrictlyA<kir::EncodeTensorMapTiled>()) {
+    ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
-  NVF_ERROR(false, "Unknown exprtype in dispatch!");
+  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -344,9 +378,6 @@ void Val::constDispatch(T handler, const Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
       ptr(handler)->handle(val);
@@ -486,6 +517,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<Merge>());
     return;
   }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
+    return;
+  }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
     return;
@@ -518,6 +553,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
   }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
+    return;
+  }
   if (expr->isStrictlyA<kir::BlockSync>()) {
     ptr(handler)->handle(expr->as<kir::BlockSync>());
     return;
@@ -526,12 +565,40 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -582,15 +649,15 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
-  if (expr->isStrictlyA<PipelineStage>()) {
-    ptr(handler)->handle(expr->as<PipelineStage>());
+  if (expr->isStrictlyA<kir::EncodeTensorMapTiled>()) {
+    ptr(handler)->handle(expr->as<kir::EncodeTensorMapTiled>());
     return;
   }
-  if (expr->isStrictlyA<PipelineCommunication>()) {
-    ptr(handler)->handle(expr->as<PipelineCommunication>());
+  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
+    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
     return;
   }
-  NVF_ERROR(false, "Unknown exprtype in dispatch!");
+  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -634,9 +701,6 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       return;
     case ValType::TensorIndex:
       ptr(mutator)->mutate(val->as<kir::TensorIndex>());
-      return;
-    case ValType::PipelineVal:
-      ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
       ptr(mutator)->mutate(val);
@@ -774,10 +838,6 @@ void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const PipelineVal* stmt) {
-  unhandled(stmt);
-}
-
 // Exprs
 void OptOutConstDispatch::handle(const FullOp* stmt) {
   unhandled(stmt);
@@ -873,6 +933,9 @@ void OptOutConstDispatch::handle(const Split* stmt) {
 void OptOutConstDispatch::handle(const Merge* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const Swizzle* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const Swizzle2D* stmt) {
   unhandled(stmt);
 }
@@ -898,16 +961,40 @@ void OptOutConstDispatch::handle(const ViewOp* stmt) {
 void OptOutConstDispatch::handle(const kir::Allocate* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::Asm* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::BlockSync* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::GridSync* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
+void OptOutConstDispatch::handle(const kir::MBarrierInit* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncCommit* stmt) {
+void OptOutConstDispatch::handle(const kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::BlockSerializeWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::BlockSerializeRelease* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::AsyncWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::InitMagicZero* stmt) {
@@ -946,11 +1033,11 @@ void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
 void OptOutConstDispatch::handle(const kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
-
-void OptOutConstDispatch::handle(const PipelineStage* stmt) {
+void OptOutConstDispatch::handle(const kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
+
+void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 
@@ -977,10 +1064,6 @@ void OptOutDispatch::handle(kir::Predicate* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::TensorIndex* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1079,6 +1162,9 @@ void OptOutDispatch::handle(Split* stmt) {
 void OptOutDispatch::handle(Merge* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(Swizzle* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(Swizzle2D* stmt) {
   unhandled(stmt);
 }
@@ -1104,16 +1190,40 @@ void OptOutDispatch::handle(ViewOp* stmt) {
 void OptOutDispatch::handle(kir::Allocate* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::Asm* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(kir::BlockSync* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::GridSync* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
+void OptOutDispatch::handle(kir::MBarrierInit* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncCommit* stmt) {
+void OptOutDispatch::handle(kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::BlockSerializeWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::BlockSerializeRelease* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::AsyncWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::InitMagicZero* stmt) {
@@ -1152,11 +1262,11 @@ void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
 void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
-
-void OptOutDispatch::handle(PipelineStage* stmt) {
+void OptOutDispatch::handle(kir::EncodeTensorMapTiled* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(PipelineCommunication* stmt) {
+
+void OptOutDispatch::handle(assoc_comm::FlattenedAssocCommOp* stmt) {
   unhandled(stmt);
 }
 

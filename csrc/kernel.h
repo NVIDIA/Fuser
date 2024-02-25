@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <device_lower/analysis/sync_information.h>
@@ -18,6 +17,7 @@
 #include <parallel_dimension_map.h>
 #include <utils.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <memory>
 #include <unordered_map>
@@ -107,9 +107,15 @@ struct KernelSummary {
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  //! Minimum compute capability of device that can execute this kernel
+  std::pair<int, int> min_device_version;
+
+  //! Plain text description of why min_device_version_ is required
+  std::string min_device_version_reason;
 };
 
-class TORCH_CUDA_CU_API KernelPerformanceProfile {
+class KernelPerformanceProfile {
  public:
   //! Register an expression to profile
   void registerExpr(const Expr* expr);
@@ -165,7 +171,7 @@ class KernelInternalProxy;
 //! Container for a lowered Kernel IR
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API Kernel final : public Fusion {
+class NVF_API Kernel final : public Fusion {
   friend KernelInternalProxy;
 
  public:
@@ -175,16 +181,7 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   // we do something like generate an initialization statement for a reduction
   // TV, we may want to continue to do fusion like analysis on the original
   // expression.
-  // TODO: Assert index type is int or int32
-  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int)
-      : Fusion(*fusion), index_type_(index_type) {
-    // Index type must be resolved to either int32 or int64
-    NVF_ERROR(
-        index_type_ == PrimDataType::Int ||
-            index_type_ == PrimDataType::Int32 || "Invalid index type: ",
-        index_type_);
-  }
-
+  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int);
   Kernel() = delete;
 
   // No move or copy semantics
@@ -271,7 +268,7 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
 //! A special debugging proxy for Kernel.
 //!
 //! Should not be used for other than testing and debugging.
-class TORCH_CUDA_CU_API KernelInternalProxy {
+class NVF_API KernelInternalProxy {
  public:
   KernelInternalProxy(Kernel* kernel) : kernel_(kernel) {}
 

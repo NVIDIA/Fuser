@@ -128,12 +128,12 @@ void LayerNormBackward_ShapeInference_Base(
   }
 }
 
-static void LayerNormBackward_ShapeInference(
+static void NvFuserScheduler_LayerNormBackward_ShapeInference(
     benchmark::State& benchmark_state) {
   LayerNormBackward_ShapeInference_Base(benchmark_state, true);
 }
 
-static void LayerNormBackward_NoShapeInferenceCachedBaseline(
+static void NvFuserScheduler_LayerNormBackward_NoShapeInferenceCachedBaseline(
     benchmark::State& benchmark_state) {
   LayerNormBackward_ShapeInference_Base(benchmark_state, false);
 }
@@ -203,18 +203,21 @@ void LayerNormForward_ShapeInferenceBase(
   }
 }
 
-static void LayerNormForward_NoShapeInferenceCachedBaseline(
+static void NvFuserScheduler_LayerNormForward_NoShapeInferenceCachedBaseline(
     benchmark::State& benchmark_state) {
   LayerNormForward_ShapeInferenceBase(benchmark_state, false);
 }
 
-static void LayerNormForward_ShapeInference(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_LayerNormForward_ShapeInference(
+    benchmark::State& benchmark_state) {
   LayerNormForward_ShapeInferenceBase(benchmark_state, true);
 }
 
-BENCHMARK(LayerNormBackward_ShapeInference)->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormForward_ShapeInference)->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormBackward_NoShapeInferenceCachedBaseline)
+BENCHMARK(NvFuserScheduler_LayerNormBackward_ShapeInference)
     ->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormForward_NoShapeInferenceCachedBaseline)
+BENCHMARK(NvFuserScheduler_LayerNormForward_ShapeInference)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormBackward_NoShapeInferenceCachedBaseline)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormForward_NoShapeInferenceCachedBaseline)
     ->Unit(benchmark::kMicrosecond);

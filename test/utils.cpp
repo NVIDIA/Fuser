@@ -7,11 +7,11 @@
 // clang-format on
 #include <test/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <ops/all_ops.h>
 
+#include <regex>
 #include <sstream>
+#include <string>
 #include <string_view>
 
 namespace nvfuser {
@@ -39,8 +39,9 @@ int64_t prime_number(int64_t i) {
 }
 
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel) {
+  GpuLower gpulw(fusion);
   const std::string actual_kernel =
-      "\n" + codegen::generateCudaKernel(GpuLower(fusion).kernel());
+      "\n" + codegen::generateCudaKernel(gpulw.run());
   if (expected_kernel.size() != actual_kernel.size() ||
       expected_kernel.compare(actual_kernel) != 0) {
     std::cerr
@@ -104,7 +105,7 @@ bool starts_with(std::string_view self, std::string_view __s) noexcept {
 
 } // namespace
 
-std::string Instruction::predicate() {
+std::string Instruction::predicate() const {
   if (str[0] == '@') {
     std::stringstream ss(str);
     char ignore_at = '\0';
@@ -115,7 +116,7 @@ std::string Instruction::predicate() {
   return {};
 }
 
-std::string Instruction::action() {
+std::string Instruction::action() const {
   std::string result;
   std::stringstream ss(str);
   if (str[0] == '@') {
@@ -126,14 +127,14 @@ std::string Instruction::action() {
   return result;
 }
 
-std::string Instruction::op() {
+std::string Instruction::op() const {
   std::stringstream ss(action());
   std::string result;
   ss >> result;
   return result;
 }
 
-std::string Instruction::opCode() {
+std::string Instruction::opCode() const {
   std::string result;
   for (auto i : op()) {
     if (i == '.') {
@@ -144,7 +145,7 @@ std::string Instruction::opCode() {
   return result;
 }
 
-std::vector<std::string> Instruction::args() {
+std::vector<std::string> Instruction::args() const {
   std::stringstream ss(action());
   std::string all_args;
   ss >> all_args; // discard
@@ -166,7 +167,7 @@ std::vector<std::string> Instruction::args() {
   return result;
 }
 
-std::vector<std::string> Instruction::modifiers() {
+std::vector<std::string> Instruction::modifiers() const {
   std::vector<std::string> result;
   std::string current;
   bool found_opcode = false;
@@ -212,6 +213,7 @@ Container parse(const std::string& nvdisasm_output) {
   bool started = false;
   std::stringstream ss(nvdisasm_output);
   std::string header;
+  std::regex find_header_regex(".text.(.+):");
   for (std::string line; std::getline(ss, line);) {
     line = trim(line);
     if (line.empty() || starts_with(line, "//")) {
@@ -241,13 +243,10 @@ Container parse(const std::string& nvdisasm_output) {
       if (line == header) {
         started = true;
       } else if (line[0] == '.') {
-        std::stringstream ss(line);
-        std::string key, value;
-        char ignore = '\0';
-        ss >> ignore >> key >> value;
-        result.attributes[key] = value;
-        if (key == "global") {
-          header = ".text." + value + ":";
+        std::smatch line_match;
+        std::regex_match(line, line_match, find_header_regex);
+        if (line_match.size() == 2) {
+          header = line_match.str(1) + ":";
         }
       }
     }
@@ -257,169 +256,63 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
+// matmulAtInput2D provides batched inputs in a splitk-like ordering. It
+// provides contiguous tensors with these shapes
+//   TT: [M, B, K] [B, K, N]
+//   TN: [M, B, K] [N, B, K]
+//   NT: [B, K, M] [B, K, N]
+//   NN: [B, K, M] [N, B, K]
+// ATen matmul assumes [B, M, K] [B, K, N] so here we transpose into that order
+at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
+  a = a.squeeze();
+  b = b.squeeze();
   NVF_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
-  // Here, we canonicalize the mma output as M, N, K, but the position of K does
-  // not really matter. So the implicit transpose is only required for NN.
-  TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
-  switch (layout) {
-    case MatmulLayout::TT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      // M, K, N -> M, N, K
-      tv2->reorder({{1, -1}});
-      tv2->commitLeafToRFactor();
-      break;
-    case MatmulLayout::TN:
-      tv0b = broadcast(a, {false, true, false});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-      // M, N, K
-      break;
-    case MatmulLayout::NT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {false, true, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
-      // K, M, N -> M, N, K
-      tv2->reorder({{0, -1}});
-      tv2->commitLeafToRFactor();
-      break;
-    case MatmulLayout::NN:
-      tv0b = broadcast(a, {true, false, false});
-      tv1b = broadcast(b, {false, false, true});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      // N, K, M -> M, N, K
-      tv2->reorder({{-1, 0}});
-      tv2->commitLeafToRFactor();
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-  return tv2;
-}
-
-TensorView* matmulTuringOrLater(
-    TensorView* a,
-    TensorView* b,
-    MatmulLayout layout) {
+      a.dim() == b.dim(), "Either both or none of A and B should be batch");
   NVF_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
-  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
-             *tv1b = nullptr;
-  switch (layout) {
-      // Canonicalize all inputs to [M, K] and [N, K]
-    case MatmulLayout::TT:
-      tv0t = a;
-      tv1t = transpose(b, 0, 1);
-      break;
-    case MatmulLayout::TN:
-      tv0t = a;
-      tv1t = b;
-      break;
-    case MatmulLayout::NT:
-      tv0t = transpose(a, 0, 1);
-      tv1t = transpose(b, 0, 1);
-      break;
-    case MatmulLayout::NN:
-      tv0t = transpose(a, 0, 1);
-      tv1t = b;
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-  tv0b = broadcast(tv0t, {false, true, false});
-  tv1b = broadcast(tv1t, {true, false, false});
-  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-  return tv2;
-}
-
-TensorView* matmul(
-    TensorView* a,
-    TensorView* b,
-    MatmulLayout layout,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-) {
-  if (turing_or_later) {
-    return matmulTuringOrLater(a, b, layout);
+      a.dim() == 2 || a.dim() == 3,
+      "Must have either zero or one batch dimensions");
+  if (a.dim() == 3) { // bmm
+    switch (layout) {
+      case MmaLayout::TT:
+        return a.transpose(0, 1).matmul(b);
+      case MmaLayout::TN:
+        return a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2));
+      case MmaLayout::NT:
+        return a.transpose(1, 2).matmul(b);
+      case MmaLayout::NN:
+        return a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2));
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   } else {
-    return matmulVolta(a, b, layout);
-  }
-}
-
-TensorView* splitkLikeBatchedMatmul(
-    TensorView* a,
-    TensorView* b,
-    MatmulLayout layout) {
-  NVF_CHECK(
-      a->nDims() == 3 && b->nDims() == 3,
-      "only splitk-like batched matmuls for these tests");
-  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
-             *tv1b = nullptr;
-  switch (layout) {
-      // Canonicalize all inputs to [B, M, K] and [B, N, K]
-    case MatmulLayout::TT:
-      // [M, B, K] -> [B, M, K]
-      tv0t = transpose(a, 0, 1);
-      // [B, K, N] -> [B, N, K]
-      tv1t = transpose(b, 1, 2);
-      break;
-    case MatmulLayout::TN:
-      // [M, B, K] -> [B, M, K]
-      tv0t = transpose(a, 0, 1);
-      // [N, B, K] -> [B, N, K]
-      tv1t = transpose(b, 0, 1);
-      break;
-    case MatmulLayout::NT:
-      // [B, K, M] -> [B, M, K]
-      tv0t = transpose(a, 1, 2);
-      // [B, K, N] -> [B, N, K]
-      tv1t = transpose(b, 1, 2);
-      break;
-    case MatmulLayout::NN:
-      // [B, K, M] -> [B, M, K]
-      tv0t = transpose(a, 1, 2);
-      // [N, B, K] -> [B, N, K]
-      tv1t = transpose(b, 0, 1);
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-  tv0b = broadcast(tv0t, {false, false, true, false});
-  tv1b = broadcast(tv1t, {false, true, false, false});
-  tv2 = fusedMultiplySum(tv0b, tv1b, {3});
-  return tv2;
-}
-
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
-  switch (layout) {
-    case MatmulLayout::TT:
-      return a.matmul(b);
-    case MatmulLayout::TN:
-      return a.matmul(b.t());
-    case MatmulLayout::NT:
-      return a.t().matmul(b);
-    case MatmulLayout::NN:
-      return a.t().matmul(b.t());
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
+    switch (layout) {
+      case MmaLayout::TT:
+        return a.matmul(b);
+      case MmaLayout::TN:
+        return a.matmul(b.t());
+      case MmaLayout::NT:
+        return a.t().matmul(b);
+      case MmaLayout::NN:
+        return a.t().matmul(b.t());
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   }
   return at::Tensor();
 }
 
-at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       // [M, B, K] @ [B, K, N] -> [B, M, N]
       return a.transpose(0, 1).matmul(b);
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       // [M, B, K] @ [N, B, K] -> [B, M, N]
       return a.transpose(0, 1).matmul(b.permute({1, 2, 0}));
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       // [B, K, M] @ [B, K, N] -> [B, M, N]
       return a.transpose(1, 2).matmul(b);
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       // [B, K, M] @ [N, B, K] -> [B, M, N]
       return a.transpose(1, 2).matmul(b.permute({1, 2, 0}));
     default:
@@ -428,25 +321,25 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> matmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
     int M,
     int N,
     int K,
-    MatmulLayout layout,
+    MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       return std::make_pair(
           at::randn({M, K}, options), at::randn({K, N}, options));
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       return std::make_pair(
           at::randn({M, K}, options), at::randn({N, K}, options));
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({N, K}, options));
     default:
@@ -455,8 +348,39 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
   return std::make_pair(at::Tensor(), at::Tensor());
 }
 
-at::Tensor matmulAtInput(
-    const MatmulLayout layout,
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, 1, K}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, 1, M}, {1, K, N}};
+    case MmaLayout::NN:
+      return {{K, 1, M}, {1, N, K}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DTuring(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
+at::Tensor matmulAtInput2D(
+    const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
     const int M,
@@ -481,7 +405,7 @@ at::Tensor matmulAtInput(
   }
 
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({M, B, K}, options)
@@ -493,7 +417,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({M, B, K}, options)
@@ -505,7 +429,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({B, K, M}, options)
@@ -517,7 +441,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({B, K, M}, options)
@@ -533,6 +457,73 @@ at::Tensor matmulAtInput(
       NVF_CHECK(false, "unsupported data layout, got ", (size_t)layout);
   }
   NVF_CHECK(false, "unsupported tensor position, got ", (size_t)tensor);
+}
+
+// matmulAtInput2D/matmulAtInput3DTuring provides batched inputs in a
+// splitk-like ordering. It provides contiguous tensors with these shapes
+//   TT: [M, (N,) B, K] [(M,) B, K, N]
+//   TN: [M, (N,) B, K] [(M,) N, B, K]
+//   NT: [B, K, (N,) M] [(M,) B, K, N]
+//   NN: [B, K, (N,) M] [(M,) N, B, K]
+// where the dimension in parentheses is a broadcast dimension and may be
+// omitted.
+TensorView* canonicalizeInputToBMNK(
+    TensorView* tv,
+    MmaLayout layout,
+    MmaOperand operand) {
+  auto rfnob = TensorDomain::noBroadcasts(tv->getMaybeRFactorDomain());
+  NVF_ERROR(
+      rfnob.size() == 2 || rfnob.size() == 3,
+      "Expected 2 or 3 domains, got ",
+      rfnob.size());
+  bool has_batch = rfnob.size() == 3;
+  bool already_broadcasted = tv->hasBroadcast();
+
+  // Step 1: insert permute as needed.
+  if (operand == MmaOperand::A) {
+    if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
+      // [M, (N,) B, K] -> [B, M, (N,) K]
+      if (has_batch) {
+        // Using reorder + commitLeafToRFactor instead of permute here because
+        // the former's API is more convenient here
+        tv = permute(tv, {{-2, 0}});
+      }
+    } else { // NT, NN
+      // [B, K, (N,) M] -> [B, M, (N,) K]
+      tv = transpose(tv, has_batch, -1);
+    }
+  } else { // B
+    if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
+      // [(M,) B, K, N] -> [B, (M,) N, K]
+      std::unordered_map<int, int> old2new = {{-1, -2}};
+      if (has_batch && already_broadcasted) {
+        old2new[0] = 1;
+      }
+      tv = permute(tv, old2new);
+    } else { // TN, NN
+      // [(M,) N, B, K] -> [B, (M,) N, K]
+      if (has_batch) {
+        tv = permute(tv, {{-2, 0}});
+      }
+    }
+  }
+
+  // Step 2: insert broadcast as needed.
+  if (already_broadcasted) {
+    return tv;
+  }
+  if (operand == MmaOperand::A) {
+    // [B, M, K] -> [B, M, (N,) K]
+    std::vector<bool> bcast_dims(tv->nDims() + 1, false);
+    bcast_dims.at(bcast_dims.size() - 2) = true;
+    tv = broadcast(tv, bcast_dims);
+  } else { // B
+    // [B, N, K] -> [B, (M,) N, K]
+    std::vector<bool> bcast_dims(tv->nDims() + 1, false);
+    bcast_dims.at(bcast_dims.size() - 3) = true;
+    tv = broadcast(tv, bcast_dims);
+  }
+  return tv;
 }
 
 bool isSchedulerInUse(
@@ -737,6 +728,26 @@ size_t getATenRandomSeed() {
   }
 
   return seed;
+}
+
+int getNumSMs() {
+  // Since cudaGetDeviceProperties can be slow, we memoize the value in num_SMs
+  static std::vector<int> num_SMs;
+
+  int dev_idx = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
+
+  if (num_SMs.size() <= (size_t)dev_idx) {
+    num_SMs.resize(dev_idx + 1, -1);
+  }
+
+  if (num_SMs[dev_idx] == -1) {
+    cudaDeviceProp prop{};
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
+
+    num_SMs[dev_idx] = prop.multiProcessorCount;
+  }
+  return num_SMs[dev_idx];
 }
 
 } // namespace nvfuser

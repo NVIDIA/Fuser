@@ -83,8 +83,11 @@ std::string Predicate::toInlineString(int indent_size) const {
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
-    Val* index)
-    : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
+    Val* index,
+    DataType dtype)
+    : Val(passkey,
+          ValType::TensorIndex,
+          dtype != DataType::Null ? dtype : view->getDataType().value()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -92,8 +95,11 @@ TensorIndex::TensorIndex(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
-      isPointerType(index->dtype()) || index->dtype() == DataType::Index,
-      "Cannot index with a value other than an int.");
+      isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
+          isStructType(index->dtype()) ||
+          index->dtype() ==
+              DataType::UInt /*For matrix descriptor for hopper MMA*/,
+      "Cannot index with a value other than an int/pointer/struct.");
 }
 
 std::string TensorIndex::toString(int indent_size) const {
@@ -143,7 +149,7 @@ Allocate::Allocate(
     NVF_ERROR(buffer->isA<TensorView>());
     NVF_ERROR(buffer->as<TensorView>()->getMemoryType() == memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : domain->noReductions()) {
+    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
       shape.push_back(axis->extent());
     }
   }
@@ -216,6 +222,185 @@ std::string Allocate::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
+Asm::Asm(
+    IrBuilderPasskey passkey,
+    const std::string& code,
+    const std::vector<Val*>& outputs,
+    const std::vector<Val*>& inputs,
+    const Options& options)
+    : Expr(passkey) {
+  addDataAttribute(code);
+  addDataAttribute(options);
+  for (auto out : outputs) {
+    addOutput(out);
+  }
+  for (auto in : inputs) {
+    addInput(in);
+  }
+}
+
+// Reference:
+// https://docs.nvidia.com/cuda/inline-ptx-assembly/#constraints
+
+namespace {
+
+// If value is a kir::TensorIndex, and its index is a pointer type, then
+// return the pointer type. Otherwise return the value's dtype.
+DataType getTypeOrIndexType(Val* value) {
+  if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+    if (isPointerType(ti->index()->dtype())) {
+      return ti->index()->dtype();
+    }
+  }
+  return value->dtype();
+}
+
+const char* getPTXConstraints(Val* value) {
+  DataType dt = getTypeOrIndexType(value);
+  if (dt == DataType::Bool) {
+    return "r";
+  }
+  if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+    // If the index type is a pointer type, then we directly uses the pointer in
+    // the generated code, instead of generating something like T0[i]. For this
+    // case we should use the pointer type as the constraint.
+    if (isPointerType(ti->index()->dtype())) {
+      dt = ti->index()->dtype();
+    }
+  }
+  if (std::holds_alternative<ArrayType>(dt.type)) {
+    dt = *std::get<ArrayType>(dt.type).type;
+  }
+  auto size = dataTypeSize(dt);
+  switch (size) {
+    case 2:
+      return "h";
+    case 4:
+      if (isFloatingPointType(dt)) {
+        return "f";
+      } else {
+        return "r";
+      }
+    case 8:
+      if (isFloatingPointType(dt)) {
+        return "d";
+      } else {
+        return "l";
+      }
+    default:
+      NVF_ERROR(
+          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+  }
+}
+
+} // namespace
+
+std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
+  std::vector<std::pair<std::string, Val*>> result;
+  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+    std::string prefix;
+    if (options().readable_outputs.count(i) > 0) {
+      prefix = "+";
+    } else {
+      prefix = "=";
+    }
+    auto out = output(i);
+    NVF_ERROR(!out->isConst());
+    result.emplace_back(prefix + getPTXConstraints(out), out);
+  }
+  return result;
+}
+std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
+  std::vector<std::pair<std::string, Val*>> result;
+  for (auto in : inputs()) {
+    const char* constraint = nullptr;
+    if (in->isConst()) {
+      constraint = "n";
+    } else {
+      constraint = getPTXConstraints(in);
+    }
+    result.emplace_back(constraint, in);
+  }
+  return result;
+}
+
+std::string Asm::parameters() const {
+  int64_t counter = 0;
+  int64_t bool_counter = 0;
+  std::stringstream ss;
+  auto gen = [&counter, &bool_counter, &ss](Val* v) {
+    DataType dtype = getTypeOrIndexType(v);
+    if (counter > 0) {
+      ss << ", ";
+    }
+    if (isPointerType(dtype)) {
+      ss << "[%" << counter++ << "]";
+    } else if (dtype == DataType::Bool) {
+      ss << "p" << bool_counter++;
+    } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
+      ss << "%" << counter++;
+    } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+      auto type = std::get<ArrayType>(dtype.type);
+      ss << "{";
+      for (auto i : c10::irange(type.size)) {
+        if (i > 0) {
+          ss << ", ";
+        }
+        ss << "%" << counter++;
+      }
+      ss << "}";
+    } else {
+      NVF_ERROR(false, "Unsupported data type ", dtype);
+    }
+  };
+  for (auto out : outputs()) {
+    gen(out);
+  }
+  for (auto in : inputs()) {
+    gen(in);
+  }
+  return ss.str();
+}
+
+std::string Asm::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "asm";
+  if (volatile_()) {
+    ss << " volatile";
+  }
+  ss << "(\n";
+  indent(ss, indent_size + 1) << "\"" << code() << "\"\n:";
+  bool first = true;
+  for (auto out : outputs()) {
+    if (!first) {
+      ss << ",\n";
+    }
+    first = false;
+    indent(ss, indent_size + 1) << out->toString();
+  }
+  ss << "\n:";
+  first = true;
+  for (auto in : inputs()) {
+    if (!first) {
+      ss << ",\n";
+    }
+    first = false;
+    indent(ss, indent_size + 1) << in->toString();
+  }
+  if (memory()) {
+    ss << "\n:";
+    indent(ss, indent_size + 1) << "memory";
+  }
+  ss << ");";
+  return ss.str();
+}
+
+std::string Asm::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Asm op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
+
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -260,45 +445,265 @@ std::string GridSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
-CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
+MBarrierInit::MBarrierInit(
+    IrBuilderPasskey passkey,
+    Val* mbarrier,
+    Val* thread_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(thread_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(thread_count);
+}
+
+std::string MBarrierInit::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInit(" << mbarrier()->toString() << ", "
+                          << threadCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInit can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
+
+MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addInput(mbarrier);
+}
+
+std::string MBarrierInvalidate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInvalidate(" << mbarrier()->toString()
+                          << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInvalidate::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInvalidate can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInvalidate)
+
+MBarrierArrive::MBarrierArrive(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addOutput(state);
+}
+
+std::string MBarrierArrive::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArrive::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArrive can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArrive)
+
+MBarrierArriveExpectTx::MBarrierArriveExpectTx(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier,
+    Val* tx_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(tx_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(tx_count);
+  addOutput(state);
+}
+
+std::string MBarrierArriveExpectTx::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArriveExpectTx(" << mbarrier()->toString()
+                          << ", " << txCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArriveExpectTx::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArriveExpectTx can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
+
+MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addInput(state);
+}
+
+std::string MBarrierWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierWait(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierWait can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
+
+BlockSerializeWait::BlockSerializeWait(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string BlockSerializeWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "BLOCKSERIALIZEWAIT(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockSerializeWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction pre sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeWait)
+
+BlockSerializeRelease::BlockSerializeRelease(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string BlockSerializeRelease::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "BLOCKSERIALIZERELEASE(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockSerializeRelease::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction post sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeRelease)
+
+AsyncWait::AsyncWait(
+    IrBuilderPasskey passkey,
+    AsyncOpType async_op_type,
+    int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
   addDataAttribute(keep_stages);
 }
 
-std::string CpAsyncWait::toString(int indent_size) const {
+std::string AsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT(" << keepStages() << ")\n";
+  indent(ss, indent_size) << ptx() << " " << keepStages() << "\n";
   return ss.str();
 }
 
-std::string CpAsyncWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+std::string AsyncWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncWait can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
+const char* AsyncWait::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      if (keepStages() == 0) {
+        return "cp.async.wait_all";
+      } else {
+        return "cp.async.wait_group";
+      }
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.wait_group.read";
+    case AsyncOpType::WgMma:
+      return "wgmma.wait_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
 
-CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
+bool AsyncWait::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return false;
+    case AsyncOpType::CpAsyncBulk:
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
+
+AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
 }
 
-std::string CpAsyncCommit::toString(int indent_size) const {
+std::string AsyncCommit::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT()\n";
+  indent(ss, indent_size) << ptx() << ";\n";
   return ss.str();
 }
 
-std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+std::string AsyncCommit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncCommit can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
+const char* AsyncCommit::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return "cp.async.commit_group";
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.commit_group";
+    case AsyncOpType::WgMma:
+      return "wgmma.commit_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+bool AsyncCommit::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+    case AsyncOpType::CpAsyncBulk:
+      return false;
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -515,8 +920,8 @@ bool ForLoop::isUnrollable() const {
   // dimension, cannot be bound to a parallel dimension, must not be
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
-      !iter_domain()->isThread() && !iter_domain()->isBroadcast() &&
-      !vectorize();
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -589,7 +994,8 @@ Val* ForLoop::simplifiedStop() const {
 bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isStride() || iter_domain()->isMma()) {
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }
 
@@ -725,7 +1131,8 @@ GridReduction::GridReduction(
     Allocate* sync_buffer,
     Val* entrance_index,
     Val* entrances,
-    bool is_allreduce)
+    bool is_allreduce,
+    TensorIndex* serial_reduction_tensor)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -740,6 +1147,7 @@ GridReduction::GridReduction(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addDataAttribute(ParallelTypeBitmap{});
+  addAttribute(serial_reduction_tensor);
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -772,6 +1180,13 @@ std::string GridReduction::toString(int indent_size) const {
                           << threadPredicate().toString() << ",\n";
   indent(ss, indent_size) << "allreduce = "
                           << (isAllreduce() ? "true" : "false") << " )\n";
+  indent(ss, indent_size) << "serial reduction = "
+                          << (isSerial() ? "true" : "false") << " )\n";
+  if (isSerial()) {
+    indent(ss, indent_size)
+        << "serial reduction tensor = " << serialReductionTensor()->toString()
+        << " )\n";
+  }
   return ss.str();
 }
 
@@ -1048,9 +1463,8 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
-      auto extent_int = axis->extent()->getInt();
-      NVF_ERROR(extent_int.has_value());
-      group_count *= (int)extent_int.value();
+      auto extent_int = axis->extent()->value();
+      group_count *= (int)extent_int;
     }
   }
 
@@ -1234,6 +1648,92 @@ std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
+
+EncodeTensorMapTiled::EncodeTensorMapTiled(
+    IrBuilderPasskey passkey,
+    Val* output,
+    DataType data_type,
+    Val* global_address,
+    Val* global_dim,
+    Val* global_strides,
+    Val* box_dim,
+    Val* element_strides,
+    tma::TensorMapInterleave interleave,
+    MmaInputSmemSwizzle swizzle,
+    tma::TensorMapL2Promotion l2_promotion,
+    tma::TensorMapFloatOOBFill oob_fill)
+    : Expr(passkey) {
+  auto out_dtype = output->dtype();
+  NVF_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
+  addOutput(output);
+
+  NVF_CHECK(
+      global_address->dtype() ==
+      PointerType{std::make_shared<DataType>(data_type)});
+  addInput(global_address);
+
+  NVF_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
+  size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
+  ArrayType expect_global_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(global_dim->dtype() == expect_global_dim_type);
+  addInput(global_dim);
+
+  ArrayType expect_global_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
+  NVF_CHECK(global_strides->dtype() == expect_global_strides_type);
+  addInput(global_strides);
+
+  ArrayType expect_box_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(box_dim->dtype() == expect_box_dim_type);
+  addInput(box_dim);
+
+  ArrayType expect_element_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(element_strides->dtype() == expect_element_strides_type);
+  addInput(element_strides);
+
+  addDataAttribute(data_type);
+  addDataAttribute((int64_t)tensor_rank);
+  addDataAttribute(interleave);
+  addDataAttribute(swizzle);
+  addDataAttribute(l2_promotion);
+  addDataAttribute(oob_fill);
+}
+
+std::string EncodeTensorMapTiled::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = " << getOpString()
+                          << "(dtype=" << dataType()
+                          << ", global_address=" << globalAddress()->toString()
+                          << ", global_dim=" << globalDim()->toString()
+                          << ", global_strides=" << globalStrides()
+                          << ", box_dim=" << boxDim()->toString()
+                          << ", element_strides="
+                          << elementStrides()->toString()
+                          << ", interleave=" << interleave()
+                          << ", swizzle=" << nvfuser::toString(swizzle())
+                          << ", l2_promotion=" << l2Promotion()
+                          << ", oob_fill=" << oobFill() << ")\n";
+  return ss.str();
+}
+
+std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(dtype=" << dataType()
+     << ", global_address=" << globalAddress()->toInlineString()
+     << ", global_dim=" << globalDim()->toInlineString()
+     << ", global_strides=" << globalStrides()->toInlineString()
+     << ", box_dim=" << boxDim()->toInlineString()
+     << ", element_strides=" << elementStrides()->toInlineString()
+     << ", interleave=" << interleave()
+     << ", swizzle=" << nvfuser::toString(swizzle())
+     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EncodeTensorMapTiled)
 
 } // namespace kir
 } // namespace nvfuser

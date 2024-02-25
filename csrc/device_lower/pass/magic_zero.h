@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <vector>
 
@@ -24,7 +25,7 @@ struct IndexFromIdGraph;
 std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs);
 
 //! Check if val is a reference to the magic zero variable
-TORCH_CUDA_CU_API bool isMagicZero(const Val* val);
+NVF_API bool isMagicZero(const Val* val);
 
 //! Check if val is protected with magic zero.
 //!

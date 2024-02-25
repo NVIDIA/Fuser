@@ -1,14 +1,19 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #pragma once
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
-
-#define COMM_BACKEND_DEFAULT CommunicatorBackend::nccl
-#define COMM_SERVER_LOCAL_RANK_DEFAULT 0
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -16,29 +21,43 @@ namespace nvfuser {
    This file implements the class Communicator which sets up the inter-process
    Backend. This class contains inter-process information, such as the rank, the
    world size, as well as the Process Group that can be called to perform
-   inter-process communications
+   inter-process communications.
 
-   Only one node configuration is supported for now.
-   TODO: extend to multinode.
+   Each process is associated with a unique deviceId and device. The actual MPI
+   rank remains private to the class and should not be used by the user. The
+   communicator class holds privately the mappings ranks <-> device IDs <->
+   device.
+
 */
 
-// Supported backends. TODO: only tested with nccl for now
+using RankType = DeviceIdxType;
+
+// Supported backends. TODO: gloo untested
 enum class CommunicatorBackend { nccl, ucc, gloo };
+
+std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
+
+#ifdef USE_C10D_NCCL
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+#else
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
+#endif
+constexpr int comm_server_local_rank_default = 0;
+constexpr int comm_master_port_default =
+    c10d::TCPStoreOptions::kDefaultPort; // 29500
 
 class Communicator {
  public:
-  Communicator(
-      CommunicatorBackend backend = COMM_BACKEND_DEFAULT,
-      RankType server_local_rank = COMM_SERVER_LOCAL_RANK_DEFAULT);
+  NVF_API Communicator(
+      CommunicatorBackend backend = comm_backend_default,
+      RankType server_local_rank = comm_server_local_rank_default);
+
+  Communicator(const Communicator&) = delete;
+  Communicator& operator=(const Communicator&) = delete;
 
   // returns if distributed config is available
   auto is_available() const {
     return is_available_;
-  }
-
-  // returns the rank of the current process
-  auto rank() const {
-    return rank_;
   }
 
   // returns the number of processes in the communicator
@@ -46,45 +65,88 @@ class Communicator {
     return size_;
   }
 
-  // returns the local rank of the current process (within the node)
-  auto local_rank() const {
-    return local_rank_;
-  }
-
   // returns the local number of processes in the communicator (within the node)
   auto local_size() const {
     return local_size_;
   }
 
-  // returns the flattenend list of ranks of the communicator
-  auto ranks() const {
-    std::vector<RankType> ret(size());
-    std::iota(ret.begin(), ret.end(), 0);
-    return ret;
+  // sets the communicator's default backend
+  void setDefaultBackend(CommunicatorBackend backend) {
+    default_backend_ = backend;
   }
 
-  // performs a (blocking) send/receive p2p data transfer
-  void sendRecv(
-      RankType receiver_rank,
-      RankType sender_rank,
+  // performs a send/receive p2p data transfer
+  NVF_API c10::intrusive_ptr<c10d::Work> sendRecv(
+      DeviceIdxType receiver,
+      DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
+      std::optional<CommunicatorBackend> backend = std::nullopt,
       int tag = 0);
 
   // performs a blocking barrier in the communicator
-  void barrier() const {
-    pg_->barrier()->wait();
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
+    getWorld(backend)->barrier()->wait();
   }
 
-  // stores the process group backend
+  // returns the backend associated with a team
+  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(
+      const Team& team,
+      std::optional<CommunicatorBackend> backend);
+
+  // returns the device associated with the current process
+  auto device() const {
+    return at::Device("cuda:" + std::to_string(local_rank_));
+  }
+
+  // returns the device Id associated with the current process
+  DeviceIdxType deviceId() const {
+    return rankToDiD(rank_);
+  }
+
+  // returns world backend for communicator backend or default backend if not
+  // specified.
+  NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(
+      std::optional<CommunicatorBackend> backend = std::nullopt);
+
+  // returns if a backend is available for creation
+  bool isBackendAvailable(CommunicatorBackend backend) const {
+    if (backend == CommunicatorBackend::ucc) {
+      return ucc_available_;
+    } else if (backend == CommunicatorBackend::nccl) {
+      return nccl_available_;
+    }
+    return false;
+  }
+
  private:
+  // returns the rank corresponding to a device index
+  RankType dIdToRank(DeviceIdxType d_id) const {
+    return static_cast<RankType>(d_id);
+  }
+
+  // returns the device index corresponding to a rank
+  DeviceIdxType rankToDiD(RankType rank) const {
+    return static_cast<DeviceIdxType>(rank);
+  }
+
+  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
+    return backend.value_or(default_backend_);
+  }
+
   bool is_available_;
+  CommunicatorBackend default_backend_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
   int64_t local_size_;
   std::string master_addr_;
   int master_port_;
-  c10::intrusive_ptr<c10d::Backend> pg_;
+  bool ucc_available_;
+  bool nccl_available_;
+  // stores the world's store used for the backend init
+  c10::intrusive_ptr<c10d::TCPStore> store_;
+  // cache for the created backends. The keys are strings generated from Teams
+  std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
 
 } // namespace nvfuser

@@ -10,14 +10,16 @@
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
 #include <utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -35,7 +37,7 @@ class ExpressionEvaluator;
 //!  It is important that input id encoding should be up to date with any change
 //!   of this class to avoid launching compiled kernels with illegal inputs.
 
-class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
+class SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
@@ -57,7 +59,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
-  SchedulerRuntimeInfo(
+  NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const at::ArrayRef<c10::IValue>& aten_inputs);
 
@@ -133,12 +135,12 @@ class HeuristicSummary;
 //!   heuristic implementations derive from this
 //!   class and implement a schedule(Fusion*)
 //!   and a bool canSchedule(Fusion*) interface
-class TORCH_CUDA_CU_API SchedulerEntry {
+class SchedulerEntry {
  public:
   //! Fusion runtime facing API,
   //!   builds a new entry with the given heuristics
   //!   corresponding to the given fusion
-  static std::unique_ptr<SchedulerEntry> makeEntry(
+  NVF_API static std::unique_ptr<SchedulerEntry> makeEntry(
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
@@ -148,7 +150,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 
   //! External access for canSchedule utilities through SchedulerEntry
   //!  to avoid exposing a single function to the namespace
-  static bool canSchedule(
+  NVF_API static bool canSchedule(
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
@@ -222,17 +224,9 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 };
 
 //! Hash function for a scheduler entry
-class TORCH_CUDA_CU_API SchedulerEntryHash {
+class SchedulerEntryHash {
  public:
   size_t operator()(const SchedulerEntry& se) const;
 };
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::string toString(ScheduleHeuristic sh);
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    ScheduleHeuristic sh);
 
 } // namespace nvfuser

@@ -18,7 +18,7 @@ using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
-class ManyPointwiseOpsFixture : public benchmark::Fixture {
+class NvFuserScheduler_ManyPointwiseOpsFixture : public benchmark::Fixture {
  public:
   void SetUp(const ::benchmark::State& state) override {
     fusion_ = std::make_unique<Fusion>();
@@ -39,14 +39,16 @@ class ManyPointwiseOpsFixture : public benchmark::Fixture {
     fusion_.reset();
   }
 
-  ~ManyPointwiseOpsFixture() override {
+  ~NvFuserScheduler_ManyPointwiseOpsFixture() override {
     assert(fusion_ == nullptr);
   }
 
   std::unique_ptr<Fusion> fusion_ = nullptr;
 };
 
-BENCHMARK_DEFINE_F(ManyPointwiseOpsFixture, ManyPointwiseOpsCopyTest)
+BENCHMARK_DEFINE_F(
+    NvFuserScheduler_ManyPointwiseOpsFixture,
+    ManyPointwiseOpsCopyTest)
 (benchmark::State& state) {
   for (auto _ : state) {
     Fusion fcopy = *fusion_;
@@ -54,7 +56,9 @@ BENCHMARK_DEFINE_F(ManyPointwiseOpsFixture, ManyPointwiseOpsCopyTest)
   state.SetComplexityN(state.range(0));
 }
 
-BENCHMARK_REGISTER_F(ManyPointwiseOpsFixture, ManyPointwiseOpsCopyTest)
+BENCHMARK_REGISTER_F(
+    NvFuserScheduler_ManyPointwiseOpsFixture,
+    ManyPointwiseOpsCopyTest)
     ->RangeMultiplier(2)
     ->Range(1 << 3, 1 << 12)
     ->Complexity();

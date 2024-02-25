@@ -104,8 +104,7 @@ class EliminateDeadBroadcastAndAllocate {
           // Also find any TVs used in index expressions.
           // These expressions will likely not be in the Expr tree we are
           // provided, so we need to traverse to find them.
-          auto all_index_roots =
-              InputsOf::outputs(FusionGuard::getCurFusion(), {ti->index()});
+          auto all_index_roots = InputsOf::outputs({ti->index()});
           auto index_root_tis =
               ir_utils::filterByType<kir::TensorIndex>(all_index_roots);
           for (auto rootti : index_root_tis) {
@@ -365,13 +364,13 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       // not have
       //  a size of 1, since it would have required re-indexing.
       if (!reduction_allocate_it->second->size()->isConstInt() ||
-          reduction_allocate_it->second->size()->evaluateInt() != 1) {
+          reduction_allocate_it->second->size()->evaluate() != 1) {
         return;
       }
 
       auto broadcast_allocate = getActiveAllocateFor(out_tv);
       if (!broadcast_allocate->size()->isConstInt() ||
-          broadcast_allocate->size()->evaluateInt() != 1) {
+          broadcast_allocate->size()->evaluate() != 1) {
         return;
       }
 
@@ -401,7 +400,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     }
 
     if (id->extent()->isConstScalar()) {
-      return id->extent()->evaluateInt() == warp_size;
+      return id->extent()->evaluate() == warp_size;
     }
 
     return false;

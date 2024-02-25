@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -44,6 +44,8 @@ enum class CompileTimeEntryType {
   BROADCAST_BYTE_MULTIPLES,
   INNER_MOST_DIMS_INFO,
   CAN_SCHEDULE_TRANSPOSE,
+  CAN_SCHEDULE_MUL_SUM_AS_MMA,
+  RFACTOR_REORDER_MAP,
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -182,6 +184,15 @@ class CanScheduleTranspose {
   using DataType = bool;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::CAN_SCHEDULE_TRANSPOSE;
+};
+
+//! Entry type definition class for `RFACTOR_REORDER_MAP`,
+//!  stores the domain map of a fusion.
+class RfactorReorderMap {
+ public:
+  using DataType = std::unordered_map<int, int>;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::RFACTOR_REORDER_MAP;
 };
 
 //! Base abstract class for unified storage in `HeuristicSummary`,

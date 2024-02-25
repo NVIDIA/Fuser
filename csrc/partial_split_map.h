@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <dispatch.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
@@ -19,7 +17,7 @@ namespace nvfuser {
 
 //! Collects start and stop offsets of all split root domains. Offsets
 //! are zero unless partially split.
-class TORCH_CUDA_CU_API PartialSplitMap {
+class PartialSplitMap {
  public:
   void build(Fusion* fusion);
 

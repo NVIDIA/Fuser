@@ -8,22 +8,33 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/torch.h>
+#include <visibility.h>
 
 #include <debug.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
 #include <deque>
-#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
+
+#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+
+#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
 
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
@@ -55,19 +66,21 @@ int8_t getCommonDeviceCUDA(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
-TORCH_CUDA_CU_API int64_t
-getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
+int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-TORCH_CUDA_CU_API int64_t
-getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.
 bool useFallback();
 
 //! Ceil integer division
-constexpr int64_t ceilDiv(int64_t a, int64_t b) {
-  return (a + b - 1) / b;
+constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
+  return (dividend + divisor - 1) / divisor;
+}
+
+constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
+  return ceilDiv(dividend, divisor) * divisor;
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -272,10 +285,12 @@ SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
 SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
 SPECIALIZE_PRINTER(std::vector<int64_t>);
+SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
 
@@ -445,6 +460,13 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-char* getNvFuserEnv(const char* env_name);
+NVF_API char* getNvFuserEnv(const char* env_name);
+
+// Returns the mapped value or the default.
+template <typename K, typename V>
+V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
+  const auto i = map.find(key);
+  return i == map.end() ? V() : i->second;
+}
 
 } // namespace nvfuser

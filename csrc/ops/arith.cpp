@@ -8,7 +8,6 @@
 #include <ops/arith.h>
 
 #include <c10/util/BFloat16.h>
-#include <c10/util/Exception.h>
 #include <c10/util/Half.h>
 #include <c10/util/irange.h>
 #include <ir/all_nodes.h>
@@ -53,6 +52,9 @@ Val* castOp(DataType dtype, Val* v1) {
 }
 
 Val* maybeCastOp(DataType dtype, Val* v1) {
+  if (v1->isScalar()) {
+    return SimplifyingIrBuilder::maybeCastExpr(dtype, v1);
+  }
   if (v1->dtype() != dtype) {
     return castOp(dtype, v1);
   }
@@ -321,10 +323,10 @@ Val* ones_like(Val* v) {
 
 TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (start == nullptr) {
-    start = IrBuilder::newConstant(0L, dtype);
+    start = IrBuilder::create<Val>(0L, dtype);
   }
   if (step == nullptr) {
-    step = IrBuilder::newConstant(1L, dtype);
+    step = IrBuilder::create<Val>(1L, dtype);
   }
   NVF_CHECK(
       isIntegralType(*length->getDataType()),
@@ -354,13 +356,13 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
 
   if (start->isConst() && start->isFloatingPointScalar()) {
     NVF_ERROR(
-        std::isfinite(start->getDouble().value()),
+        std::isfinite(start->value().as<double>()),
         "iota: length, start, step must be finite numbers.");
   }
 
   if (step->isConst() && step->isFloatingPointScalar()) {
     NVF_ERROR(
-        std::isfinite(step->getDouble().value()),
+        std::isfinite(step->value().as<double>()),
         "iota: length, start, step must be finite numbers.");
   }
 
@@ -408,7 +410,7 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
   auto abs_step = abs(step_for_size_computation);
   auto length = ceilDiv(distance, abs_step);
   if (!isIntegralType(length->dtype())) {
-    length = castOp(DataType::Index, length);
+    length = maybeCastOp(DataType::Index, length);
   }
   return iota(length, start, step, dtype);
 }
@@ -988,7 +990,7 @@ NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 // the right shift, and then cast back to the original value. In C++, unsigned
 // integers are shifted with logical right shift.
 template <typename LHS, typename RHS>
-TORCH_CUDA_CU_API typename std::conditional<
+typename std::conditional<
     std::is_same<LHS, TensorView*>::value ||
         std::is_same<RHS, TensorView*>::value,
     TensorView*,
@@ -1288,35 +1290,85 @@ TensorView* reductionOp(
     return maybe_full;
   }
 
+  // [Trivial reductions]
+  // When we reduce a simple broadcast axis like bS0{1} the effect is just to
+  // squeeze out that broadcast axis. When the axis is expanded, such as bS1{1
+  // ex i0}, then the effect depends on the op type. We have the following
+  // mappings from op_type to expanded reduction equivalent:
+  //   Add -> multiplication by i0
+  //   Mul -> raise to power i0
+  //   Min/Max -> squeeze
+  //   {Logical,Bitwise}{And,Or} -> squeeze
+  //   BitwiseXor -> 0 if i0 is even, else squeeze
+  //   Eq -> squeeze
+  //   Gcd -> squeeze
+  // Other op-types are non-commutative, so we ignore them here as they should
+  // not be used in reductions. We can see that the only two common ops that
+  // require special consideration are Add and Mul. Currently Xor is not
+  // supported for expanded reduction. We treat all others as trivial (i.e.
+  // squeeze).
   std::vector<int> reduction_axes;
-  std::vector<bool> is_trivial_reduction(ndims, false);
+  std::vector<bool> is_squeeze(ndims, false);
+  bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
+      reduction_op_type != BinaryOpType::Mul &&
+      reduction_op_type != BinaryOpType::BitwiseXor;
   int offset = 0;
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
-    is_trivial_reduction[axis] = id->isBroadcast() &&
-        !id->hasExpandedExtent() && id->extent()->isOneInt();
-    if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back((int)axis + offset);
-    } else if (!keep_dim) {
+    if (id->isBroadcast()) {
+      is_squeeze[axis] = true;
       offset--;
+    } else {
+      reduction_axes.push_back((int)axis + offset);
     }
   }
 
   TensorView* squeezed = tv;
   if (offset < 0) {
-    squeezed = squeeze(tv, is_trivial_reduction);
+    // There are some broadcast dims being reduced. We squeeze them all first.
+    squeezed = squeeze(tv, is_squeeze, /*squeeze_expanded=*/true);
   }
 
   TensorView* out = squeezed;
   if (!reduction_axes.empty()) {
-    return reductionOpRaw(
+    out = reductionOpRaw(
         reduction_op_type, reduction_axes, init, squeezed, keep_dim, dtype);
+  }
+
+  if (!expand_reductions_are_trivial) {
+    Val* factor = nullptr;
+    for (auto axis : uint_axes) {
+      IterDomain* id = tv_root[axis];
+      if (id->isBroadcast() && id->hasExpandedExtent()) {
+        factor =
+            SimplifyingIrBuilder::mulExpr(factor, id->getMaybeExpandedExtent());
+      }
+    }
+    if (factor != nullptr) {
+      factor = SimplifyingIrBuilder::maybeCastExpr(out->dtype(), factor);
+      if (reduction_op_type == BinaryOpType::Add) {
+        out = mul(out, factor);
+      } else if (reduction_op_type == BinaryOpType::Mul) {
+        out = pow(out, factor);
+      } else {
+        NVF_ERROR(
+            false,
+            "Add and Mul are the only non-trivial expand reductions allowed");
+      }
+    }
+  }
+
+  if (keep_dim && offset < 0) {
+    // There were squeezed dimension removed from squeeze that will not be
+    // restored by reductionOpRaw above, so we restore them here
+    out = broadcast(out, is_squeeze);
   }
 
   if (out == tv) {
     // makes sure that a new tensor is created
     return set(tv);
   }
+
   return out;
 }
 
@@ -1459,7 +1511,8 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   std::vector<Val*> maybe_expanded_sizes;
   maybe_expanded_sizes.resize(inp_domain.size(), nullptr);
 
-  // Did a dimension actually get expanded
+  // Might a dimension actually get expanded? This will be true if any input
+  // IterDomains are Symbolic, since these may or may not be Broadcast.
   bool expanded = false;
 
   std::vector<IterDomain*> out_domain;
@@ -1468,20 +1521,42 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     auto out_id_builder = IterDomainBuilder(inp_id);
     maybe_expanded_sizes[i] = inp_domain[i]->extent();
 
-    auto expanded_size_int = expanded_sizes[i]->getInt();
+    auto expanded_size_int = expanded_sizes[i]->value();
 
     // If the expanded size is -1, let the input extent be propagated
     // as is
-    if (expanded_size_int == -1) {
+    if (expanded_size_int.hasValue() && expanded_size_int == -1) {
       // This is just done for clarity. It isn't necessary as it's
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
-    } else if (inp_id->isBroadcast() && expanded_size_int != 1) {
+    } else if (
+        // special patch for Symbolic IterDomain with a static size-1 extent
+        // since we know it will become broadcast at concretization
+        // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
+        (inp_id->extent()->isConstInt() && inp_id->extent()->evaluate() == 1) &&
+        (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
       auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
       out_id_builder.expanded_extent(expanded_extent);
+      // need to mark iter type as Broadcast for Symbolic input domains
+      out_id_builder.iter_type(IterType::Broadcast);
+      maybe_expanded_sizes[i] = expanded_extent;
+    } else if (
+        inp_id->isSymbolic() &&
+        (!inp_id->extent()->isConstInt() &&
+         !inp_id->extent()->sameAs(expanded_sizes[i]))) {
+      // need to mark iter type as Symbolic since this might not be an expand
+      // after concretization
+      expanded = true;
+      out_id_builder.iter_type(IterType::Symbolic);
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      // We set the extent instead of the expanded extent on a Symbolic
+      // IterDomain. At concretization, if the IterType is determined to be
+      // Broadcast, we will replace this with 1 and use the old extent as
+      // expandedExtent.
+      out_id_builder.extent(expanded_extent);
       maybe_expanded_sizes[i] = expanded_extent;
     } else if (!inp_id->extent()->isConstInt()) {
       // Input id is non-broadcast and its extent is symbolic. Promote
@@ -1493,8 +1568,8 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
       // the expanded size is also concrete.
-      auto inp_id_size_int = inp_id->extent()->evaluateInt();
-      if (expanded_size_int.has_value()) {
+      auto inp_id_size_int = inp_id->extent()->evaluate();
+      if (expanded_size_int.is<int64_t>()) {
         NVF_CHECK(
             inp_id_size_int == expanded_size_int,
             "Invalid expand size, ",
@@ -1618,7 +1693,7 @@ Val* size(TensorView* inp, int64_t dim) {
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
-Val* at(std::vector<Val*>& inp, int64_t index) {
+Val* at(const std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
     idx = static_cast<int64_t>(inp.size()) + idx;
@@ -1740,7 +1815,7 @@ WelfordResult Welford(
 
   TensorView* squeezed = tv;
   if (offset < 0) {
-    squeezed = squeeze(tv, is_trivial_reduction);
+    squeezed = squeeze(tv, is_trivial_reduction, /*squeeze_expanded=*/true);
   }
 
   if (!reduction_axes.empty()) {
@@ -2379,7 +2454,7 @@ TensorView* gather(
         inp_axis->stopOffset()->isConstInt(),
         "Dynamic stop offset not supported: ",
         inp_axis);
-    const auto inp_stop_offset = inp_axis->stopOffset()->evaluateInt();
+    const auto inp_stop_offset = inp_axis->stopOffset()->evaluate();
     const auto extent_adjustment = window_dim - 1 - pad_left - pad_right;
     NVF_CHECK(
         extent_adjustment >= 0,
@@ -2532,19 +2607,6 @@ TensorView* fusedMultiplySum(
     TensorView* tv_b,
     const std::vector<int>& axes,
     Val* init) {
-  if (init == nullptr) {
-    init = IrBuilder::create<Val>(0.0);
-  }
-
-  // TODO:
-  //  We will want to support initialize and rfactor with
-  //  mma as well, for maybe fusing bias in prolog.
-  // TODO: check init type if given a tv,
-  //  not supported currently though.
-  NVF_CHECK(
-      init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
-
   // TODO:
   //  Validate axis relationships between a and b
   NVF_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
@@ -2569,6 +2631,21 @@ TensorView* fusedMultiplySum(
       canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
+
+  if (init == nullptr) {
+    init = IrBuilder::create<Val>(0.0, out->dtype());
+  }
+
+  // TODO:
+  //  We will want to support initialize and rfactor with
+  //  mma as well, for maybe fusing bias in prolog.
+  NVF_CHECK(
+      init->isConstScalar(),
+      "Cannot create a reduction operation where the initial value is not a const scalar.");
+  NVF_CHECK(
+      init->dtype() == out->dtype(),
+      "Init value dtype for fusedMultiplySum must match output.");
+
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
 
   return out;

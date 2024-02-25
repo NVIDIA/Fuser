@@ -14,16 +14,57 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <test/rng_helper.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 namespace nvfuser {
 
-at::Tensor generate_uniform(int64_t size, at::ScalarType dtype);
+at::Tensor generate_random_numbers(
+    int64_t size,
+    at::ScalarType dtype,
+    RNGTest_t rng_test) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto result = at::empty({size}, options);
 
-at::Tensor generate_normal(int64_t size, at::ScalarType dtype);
+  auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
+      c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
+  at::PhiloxCudaState rng_engine_inputs;
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen->mutex_);
+    rng_engine_inputs = gen->philox_cuda_state(4);
+  }
+
+  if (dtype == at::kFloat) {
+    launch_generate_random_numbers_kernel(
+        at::cuda::getCurrentCUDAStream(),
+        result.data_ptr<float>(),
+        size,
+        rng_engine_inputs,
+        rng_test);
+  } else {
+    NVF_CHECK(dtype == at::kDouble);
+    launch_generate_random_numbers_kernel(
+        at::cuda::getCurrentCUDAStream(),
+        result.data_ptr<double>(),
+        size,
+        rng_engine_inputs,
+        rng_test);
+  }
+  return result;
+}
+
+at::Tensor generate_uniform(int64_t size, at::ScalarType dtype) {
+  return generate_random_numbers(size, dtype, RNGTest_t::Uniform);
+}
+
+at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
+  return generate_random_numbers(size, dtype, RNGTest_t::Normal);
+}
 
 class RNGTest : public NVFuserTest {};
 
@@ -433,6 +474,68 @@ TEST_F(RNGTest, FunctionalUniform) {
           __LINE__,
           __FILE__);
     }
+  }
+}
+
+namespace {
+
+int64_t get_current_offset() {
+  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen.mutex());
+    auto philox_args =
+        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(0);
+    auto seeds = at::cuda::philox::unpack(philox_args);
+    return std::get<1>(seeds);
+  }
+}
+
+} // namespace
+
+TEST_F(RNGTest, DifferentOffsets) {
+  // Check that multiple runs of RNG kernel does not produce the same numbers,
+  // and it does bump up RNG offset for ATen.
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  {
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    Val* size_val = IrBuilder::create<Val>(DataType::Int);
+    fusion->addInput(size_val);
+    TensorView* tv0 = rand({size_val}, DataType::Float);
+    fusion->addOutput(tv0);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  std::unique_ptr<Fusion> fusion_ptr2 = std::make_unique<Fusion>();
+  {
+    auto fusion = fusion_ptr2.get();
+    FusionGuard fg(fusion);
+    Val* size_val = IrBuilder::create<Val>(DataType::Int);
+    fusion->addInput(size_val);
+    TensorView* tv0 = rand({size_val}, DataType::Double);
+    TensorView* tv1 = rand({size_val}, DataType::Float);
+    fusion->addOutput(tv0);
+    fusion->addOutput(tv1);
+  }
+
+  FusionExecutorCache fec2(std::move(fusion_ptr2));
+
+  for (int64_t size : {1, 4}) {
+    at::manual_seed(0);
+    EXPECT_TRUE(get_current_offset() == 0);
+    auto r1 = fec.runFusionWithInputs({size}).at(0);
+    EXPECT_TRUE(get_current_offset() == 4);
+    auto r23 = fec2.runFusionWithInputs({size});
+    auto r2 = r23.at(0);
+    auto r3 = r23.at(1);
+    EXPECT_TRUE(get_current_offset() == 12);
+    // Check that non of r1's elements are equal to any r2's elements.
+    // Same for r1 vs r3, and r2 vs r3.
+    EXPECT_TRUE(r1.unsqueeze(1).ne(r2.unsqueeze(0)).all().item<bool>());
+    EXPECT_TRUE(r1.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
+    EXPECT_TRUE(r2.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
   }
 }
 

@@ -7,15 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 namespace nvfuser {
 
 class IrContainer;
 
 // Passkey for builder to register properties with statements, and to call
 // functions in IrContainer
-class TORCH_CUDA_CU_API IrBuilderPasskey {
+class IrBuilderPasskey {
   friend class IrBuilder;
 
  public:

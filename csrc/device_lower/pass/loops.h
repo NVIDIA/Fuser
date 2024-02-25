@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <compute_at_map.h>
@@ -32,7 +31,7 @@ namespace nvfuser {
 //!
 //! It does not generate predicates, but it will generate allocations, and loop
 //! nests to initialize reduction buffers.
-class TORCH_CUDA_CU_API LoopNestGenerator {
+class LoopNestGenerator {
  public:
   static std::vector<Expr*> loweredExprs(const std::vector<Expr*>& exprs);
 

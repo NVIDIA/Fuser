@@ -8,13 +8,13 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <cstddef>
 #include <optional>
@@ -27,9 +27,9 @@ namespace nvfuser {
 //! for both compilation as well as kernel execution. The important thing is to
 //! strip ownership of tensor from KernelArgumentHolder, so that during async
 //! compilation, we are not unnecessarily holding memory that is not needed.
-class TORCH_CUDA_CU_API KernelArgumentHolder {
+class KernelArgumentHolder {
  public:
-  static KernelArgumentHolder createKernelArgumentHolder(
+  NVF_API static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device = std::nullopt);
 
@@ -39,7 +39,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
-  PrimDataType getSmallestIndexTypeOfArguments() const;
+  NVF_API PrimDataType getSmallestIndexTypeOfArguments() const;
 
   // Push a tensor proxy to the arguments
   void pushTensorProxy(
@@ -47,9 +47,9 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
-  void push(const c10::ArrayRef<c10::IValue>& args);
+  NVF_API void push(const c10::ArrayRef<c10::IValue>& args);
 
-  void push(const std::vector<at::Tensor>& tensors);
+  NVF_API void push(const std::vector<at::Tensor>& tensors);
 
   void erase(const PolymorphicValue* arg_to_delete);
 

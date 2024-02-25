@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <fusion.h>
@@ -15,7 +14,9 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <multidevice/device_mesh.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -41,7 +42,7 @@ class ViewTransform;
 class IrCloner;
 
 namespace ir_utils {
-TORCH_CUDA_CU_API std::string varName(const Val* val);
+std::string varName(const Val* val);
 }
 
 template <typename T>
@@ -76,7 +77,7 @@ class TVDomainGuard;
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of
 //! these transformations are kept and used for generating actual code
-//! referncing physical memory. Generally when users are thinking of code
+//! referencing physical memory. Generally when users are thinking of code
 //! generation in reference to a Tensor, this is the class they should be
 //! interacting with.
 //!
@@ -96,7 +97,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_CU_API TensorView : public Val {
+class NVF_API TensorView : public Val {
  public:
   TensorView(
       IrBuilderPasskey passkey,
@@ -108,10 +109,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
       IrBuilderPasskey passkey,
       const std::shared_ptr<c10::TensorType>& tensor_type);
 
-  explicit TensorView(
-      IrBuilderPasskey passkey,
-      const std::shared_ptr<torch::jit::Value>& jit_value);
-
   TensorView(const TensorView* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
@@ -119,6 +116,8 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
+
+  void printTransforms() const;
 
   TensorDomain* domain() const {
     return domain_;
@@ -133,7 +132,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
-  const std::vector<std::optional<bool>>& getContiguity() {
+  const std::vector<std::optional<bool>>& getContiguity() const {
     return domain()->contiguity();
   }
 
@@ -325,6 +324,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
+  TensorView* swizzle(SwizzleType swizzle_type, int x, int y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
       int x,
@@ -362,16 +362,18 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! write results into shared memory or registers before moving to global
   //! memory. Analogous to TVM Cache_Write
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheBefore(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheBefore(LoadStoreOpType op_type = LoadStoreOpType::Set);
 
   //! Create a TensorView after the original tensor. A common use case is to
   //! read tensor into shared memory or registers. Analogous to TVM Cache_Read
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheAfter(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheAfter(
+      LoadStoreOpType op_type = LoadStoreOpType::Set,
+      CacheOp cache_op = CacheOp::Unspecified);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -412,7 +414,12 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
-  void applyMmaSwizzle(MmaOptions options);
+  void applyMmaSwizzle(MmaOperand operand);
+  // TODO: what is transpose 2? Why do we need it?
+  void applyMmaSwizzle(
+      MmaInputSmemSwizzle swizzle,
+      bool transpose,
+      bool transpose2 = false);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -421,10 +428,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return has_swizzle_op_;
   }
 
-  friend TORCH_CUDA_CU_API TransformPropagator;
-  friend TORCH_CUDA_CU_API MostInlinedTransformPropagator;
-  friend TORCH_CUDA_CU_API TransformReplay;
-  friend TORCH_CUDA_CU_API OptOutMutator;
+  friend TransformPropagator;
+  friend MostInlinedTransformPropagator;
+  friend TransformReplay;
+  friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
@@ -525,6 +532,19 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return promote_reuse_;
   }
 
+  void setDeviceMesh(const DeviceMesh& mesh) {
+    mesh_ = mesh;
+  }
+
+  const DeviceMesh& getDeviceMesh() const {
+    NVF_ERROR(hasDeviceMesh(), "DeviceMesh is not initialized");
+    return mesh_;
+  }
+
+  bool hasDeviceMesh() const {
+    return !mesh_.vector().empty();
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -596,6 +616,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! current tensor. This will then allow us to safely reuse the memory
   //! allocated to this tensor.
   bool promote_reuse_ = false;
+
+  // Device Mesh on which the Tensor is sharded
+  DeviceMesh mesh_;
 };
 
 //! A simple TensorView builder
@@ -608,7 +631,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_CU_API TensorViewBuilder {
+class NVF_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);
@@ -626,6 +649,9 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
 
   //! Set if a dimension is expanded
   TensorViewBuilder& expanded(std::vector<bool> expanded);
+
+  //! Set the permutation from allocation domain on root domain
+  TensorViewBuilder& strideOrder(std::vector<int64_t> stride_order);
 
   //! Creates a new TensorView with the specified options
   TensorView* build() const;
@@ -647,6 +673,8 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
+
+  std::vector<int64_t> stride_order_;
   std::vector<bool> expanded_;
 };
 

@@ -187,17 +187,6 @@ OperandType getValueType(Val* type) {
 
 DataType computeTypes(
     const TypePromotionConfig& config,
-    const std::vector<torch::jit::TypePtr>& operands) {
-  std::vector<OperandType> vt_operands;
-  vt_operands.reserve(operands.size());
-  for (const auto& op : operands) {
-    vt_operands.emplace_back(getValueType(op));
-  }
-  return computeTypes(config, vt_operands);
-}
-
-DataType computeTypes(
-    const TypePromotionConfig& config,
     const std::vector<Val*>& operands,
     const bool cast_half_to_float) {
   std::vector<OperandType> vt_operands;

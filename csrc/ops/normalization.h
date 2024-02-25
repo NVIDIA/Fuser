@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -128,76 +128,73 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API TensorView* mean(
-    TensorView* x,
-    const std::vector<int>& dims,
-    bool keepdim);
+TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim);
 
-TORCH_CUDA_CU_API TensorView* variance(
+NVF_API TensorView* variance(
     TensorView* x,
     const std::vector<int>& dims,
     bool unbiased,
     bool keepdim);
 
-TORCH_CUDA_CU_API TensorView* variance(
+NVF_API TensorView* variance(
     TensorView* x,
     const std::vector<int>& dims,
     int64_t correction,
     bool keepdim);
 
-TORCH_CUDA_CU_API VarMeanResult variance_mean(
+NVF_API VarMeanResult variance_mean(
     TensorView* x,
     const std::vector<int>& dims,
     int64_t correction,
     bool keepdim);
 
-TORCH_CUDA_CU_API TensorView* standard_deviation(
+NVF_API TensorView* standard_deviation(
     TensorView* x,
     const std::vector<int>& dims,
     bool unbiased,
     bool keepdim);
 
-TORCH_CUDA_CU_API TensorView* softmax(TensorView* x, int dim);
+NVF_API TensorView* softmax(TensorView* x, int dim);
 
-TORCH_CUDA_CU_API TensorView* softmax_backward(
+NVF_API TensorView* softmax_backward(
     TensorView* dy,
     TensorView* y,
     const int dim);
 
-TORCH_CUDA_CU_API TensorView* log_softmax(TensorView* x, int dim);
+NVF_API TensorView* log_softmax(TensorView* x, int dim);
 
-TORCH_CUDA_CU_API TensorView* log_softmax_backward(
+NVF_API TensorView* log_softmax_backward(
     TensorView* dy,
     TensorView* y,
     const int dim);
 
-TORCH_CUDA_CU_API ForwardNormResult layer_norm(
+NVF_API ForwardNormResult layer_norm(
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     TensorView* bias,
     Val* eps);
 
-TORCH_CUDA_CU_API ForwardNormResult layer_norm(
+NVF_API ForwardNormResult layer_norm(
     TensorView* x,
     const size_t kNormShapeNumDims,
     TensorView* weight,
     TensorView* bias,
     Val* eps);
 
-TORCH_CUDA_CU_API ForwardRMSNormResult rms_norm(
+NVF_API ForwardRMSNormResult rms_norm(
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     Val* eps);
 
-TORCH_CUDA_CU_API ForwardRMSNormResult rms_norm(
+NVF_API ForwardRMSNormResult rms_norm(
     TensorView* x,
     const size_t kNormShapeNumDims,
     TensorView* weight,
     Val* eps);
 
-TORCH_CUDA_CU_API BackwardNormResult layer_norm_backward(
+NVF_API BackwardNormResult layer_norm_backward(
     TensorView* dy,
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
@@ -207,7 +204,7 @@ TORCH_CUDA_CU_API BackwardNormResult layer_norm_backward(
     TensorView* bias,
     const std::vector<bool>& output_mask);
 
-TORCH_CUDA_CU_API BackwardRMSNormResult rms_norm_backward(
+NVF_API BackwardRMSNormResult rms_norm_backward(
     TensorView* dy,
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
@@ -215,7 +212,7 @@ TORCH_CUDA_CU_API BackwardRMSNormResult rms_norm_backward(
     TensorView* weight,
     const std::vector<bool>& output_mask);
 
-TORCH_CUDA_CU_API ForwardNormResult batch_norm(
+NVF_API ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
     TensorView* bias,
@@ -226,7 +223,7 @@ TORCH_CUDA_CU_API ForwardNormResult batch_norm(
     Val* eps,
     bool channels_last = false);
 
-TORCH_CUDA_CU_API BackwardNormResult batch_norm_backward(
+NVF_API BackwardNormResult batch_norm_backward(
     TensorView* x,
     TensorView* dy,
     TensorView* weight,
@@ -239,7 +236,7 @@ TORCH_CUDA_CU_API BackwardNormResult batch_norm_backward(
     const std::vector<bool>& output_mask,
     bool channels_last = false);
 
-TORCH_CUDA_CU_API ForwardNormResult instance_norm(
+NVF_API ForwardNormResult instance_norm(
     TensorView* x,
     TensorView* weight,
     TensorView* bias,
@@ -250,7 +247,7 @@ TORCH_CUDA_CU_API ForwardNormResult instance_norm(
     Val* eps,
     bool channels_last = false);
 
-TORCH_CUDA_CU_API BackwardNormResult instance_norm_backward(
+NVF_API BackwardNormResult instance_norm_backward(
     TensorView* x,
     TensorView* dy,
     TensorView* weight,

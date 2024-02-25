@@ -388,11 +388,13 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
     int device = 0;
-#define TORCH_VERSION_GREATER(major, minor, patch)                    \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
-#if TORCH_VERSION_GREATER(2, 0, 1)
+#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
+    // c10::cuda uses DeviceIndex instead of int
+    // https://github.com/pytorch/pytorch/pull/119142
+    c10::DeviceIndex device_index;
+    c10::cuda::GetDevice(&device_index);
+    device = static_cast<int>(device_index);
+#elif NVF_TORCH_VERSION_GREATER(2, 0, 1)
     // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
     // in order to properly handle new CUDA 112 behavior
     c10::cuda::GetDevice(&device);
@@ -400,10 +402,11 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
     cudaGetDevice(&device);
 #endif
 
-    auto device_stats = allocator->getDeviceStats(0);
+    auto device_stats = allocator->getDeviceStats(device);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
-    if (device_stats.reserved_bytes[0].current > max_bytes) {
+    if (uint64_t(device_stats.reserved_bytes[0].current) >
+        uint64_t(max_bytes)) {
       allocator->emptyCache();
       return true;
     }
@@ -449,8 +452,44 @@ class NVFuserTest : public ::testing::Test {
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
+
+    // Make sure capturing of stdout is stopped
+    ensureStopCaptureStdout();
   }
+
+  // Start capturing of stdout if not already started
+  void captureStdout() {
+    if (!capturing_) {
+      testing::internal::CaptureStdout();
+      capturing_ = true;
+    }
+  }
+
+  // Stop capturing of stdout if being captured
+  void ensureStopCaptureStdout() {
+    if (capturing_) {
+      testing::internal::GetCapturedStdout();
+      capturing_ = false;
+    }
+  }
+
+  // Get capturing stdout
+  std::string getCapturedStdout() {
+    NVF_ERROR(capturing_, "Not captured");
+    auto str = testing::internal::GetCapturedStdout();
+    capturing_ = false;
+    return str;
+  }
+
+ private:
+  bool capturing_ = false;
 };
+
+// Fixture with param class must be uniquely identified, i.e., can't be in an
+// anonymous namespace
+template <typename tParam>
+class NVFuserFixtureParamTest : public NVFuserTest,
+                                public ::testing::WithParamInterface<tParam> {};
 
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
@@ -464,12 +503,13 @@ struct Instruction {
   std::string str;
   size_t address;
 
-  std::string predicate();
-  std::string action(); // The part of the string that is not predicate
-  std::string op(); // Some thing like: LDGSTS.E.128
-  std::string opCode(); // Something like LDGSTS
-  std::vector<std::string> modifiers(); // Something like {E, 128}
-  std::vector<std::string> args(); // Something like {[R217+0x1800], [R202.64]}
+  std::string predicate() const;
+  std::string action() const; // The part of the string that is not predicate
+  std::string op() const; // Some thing like: LDGSTS.E.128
+  std::string opCode() const; // Something like LDGSTS
+  std::vector<std::string> modifiers() const; // Something like {E, 128}
+  std::vector<std::string> args()
+      const; // Something like {[R217+0x1800], [R202.64]}
 };
 
 struct Label {
@@ -544,44 +584,45 @@ inline bool cudaArchGuardShouldSkip(
     COMPILE_FUSION;                                                          \
   }
 
-// util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaLayout;
+static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
+    MmaLayout::TT,
+    MmaLayout::NT,
+    MmaLayout::TN,
+    MmaLayout::NN};
 
-static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN,
-    MatmulLayout::NN};
-
-// Generic interface to get matmul op with the given layout.
-TensorView* matmul(
-    TensorView* a,
-    TensorView* b,
-    MatmulLayout layout,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-);
-
-// Generic interface to get splitK-like batched matmul op with the given layout.
-// For splitK like batched matmul, there is only one batch dimension, and that
-// dimension should be right before the K dimension. This function currently
-// assume Ampere or Turing.
-TensorView* splitkLikeBatchedMatmul(
-    TensorView* a,
-    TensorView* b,
-    MatmulLayout layout);
+static auto kAllSmemSwizzleModes = testing::Values(
+    MmaInputSmemSwizzle::None,
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
-std::pair<at::Tensor, at::Tensor> matmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
     int M,
     int N,
     int K,
-    MatmulLayout layout,
+    MmaLayout layout,
+    c10::ScalarType dtype = at::kHalf);
+
+// Utility to generate input shapes based on given layout
+std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout);
+
+// Utility to generate inputs based on given layout
+std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
@@ -593,8 +634,8 @@ enum class TensorMatmulPos { A, B, C, D, Bias };
 
 // Utility to generate buffers based on given problem, layout and tensor
 //  position in matmul with support for matmul and strided batch matmul
-at::Tensor matmulAtInput(
-    const MatmulLayout layout,
+at::Tensor matmulAtInput2D(
+    const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
     const int M,
@@ -602,6 +643,14 @@ at::Tensor matmulAtInput(
     const int K,
     const int B = 0,
     const int device = 0);
+
+// Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
+// insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
+// tensor view can be directly used as input to fusedMultiplySum.
+TensorView* canonicalizeInputToBMNK(
+    TensorView* tv,
+    MmaLayout layout,
+    MmaOperand operand);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
   if (at::cuda::getDeviceProperties(device_idx)->sharedMemPerBlockOptin <   \
@@ -630,4 +679,8 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 // Utility to generate tensor with bias applied on the input tensor,
 // to be used to caldulate reference data
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
+
+// Get the number of SMs on the current device
+int getNumSMs();
+
 } // namespace nvfuser

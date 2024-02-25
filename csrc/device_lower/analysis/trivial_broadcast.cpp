@@ -52,6 +52,30 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
   return {};
 }
 
+// In some cases an op like pad or slice will introduce a broadcast domain by
+// truncating a longer dimension or expanding an empty dimension to size 1. In
+// these cases tv will have RFactor Broadcast IterDomains that are not present
+// in the root domain. Contrast this with BroadcastOp, whose output does not
+// have RFactor domains and instead places new broadcast domains in the output
+// root domain.
+void ConcretizedBroadcastDomains::handle(TensorView* tv) {
+  if (!tv->hasRFactor()) {
+    return;
+  }
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    // Register broadcast rfactor domains that are not root domains as new
+    // broadcast origins.
+    if (id->isBroadcast() &&
+        std::find(tv->getRootDomain().begin(), tv->getRootDomain().end(), id) ==
+            tv->getRootDomain().end()) {
+      broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
+    }
+  }
+}
+
+// Most broadcasts are handled with this method, since Broadcast domains are
+// usually introduced through a BroadcastOp. Others are handled by the
+// handle(TensorView*) method.
 void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   // Create a new entry for each of new broadcast domains
   auto out = bop->out()->as<TensorView>();
@@ -83,10 +107,8 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto p2c_map =
-          PairwiseRootDomainMap(producer, consumer)
-              .mapProducerToConsumer(
-                  producer->domain(), consumer->domain(), producer_broadcasts);
+      auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+                         .mapProducerToConsumer(&producer_broadcasts);
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;

@@ -3,19 +3,27 @@
 
 #pragma once
 
-#include <exceptions.h>
 #include <array>
 #include <cstdint>
 #include <deque>
-#include <fstream>
+#include <exception>
+#include <iosfwd>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <type_traits>
-#include <typeinfo>
 #include <vector>
 
+#include <visibility.h>
+
 namespace nvfuser {
+
+// This function will demangle the mangled function name into a more human
+// readable format, e.g. _Z1gv -> g().
+// More information:
+// https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/libsupc%2B%2B/cxxabi.h
+// NOTE: `__cxa_demangle` returns a malloc'd string that we have to free
+// ourselves.
+std::string demangle(const char* name);
 
 std::string _get_backtrace(
     size_t frames_to_skip = 0,
@@ -118,7 +126,7 @@ inline decltype(auto) to_str(const Args&... args) {
       args...);
 }
 
-class nvfError : public std::exception {
+class NVF_API nvfError : public std::exception {
   // The actual error message.
   std::string msg_;
   // Context for the message (in order of decreasing specificity).  Context will
@@ -186,13 +194,13 @@ class nvfError : public std::exception {
   std::string compute_what(bool include_backtrace) const;
 };
 
-[[noreturn]] void nvfCheckFail(
+[[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
     uint32_t line,
     const std::string& msg);
 
-[[noreturn]] void nvfCheckFail(
+[[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
     uint32_t line,
@@ -214,7 +222,7 @@ class nvfError : public std::exception {
   nvfCheckFail(func, file, line, condMsg);
 }
 
-[[noreturn]] void nvfErrorFail(
+[[noreturn]] NVF_API void nvfErrorFail(
     const char* func,
     const char* file,
     uint32_t line,

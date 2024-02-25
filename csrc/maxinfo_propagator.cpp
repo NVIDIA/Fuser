@@ -249,8 +249,7 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
       std::dynamic_pointer_cast<RootDomainInfo>(from_info)->info;
 
   auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
-  auto p2c_map = pairwise_map.mapProducerToConsumer(
-      producer->domain(), consumer->domain());
+  auto p2c_map = pairwise_map.mapProducerToConsumer();
 
   for (auto& info : producer_root_id_info) {
     RootIDInfo consumer_info;
@@ -306,8 +305,7 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
       std::dynamic_pointer_cast<RootDomainInfo>(from_info)->info;
 
   auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
-  auto c2p_map = pairwise_map.mapConsumerToProducer(
-      consumer->domain(), producer->domain());
+  auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   for (auto& info : consumer_root_id_info) {
     RootIDInfo producer_info;

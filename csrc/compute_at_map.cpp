@@ -14,7 +14,6 @@
 #include <transform_iter.h>
 
 #include <tuple>
-#include <typeinfo>
 
 namespace nvfuser {
 namespace {
@@ -154,11 +153,11 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluateInt() == extent_1o->evaluateInt());
+         extent_0o->evaluate() == extent_1o->evaluate());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluateInt() == extent_1i->evaluateInt());
+         extent_0i->evaluate() == extent_1i->evaluate());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
@@ -468,10 +467,9 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv)
-                .mapBroadcast(false)
-                .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                      .mapBroadcast(false)
+                                      .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
@@ -606,13 +604,13 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
     auto exprs = StmtSort::getExprsTo(
-        fusion,
         {consumer_tv->getMaybeRFactorDomain().begin(),
          consumer_tv->getMaybeRFactorDomain().end()});
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
-          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>(),
+          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
           "\nto be an expression defined in an rfactor transformation.");
@@ -768,8 +766,10 @@ void IterDomainGraph::initializeId(
   }
 }
 
-ComputeAtMap::ComputeAtMap(Fusion* fusion)
-    : id_graph_(fusion), concretized_bcasts_(fusion), fusion_(fusion) {
+ComputeAtMap::ComputeAtMap(Fusion* fusion, bool allow_self_mapping)
+    : id_graph_(fusion, allow_self_mapping),
+      concretized_bcasts_(fusion),
+      fusion_(fusion) {
   build(fusion);
 }
 
@@ -807,22 +807,34 @@ void ComputeAtMap::allocateIndexVariables() {
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;
+
+    // We don't allocate any index variable for domains which
+    // are parallelized accross devices
+    if (auto result = std::find_if(
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) { return id->isDeviceDim(); });
+        result != loop_disjoint_set->vector().end()) {
+      loop_index_variable_map_[loop_disjoint_set.get()] = fusion_->zeroVal();
+      continue;
+    }
+
     // first allocate thread and grid parallel indices:
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
 
-    auto result = std::find_if(
-        loop_disjoint_set->vector().begin(),
-        loop_disjoint_set->vector().end(),
-        [](IterDomain* id) {
-          // Halo extended parallel loops currently are handled
-          // differently and an index variable would still
-          // be allocated in this case.
-          return id->isThread() &&
-              (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
-        });
-    if (result != loop_disjoint_set->vector().end()) {
+    if (auto result = std::find_if(
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) {
+              // Halo extended parallel loops currently are handled
+              // differently and an index variable would still
+              // be allocated in this case.
+              return id->isThread() &&
+                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
+            });
+        result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
           NamedScalar::getParallelIndex(ptype);
@@ -1218,6 +1230,14 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
+  if (expr_1->isA<Swizzle>()) {
+    auto swizzle_1 = expr_1->as<Swizzle>();
+    auto swizzle_2 = expr_2->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
+      return false;
+    }
+  }
+
   NVF_ERROR(
       expr_1->inputs().size() == expr_2->inputs().size() &&
           expr_1->outputs().size() == expr_2->outputs().size(),
@@ -1426,8 +1446,6 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
-  ss << "Permissive-Relaxed-Resize map:\n"
-     << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);

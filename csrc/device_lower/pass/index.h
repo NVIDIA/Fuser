@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <instrumentation.h>
@@ -22,7 +21,7 @@ namespace nvfuser {
 
 // TODO: Replace with mutator as IndexLowering is replacing expr's with
 // versions that are doing indexing
-class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
+class IndexLowering : private OptOutConstDispatch {
  public:
   static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs) {
     FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
@@ -78,8 +77,12 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
   void handle(const kir::Allocate*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
-  void handle(const kir::CpAsyncWait*) final;
-  void handle(const kir::CpAsyncCommit*) final;
+  void handle(const kir::MBarrierInit*) final;
+  void handle(const kir::MBarrierInvalidate*) final;
+  void handle(const kir::AsyncWait*) final;
+  void handle(const kir::AsyncCommit*) final;
+  void handle(const kir::BlockSerializeWait*) final;
+  void handle(const kir::BlockSerializeRelease*) final;
 
   void generate(const std::vector<Expr*>& exprs);
 
@@ -104,15 +107,23 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
       Val* val,
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
-      bool generate_pointer = false) const;
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null) const;
 
   Val* lowerDstIndex(
       Val* dst,
       const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false) const;
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null) const;
+
+  void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
+  void handleCpAsyncBulkStore(const LoadStoreOp* ldst);
 
   void handleBlockReduction(const ReductionOp* rop, Val* out, Val* in);
   void handleGridReduction(const ReductionOp* rop, Val* out, Val* in);
+  //! Called by handleGridReduction, this returns true if rop is lowered as a
+  //! serial grid reduction.
+  void handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
 
   void handleBlockReduction(
       const GroupedReductionOp* rop,
@@ -155,6 +166,13 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
   // TensorView. Parameter expr is the expression corresponding to the
   // fused reduction.
   void allocateUniqueFusedReduction(Expr* expr, TensorView* out_tv);
+
+  //! Get index of producer_tv as if broadcast_id had Iteration type instead of
+  //! Broadcast
+  Val* getIterationIndexForBroadcast(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
+      IterDomain* broadcast_id) const;
 
  private:
   std::vector<Expr*> lowered_exprs_;

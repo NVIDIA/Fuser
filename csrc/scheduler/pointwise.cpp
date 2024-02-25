@@ -5,29 +5,110 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/pointwise.h>
-
-#include <debug.h>
-#include <device_lower/utils.h>
-#include <executor_utils.h>
-#include <inlining.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-
-#include <algorithm>
-#include <unordered_map>
+#include <debug.h>
+#include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
+#include <scheduler/debug_utils.h>
+#include <scheduler/mark_aliases.h>
+#include <scheduler/pointwise.h>
+#include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
+#include <scheduler/transpose.h>
+#include <scheduler/utils.h>
+#include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
+
+PointWiseScheduler::PointWiseScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(heuristicType()) {
+  computeHeuristics(fusion, runtime_info, data_cache);
+}
+
+bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
+  //   Currently using the same path as the scheduler
+  // to eliminate mismatch between canSchedule and
+  // schedule pointwise.
+  if (!hasReferenceTensorView(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "cannot find reference tensor");
+    return false;
+  }
+
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, heuristicType())) {
+    return false;
+  }
+
+  // Fusions handled by pointwise scheduler cannot have MmaOp.
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "no support for mma ops.");
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          heuristicType(), "Fusion requires view being reversible.");
+      return false;
+    }
+  }
+
+  if (ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "no support for reduction ops");
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(),
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  return true;
+}
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  auto can_schedule_transpose_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
+          data_cache, [fusion]() {
+            return std::make_unique<bool>(
+                TransposeScheduler::canScheduleCompileTime(fusion));
+          });
+  if (can_schedule_transpose_entry.get()) {
+    auto reason =
+        getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
+    return !reason.empty();
+  }
+
+  return true;
+}
+
+void PointWiseScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule PointWise Fusion");
+  schedulePointwise(fusion, pointwiseParams());
+}
+
+void PointWiseScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
 
 namespace {
 // constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
@@ -86,6 +167,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
+  auto params =
+      std::make_shared<PointwiseParams>("Pointwise heuristics", index_type);
+
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 
   auto domain_map_entry =
@@ -116,10 +200,30 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
   }
 
+  auto rfactor_reorder_map_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>(
+          data_cache, [&fusion, &largest_out]() {
+            // NOTE: rfactor_reorder_map is only applied for fusion without view
+            // op yet.
+            if (!ir_utils::getViewOps(fusion).empty()) {
+              return std::make_unique<std::unordered_map<int, int>>();
+            }
+            return std::make_unique<std::unordered_map<int, int>>(
+                scheduler_utils::maybeRfactorReorderAsAllocationMap(
+                    largest_out));
+          });
+  const std::unordered_map<int, int>& rfactor_reorder_map =
+      rfactor_reorder_map_entry.get();
+
+  auto ref_root = largest_out->getMaybeRFactorDomain();
+  // reorder of root to align with rfactor map should always help with indexing,
+  // even when vectorization isn't used.
+  if (!rfactor_reorder_map.empty()) {
+    ref_root = TensorDomain::orderedAs(ref_root, rfactor_reorder_map);
+  }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  auto ref_root =
-      TensorDomain::noReductions(largest_out->getMaybeRFactorDomain());
+  ref_root = TensorDomain::noReductions(ref_root);
 
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
@@ -190,9 +294,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         max_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
-
-  auto params =
-      std::make_shared<PointwiseParams>("Pointwise heuristics", index_type);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -351,7 +452,11 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto vectorize_factor = std::min(
       max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info, largest_out, data_cache, break_point));
+          runtime_info,
+          largest_out,
+          data_cache,
+          break_point,
+          rfactor_reorder_map));
 
   if (vectorize_factor == 1) {
     params->vectorize = false;
@@ -382,13 +487,18 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "vectorize_factor: " << vectorize_factor << std::endl;
-    debug() << "broadcast_byte_multiples: ";
+            << "vectorize_factor: " << vectorize_factor << std::endl
+            << "\n"
+            << "rfactor_reorder_map: ";
+    for (auto [i, j] : rfactor_reorder_map) {
+      debug() << "(" << i << ", " << j << "), ";
+    }
+    debug() << "\nbroadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
     }
-    debug() << "LHS elems: "
+    debug() << "\nLHS elems: "
             << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
             << " RHS elems: " << right_elem_count << std::endl;
     debug() << std::endl;
@@ -429,12 +539,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  // maybe has_reduction for scheduling should be done on a per output tensor
-  // basis.
-  NVF_ERROR(
-      ir_utils::getReductionOps(fusion).empty(),
-      "This scheduler only handles pointwise ops.");
-
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
@@ -442,6 +546,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  refineCachePolicy(fusion);
 
   std::vector<TensorView*> input_tvs;
   {
@@ -558,6 +664,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   } else {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
+
+    std::unordered_map<int, int> rfactor_reorder_map =
+        scheduler_utils::maybeRfactorReorderAsAllocationMap(reference_tv);
+    if (!rfactor_reorder_map.empty()) {
+      reference_tv->reorder(rfactor_reorder_map);
+    }
 
     // Merge right side of break point
     for (int i = (int)reference_tv->nDims(); i > (int)params.break_point; i--) {
@@ -797,6 +909,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   inlineMost(inner_most_tensors);
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  // TODO(#1401): We could let segmentation split a partially alias-producing
+  // fusion into an alias-only segment and the rest. This way, the rest of the
+  // fusion (which has fewer expressions) can potentially find a better
+  // scheduler and we need to call markAliases only in NoOpScheduler.
+  markAliases(fusion);
 }
 
 } // namespace nvfuser

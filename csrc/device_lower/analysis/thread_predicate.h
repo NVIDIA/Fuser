@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
@@ -40,7 +40,7 @@ namespace nvfuser {
 //! are redundant for each tensor and is used to let only one
 //! thread/block of a redundant type execute the expression for a
 //! tensor.
-class TORCH_CUDA_CU_API ThreadPredicateMap {
+class ThreadPredicateMap {
  public:
   using SourceMap =
       std::unordered_map<ParallelType, std::unordered_set<const TensorView*>>;
@@ -94,7 +94,7 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
   //! corresponding parallel type since it must join the broadcast
   //! operation although the valid input is only available at one of
   //! the threads/blocks.
-  PredicateInfo getPredicateInfo(const TensorView* tv) const;
+  NVF_API PredicateInfo getPredicateInfo(const TensorView* tv) const;
 
   //! Returns a flag set that indicates which parallel types should be
   //! predicated.

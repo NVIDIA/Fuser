@@ -45,7 +45,7 @@ TEST_F(NVFuserTest, KernelDb_Write_CUDA) {
   const std::string compile_args(
       "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true -DNDEBUG --ptxas-options --maxrregcount=255");
   const std::string kernel_signature(
-      "_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi3EEES1_S1_");
+      "_ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_");
   std::vector<char> cubin;
   ASSERT_TRUE(copy_from_text_file(test_data_kernel, code));
   ASSERT_TRUE(copy_from_binary_file(test_data_cubin, cubin));

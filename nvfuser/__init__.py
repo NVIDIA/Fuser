@@ -4,8 +4,9 @@
 
 import logging
 import os
+import re
 import sys
-from typing import Optional, Union  # noqa: F401
+from typing import Optional, Union, List  # noqa: F401
 
 import torch
 
@@ -30,6 +31,29 @@ from . import contrib  # noqa: F401
 
 
 logger = logging.getLogger("nvfuser")
+
+
+# Register automatic serialization of Nvfuser cache hierarchy and cuda kernels.
+def enable_automatic_serialization():
+    import atexit
+
+    atexit.register(_C.serialize)
+
+    # A separate process is created for each device in a distributed setting.
+    # Each FusionCache becomes associated with a single device.
+    # Automatic serialization saves a separate cache for each device.
+    # Set the FusionCache id to the ddp local rank.
+    env_var_ddp_local_rank = os.environ.get("LOCAL_RANK", None)
+    if env_var_ddp_local_rank is not None:
+        env_var_ddp_local_rank = int(env_var_ddp_local_rank)
+    _C.FusionCache.get(max_fusions := 8192, env_var_ddp_local_rank)
+
+
+# Unregister automatic serialization of Nvfuser cache hierarchy and cuda kernels.
+def disable_automatic_serialization():
+    import atexit
+
+    atexit.unregister(_C.serialize)
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -133,7 +157,7 @@ class FusionDefinition(_C._FusionDefinition):
             )
             msg += (
                 f"Here's a script to reproduce the error:\n"
-                "```\n"
+                "```python\n"
                 "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
@@ -144,18 +168,37 @@ class FusionDefinition(_C._FusionDefinition):
             )
             for i in inputs:
                 if isinstance(i, torch.Tensor):
+                    # max linear index determines number of elements to generate
+                    sz = 1
+                    for szi, stri in zip(i.size(), i.stride()):
+                        if szi == 0:
+                            sz = 0
+                            break
+                        sz += (szi - 1) * stri
                     if i.dtype.is_floating_point:
                         msg += (
-                            f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
                         msg += (
-                            f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:
-                    msg += f"    {i},\n"
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
             msg += "```\n"
@@ -283,6 +326,49 @@ class FusionDefinition(_C._FusionDefinition):
         return self._scheduled_fusion_ir_for(
             inputs, tensor_transforms, override_user_schedule
         )
+
+    def validate(
+        self,
+        inputs: List[torch.Tensor],
+        reference_outputs: List[torch.Tensor],
+        kwargs=None,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs, using variable tolerances determined based on datatype and reduction size.
+
+        Inputs:
+            inputs: A list of inputs expected by the fusion definition
+            reference_outputs: A list of reference outputs to validate against
+        """
+        fusion_outputs = self.execute(inputs)
+        assert len(fusion_outputs) == len(
+            reference_outputs
+        ), f"Expected {len(fusion_outputs)} reference outputs for validation."
+
+        tolerance_values = self.getValTolerances(inputs)
+        assert len(tolerance_values) == len(
+            fusion_outputs
+        ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
+
+        for inx, fusion_output in enumerate(fusion_outputs):
+            atol, rtol = tolerance_values[inx]
+            reference_output = reference_outputs[inx]
+
+            assert (
+                reference_output.shape == fusion_output.shape
+            ), "Mismatch in reference and fusion output dimensions"
+            if torch.is_floating_point(fusion_output) or torch.is_complex(
+                fusion_output
+            ):
+                assert torch.allclose(
+                    fusion_output, reference_output, atol=atol, rtol=rtol
+                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+
+            else:
+                assert torch.equal(
+                    fusion_output, reference_output
+                ), "Mismatch in reference and fusion output values, datatype is not float/complex."
 
 
 from .nvfuser_version import __version__

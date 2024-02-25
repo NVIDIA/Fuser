@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+# cancels concurrent in-progress runs of a pull request. If it is a push, do not cancel concurrent runs.
+# Pushes will generate a uniq run_id, github.event.pull_request.number will be empty
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
+
+env:
+  working_directory: .
+
+jobs:
+  clang-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Build with clang++
+        working-directory: ${{ env.working_directory }}
+        run: |
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
+          source tools/setup-env.sh
+          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
+          export CC=clang
+          export CXX=clang++
+          wait
+          python setup.py build
+
+  dynamic-type-meson:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Run meson build of dynamic type library
+        working-directory: ${{ env.working_directory }}
+        run: |
+          sudo apt update && sudo apt install -y libgtest-dev libgmock-dev libbenchmark-dev &
+          pip install git+https://github.com/mesonbuild/meson ninja &
+          wait
+          cd lib/dynamic_type
+          meson setup build
+          meson compile -C build
+          meson test --verbose -C build

@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 
@@ -15,6 +14,7 @@
 #include <ir/base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
+#include <visibility.h>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -38,7 +38,7 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-class TORCH_CUDA_CU_API FullOp : public Expr {
+class NVF_API FullOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -52,13 +52,16 @@ class TORCH_CUDA_CU_API FullOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* getFillValue() const {
     return inputs().back();
   }
 };
 
-class TORCH_CUDA_CU_API SelectOp : public Expr {
+class SelectOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -72,6 +75,9 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* lookupTv() const {
     return input(0)->as<TensorView>();
@@ -88,7 +94,7 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
+class IndexSelectOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -102,6 +108,9 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* lookupTv() const {
     return input(0)->as<TensorView>();
@@ -120,7 +129,7 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
+class NVF_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -145,6 +154,9 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* lookupTv() const {
     return input(0)->as<TensorView>();
@@ -167,7 +179,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API ScatterOp : public Expr {
+class ScatterOp : public Expr {
  public:
   using Expr::Expr;
   ScatterOp(
@@ -187,6 +199,9 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* selfTv() const {
     return input(0)->as<TensorView>();
@@ -211,7 +226,7 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API IotaOp : public Expr {
+class IotaOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -225,6 +240,9 @@ class TORCH_CUDA_CU_API IotaOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   DataType dtype() const {
     return *start()->getDataType();
@@ -261,7 +279,7 @@ class TORCH_CUDA_CU_API IotaOp : public Expr {
 // [[1, 0, 0, 0],
 //  [0, 1, 0, 0],
 //  [0, 0, 1, 0]]
-class TORCH_CUDA_CU_API EyeOp : public Expr {
+class EyeOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -275,6 +293,9 @@ class TORCH_CUDA_CU_API EyeOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   DataType dtype() const {
     return attribute<DataType>(0);
@@ -287,7 +308,7 @@ class TORCH_CUDA_CU_API EyeOp : public Expr {
 //!   2) Negation i.e. val * -1
 //!   3) Reduction across a dimension i.e. val.sum(axis=2)
 //!   4) split/merge
-class TORCH_CUDA_CU_API UnaryOp : public Expr {
+class NVF_API UnaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -325,7 +346,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
 //! and produce a single output. Examples include:
 //!  1) Add/mul/div/mod/sub (A * B)
 //!  2) LT (A < B)
-class TORCH_CUDA_CU_API BinaryOp : public Expr {
+class NVF_API BinaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -366,7 +387,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
       std::string rhs) const;
 };
 
-class TORCH_CUDA_CU_API TernaryOp : public Expr {
+class TernaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -419,11 +440,14 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
 };
 
 // construct an array from a list of values
-class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
+class ArrayConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+  NVF_API ArrayConstruct(
+      IrBuilderPasskey,
+      Val* output,
+      std::vector<Val*> inputs);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -443,7 +467,7 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API ReverseArray : public Expr {
+class ReverseArray : public Expr {
  public:
   using Expr::Expr;
 
@@ -472,7 +496,7 @@ class TORCH_CUDA_CU_API ReverseArray : public Expr {
 };
 
 // Get an item from an array, array[index]
-class TORCH_CUDA_CU_API GetItem : public Expr {
+class GetItem : public Expr {
  public:
   using Expr::Expr;
 
@@ -505,11 +529,11 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
 };
 
 // construct a struct from a list of values
-class TORCH_CUDA_CU_API StructConstruct : public Expr {
+class StructConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  StructConstruct(
+  NVF_API StructConstruct(
       IrBuilderPasskey,
       Val* output,
       const std::vector<std::pair<std::string, Val*>>& fields);
@@ -537,7 +561,7 @@ class TORCH_CUDA_CU_API StructConstruct : public Expr {
 };
 
 // Get an attribute from a struct, struct.attr
-class TORCH_CUDA_CU_API GetAttr : public Expr {
+class GetAttr : public Expr {
  public:
   using Expr::Expr;
 
@@ -570,7 +594,7 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
 };
 
 // Get an attribute from a struct, struct.attr
-class TORCH_CUDA_CU_API GetMetaData : public Expr {
+class GetMetaData : public Expr {
  public:
   using Expr::Expr;
 
@@ -613,7 +637,7 @@ class TORCH_CUDA_CU_API GetMetaData : public Expr {
 };
 
 // Construct a tensor from an array
-class TORCH_CUDA_CU_API TensorConstruct : public Expr {
+class TensorConstruct : public Expr {
  public:
   using Expr::Expr;
 
@@ -643,7 +667,7 @@ class TORCH_CUDA_CU_API TensorConstruct : public Expr {
 
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
-class TORCH_CUDA_CU_API RNGOp : public Expr {
+class RNGOp : public Expr {
   int64_t getOutputDims() const;
 
  public:
@@ -741,9 +765,10 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 };
 
-//! Broadcast in to match out. is_broadcast_dims are relative to out. Where
+//! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
+//! is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
-class TORCH_CUDA_CU_API BroadcastOp : public Expr {
+class NVF_API BroadcastOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -794,7 +819,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
 //! Squeeze in to match out. is_squeeze_dims are relative to in. Where
 //! is_squeeze_dims.size() == in->nDims(). Squeeze is the opposite of
 //! broadcast.
-class TORCH_CUDA_CU_API SqueezeOp : public Expr {
+class NVF_API SqueezeOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -850,7 +875,7 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
 //! Output's axes marked as reduction will be reduced to produce an output
 //! tensor. The output tensors size will be the size of all
 //! non-reduction/non-broadcast dimensions.
-class TORCH_CUDA_CU_API ReductionOp : public Expr {
+class NVF_API ReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -870,6 +895,9 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -888,6 +916,22 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
   bool isAllreduce() const {
     return attribute<bool>(2);
   }
+
+  //! Scheduling method to request that this reduction be performed as a
+  //! serial grid reduction. Note that it is an error to use this method on a
+  //! reduction whose output has any of its reduction axes parallelized with a
+  //! threadIdx, even if that parallelization occurs after this method call.
+  //!
+  //! Also note that this operation should not be inlined with other reductions
+  //! unless they use the same parallelization pattern and they are also serial
+  //! gridreductions.
+  void requestSerialGridReduction(bool value = true) {
+    attribute<bool>(3) = value;
+  }
+
+  bool serialGridReductionRequested() const {
+    return attribute<bool>(3);
+  }
 };
 
 //! Grouped reduction operation for horizontal fusions. It works like
@@ -896,7 +940,7 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
 //! blocks, a single grid sync can be done for all individual
 //! reductions. As grid sync is very expensive, this can be a
 //! significant performance impact.
-class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
+class GroupedReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -916,6 +960,9 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   //! Number of expressions grouped horizontally. It does not reflect
   //! iteration grouping.
@@ -955,7 +1002,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
 };
 
 //! Average, variance and N (count) vals for Welford
-class TORCH_CUDA_CU_API WelfordTriplet {
+class WelfordTriplet {
  public:
   //! Names of the Welford triplet vals
   enum class ValName { Avg, Var, N };
@@ -1075,7 +1122,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 };
 
 //! Welford Scan operation.
-class TORCH_CUDA_CU_API WelfordOp : public Expr {
+class NVF_API WelfordOp : public Expr {
  public:
   using Expr::Expr;
   static constexpr int kNumAttrs = 4;
@@ -1108,6 +1155,9 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return outputTriplet().avg();
@@ -1184,7 +1234,7 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
   Val* getInitValOfOutput(Val* output_val) const;
 };
 
-class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
+class GroupedWelfordOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1306,25 +1356,10 @@ class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
 };
 
 //! Fused Matmul operation
-class TORCH_CUDA_CU_API MmaOp : public Expr {
+class NVF_API MmaOp : public Expr {
  public:
-  // This is a temporary data structure to for the
-  //  scheduling specific parameters that we still need
-  //  to store on an mma node. Eventually will only be
-  //  the mma macro type that will stay on the IR node
-  //  after additional cleaning ups.
-  struct OptionsInMma {
-    MmaOptions::MacroType macro = MmaOptions::MacroType::NoMMA;
-    int accumulator_stride = 0;
-
-    bool operator==(const OptionsInMma& other) const {
-      return macro == other.macro &&
-          accumulator_stride == other.accumulator_stride;
-    }
-  };
-
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
+  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1335,7 +1370,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const OptionsInMma& options,
+      const MmaMacro& options,
       const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1363,15 +1398,35 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
     return attributeVal(0);
   }
 
-  const auto& options() const {
-    return attribute<OptionsInMma>(ATTR_POS_OPTS);
+  const auto& macro() const {
+    return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
-  auto accStride() const {
-    return options().accumulator_stride;
+  int m() const {
+    return getM(macro());
   }
 
-  void configureOptions(MmaOptions options);
+  int n() const {
+    return getN(macro());
+  }
+
+  int k() const {
+    return getK(macro());
+  }
+
+  bool isTuring() const {
+    return nvfuser::isTuring(macro());
+  }
+
+  bool isAmpere() const {
+    return nvfuser::isAmpere(macro());
+  }
+
+  bool isHopper() const {
+    return nvfuser::isHopper(macro());
+  }
+
+  void setMacro(MmaMacro options);
 
   auto layout() const {
     return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
@@ -1393,12 +1448,16 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
-  static constexpr size_t ATTR_POS_OPTS = 1;
+  static constexpr size_t ATTR_POS_MACRO = 1;
   static constexpr size_t ATTR_POS_M_AXES = 2;
   static constexpr size_t ATTR_POS_N_AXES = 3;
   static constexpr size_t ATTR_POS_K_AXES = 4;
@@ -1406,7 +1465,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
-class TORCH_CUDA_CU_API ExpandOp : public Expr {
+//! The semantics are identical to torch.broadcast_to.
+class ExpandOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1436,10 +1496,14 @@ class TORCH_CUDA_CU_API ExpandOp : public Expr {
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! Shift
-class TORCH_CUDA_CU_API ShiftOp : public Expr {
+class ShiftOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1491,7 +1555,7 @@ class TORCH_CUDA_CU_API ShiftOp : public Expr {
 };
 
 //! Gather a window around each element.
-class TORCH_CUDA_CU_API GatherOp : public Expr {
+class GatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1538,7 +1602,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
+class ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
 
@@ -1552,6 +1616,9 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -1567,7 +1634,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API ViewOp : public Expr {
+class NVF_API ViewOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1582,13 +1649,17 @@ class TORCH_CUDA_CU_API ViewOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! This operator explicitly models data movement between
@@ -1597,11 +1668,16 @@ class TORCH_CUDA_CU_API ViewOp : public Expr {
 //!
 //! The main usage of this op is to facilitate generation of hardware
 //!   accelerated memory ops, i.e. ldmatrix, cp.async and more to come.
-class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
+class NVF_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
-  LoadStoreOp(IrBuilderPasskey, LoadStoreOpType op_type, Val* out, Val* in);
+  LoadStoreOp(
+      IrBuilderPasskey,
+      LoadStoreOpType op_type,
+      Val* out,
+      Val* in,
+      CacheOp cache_op = CacheOp::Unspecified);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1628,17 +1704,28 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return attribute<LoadStoreOpType>(0);
   }
 
+  CacheOp cacheOp() const {
+    return attribute<CacheOp>(1);
+  }
+
   bool hasInnerTranspose() const;
 
   void setOpType(LoadStoreOpType op) {
     attribute<LoadStoreOpType>(0) = op;
+    if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
+      attribute<CacheOp>(1) = CacheOp::Unspecified;
+    }
+  }
+
+  void setCacheOp(CacheOp cache_op) {
+    attribute<CacheOp>(1) = cache_op;
   }
 };
 
 //! Representation a split on an IterDomain by "factor"
 //! inner_split dictates if the factor section of the split should be inside the
 //! remainer or outside.
-class TORCH_CUDA_CU_API Split : public Expr {
+class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
@@ -1705,7 +1792,7 @@ class TORCH_CUDA_CU_API Split : public Expr {
 //! dictate which will be traversed first (inner). Both IterDomains must be of
 //! the same iter or reduction type, as well as the same parallelization
 //! strategy if there is one
-class TORCH_CUDA_CU_API Merge : public Expr {
+class NVF_API Merge : public Expr {
  public:
   using Expr::Expr;
 
@@ -1735,8 +1822,55 @@ class TORCH_CUDA_CU_API Merge : public Expr {
   }
 };
 
+class Swizzle : public Expr {
+ public:
+  using Expr::Expr;
+
+  Swizzle(
+      IrBuilderPasskey,
+      IterDomain* out_x,
+      IterDomain* out_y,
+      IterDomain* in_x,
+      IterDomain* in_y,
+      SwizzleType swizzle_type = SwizzleType::NoSwizzle);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Swizzle";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  // Output iterdomain pair corresponding
+  //  to the original input iterdomain pair.
+  IterDomain* outX() const {
+    return output(0)->as<IterDomain>();
+  }
+
+  IterDomain* outY() const {
+    return output(1)->as<IterDomain>();
+  }
+
+  // Input iterdomain pair.
+  IterDomain* inX() const {
+    return input(0)->as<IterDomain>();
+  }
+
+  IterDomain* inY() const {
+    return input(1)->as<IterDomain>();
+  }
+
+  // The type of predefined 1-to-1 functions
+  //  used for swizzling math.
+  auto swizzleType() const {
+    return attribute<SwizzleType>(0);
+  }
+};
+
 //! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-class TORCH_CUDA_CU_API Swizzle2D : public Expr {
+class NVF_API Swizzle2D : public Expr {
  public:
   using Expr::Expr;
 
@@ -1830,7 +1964,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
 };
 
 //! IterDomain expression to resize
-class TORCH_CUDA_CU_API Resize : public Expr {
+class NVF_API Resize : public Expr {
  public:
   using Expr::Expr;
 
@@ -1877,7 +2011,7 @@ class TORCH_CUDA_CU_API Resize : public Expr {
 //! - blockDim.z
 //! - T3.stride[2]
 //!
-class TORCH_CUDA_CU_API NamedScalar : public Val {
+class NVF_API NamedScalar : public Val {
  public:
   NamedScalar(IrBuilderPasskey passkey, std::string name, DataType dtype);
 
@@ -1951,7 +2085,7 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
   std::string name_;
 };
 
-class TORCH_CUDA_CU_API PadOp : public Expr {
+class PadOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1975,6 +2109,10 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -2023,7 +2161,7 @@ struct Slice {
   Val* step = nullptr;
 };
 
-class TORCH_CUDA_CU_API SliceOp : public Expr {
+class SliceOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2041,13 +2179,16 @@ class TORCH_CUDA_CU_API SliceOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<Slice> getRanges() const;
@@ -2069,7 +2210,7 @@ class TORCH_CUDA_CU_API SliceOp : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API CatOp : public Expr {
+class NVF_API CatOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2097,6 +2238,9 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   int64_t concatenatedDim() const {
     return attribute<int64_t>(0);

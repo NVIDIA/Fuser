@@ -9,9 +9,9 @@
 #include <exceptions.h>
 #include <iostream>
 
-#include <c10/macros/Export.h>
 #include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
+#include <visibility.h>
 
 namespace nvfuser::python_frontend {
 
@@ -26,7 +26,7 @@ struct TrieNode;
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
 
-TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
+NVF_API const char* dtypeToPyString(PrimDataType t);
 
 //! The Tensor and Scalar classes are used to define separate function signtures
 //! in the FusionDefinition to identify the appropriate Operator function.
@@ -36,7 +36,7 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
 //!   add(Tensor* arg1, Val* arg2) -> Tensor*
 //!   add(Val* arg1, Val* arg2) -> Val*
-struct TORCH_CUDA_CU_API Tensor {
+struct Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}
 
@@ -54,7 +54,7 @@ struct TORCH_CUDA_CU_API Tensor {
   FusionDefinition* fusion_definition;
 };
 
-struct TORCH_CUDA_CU_API Scalar {
+struct Scalar {
   Scalar(size_t _index, FusionDefinition* _fd)
       : index(_index), fusion_definition(_fd) {}
 
@@ -71,7 +71,7 @@ struct TORCH_CUDA_CU_API Scalar {
   FusionDefinition* fusion_definition;
 };
 
-struct TORCH_CUDA_CU_API Vector {
+struct Vector {
   Vector(size_t _index, size_t _size, FusionDefinition* _fd)
       : index(_index), size(_size), fusion_definition(_fd) {}
 
@@ -101,7 +101,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!
 //! Example:
 //!   help(FusionDefinition.Operators)
-class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
+class NVF_API FusionDefinition : public FusionState {
  public:
   FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 
@@ -112,20 +112,20 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   FusionDefinition& operator=(FusionDefinition&& fd) = delete;
 
   //! Enter Python Context Manager -- Reset trie for new cache lookup
-  FusionDefinition* setupDefinition();
+  NVF_API FusionDefinition* setupDefinition();
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
-  void finalizeDefinition();
+  NVF_API void finalizeDefinition();
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
-  void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
-  void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Prints a python function representing the definition
-  void print(std::ostream& os) const;
+  NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
-  std::vector<at::Tensor> execute(
+  NVF_API std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       bool override_user_schedule,
       bool capture_debug_output,
@@ -135,27 +135,32 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   std::optional<std::string> getDebugOutput() const {
     return debug_output_;
   }
+  // Returns the tolerances values based on reduction sizes.
+  NVF_API std::vector<std::pair<double, double>> getValTolerances(
+      const at::ArrayRef<c10::IValue>& inputs);
+
   //! Return the unscheduled Fusion IR
-  std::string fusionIr();
+  NVF_API std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs
-  std::string lastCudaCode(bool intrinsic_code, bool override_user_schedule)
-      const;
+  NVF_API std::string lastCudaCode(
+      bool intrinsic_code,
+      bool override_user_schedule) const;
   //! Return the Cuda code for the given inputs
-  std::string cudaCodeFor(
+  NVF_API std::string cudaCodeFor(
       const at::ArrayRef<c10::IValue>& inputs,
       bool intrinsic_code,
       bool override_user_schedule) const;
   //! Return the Cuda code for the last executed set of inputs
-  std::string lastScheduledFusionIr(
+  NVF_API std::string lastScheduledFusionIr(
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return the Cuda code for the given inputs
-  std::string scheduledFusionIrFor(
+  NVF_API std::string scheduledFusionIrFor(
       const at::ArrayRef<c10::IValue>& inputs,
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
-  std::optional<size_t> id() const;
+  NVF_API std::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation
   void printMathIr();
 
@@ -166,16 +171,16 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! These methods are used to record the FusionDefinition for cache lookup
 
   //! Defines a Scalar State Record
-  Scalar defineScalar();
+  NVF_API Scalar defineScalar();
   //! Defines a Tensor State Record
-  Tensor defineTensor(size_t dims);
+  NVF_API Tensor defineTensor(size_t dims);
   //! Defines a Vector State Record
-  Vector defineVector(size_t size);
+  NVF_API Vector defineVector(size_t size);
   //! Defines a Record that records the operation required to
   //! build the corresponding Fusion IR operation on cache miss.
-  void defineRecord(RecordFunctor* record);
+  NVF_API void defineRecord(RecordFunctor* record);
   //! Gets a Record State object
-  State recordingState(size_t index) const;
+  NVF_API State recordingState(size_t index) const;
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions

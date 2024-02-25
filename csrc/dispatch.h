@@ -7,11 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
-
 #include <utils.h>
+#include <visibility.h>
 
 #include <complex>
 #include <unordered_map>
@@ -69,8 +67,6 @@ class TensorView;
 
 class NamedScalar;
 
-class PipelineVal;
-
 // Exprs
 class FullOp;
 class IotaOp;
@@ -107,12 +103,10 @@ class CatOp;
 class PadOp;
 class SliceOp;
 
-class PipelineStage;
-class PipelineCommunication;
-
 // Exprs
 class Split;
 class Merge;
+class Swizzle;
 class Swizzle2D;
 class Resize;
 
@@ -121,10 +115,18 @@ class Predicate;
 class TensorIndex;
 
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
-class CpAsyncWait;
-class CpAsyncCommit;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierArriveExpectTx;
+class MBarrierWait;
+class BlockSerializeWait;
+class BlockSerializeRelease;
+class AsyncWait;
+class AsyncCommit;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
@@ -137,12 +139,17 @@ class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
 class GetRNGSeedAndOffsetFromHost;
+class EncodeTensorMapTiled;
 
 } // namespace kir
 
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
+
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
+class OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -161,8 +168,6 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const kir::Predicate*);
   virtual void handle(const kir::TensorIndex*);
-
-  virtual void handle(const PipelineVal*);
 
   // Exprs
   virtual void handle(const FullOp* stmt);
@@ -197,6 +202,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const Split* stmt);
   virtual void handle(const Merge* stmt);
+  virtual void handle(const Swizzle* stmt);
   virtual void handle(const Swizzle2D* stmt);
   virtual void handle(const Resize* stmt);
   virtual void handle(const ExpandOp* stmt);
@@ -206,10 +212,18 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const ViewOp* stmt);
 
   virtual void handle(const kir::Allocate*);
+  virtual void handle(const kir::Asm*);
   virtual void handle(const kir::BlockSync*);
   virtual void handle(const kir::GridSync*);
-  virtual void handle(const kir::CpAsyncWait*);
-  virtual void handle(const kir::CpAsyncCommit*);
+  virtual void handle(const kir::MBarrierInit*);
+  virtual void handle(const kir::MBarrierInvalidate*);
+  virtual void handle(const kir::MBarrierArrive*);
+  virtual void handle(const kir::MBarrierArriveExpectTx*);
+  virtual void handle(const kir::MBarrierWait*);
+  virtual void handle(const kir::BlockSerializeWait*);
+  virtual void handle(const kir::BlockSerializeRelease*);
+  virtual void handle(const kir::AsyncWait*);
+  virtual void handle(const kir::AsyncCommit*);
   virtual void handle(const kir::InitMagicZero*);
   virtual void handle(const kir::UpdateMagicZero*);
   virtual void handle(const kir::ForLoop*);
@@ -221,13 +235,12 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
-  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
-
-  virtual void handle(const PipelineStage*);
-  virtual void handle(const PipelineCommunication*);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
+  virtual void handle(const kir::EncodeTensorMapTiled*);
+  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
-class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
+class NVF_API OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -246,8 +259,6 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(kir::Predicate*);
   virtual void handle(kir::TensorIndex*);
-
-  virtual void handle(PipelineVal*);
 
   // Exprs
   virtual void handle(FullOp* stmt);
@@ -282,6 +293,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(Split* stmt);
   virtual void handle(Merge* stmt);
+  virtual void handle(Swizzle* stmt);
   virtual void handle(Swizzle2D* stmt);
   virtual void handle(Resize* stmt);
   virtual void handle(ExpandOp* stmt);
@@ -291,10 +303,18 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(ViewOp* stmt);
 
   virtual void handle(kir::Allocate* stmt);
+  virtual void handle(kir::Asm* stmt);
   virtual void handle(kir::BlockSync* stmt);
   virtual void handle(kir::GridSync* stmt);
-  virtual void handle(kir::CpAsyncWait* stmt);
-  virtual void handle(kir::CpAsyncCommit* stmt);
+  virtual void handle(kir::MBarrierInit* stmt);
+  virtual void handle(kir::MBarrierInvalidate* stmt);
+  virtual void handle(kir::MBarrierArrive* stmt);
+  virtual void handle(kir::MBarrierArriveExpectTx* stmt);
+  virtual void handle(kir::MBarrierWait* stmt);
+  virtual void handle(kir::BlockSerializeWait* stmt);
+  virtual void handle(kir::BlockSerializeRelease* stmt);
+  virtual void handle(kir::AsyncWait* stmt);
+  virtual void handle(kir::AsyncCommit* stmt);
   virtual void handle(kir::InitMagicZero* stmt);
   virtual void handle(kir::UpdateMagicZero* stmt);
   virtual void handle(kir::ForLoop* stmt);
@@ -307,12 +327,11 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
-
-  virtual void handle(PipelineStage* stmt);
-  virtual void handle(PipelineCommunication* stmt);
+  virtual void handle(kir::EncodeTensorMapTiled* stmt);
+  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
-class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
+class OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 
@@ -320,7 +339,7 @@ class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
   void unhandled(const Statement* stmt) final;
 };
 
-class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
+class OptInDispatch : public OptOutDispatch {
  public:
   using OptOutDispatch::handle;
 
@@ -343,7 +362,7 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
+class NVF_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);
@@ -351,12 +370,7 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   void registerMutation(Val* val, Val* mutation);
 
-  Val* maybeMutated(Val* val) {
-    if (mutations_.find(val) == mutations_.end()) {
-      return val;
-    }
-    return mutations_.at(val);
-  }
+  Val* maybeMutated(Val* val) const;
 
   std::unordered_map<Val*, Val*> mutations_;
 
@@ -368,16 +382,44 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);
   virtual void mutate(TensorView*);
-  virtual void mutate(PipelineVal*);
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
 
-  virtual void mutate(Expr* e);
+  //! This method replaces e if any inputs or attributes are registered for
+  //! mutation.
+  virtual void mutate(Expr* e) {
+    mutateExpr(
+        e,
+        /*replace_outputs*/ false,
+        /*replace_inputs*/ true,
+        /*replace_attrs*/ true);
+  }
+
+  //! Unlike mutate(Expr*), this method replaces e only if any outputs are
+  //! registered for mutation. Inputs and attributes are unchanges. This method
+  //! is useful for tranferring the definition of e's current outputs to those
+  //! their respective registered mutations.
+  Expr* mutateExprOutputsOnly(Expr* e) {
+    return mutateExpr(
+        e,
+        /*replace_outputs*/ true,
+        /*replace_inputs*/ false,
+        /*replace_attrs*/ false);
+  }
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;
   virtual void registerNewExpr(Expr*) {}
+
+ private:
+  //! Replaces Expr if any inputs, attrs, or outputs are registered for
+  //! mutation. See comment on mutateExprOutputsOnly for more information.
+  Expr* mutateExpr(
+      Expr*,
+      bool replace_outputs = false,
+      bool replace_inputs = true,
+      bool replace_attrs = true);
 };
 
 } // namespace nvfuser

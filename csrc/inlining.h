@@ -11,6 +11,7 @@
 #include <ir/interface_nodes.h>
 #include <maxinfo_propagator.h>
 #include <transform_replay.h>
+#include <visibility.h>
 
 #include <memory>
 #include <unordered_set>
@@ -70,22 +71,22 @@ class MaxPosCalculator {
 
 // Inline to the right most allowed position for all tensors in the current
 // fusion.
-TORCH_CUDA_CU_API void inlineMost(
+NVF_API void inlineMost(
     const std::unordered_set<IterDomain*>& uninlinable_ids = {});
 // Inline to the right most allowed position for the selected tensors in the
 // current fusion.
-TORCH_CUDA_CU_API void inlineMost(
+NVF_API void inlineMost(
     const std::vector<TensorView*>& tvs,
     const std::unordered_set<IterDomain*>& uninlinable_ids = {});
 // Inline to the right most allowed position for the selected tensors in the
 // current fusion.
-TORCH_CUDA_CU_API void inlineMost(
+void inlineMost(
     const std::unordered_set<TensorView*>& tvs,
     const std::unordered_set<IterDomain*>& uninlinable_ids = {});
 
 // Inline to the position corresponding to the reference position in the
 // reference tensor for all tensors in the current fusion.
-TORCH_CUDA_CU_API void inlineAllAt(
+NVF_API void inlineAllAt(
     TensorView* reference_tv,
     int64_t reference_pos,
     bool best_effort = false,
@@ -93,7 +94,7 @@ TORCH_CUDA_CU_API void inlineAllAt(
 
 // Inline to the position corresponding to the reference position in the
 // reference tensor for selected tensors in the current fusion.
-TORCH_CUDA_CU_API void inlineSelectedAt(
+NVF_API void inlineSelectedAt(
     const std::unordered_set<TensorView*>& selected,
     TensorView* reference_tv,
     int64_t reference_pos,

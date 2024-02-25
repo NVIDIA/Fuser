@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
+#include <visibility.h>
 // TODO: Move to cpp file.
 #include <ir/builder.h>
 
@@ -134,7 +135,7 @@ namespace vectorize_helper {
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
 // actually record the computed information since it will be then projected
 // through the DAG maximizing saving information.
-class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
+class NVF_API ContiguousInnerDimensionsMapper
     : public MaxInfoSpanningTree,
       MaxInfoSpanningTree::Propagator {
  public:
@@ -309,11 +310,14 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
+// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point);
+    int64_t break_point,
+    const std::unordered_map<int, int>& rfactor_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,

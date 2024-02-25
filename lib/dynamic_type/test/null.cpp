@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include "dynamic_type.h"
+#include "dynamic_type/dynamic_type.h"
 
 using namespace dynamic_type;
 

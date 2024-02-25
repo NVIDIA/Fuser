@@ -6,27 +6,24 @@
  */
 // clang-format on
 
-// Warning: this file should not include any header from nvFuser. Compiling
-// dynamic_type.h with nvcc is not supported.
+// Warning: this file should not include any header from nvFuser or pytorch
+// (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
+// Compiling pytorch with nvcc is not supported either.
 
-#include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <csrc/exceptions.h>
-#include <torch/torch.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
+#include <test/rng_helper.h>
+
+#include <cassert>
+#include <cstdint>
+#include <type_traits>
+
+#include <ATen/cuda/detail/PhiloxCudaStateRaw.cuh>
+#include <ATen/cuda/detail/UnpackRaw.cuh>
 
 #include <curand.h>
 #include <curand_kernel.h>
 #include <curand_philox4x32_x.h>
 
-#include <cassert>
-#include <type_traits>
-
 namespace nvfuser {
-
-enum RNGTest_t {
-  Uniform,
-  Normal,
-};
 
 template <typename T>
 __global__ void generate_random_numbers_kernel(
@@ -82,53 +79,33 @@ __global__ void generate_random_numbers_kernel(
   }
 }
 
-at::Tensor generate_random_numbers(
+template <typename T>
+void launch_generate_random_numbers_kernel(
+    cudaStream_t stream,
+    T* output,
     int64_t size,
-    at::ScalarType dtype,
+    at::PhiloxCudaState philox_args,
     RNGTest_t rng_test) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto result = at::empty({size}, options);
-
-  auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
-      c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
-  at::PhiloxCudaState rng_engine_inputs;
-  {
-    // See Note [Acquire lock when using random generators]
-    std::lock_guard<std::mutex> lock(gen->mutex_);
-    rng_engine_inputs = gen->philox_cuda_state(4);
-  }
-
-  if (dtype == at::kFloat) {
-    int64_t block = 128;
-    int64_t block_elems = block * 4;
-    int64_t grid = (size + block_elems - 1) / block_elems;
-    generate_random_numbers_kernel<<<
-        grid,
-        block,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        result.data_ptr<float>(), size, rng_engine_inputs, rng_test);
-  } else {
-    NVF_CHECK(dtype == at::kDouble);
-    int64_t block = 128;
-    int64_t block_elems = block * 2;
-    int64_t grid = (size + block_elems - 1) / block_elems;
-    generate_random_numbers_kernel<<<
-        grid,
-        block,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        result.data_ptr<double>(), size, rng_engine_inputs, rng_test);
-  }
-  return result;
+  int64_t block = 128;
+  int64_t block_elems = block * 16 / sizeof(T);
+  int64_t grid = (size + block_elems - 1) / block_elems;
+  generate_random_numbers_kernel<<<grid, block, 0, stream>>>(
+      output, size, philox_args, rng_test);
+  cudaDeviceSynchronize();
 }
 
-at::Tensor generate_uniform(int64_t size, at::ScalarType dtype) {
-  return generate_random_numbers(size, dtype, RNGTest_t::Uniform);
-}
+template void launch_generate_random_numbers_kernel<float>(
+    cudaStream_t stream,
+    float* output,
+    int64_t size,
+    at::PhiloxCudaState philox_args,
+    RNGTest_t rng_test);
 
-at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
-  return generate_random_numbers(size, dtype, RNGTest_t::Normal);
-}
+template void launch_generate_random_numbers_kernel<double>(
+    cudaStream_t stream,
+    double* output,
+    int64_t size,
+    at::PhiloxCudaState philox_args,
+    RNGTest_t rng_test);
 
 } // namespace nvfuser

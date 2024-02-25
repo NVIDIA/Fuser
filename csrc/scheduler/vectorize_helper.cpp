@@ -377,9 +377,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // empty backward exprs, vice versa.
 
   auto backward_exprs = StmtSort::getExprsBetween(
-      frontier.front()->fusion(),
-      {to.begin(), to.end()},
-      {frontier.begin(), frontier.end()});
+      {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
 
   // Mapping from rfactor to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
@@ -407,9 +405,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   }
 
   auto forward_exprs = StmtSort::getExprsBetween(
-      frontier.front()->fusion(),
-      {frontier.begin(), frontier.end()},
-      {to.begin(), to.end()});
+      {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
 
   // Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
@@ -440,6 +436,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_root_ids_;
+  // When we propagate, we should check the resolved broadcast in the order of
+  // mapped from_ids.
+  //
   // If we have a case where we have a concretized broadcast that's being
   // tracked in a consumer but not concretized in the producer we should break
   // off the dimensions connected to the left of that dimension. So if we have:
@@ -449,49 +448,47 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // T3[i0, i1, i2] = T1 + T2
   // and we're propogating from T3 with {i0, i1, i2}
   // When we go from T3 to T0, we don't have any mechanism to understand that i0
-  // and i2 are not contiguous in the original domain of T3. It's not ideal with
-  // transpose, but when this happens we'll clear all dimensions mapped left of
-  // the concretized broadcast.
-  // So if we have:
-  // T0[i1, i2]
-  // T1[b0, i1, i2] = broadcast(T0)
-  // T2[i1, b0, i2] = transpose(T1)
-  // T3[i1, i0, i2]
-  // T4[i1, i0, i2] = T2 + T3
-  // T5[i0, i1, i2] = transpose(T4)
-  // Then i1 and i2 are contiguous in both T0 and T5, but due to the realization
-  // of the broadcast on T4 we will have removed i1 from the mapped set.
+  // and i2 are not contiguous in the original domain of T3.
+  //
+  // Another example is that, if the last broadcast dimension resolved in
+  // consumers root domain is mapped for vectorization, the merge order in
+  // the vectorization axes matters.
+  //
+  // T0[i0, i1]
+  // T1[i0, i1, b2] = broadcast(T0)
+  // T2[i0, i1, i3]
+  // T3[i0, i1, i2] = T1 + T2
+  //
+  // If the mapped ids are {i0, i2, i1}, when propagating from T3 to T1, the
+  // resolved broadcast iterdomain is `i2`/`b2`, which would give clear_pos=1.
+  // So we'll skip all from_ids with index < clear_pos. see issue:
+  // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
   std::unordered_set<IterDomain*> consumer_ids_to_clear;
+  size_t clear_pos = 0;
   if (to->hasBroadcast()) {
-    // Find the last broadcast dimension resolved in consumers root domain
-    int clear_pos = -1;
-    for (auto i : c10::irange(from->getRootDomain().size())) {
-      auto c_id = from->getRootDomain()[i];
+    // Find the last broadcast dimension resolved in consumers through from_ids
+    for (int i = (int)from_ids.size() - 1; i >= 0; i--) {
+      auto c_id = from_ids[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
         continue;
       }
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
-        clear_pos = (int)i;
+        clear_pos = (size_t)i + 1;
+        break;
       }
-    }
-    // Clear everything to the left of the inner most resolved broadcast
-    // dimension, including the broadcasted domain.
-    if (clear_pos >= 0) {
-      consumer_ids_to_clear.insert(
-          from->getRootDomain().begin(),
-          from->getRootDomain().begin() + clear_pos + 1);
     }
   }
 
   std::vector<IterDomain*> producer_rfactor_ids;
-  for (auto from_id : from_ids) {
+  for (auto i : c10::irange(clear_pos, from_ids.size())) {
+    auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
         consumer_ids_to_clear.find(c2p_it->first) ==
@@ -535,7 +532,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
@@ -690,36 +687,36 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
-  auto of_tv_root = of_tv->getMaybeRFactorDomain();
+  auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
 
   NVF_ERROR(hasMappedDims(of_tv));
 
   const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
-  auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
+  auto of_tv_alloc_no_reductions = TensorDomain::noReductions(of_tv_alloc);
 
   auto contiguity = of_tv->domain()->contiguity();
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
-  if (contiguity.size() == of_tv_root.size() &&
-      contiguity.size() != of_tv_root_no_reductions.size()) {
+  if (contiguity.size() == of_tv_alloc.size() &&
+      contiguity.size() != of_tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(of_tv_root.size())) {
-      if (!of_tv_root[i]->isReduction()) {
+    for (auto i : c10::irange(of_tv_alloc.size())) {
+      if (!of_tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
     }
     contiguity = new_contiguity;
   }
 
-  auto of_tv_root_no_reductions_size = of_tv_root_no_reductions.size();
+  auto of_tv_alloc_no_reductions_size = of_tv_alloc_no_reductions.size();
 
   // Filter out 0-dim tensors
-  if (of_tv_root_no_reductions_size < 1) {
+  if (of_tv_alloc_no_reductions_size < 1) {
     return product_of_inner_extents;
   }
 
   NVF_ERROR(
-      of_tv_root_no_reductions_size == contiguity.size(),
+      of_tv_alloc_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
 
   // Order is important, need to make sure dimensions match up correctly with
@@ -729,23 +726,23 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : c10::irange(of_tv_root_no_reductions_size)) {
+  for (auto i : c10::irange(of_tv_alloc_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }
-    auto root_i = of_tv_root_no_reductions_size - i - 1;
-    auto root_id = of_tv_root_no_reductions.at(root_i);
+    auto alloc_ii = of_tv_alloc_no_reductions_size - i - 1;
+    auto alloc_iid = of_tv_alloc_no_reductions.at(alloc_ii);
 
-    if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1] == root_id) {
+    if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
+      if (projected_dims[projected_dims_i - 1] == alloc_iid) {
         --projected_dims_i;
       }
       continue;
     }
 
-    auto contiguity_i = contiguity.at(root_i);
+    auto contiguity_i = contiguity.at(alloc_ii);
     if (!contiguity_i.has_value()) {
-      NVF_ERROR(false, "contiguity flag at root_i can't be null");
+      NVF_ERROR(false, "contiguity flag at alloc_ii can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -754,12 +751,12 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != root_id) {
+    if (projected_dims[--projected_dims_i] != alloc_iid) {
       break;
     }
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, getProjectedExtent(root_id));
+        product_of_inner_extents, getProjectedExtent(alloc_iid));
   }
   return simplifyExpr(product_of_inner_extents);
 }
@@ -779,10 +776,15 @@ namespace {
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
 // {{i0, r1, b2}, {r1, b2}, {b2}}
+// Note that the reference `ref` will be reordered per `rfactor_reorder_map`
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
-    TensorView* ref) {
+    TensorView* ref,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
+  if (!rfactor_reorder_map.empty()) {
+    root_dom = TensorDomain::orderedAs(root_dom, rfactor_reorder_map);
+  }
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());
@@ -797,7 +799,8 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int64_t break_point) {
+    int64_t break_point,
+    const std::unordered_map<int, int>& rfactor_reorder_map) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -810,10 +813,11 @@ int64_t getVectorizationFactor(
 
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
-          data_cache, [&reference_tv]() {
+          data_cache, [&reference_tv, &rfactor_reorder_map]() {
             return std::make_unique<
                 std::vector<std::unordered_map<TensorView*, Val*>>>(
-                getTvToContigInnerSizeMapsOf(reference_tv));
+                getTvToContigInnerSizeMapsOf(
+                    reference_tv, rfactor_reorder_map));
           });
 
   if (vectorizable_inputs_outputs.empty()) {
@@ -918,10 +922,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
-  const auto c2p =
-      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-          .mapConsumerToProducer(
-              reduction_consumer->domain(), reduction_producer->domain());
+  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+                       .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs

@@ -181,10 +181,48 @@ bool isLdMatrixOp(const Expr* expr) {
 
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncCa ||
-        ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    return ldst->opType() == LoadStoreOpType::CpAsync;
   }
   return false;
+}
+
+namespace {
+
+enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+
+inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Shared) {
+        return CpAsyncBulkTileType::G2S;
+      } else if (
+          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Global) {
+        return CpAsyncBulkTileType::S2G;
+      } else {
+        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+      }
+    }
+  }
+  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+} // namespace
+
+bool isCpAsyncBulk(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) !=
+      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+bool isCpAsyncBulkLoad(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+}
+
+bool isCpAsyncBulkStore(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -250,14 +288,16 @@ TensorView* getTvInput(const Expr* expr) {
 }
 
 bool isScalarOp(const Expr* expr) {
-  for (auto out : expr->outputs())
-    if (!out->isScalar())
+  for (auto out : expr->outputs()) {
+    if (!out->isScalar()) {
       return false;
+    }
+  }
   return true;
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
 }
 
 std::optional<IterDomain*> getMaybeWarpReductionDim(
@@ -301,7 +341,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluateInt();
+    auto extent_value = reduction_on_xdim->extent()->evaluate();
     if (extent_value % at::cuda::warp_size() == 0) {
       return std::optional<IterDomain*>(reduction_on_xdim);
     }
@@ -565,7 +605,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options(),
+          node->macro(),
           node->layout());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -575,7 +615,7 @@ class ReplaceExprInput : private kir::ExprMutator {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
       auto replacement = IrBuilder::create<LoadStoreOp>(
-          node->opType(), node->out(), node->in());
+          node->opType(), node->out(), node->in(), node->cacheOp());
       registerReplaceWithPredicate(node, replacement);
     }
   }
@@ -614,11 +654,20 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
+      expr->isA<kir::BlockSerializeWait>() ||
+      expr->isA<kir::BlockSerializeRelease>()) {
     return true;
   }
 
   if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+
+  if (auto gr = dynamic_cast<const kir::GridReduction*>(expr);
+      gr && gr->isSerial()) {
+    // Serial GridReductions do not have a block sync. Instead, they sync in
+    // separate nodes surrounding their loop nest.
     return false;
   }
 
@@ -745,7 +794,7 @@ bool supportInlinePredicate(Expr* expr) {
 bool isScalarExpr(Expr* expr) {
   if (expr->inputs().empty() || expr->outputs().empty()) {
     // For expressions that does not have input/output, they are usually lowered
-    // expressions like CpAsyncWait. We don't consider these as scalar
+    // expressions like AsyncWait. We don't consider these as scalar
     // expressions.
     return false;
   }
@@ -770,6 +819,37 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   }
   auto* is_exact_val = IrBuilder::eqExpr(id->extent(), pdm_max_extent);
   return simplifyExpr(is_exact_val)->isTrue();
+}
+
+Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      u32addr,
+      IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
+}
+
+Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
+  // See the comment above for getGridCommWorkBufferSize.
+  NVF_ERROR(
+      ptb.hasBID(),
+      "Detected  needing a grid sync but no grid bits set in bitmap.");
+  Val* buffer_size = GpuLower::current()->kernel()->oneVal();
+  for (auto pt : kParallelTypeBIDs) {
+    // Synchronized within pt, so all blocks of this PT use the same
+    // sync buffer location, and thus no need to expand the sync
+    // buffer size.
+    if (ptb.get(pt)) {
+      continue;
+    }
+    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    if (pt_dim == nullptr || pt_dim->isOneInt()) {
+      continue;
+    }
+    buffer_size = SimplifyingIrBuilder::mulExpr(buffer_size, pt_dim);
+  }
+  return buffer_size;
 }
 
 } // namespace lower_utils

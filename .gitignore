@@ -43,3 +43,8 @@ nvfuser/cmake
 # debugging temporaries
 *.log
 foo.bin
+
+# Config for https://pre-commit.com/
+.pre-commit-config.yaml
+
+*_generated.*

@@ -62,18 +62,21 @@ static std::vector<c10::IValue> setupInputs() {
 
 //------------------------------------------------------------------------------
 
-static void IndexSelect_SetupFusion(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_IndexSelect_SetupFusion(
+    benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
     setupFusion(&fusion);
   }
 }
 
-BENCHMARK(IndexSelect_SetupFusion)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_IndexSelect_SetupFusion)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void IndexSelect_AutoSchedule(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_IndexSelect_AutoSchedule(
+    benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
     benchmark_state.PauseTiming();
@@ -87,11 +90,13 @@ static void IndexSelect_AutoSchedule(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(IndexSelect_AutoSchedule)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_IndexSelect_AutoSchedule)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void IndexSelect_Lower(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_IndexSelect_Lower(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -103,15 +108,16 @@ static void IndexSelect_Lower(benchmark::State& benchmark_state) {
   schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    GpuLower gpu_lower(&fusion);
+    GpuLower(&fusion).run();
   }
 }
 
-BENCHMARK(IndexSelect_Lower)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_IndexSelect_Lower)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void IndexSelect_Compile(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_IndexSelect_Compile(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -129,11 +135,12 @@ static void IndexSelect_Compile(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(IndexSelect_Compile)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_IndexSelect_Compile)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void IndexSelect_RunFusion(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_IndexSelect_RunFusion(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -158,7 +165,8 @@ static void IndexSelect_RunFusion(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(IndexSelect_RunFusion)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_IndexSelect_RunFusion)
+    ->Unit(benchmark::kMicrosecond);
 
 static void setupIndexSelectSimple(
     Fusion* fusion,
