@@ -11,7 +11,7 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
-#include <union_find.h>
+#include <simplification/union_find.h>
 
 #include <algorithm>
 #include <complex>
