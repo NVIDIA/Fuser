@@ -3851,7 +3851,7 @@ void SegmentCandidateFinder::findSegments() {
   segmented_fusion_->validateIfDebug();
 
   // Resolve all the input expressions needed in each group
-  for (auto [forwarded_input, aux_group] : input2group_) {
+  for (Val* forwarded_input : forwarded_fusion_inputs_) {
     if (forwarded_input->isFusionInput()) {
       // Nothing to resolve.
       continue;
@@ -3862,7 +3862,7 @@ void SegmentCandidateFinder::findSegments() {
       continue;
     }
 
-    resolveInputGroup(aux_group, forwarded_input);
+    resolveInputGroup(forwarded_input);
     // aux_group will be removed from segmented_fusion_ by
     // cleanupForwardedInputs.
   }
@@ -4217,9 +4217,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   }
 }
 
-void SegmentCandidateFinder::resolveInputGroup(
-    SegmentedGroup* aux_group,
-    Val* forwarded_input) {
+void SegmentCandidateFinder::resolveInputGroup(Val* forwarded_input) {
+  SegmentedGroup* aux_group = input2group_.at(forwarded_input);
   NVF_ERROR(aux_group->producer_edges.empty());
 
   std::vector<SegmentedGroup*> consumers;
