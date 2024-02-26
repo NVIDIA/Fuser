@@ -22,12 +22,14 @@ using EClassIdType = uint32_t;
 
 //! This class is built to simplify Vals using E-graphs. The method we employ is
 //! based on equality saturation with rebuilding, as described in detail here:
+//! Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.
 //! https://doi.org/10.5281/zenodo.4072013
 //!
 //! [E-Graph Expression Simplification (Interface)]
 //! In this method, Vals can be simplified in batches. The user first provides a
 //! collection of values that will need simplifying, via `registerVal(Val*
-//! val)`. Additionally, axioms can be declared via the following helper methods:
+//! val)`. Additionally, axioms can be declared via the following helper
+//! methods:
 //!  - assumeTrue
 //!  - assumeFalse
 //!
@@ -138,13 +140,44 @@ class EGraphSimplifier {
   //! Return an optimal Val* representing an ENode
   Val* extract(ENode* enode);
 
+  //! After we have merged EClasses, the hashcons structure
+  //! This method is called upward merging: see Section 3.1 of Willsey et al.
+  //! 2021.
+  void repair();
+
+  //! See Section 3.2 of Willsey et al. 2021.
+  void rebuild();
+
+  //! Note that this is non-const since uf_.find(a) is non-const due to path
+  //! compression.
+  EClass* getCanonicalEClass(EClassIdType a) {
+    return eclasses_up_.at(uf_.find(a)).get();
+  }
+
  private:
-  // This class owns all its ENodes and EClass objects
+  //! These containers owns all of this EGraph's ENodes and EClass objects. Note
+  //! that these vectors should always have the same length. EClass or ENode
+  //! IDs refer to positions within these vectors.
   std::vector<std::unique_ptr<ENode>> enodes_up_;
   std::vector<std::unique_ptr<EClass>> eclasses_up_;
 
+  // Definition 2.1 of Willsey et al. describes the basic structure of an
+  // EGraph. Such an object consists of a UnionFind U over EClass IDs, an EClass
+  // map M mapping EClass IDs to EClasses, and a HashCons H from ENodes to
+  // EClass IDs.
+  //  - The UnionFind U is called uf_
+  //  - The map M is getCanonicalEClass() and consists of a |->
+  //    eclasses_up_[uf_.find(a)].
+  //  - The HashCons H is called hashcons_.
+
   //! The UnionFind used to define the equivalence relation describing EClasses
   UnionFind<EClassIdType> uf_;
+
+  //! This maps ENode IDs to EClass IDs.
+  //! Importantly, we maintain "The HashCons Invariant" which states that given
+  //! a "canonical" ENode n (see canonicalize()) this object will map n to
+  //! uf_.find(n.id) (see Definition 2.7 of Willsey et al. 2021).
+  ENodeHashCons<EClassIdType> hashcons_;
 
   //! An immediate constant Val* is represented by a unique ENode. This maps any
   //! such value to that ENode.
@@ -159,14 +192,20 @@ class EGraphSimplifier {
   size_t exploration_time_limit_ms_ = 5000;
 };
 
-// An ENode represents either a constant, a definition-less scalar (such as a
-// loop variable or input scalar), or a scalar defined by some function. This is
-// a lightweight surrogate for Vals which additionally holds a collection of
-// actual Vals having the exact same form. We support the following subset of
-// Exprs.
-//
-// NOTE: although we support BinaryOp, we also _flatten_ expressions like w + (x
-// + (y + z)) using symbols named FlattenedAdd and similar.
+//! An ENode represents either a constant, a definition-less scalar (such as a
+//! loop variable or input scalar), or a scalar defined by some function. This
+//! is a lightweight surrogate for Vals which additionally holds a collection of
+//! actual Vals having the exact same form. We support the following subset of
+//! Exprs.
+//!
+//! NOTE: although we support BinaryOp, we also _flatten_ expressions like
+//!
+//!   u + (v + (w + (x + (y + z))))
+//!
+//! using the CommutativeBinaryOp symbol. ENodes with this symbol might have
+//! more than 2 arguments and their order is arbitrary; two ENodes with this
+//! symbol and the same op_type, with the same collection of arguments but in
+//! permutated order should always map to the same EClass ID.
 enum ENodeFunctionSymbol {
   NoDefinition,
   LoadStoreOp,
@@ -174,27 +213,42 @@ enum ENodeFunctionSymbol {
   UnaryOp,
   BinaryOp,
   TernaryOp,
-  FlattenedAdd,
-  FlattenedMul,
-  FlattenedLogicalOr,
-  FlattenedLogicalAnd,
-  FlattenedBitwiseOr,
-  FlattenedBitwiseAnd
+  CommutativeBinaryOp,
 };
 
+//! An ENode is an abstraction of a Val where its producers have been replaced
+//! with EClasses.
 struct ENode {
   //! What type of node is this
   ENodeFuncSymbol function_symbol;
 
   //! This determines the actual operation, e.g. BinaryOpType::Add
-  std::variant<UnaryOpType, BinaryOpType, TernaryOpType> op_type;
+  //! Note that the target DataType for CastOp can be inferred by the dtype of
+  //! this ENode's EClass, but since we need to hash and compare ENodes we
+  //! include that DataType here as data as well.
+  std::variant<UnaryOpType, BinaryOpType, TernaryOpType, DataType> op_type;
 
-  //! EClass IDs of all function arguments
+  //! EClass IDs of all function arguments.
   std::vector<EClassIdType> arg_eclass_ids;
-
-  //! We hold a set of Vals from the Fusion that map to this ENode.
-  std::unordered_set<Val*> representing_vals;
 };
+
+//! A ConcreteENode is an ENode whose arguments are ConcreteENodes instead of
+//! EClasses. These objects mimic the Val AST and can be used to record input
+//! Vals and to select the form of simplified values that we will need to
+//! construct.
+struct ConcreteENode : public ENode {
+  //! Given a Val*, map its definition and producers to ConcreteENodes
+  //! recursively.
+  static ConcreteENode fromVal(Val* val);
+
+  //! Compute a coarse estimate of the complexity of computing this value.
+  size_t complexity;
+
+  //! This is a collection of Vals from the Fusion that have this exact form.
+  //! This can be used during extraction to select pre-existing Vals with a
+  //! desired form.
+  std::unordered_set<Val*> representing_vals;
+}
 
 //! An EClass is simply an equivalence class of ENodes. This represents Vals
 //! that are all proven to have exactly the same value in the generated kernel.
@@ -203,7 +257,6 @@ struct ENode {
 //! arguments.
 struct EClass {
   //! Position of this EClass within the EGraphSimplifier::eclasses_up_ vector.
-  //! This ID is used 
   EClassIdType id;
 
   //! All members of a class must have exactly the same dtype in order to avoid
@@ -211,9 +264,10 @@ struct EClass {
   DataType dtype;
 
   //! ENodes that are members of this class
-  std::list<ENode*> members_;
+  std::list<ENode*> members;
 
-  //! Parent ENodes represent functions of members of this EClass.
+  //! Parent ENodes represent functions some of whose arguments are members of
+  //! this EClass.
   std::list<ENode*> parents;
 };
 
