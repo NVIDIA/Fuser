@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/remove_empty.h>
+#include <preseg_passes/remove_empty.h>
 
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 namespace {
 
@@ -317,4 +317,4 @@ void RemoveEmptyPass::runPass(Fusion* fusion) {
   EmptyTensorRemover(fusion).run();
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

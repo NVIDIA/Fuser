@@ -12,13 +12,14 @@
 #include <fusion.h>
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/registry.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-std::shared_ptr<ReductionParams> getReductionHeuristics(
+NVF_API std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
@@ -28,7 +29,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void scheduleReduction(Fusion* fusion, const ReductionParams& rparams);
+NVF_API void scheduleReduction(Fusion* fusion, const ReductionParams& rparams);
 
 class ReductionScheduler : public SchedulerEntry {
  public:

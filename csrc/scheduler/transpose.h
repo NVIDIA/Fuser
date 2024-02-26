@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <scheduler/registry.h>
 #include <scheduler/transpose_heuristic.h>
+#include <visibility.h>
 
 #define SUPPORT_SPLITTING_INNERMOST_DIM 0
 
@@ -95,15 +96,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void scheduleTranspose(Fusion* fusion, TransposeParams params);
+NVF_API void scheduleTranspose(Fusion* fusion, TransposeParams params);
 
-LaunchParams scheduleTranspose(
+NVF_API LaunchParams scheduleTranspose(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs);
 
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
-bool hasAtLeastTwoValidGroups(Fusion* fusion);
+NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
 
 // If can schedule at runtime, returns empty string, otherwise returns the
 // reason why we should not schedule at runtime.

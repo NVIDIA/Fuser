@@ -11,6 +11,7 @@
 #endif
 
 #include <multidevice/communication.h>
+#include <utils.h>
 
 namespace nvfuser {
 namespace {
@@ -236,7 +237,13 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
 #ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
+#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
+    // API change https://github.com/pytorch/pytorch/pull/119421
+    return nccl_backend->_reduce_oop(
+        buf.at(0), params_.src_bufs.at(0), options);
+#else
     return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+#endif
   }
 #endif
   if (comm.deviceId() == params_.root) {

@@ -18,6 +18,7 @@
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <algorithm>
 
 #include <sstream>
 
@@ -449,10 +450,40 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
       complete_fusion_(std::move(fusion)),
-      initial_vals_size_{0},
-      initial_exprs_size_{0} {
+      initial_vals_size_{complete_fusion_->vals().size()},
+      initial_exprs_size_{complete_fusion_->unordered_exprs().size()} {
   annotateFP16IntermediateTensors();
 }
+
+namespace {
+
+//! A SegmentedGroup is serializable if all its values and expressions are
+//! compatible with the statements in the complete fusion provided in the
+//! SegmentedFusion constructor.
+bool isSerializableSegmentedGroup(
+    SegmentedGroup* sg,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
+    int64_t initial_vals_size,
+    int64_t initial_exprs_size) {
+  auto check_value = [&](Val* v) {
+    return vals_to_id_map.at(v) < initial_vals_size;
+  };
+  auto check_expr = [&](Expr* e) {
+    return exprs_to_id_map.at(e) < initial_exprs_size;
+  };
+  bool all_serializable_inputs =
+      std::all_of(sg->inputs().begin(), sg->inputs().end(), check_value);
+  bool all_serializable_outputs =
+      std::all_of(sg->outputs().begin(), sg->outputs().end(), check_value);
+  bool all_serializable_exprs =
+      std::all_of(sg->exprs().begin(), sg->exprs().end(), check_expr);
+  return (
+      all_serializable_inputs && all_serializable_outputs &&
+      all_serializable_exprs);
+}
+
+} // namespace
 
 flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
@@ -465,6 +496,31 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
       impl_.groups_map();
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
       impl_.edges_map();
+
+  bool all_edges_serializable =
+      std::all_of(edges_.begin(), edges_.end(), [&](SegmentedEdge* se) {
+        return vals_to_id_map.at(se->val) < (int64_t)initial_vals_size_;
+      });
+
+  bool all_groups_serializable =
+      std::all_of(groups_.begin(), groups_.end(), [&](SegmentedGroup* sg) {
+        return isSerializableSegmentedGroup(
+            sg,
+            vals_to_id_map,
+            exprs_to_id_map,
+            (int64_t)initial_vals_size_,
+            (int64_t)initial_exprs_size_);
+      });
+
+  // SegmentCandidateFinder::findSegments can generate new statements when
+  // finding valid sub-fusions, so SegmentedGroup can reference statements that
+  // do not exist in the original fusion. If we cannot get all statements from
+  // the original fusion, we cannot serialize the segmented fusion.
+  if (!all_edges_serializable || !all_groups_serializable) {
+    return serde::CreateSegmentedFusionDirect(
+        builder,
+        /*valid=*/false);
+  }
 
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
@@ -487,6 +543,7 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
 
   return serde::CreateSegmentedFusionDirect(
       builder,
+      /*valid=*/true,
       segmented_fusion_name_,
       initial_vals_size_,
       initial_exprs_size_,
@@ -503,23 +560,22 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
-  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
-  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   NVF_ERROR(
       complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
-      vals.size(),
-      " values while serialization expected ",
+      complete_fusion_->vals().size(),
+      " values while serialization expected at least",
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      complete_fusion_->unordered_exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
-      exprs.size(),
-      " expressions while serialization expected ",
+      complete_fusion_->unordered_exprs().size(),
+      " expressions while serialization expected at least",
       buffer->num_exprs(),
       " expressions.");
-
+  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
+  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 
   // Construct segmented groups first because they are necessary for the
@@ -1130,11 +1186,6 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
-
-  // Log the number of values and expressions. It is used as a sanity check
-  // during serialization.
-  initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
@@ -2432,6 +2483,12 @@ std::optional<ScheduleHeuristic> tryMerge(
     SegmentedGroup* b = nullptr) {
   FusionSegmentGuard fsg(segmented_fusion, a, b);
 
+  NVF_ERROR(
+      !segmented_fusion->completeFusion()->unordered_exprs().empty(),
+      "We shouldn't attempt to merge empty fusions. "
+      "This might not indicate a bug, "
+      "but it's definitely a change of world view that we should be aware of.");
+
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
@@ -2447,6 +2504,13 @@ std::optional<ScheduleHeuristic> tryMerge(
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
   FusionSegmentGuard fsg(segmented_fusion, segmented_groups);
+
+  NVF_ERROR(
+      !segmented_fusion->completeFusion()->unordered_exprs().empty(),
+      "We shouldn't attempt to merge empty fusions. "
+      "This might not indicate a bug, "
+      "but it's definitely a change of world view that we should be aware of.");
+
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
@@ -3629,7 +3693,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
       continue;
     }
 
-    auto expr_group = expr2group.at(expr);
+    SegmentedGroup* expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (isFusionInput(inp)) {
         expr_group->input_vals.push_back(inp);
@@ -3799,6 +3863,35 @@ void SegmentCandidateFinder::findSegments() {
   }
 }
 
+// Decides whether we should forward an input (or a forwarded input) of a
+// fusion. Currently, we forward an input only when its single use is a UnaryOp.
+// Therefore, this function returns `v`'s single unary use or nullptr if it
+// decides not to forward.
+UnaryOp* shouldForward(Val* v) {
+  const std::vector<Expr*>& uses = v->uses();
+  // Just allow stripping out input with single use.
+  // Stripping out multi-used inputs can lead to:
+  // (1) Fragmentation of the DAG, increased segments, see test in #1301.
+  // (2) Miss detection of persistent buffers, see issue #1607.
+  if (uses.size() != 1) {
+    return nullptr;
+  }
+
+  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
+  if (unary_use == nullptr) {
+    return nullptr;
+  }
+
+  // Don't forward an input to an output yet. Doing that would lead to an empty
+  // group that ought to work in theory but doesn't work in practice with the
+  // downstream logic. See #1813 for an example.
+  if (unary_use->out()->isFusionOutput()) {
+    return nullptr;
+  }
+
+  return unary_use;
+}
+
 void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
@@ -3808,40 +3901,26 @@ void SegmentCandidateFinder::forwardInputs() {
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
     std::deque<UnaryOp*> to_visit;
-    for (auto inp : completeFusion()->inputs()) {
-      // Just allow stripping out input with single use.
-      // Stripping out multi-used inputs can lead to:
-      // (1) Fragmentation of the DAG, increased segments, see test in #1301.
-      // (2) Miss detection of persistent buffers, see issue #1607.
-      const auto& input_uses = inp->uses();
-      // Add single-use input if it is a UnaryOp
-      if (input_uses.size() == 1 && input_uses.at(0)->isA<UnaryOp>()) {
-        to_visit.push_back(input_uses.at(0)->as<UnaryOp>());
+    for (Val* inp : completeFusion()->inputs()) {
+      if (UnaryOp* unary_use = shouldForward(inp)) {
+        to_visit.push_back(unary_use);
       }
     }
 
     while (!to_visit.empty()) {
       UnaryOp* uop = to_visit.front();
       to_visit.pop_front();
-      if (uop->out()->isFusionOutput()) {
-        continue;
-      }
 
-      // uop is a UnaryOp so there is a single output. Here we look at that
-      // output's further uses
-      const auto& output_uses = uop->out()->uses();
-
-      if (output_uses.size() == 1 && output_uses[0]->isA<UnaryOp>()) {
-        // If there is a single use which is also a UnaryOp, visit it to try
-        // and extend the chain of unaryOps
-        to_visit.emplace_back(output_uses[0]->as<UnaryOp>());
+      if (UnaryOp* unary_use = shouldForward(uop->out())) {
+        to_visit.push_back(unary_use);
       } else {
-        // If there are either no more uses, more than one use, or one use that
-        // is not a UnaryOp, then we cannot extend the chain of unary Ops. In
-        // these cases we finalize this chain by saving the uop and its output.
-        excluded_inp_unary_exprs_.pushBack(uop);
+        // We cannot extend the chain of unary ops, so we finalize this chain by
+        // saving its output as a forwarded input.
         forwarded_inputs.pushBack(uop->out());
       }
+      // Either way, `uop` is excluded from merging until `resolveInputsInGroup`
+      // adds it back to one of the segments.
+      excluded_inp_unary_exprs_.pushBack(uop);
     }
   }
 
@@ -4169,7 +4248,7 @@ void SegmentCandidateFinder::finalize() {
     resolveScalarsInGroup(group);
   }
 
-  // Resolve all the scalar expressions needed in each group
+  // Resolve all the input expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveInputsInGroup(group);
   }

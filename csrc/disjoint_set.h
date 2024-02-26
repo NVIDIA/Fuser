@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <algorithm>
@@ -42,6 +41,11 @@ std::string abstractToString(T ref) {
 template <typename T, typename Hash = std::hash<T>>
 class VectorOfUniqueEntries {
  public:
+  // Naming not following our conventions but using the same name as
+  // std::vector makes it more convenient when we want to use this
+  // class as if it's like std::vector
+  using value_type = T;
+
   VectorOfUniqueEntries() = default;
 
   VectorOfUniqueEntries(const std::initializer_list<T>& initializer)
@@ -240,6 +244,14 @@ class VectorOfUniqueEntries {
 
   auto rend() {
     return vector_.end();
+  }
+
+  T& at(size_t pos) {
+    return vector_.at(pos);
+  }
+
+  const T& at(size_t pos) const {
+    return vector_.at(pos);
   }
 
   std::string toString() const {

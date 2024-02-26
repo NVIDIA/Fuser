@@ -10,7 +10,7 @@
 
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
-#include <multidevice/pipeline.h>
+#include <multidevice/executor.h>
 #include <test/utils.h>
 
 namespace nvfuser {
@@ -33,10 +33,15 @@ class MultiDeviceEnvironment : public testing::Environment {
     return do_barrier_at_test_;
   }
 
+  bool disableSkip() const {
+    return disable_skip_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
+  bool disable_skip_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
@@ -47,6 +52,7 @@ class MultiDeviceTest : public NVFuserTest {
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool do_barrier_at_test;
+  bool disable_skip;
 };
 
 class CommunicationTest
@@ -69,7 +75,7 @@ class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
   void validate();
-  std::unique_ptr<Pipeline> pipeline;
+  std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
 };
