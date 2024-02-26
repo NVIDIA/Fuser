@@ -169,7 +169,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   std::vector<int64_t> unsharded_input_sizes = {
       first_axis_extent, second_axis_extent, 3, 5};
-
+  std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
+  if (is_stage0_sharded) {
+    sharded_input_sizes[0] = 1;
+  }
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
@@ -195,8 +198,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
 
   inputs = {
-      at::ones(unsharded_input_sizes, tensor_options) *
-      communicator->deviceId()};
+      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
 
   validate();
 }
