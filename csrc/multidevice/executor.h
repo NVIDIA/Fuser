@@ -70,7 +70,10 @@ namespace nvfuser {
 */
 class MultiDeviceExecutor {
  public:
-  MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm, bool auto_schedule = false);
+  MultiDeviceExecutor(
+      std::unique_ptr<Fusion> fusion,
+      Communicator& comm,
+      bool auto_schedule = false);
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
@@ -116,7 +119,8 @@ class MultiDeviceExecutor {
   // Stores the order in which the pipeline's stage should be executed
   RuntimeWorkSpace workspace;
   // Cache FusionsExecutorCache
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutorCache>> fec_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutorCache>>
+      fec_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication

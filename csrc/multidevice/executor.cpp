@@ -101,7 +101,8 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
-    Communicator& comm, bool auto_schedule)
+    Communicator& comm,
+    bool auto_schedule)
     : comm_(comm), auto_schedule_(auto_schedule) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
@@ -155,7 +156,10 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (fec_.find(group) == fec_.end()) {
-    fec_.emplace(group, std::make_unique<FusionExecutorCache>(staged_fusion_->makeFusion(group), 0, auto_schedule_));
+    fec_.emplace(
+        group,
+        std::make_unique<FusionExecutorCache>(
+            staged_fusion_->makeFusion(group), 0, auto_schedule_));
   }
   outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
 
