@@ -28,6 +28,9 @@ void MultiDeviceEnvironment::SetUp() {
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
+  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
+    disable_skip_ = true;
+  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -40,14 +43,17 @@ void MultiDeviceEnvironment::TearDown() {
 void MultiDeviceTest::SetUp() {
   NVFuserTest::SetUp();
   communicator = multidevice_env->communicator();
-  if (!communicator->is_available() || communicator->size() < 2 ||
-      torch::cuda::device_count() < 2) {
+  debug_print = multidevice_env->debugPrint();
+  do_barrier_at_test =
+      multidevice_env->doBarrierAtTest() && communicator->is_available();
+  disable_skip = multidevice_env->disableSkip();
+  if (!disable_skip &&
+      (!communicator->is_available() || communicator->size() < 2 ||
+       torch::cuda::device_count() < 2)) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test = multidevice_env->doBarrierAtTest();
 }
 
 void MultiDeviceTest::TearDown() {
@@ -157,6 +163,24 @@ void SendToTester(
   }
 }
 
+c10::IValue allocate_unsharded_input(
+    DeviceIdxType tester,
+    TensorView* tv,
+    at::Tensor sharded_input) {
+  std::vector<int64_t> unsharded_sizes;
+  for (size_t i = 0; i < tv->nDims(); i++) {
+    if (tv->axis(i)->isDeviceDim()) {
+      unsharded_sizes.push_back(tv->getDeviceMesh().vector().size());
+    } else {
+      unsharded_sizes.push_back(sharded_input.size(i));
+    }
+  }
+  at::Tensor unsharded_input =
+      at::rand(unsharded_sizes, sharded_input.options());
+  unsharded_input.index_put_({tester, "..."}, sharded_input.index({0, "..."}));
+  return unsharded_input;
+}
+
 // Utility function used for validation in the tests
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
@@ -172,10 +196,13 @@ void testValidateMultidevice(
   // gathering all the inputs at tester
   std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
-    c10::IValue unsharded_input = inputs.at(i).deepcopy();
+    TensorView* tv = runtime.completeFusion()->inputs().at(i)->as<TensorView>();
+    c10::IValue unsharded_input = isSharded(tv)
+        ? allocate_unsharded_input(tester, tv, inputs.at(i).toTensor())
+        : inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
     SendToTester(
-        runtime.completeFusion()->inputs().at(i)->as<TensorView>(),
+        tv,
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
