@@ -75,14 +75,7 @@ TensorView* getTensorByName(
 class IdModelTester : public IdModel {
  public:
   // Do not automatically build the graphs
-  IdModelTester(Fusion* fusion) : IdModel(fusion, /* build_graphs */ false) {}
-
-  // Returns the IEL graph and the results of Steps 1 and 2
-  std::tuple<
-      ValGraph,
-      std::unordered_map<ValGroup, IterDomain*>,
-      std::unordered_map<ValGroup, IterDomain*>>
-  getLoopPromotionInfo() {
+  IdModelTester(Fusion* fusion) : IdModel(fusion, /* build_graphs */ false) {
     // Make sure the depedent graphs are already built
     maybeBuildGraph(IdMappingMode::EXACT);
     maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -95,21 +88,20 @@ class IdModelTester : public IdModel {
 
     initializeLoopGraph(inlining_info);
 
-    ValGraph iel_graph = buildIntersection(
+    iel_graph = buildIntersection(
         idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
-    std::unordered_map<ValGroup, IterDomain*> root_promotion_map =
+    s1_root_resolution_map =
         buildInlineRootResolutionMap(iel_graph, inlining_info);
 
-    auto iel_promotion_map = root_promotion_map;
+    s2_iel_promotion_map = s1_root_resolution_map;
 
-    propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
-
-    return {
-        std::move(iel_graph),
-        std::move(root_promotion_map),
-        std::move(iel_promotion_map)};
+    propagatePromotionsInIELGraph(iel_graph, s2_iel_promotion_map);
   }
+
+  ValGraph iel_graph;
+  std::unordered_map<ValGroup, IterDomain*> s1_root_resolution_map;
+  std::unordered_map<ValGroup, IterDomain*> s2_iel_promotion_map;
 };
 
 // Test if id is resolved to an ID that is exact mapped with
@@ -548,11 +540,9 @@ TEST_F(IdModelTest, LoopPromotion1) {
 
   {
     IdModelTester tester(fusion.get());
-    const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-        tester.getLoopPromotionInfo();
 
     // Nothing inlined. Should be no resolution
-    ASSERT_TRUE(root_resolution_map.empty());
+    ASSERT_TRUE(tester.s1_root_resolution_map.empty());
   }
 
   t2->inlineAt(2);
@@ -560,8 +550,6 @@ TEST_F(IdModelTest, LoopPromotion1) {
 
   {
     IdModelTester tester(fusion.get());
-    const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-        tester.getLoopPromotionInfo();
 
     // Check Step 1 results
     // t2 is now fully inlined. Its root broadcast domain should be
@@ -569,14 +557,14 @@ TEST_F(IdModelTest, LoopPromotion1) {
     validateIELResolution(
         t2->getRootDomain().at(0),
         t3->getRootDomain().at(0),
-        iel_graph,
+        tester.iel_graph,
         tester.idGraph(IdMappingMode::EXACT),
-        root_resolution_map);
+        tester.s1_root_resolution_map);
 
     // Check Step 2 results
     // Nothing to propagate in this fusion, so iel_promotion_map
     // should be equivalent to root_resolution_map
-    ASSERT_EQ(root_resolution_map, iel_promotion_map)
+    ASSERT_EQ(tester.s1_root_resolution_map, tester.s2_iel_promotion_map)
         << "Unexpected IEL promotion map";
   }
 }
@@ -599,29 +587,27 @@ TEST_F(IdModelTest, LoopPromotion2) {
   inlineMost();
 
   IdModelTester tester(fusion.get());
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Check Step 1 results
   // Validate t2 and t3 as they have root broadcast domains
   validateIELResolution(
       t2->getRootDomain().at(0),
       t4->getRootDomain().at(1),
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      root_resolution_map);
+      tester.s1_root_resolution_map);
 
   validateIELResolution(
       t3->getRootDomain().at(0),
       t4->getRootDomain().at(0),
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      root_resolution_map);
+      tester.s1_root_resolution_map);
 
   // Check Step 2 results
   // Nothing to propagate in this fusion, so iel_promotion_map
   // should be equivalent to root_resolution_map
-  ASSERT_EQ(root_resolution_map, iel_promotion_map)
+  ASSERT_EQ(tester.s1_root_resolution_map, tester.s2_iel_promotion_map)
       << "Unexpected IEL promotion map";
 }
 
@@ -652,8 +638,6 @@ TEST_F(IdModelTest, LoopPromotion3) {
   // tv3: [i0*i1, i2*i3]
 
   IdModelTester tester(fusion.get());
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Check Step 1 results
   // The b1 broadcast domain tv2 should be resolved as it's inlined,
@@ -661,31 +645,31 @@ TEST_F(IdModelTest, LoopPromotion3) {
   validateIELResolution(
       tv2->getRootDomain().at(1),
       tv3->getRootDomain().at(1),
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      root_resolution_map);
+      tester.s1_root_resolution_map);
 
   validateIELResolution(
       tv2->getRootDomain().at(3),
       nullptr,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      root_resolution_map);
+      tester.s1_root_resolution_map);
 
   // Check Step 2 results
   validateIELResolution(
       tv2->axis(0),
       tv3->axis(0),
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 
   validateIELResolution(
       tv2->axis(1),
       nullptr,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 // Test root resolution with a fusion with outer split.
@@ -721,8 +705,6 @@ TEST_F(IdModelTest, LoopPromotion4) {
   }
 
   IdModelTester tester(&fusion);
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : ir_utils::allTvs(&fusion)) {
@@ -742,9 +724,9 @@ TEST_F(IdModelTest, LoopPromotion4) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       default:
         FAIL() << "Unexpected tensor: " << tv->toString();
@@ -753,9 +735,9 @@ TEST_F(IdModelTest, LoopPromotion4) {
 
   checkStep2Results(
       &fusion,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 // Test root resolution with the same fusion as Indexing1
@@ -796,8 +778,6 @@ TEST_F(IdModelTest, LoopPromotion5) {
   auto all_tvs = ir_utils::allTvs(&fusion);
 
   IdModelTester tester(&fusion);
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Check Step 1 results
   for (auto tv : all_tvs) {
@@ -818,9 +798,9 @@ TEST_F(IdModelTest, LoopPromotion5) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       default:
         FAIL() << "Unexpected tensor: " << tv->toString();
@@ -830,9 +810,9 @@ TEST_F(IdModelTest, LoopPromotion5) {
   // Check Step 2 results
   checkStep2Results(
       &fusion,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 // Test root resolution with the same fusion as Indexing19
@@ -842,8 +822,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
   IdModelTester tester(fusion.get());
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Check Step 1 results
   for (auto tv : all_tvs) {
@@ -865,9 +843,9 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             getTensorByName(all_tvs, 4)->getRootDomain().at(1),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       case 5:
         // T5_l[ iS39{( ceilDiv(( ceilDiv(( ( 7 * 11 ) * 1 ), 5) ), 3) )},
@@ -879,9 +857,9 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(2),
             getTensorByName(all_tvs, 9)->getRootDomain().at(2),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       case 6:
         // T6_l[ iS64{( ceilDiv(( ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS65{3},
@@ -891,9 +869,9 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             getTensorByName(all_tvs, 8)->getRootDomain().at(1),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       case 9:
         // T9_l[ iS33{( ceilDiv(( ceilDiv(( ( 7 * 1 ) * 13 ), 5) ), 3) )},
@@ -905,9 +883,9 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             getTensorByName(all_tvs, 5)->getRootDomain().at(1),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       default:
         FAIL() << "Unexpected tensor: " << tv->toString();
@@ -916,9 +894,9 @@ TEST_F(IdModelTest, LoopPromotion6) {
 
   checkStep2Results(
       fusion.get(),
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 // Same fusion as NvFuserTest.FusionInlineBroadcastIndexing0
@@ -949,8 +927,6 @@ TEST_F(IdModelTest, LoopPromotion7) {
   auto all_tvs = ir_utils::allTvs(&fusion);
 
   IdModelTester tester(&fusion);
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
@@ -970,9 +946,9 @@ TEST_F(IdModelTest, LoopPromotion7) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       default:
         FAIL() << "Unexpected tensor: " << tv->toString();
@@ -981,9 +957,9 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   checkStep2Results(
       &fusion,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 // Same fusion as NvFuserTest.FusionIndexing20
@@ -1032,8 +1008,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
   auto all_tvs = ir_utils::allTvs(&fusion);
 
   IdModelTester tester(&fusion);
-  const auto& [iel_graph, root_resolution_map, iel_promotion_map] =
-      tester.getLoopPromotionInfo();
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
@@ -1053,9 +1027,9 @@ TEST_F(IdModelTest, LoopPromotion8) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv7->getRootDomain().at(0),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       case 5:
         // T5_l[ iS27{2}, iS40{4}, iS41{( ceilDiv(( ( ceilDiv(( 3 * 5 ), 2) ) *
@@ -1064,9 +1038,9 @@ TEST_F(IdModelTest, LoopPromotion8) {
         validateIELResolution(
             tv->getRootDomain().at(2),
             tv7->getRootDomain().at(2),
-            iel_graph,
+            tester.iel_graph,
             tester.idGraph(IdMappingMode::EXACT),
-            root_resolution_map);
+            tester.s1_root_resolution_map);
         break;
       default:
         FAIL() << "Unexpected tensor: " << tv->toString();
@@ -1075,9 +1049,9 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
   checkStep2Results(
       &fusion,
-      iel_graph,
+      tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
-      iel_promotion_map);
+      tester.s2_iel_promotion_map);
 }
 
 TEST_F(IdModelTest, SomeButNotAllArePermuted) {
