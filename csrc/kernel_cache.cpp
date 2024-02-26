@@ -423,8 +423,8 @@ void prepareRuntimeOrder(
 
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
-    int64_t fusion_id)
-    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
+    int64_t fusion_id, bool auto_scheduling)
+    : fusion_(std::move(fusion)), fusion_id_{fusion_id}, auto_schedule_(auto_scheduling) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -534,7 +534,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   if (!kernel_runtime->isCompiled()) {
-    kernel_runtime->compileFusionParallel(args);
+    kernel_runtime->compileFusionParallel(args, auto_schedule_);
   }
 
   if (measure_kernel_time_) {
@@ -1230,7 +1230,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 }
 
 // passing args by value because we will be modify this
-void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
+void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args, bool auto_schedule) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
@@ -1271,19 +1271,20 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-      compileKernel(group_runtime_inputs, group_to_run);
+      compileKernel(group_runtime_inputs, group_to_run, auto_schedule);
     } else {
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
                             group_runtime_inputs,
                             group_to_run,
+                            auto_schedule,
                             &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run);
+          compileKernel(group_runtime_inputs, group_to_run, auto_schedule);
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
@@ -1318,7 +1319,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
+    SegmentedGroup* sg,
+    bool auto_schedule) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   if (isProfilerEnabled()) {
@@ -1337,7 +1339,9 @@ void FusionKernelRuntime::compileKernel(
     fusion_to_run->printMath();
   }
   FusionGuard fg(fusion_to_run.get());
-  scheduler_entry->schedule(fusion_to_run.get());
+  if (auto_schedule) {
+    scheduler_entry->schedule(fusion_to_run.get());
+  }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
