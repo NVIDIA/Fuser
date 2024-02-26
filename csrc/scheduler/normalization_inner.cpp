@@ -219,17 +219,16 @@ int64_t getMaxRegisterCountPerThread(
 }
 
 // Returns the maximum persistent batch size.
-// For example: assuming we have 64K registers per SM and 28 warps (864 threads)
-// per SM. Each thread can use up to 72 registers. Then minus the register
-// overhead 16, there are 56 registers or 224 bytes to store the persistent
+// For example: assuming we have 64K registers per SM and 36 warps (1152 threads)
+// per SM. Each thread can use up to 56 registers. Then minus the register
+// overhead 16, there are 40 registers or 160 bytes to store the persistent
 // buffer.
 // (1) If each reduction element has 1 fp32 buffer and vectorized by 8,
 //     [buffer_bytes_per_batch] = 4 * 8 = 32. Then the maximum persistent
-//      batch size is 224 / 32 = 7
+//      batch size is 160 / 32 = 5
 // (2) If each reduction element has 1 fp16 buffer and vectorized by 8,
 //     [buffer_bytes_per_batch] = 2 * 8 = 16. Then the maximum persistent
-//      batch size is 224 / 16 = 14, which is then capped to
-//      [max_batches_per_block] whose value is 10.
+//      batch size is 160 / 16 = 10.
 int64_t getMaxPersistentBatch(
     const int64_t buffer_bytes_per_batch,
     const int64_t target_threads_per_sm,
@@ -244,12 +243,7 @@ int64_t getMaxPersistentBatch(
       register_for_buffer * scheduler_utils::bytes_per_register,
       buffer_bytes_per_batch);
 
-  // (3) Avoid using very large persistent buffer size, which may lead to low
-  // occupancy due to the limitation of the current heuristics. TODO: remove
-  // this parameter when we have a better heuristic to select the best
-  // persistent batch size.
-  constexpr int64_t max_batches_per_block = 10l;
-  return std::min(max_batches_per_block, batch_from_register);
+  return batch_from_register;
 }
 
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
@@ -355,14 +349,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
-  const int64_t register_overhead = has_exp_op ? 32l : 16l;
+  const int64_t register_overhead = 16l;
 
   // Target occupancy required to hide memory latency.
   // Used to calculate the maximum register count each thread can use.
   // Used to calculate the maximum persistent batch size.
   // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100.
-  const int64_t target_warps_per_sm = 28l;
+  const int64_t target_warps_per_sm = 36l;
 
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
