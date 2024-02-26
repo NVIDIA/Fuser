@@ -590,6 +590,7 @@ class Index {
   //! zeros
   static Val* cpAsyncBulkIndex(
       TensorView* gmem_tv,
+      TensorView* smem_tv,
       TensorView* consumer,
       Val* mbarrier,
       const std::vector<kir::ForLoop*>& loops);

@@ -8,7 +8,6 @@
 #include <ops/arith.h>
 
 #include <c10/util/BFloat16.h>
-#include <c10/util/Exception.h>
 #include <c10/util/Half.h>
 #include <c10/util/irange.h>
 #include <ir/all_nodes.h>
@@ -1291,36 +1290,85 @@ TensorView* reductionOp(
     return maybe_full;
   }
 
+  // [Trivial reductions]
+  // When we reduce a simple broadcast axis like bS0{1} the effect is just to
+  // squeeze out that broadcast axis. When the axis is expanded, such as bS1{1
+  // ex i0}, then the effect depends on the op type. We have the following
+  // mappings from op_type to expanded reduction equivalent:
+  //   Add -> multiplication by i0
+  //   Mul -> raise to power i0
+  //   Min/Max -> squeeze
+  //   {Logical,Bitwise}{And,Or} -> squeeze
+  //   BitwiseXor -> 0 if i0 is even, else squeeze
+  //   Eq -> squeeze
+  //   Gcd -> squeeze
+  // Other op-types are non-commutative, so we ignore them here as they should
+  // not be used in reductions. We can see that the only two common ops that
+  // require special consideration are Add and Mul. Currently Xor is not
+  // supported for expanded reduction. We treat all others as trivial (i.e.
+  // squeeze).
   std::vector<int> reduction_axes;
-  std::vector<bool> is_trivial_reduction(ndims, false);
+  std::vector<bool> is_squeeze(ndims, false);
+  bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
+      reduction_op_type != BinaryOpType::Mul &&
+      reduction_op_type != BinaryOpType::BitwiseXor;
   int offset = 0;
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
-    is_trivial_reduction[axis] = id->isBroadcast() &&
-        !id->hasExpandedExtent() && id->extent()->isConstInt() &&
-        id->extent()->evaluate().as<int64_t>() == 1;
-    if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back((int)axis + offset);
-    } else if (!keep_dim) {
+    if (id->isBroadcast()) {
+      is_squeeze[axis] = true;
       offset--;
+    } else {
+      reduction_axes.push_back((int)axis + offset);
     }
   }
 
   TensorView* squeezed = tv;
   if (offset < 0) {
-    squeezed = squeeze(tv, is_trivial_reduction);
+    // There are some broadcast dims being reduced. We squeeze them all first.
+    squeezed = squeeze(tv, is_squeeze, /*squeeze_expanded=*/true);
   }
 
   TensorView* out = squeezed;
   if (!reduction_axes.empty()) {
-    return reductionOpRaw(
+    out = reductionOpRaw(
         reduction_op_type, reduction_axes, init, squeezed, keep_dim, dtype);
+  }
+
+  if (!expand_reductions_are_trivial) {
+    Val* factor = nullptr;
+    for (auto axis : uint_axes) {
+      IterDomain* id = tv_root[axis];
+      if (id->isBroadcast() && id->hasExpandedExtent()) {
+        factor =
+            SimplifyingIrBuilder::mulExpr(factor, id->getMaybeExpandedExtent());
+      }
+    }
+    if (factor != nullptr) {
+      factor = SimplifyingIrBuilder::maybeCastExpr(out->dtype(), factor);
+      if (reduction_op_type == BinaryOpType::Add) {
+        out = mul(out, factor);
+      } else if (reduction_op_type == BinaryOpType::Mul) {
+        out = pow(out, factor);
+      } else {
+        NVF_ERROR(
+            false,
+            "Add and Mul are the only non-trivial expand reductions allowed");
+      }
+    }
+  }
+
+  if (keep_dim && offset < 0) {
+    // There were squeezed dimension removed from squeeze that will not be
+    // restored by reductionOpRaw above, so we restore them here
+    out = broadcast(out, is_squeeze);
   }
 
   if (out == tv) {
     // makes sure that a new tensor is created
     return set(tv);
   }
+
   return out;
 }
 
@@ -1767,7 +1815,7 @@ WelfordResult Welford(
 
   TensorView* squeezed = tv;
   if (offset < 0) {
-    squeezed = squeeze(tv, is_trivial_reduction);
+    squeezed = squeeze(tv, is_trivial_reduction, /*squeeze_expanded=*/true);
   }
 
   if (!reduction_axes.empty()) {

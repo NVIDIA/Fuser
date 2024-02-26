@@ -270,15 +270,11 @@ void Fusion::addOutput(Val* output) {
   // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
-  if (output->isA<TensorView>()) {
-    output->as<TensorView>()->setMemoryType(MemoryType::Global);
-  } else {
-    NVF_CHECK(
-        output->isA<PipelineVal>() &&
-            output->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
-        "Non-TensorView outputs are not supported at this point: ",
-        output->toString());
-  }
+  NVF_CHECK(
+      output->isA<TensorView>(),
+      "Non-TensorView outputs are not supported at this point: ",
+      output->toString());
+  output->as<TensorView>()->setMemoryType(MemoryType::Global);
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
@@ -337,6 +333,9 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 }
 
 std::vector<Expr*> Fusion::exprs() {
+  return StmtSort::getExprs(this);
+}
+std::vector<Expr*> Fusion::exprs() const {
   return StmtSort::getExprs(this);
 }
 
@@ -689,7 +688,7 @@ Expr* Fusion::definition(const Val* val) const {
 }
 
 // Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() {
+bool Fusion::isStochastic() const {
   for (auto expr : exprs()) {
     if (expr->isA<RNGOp>()) {
       // Note that RNGOps without seed is not stochastic since the random seed
@@ -768,12 +767,15 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
   return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
+void Fusion::aliasOutputToInput(
+    Val* output,
+    Val* input,
+    const AllocationType type) {
   NVF_CHECK(
-      type != AliasType::NoAlias,
+      type != AllocationType::NoAlias,
       "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
 
-  if (type == AliasType::InplaceUpdate) {
+  if (type == AllocationType::InplaceUpdate) {
     // `input` can be a cast of a fusion input.
     if (!input->isFusionInput()) {
       auto input_expr = input->definition();
@@ -811,9 +813,11 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-const AliasInfo& Fusion::getOutputAlias(Val* output) const {
+const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
   static AliasInfo no_alias_info{
-      .type = AliasType::NoAlias, .aliased_io = nullptr, .hide_output = false};
+      .type = AllocationType::NoAlias,
+      .aliased_io = nullptr,
+      .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     return search->second;
   }

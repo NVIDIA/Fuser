@@ -8,8 +8,6 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <debug.h>
@@ -17,6 +15,7 @@
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <visibility.h>
 
 #include <any>
 #include <string>
@@ -71,11 +70,11 @@ class DynamicTransformConcretizationInfo;
 class FusionGuard {
  public:
   //! Set the active fusion so it can be manipulated.
-  explicit FusionGuard(Fusion* fusion);
+  NVF_API explicit FusionGuard(Fusion* fusion);
 
-  ~FusionGuard();
+  NVF_API ~FusionGuard();
 
-  static Fusion* getCurFusion();
+  NVF_API static Fusion* getCurFusion();
   static void setCurFusion(Fusion* fusion);
 
  private:
@@ -86,7 +85,7 @@ class FusionGuard {
 
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
-enum class AliasType : int {
+enum class AllocationType : int {
   NoAlias,
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
@@ -98,7 +97,7 @@ enum class AliasType : int {
 };
 
 struct AliasInfo {
-  AliasType type;
+  AllocationType type;
   Val* aliased_io;
   // Whether integration should hide the output from users. This is currently
   // only used for InplaceUpdate.
@@ -114,7 +113,7 @@ struct AliasInfo {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Fusion : public IrContainer {
+class NVF_API Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -189,8 +188,11 @@ class Fusion : public IrContainer {
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to genereate registered outputs.
+  //! exprs required to generate registered outputs.
   std::vector<Expr*> exprs();
+  //! Return a list of topologically sorted expressions. This only includes
+  //! exprs required to generate registered outputs.
+  std::vector<Expr*> exprs() const;
 
   //! Return a vector of fusion inputs that feed this Val
   std::vector<Val*> inputsOf(Val* val);
@@ -218,7 +220,7 @@ class Fusion : public IrContainer {
   Expr* definition(const Val* val) const;
 
   //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic();
+  bool isStochastic() const;
 
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
@@ -248,12 +250,12 @@ class Fusion : public IrContainer {
   // the input tensor to the section where output is produced. Currently,
   // aliases of type `PointerArithmetics` are marked after segmentation, but
   // those of type `InplaceUpdate` are marked in fusion definitions.
-  void aliasOutputToInput(Val* output, Val* input, AliasType type);
+  NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
-  const AliasInfo& getOutputAlias(Val* output) const;
+  const AliasInfo& getOutputAlias(const Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -474,7 +476,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, AliasInfo> io_alias_;
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

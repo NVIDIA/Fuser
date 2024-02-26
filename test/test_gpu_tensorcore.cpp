@@ -29,7 +29,7 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <optimization/pre_segmenter.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -63,13 +63,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -87,7 +92,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -103,6 +108,141 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmperePrologueFusionBroadcast_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMmaLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput2D(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmpereProloguePointwise_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMmaLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv0 = castOp(DataType::Half, sin(tv0));
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    tv1 = castOp(DataType::Half, sin(tv1));
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.sin().to(at::kFloat),
+        inputs.second.sin().to(at::kFloat),
+        layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -113,13 +253,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::BFloat16);
-    auto tv1 = makeContigTensor(2, DataType::BFloat16);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::BFloat16);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::BFloat16);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -137,7 +282,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout, at::kBFloat16);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -153,6 +298,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -167,13 +320,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
     for (auto layout : kAllSupportedMmaLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -191,7 +349,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -207,6 +365,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+      // Check that computed smem matches actually allocated smem
+      mma_utils::MmaDataTypes data_types = {
+          DataType::Half, DataType::Half, DataType::Float};
+      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+          params, data_types, true, true);
+      int64_t actual_smem = fe.lastLaunchParams().smem();
+      ASSERT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -228,17 +394,22 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
                   float& runtime) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
-    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
         &fusion);
 
     MatMulTileOptions gemm_tile;
@@ -259,7 +430,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     fe.setMeasureKernelTimeFlag(true);
@@ -348,13 +519,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
     for (auto layout : kAllSupportedMmaLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -372,7 +548,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -388,6 +564,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+      // Check that computed smem matches actually allocated smem
+      mma_utils::MmaDataTypes data_types = {
+          DataType::Half, DataType::Half, DataType::Float};
+      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+          params, data_types, true, true);
+      int64_t actual_smem = fe.lastLaunchParams().smem();
+      EXPECT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -1024,13 +1208,18 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1044,7 +1233,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1054,6 +1243,14 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -1696,13 +1893,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1719,7 +1921,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1735,6 +1937,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -1746,13 +1956,18 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -1766,7 +1981,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1782,6 +1997,14 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -1798,13 +2021,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
       for (int k_size : {32, 48, 64}) {
         Fusion fusion;
         FusionGuard fg(&fusion);
-        auto tv0 = makeContigTensor(2, DataType::Half);
-        auto tv1 = makeContigTensor(2, DataType::Half);
+
+        auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+        auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+        auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
         fusion.addInput(tv0);
         fusion.addInput(tv1);
 
-        auto tv2 = matmul(tv0, tv1, layout, true);
+        tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+        tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+        auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
         fusion.addOutput(tv2);
 
@@ -1818,14 +2046,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
+        mma_utils::MmaDataTypes data_types = {
+            DataType::Half, DataType::Half, DataType::Float};
         std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
                 params.double_buffer_options.smem_double_buffer_stage,
-                {DataType::Half, DataType::Half, DataType::Float});
+                data_types,
+                true,
+                true);
         scheduleMatmul(&fusion, params);
 
-        auto inputs = matmulAtInput(M, N, K, layout);
+        auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1836,7 +2068,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
-        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -1848,6 +2080,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
             mn_size,
             " ",
             k_size);
+        // Check that computed smem matches actually allocated smem
+        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+            params, data_types, true, true);
+        int64_t actual_smem = fe.lastLaunchParams().smem();
+        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -1864,13 +2101,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
         for (int k_size : {32, 48, 64}) {
           Fusion fusion;
           FusionGuard fg(&fusion);
-          auto tv0 = makeContigTensor(2, DataType::Half);
-          auto tv1 = makeContigTensor(2, DataType::Half);
+
+          auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+          auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+          auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
           fusion.addInput(tv0);
           fusion.addInput(tv1);
 
-          auto tv2 = matmul(tv0, tv1, layout, true);
+          tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+          tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+          auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
           fusion.addOutput(tv2);
 
@@ -1886,16 +2128,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
+          mma_utils::MmaDataTypes data_types = {
+              DataType::Half, DataType::Half, DataType::Float};
           std::tie(
               params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
               mma_utils::generateSharedMemoryEpilogueHeuristics(
                   gemm_tile,
                   params.double_buffer_options.smem_double_buffer_stage,
-                  {DataType::Half, DataType::Half, DataType::Float});
+                  data_types);
 
           scheduleMatmul(&fusion, params);
 
-          auto inputs = matmulAtInput(M, N, K, layout);
+          auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
           FusionExecutor fe;
           NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1913,6 +2157,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
               inputs.second.to(at::kFloat),
               layout);
           NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+          // Check that computed smem matches actually allocated smem
+          int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+              params, data_types, true, true);
+          int64_t actual_smem = fe.lastLaunchParams().smem();
+          EXPECT_EQ(estimated_smem, actual_smem);
         }
       }
     }
@@ -1927,13 +2176,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
     for (int k_size : {32, 48, 64}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout, true);
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
       fusion.addOutput(tv2);
 
@@ -1950,14 +2204,16 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
+      mma_utils::MmaDataTypes data_types = {
+          DataType::Half, DataType::Half, DataType::Float};
       std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
           mma_utils::generateSharedMemoryEpilogueHeuristics(
               gemm_tile,
               params.double_buffer_options.smem_double_buffer_stage,
-              {DataType::Half, DataType::Half, DataType::Float});
+              data_types);
       scheduleMatmul(&fusion, params);
 
-      auto inputs = matmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -1973,6 +2229,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      // Check that computed smem matches actually allocated smem
+      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+          params, data_types, true, true);
+      int64_t actual_smem = fe.lastLaunchParams().smem();
+      EXPECT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -1984,13 +2245,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2008,7 +2274,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2041,7 +2307,9 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2059,8 +2327,10 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    auto t0 =
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 =
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2083,13 +2353,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2110,11 +2385,13 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 2;
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
     std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
-            {DataType::Half, DataType::Half, DataType::Float},
+            data_types,
             ignore_occupancy_drop);
     scheduleMatmul(&fusion, params);
 
@@ -2136,7 +2413,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2158,6 +2435,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
         cg_outputs[0].allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
+    // Check that computed smem matches actually allocated smem
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
 
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
@@ -2215,13 +2497,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv3 = castOp(DataType::Half, tv2);
 
     fusion.addOutput(tv3);
@@ -2238,11 +2525,13 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
     std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
-            {DataType::Half, DataType::Half, DataType::Float},
+            data_types,
             ignore_occupancy_drop);
     scheduleMatmul(&fusion, params);
 
@@ -2264,7 +2553,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2287,6 +2576,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
 
+    // Check that computed smem matches actually allocated smem
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
@@ -2302,13 +2597,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv3 = relu(tv2);
 
     fusion.addOutput(tv3);
@@ -2325,11 +2625,13 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
     std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
-            {DataType::Half, DataType::Half, DataType::Float},
+            data_types,
             ignore_occupancy_drop);
     scheduleMatmul(&fusion, params);
 
@@ -2351,7 +2653,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         num_shared_mem_tensors);
 
     at::manual_seed(0);
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2375,6 +2677,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
 
+    // Check that computed smem matches actually allocated smem
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
+
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
@@ -2395,13 +2703,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2416,7 +2729,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2428,6 +2741,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
 
     // Relax tolerance for larger sum due to large K
     NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -2444,15 +2765,20 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
   for (auto layout : kAllSupportedMmaLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
     auto tv2 = makeContigTensor(1, DataType::Half);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv4 = broadcast(tv2, {false, true});
     auto tv5 = add(tv3, tv4); // bias
 
@@ -2469,7 +2795,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
-    auto [aten_a, aten_b] = matmulAtInput(M, N, K, layout);
+    auto [aten_a, aten_b] = matmulAtInput3DTuring(M, N, K, layout);
     at::Tensor aten_bias = at::randn({M}, aten_a.options());
     std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
@@ -2484,6 +2810,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
 
     // Relax tolerance for larger sum due to large K
     NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -2506,7 +2840,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
     fusion.addOutput(tv2);
 
@@ -2522,9 +2858,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     scheduleMatmul(&fusion, params);
 
     at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
     at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
     std::vector<c10::IValue> inputs = {aten_a, aten_b};
 
@@ -2537,6 +2873,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
 
     // Relax tolerance for larger sum due to large K
     EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -2561,7 +2905,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv2);
 
-    auto tv3 = matmul(tv0, tv1, layout, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv3 = fusedMultiplySum(tv0, tv1, {-1});
     auto tv4 = broadcast(tv2, {true, false, true});
     auto tv5 = add(tv3, tv4);
 
@@ -2579,9 +2925,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     scheduleMatmul(&fusion, params);
 
     at::Tensor aten_a =
-        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
     at::Tensor aten_b =
-        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+        matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
     at::Tensor aten_bias = at::randn({M}, aten_a.options());
 
     std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
@@ -2597,6 +2943,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
 
     // Relax tolerance for larger sum due to large K
     EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+
+    // Check that computed smem matches actually allocated smem
+    mma_utils::MmaDataTypes data_types = {
+        DataType::Half, DataType::Half, DataType::Float};
+    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+        params, data_types, true, true);
+    int64_t actual_smem = fe.lastLaunchParams().smem();
+    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 

@@ -266,7 +266,7 @@ void FusionExecutor::compileFusion(
     std::vector<Val*> output_extents;
     for (const auto id : maybe_rfactor_domain) {
       Val* extent = nullptr;
-      if (id->isReduction() || id->isStride()) {
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast() && id->hasExpandedExtent()) {
         extent = id->expandedExtent();
@@ -330,7 +330,8 @@ void FusionExecutor::compileFusion(
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
   lowered_->run();
 
-  const auto kernel = lowered_->kernel();
+  kir::Kernel* kernel = lowered_->kernel();
+
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
@@ -378,7 +379,30 @@ void FusionExecutor::compileFusion(
     structured_code = getStructuredCode();
   }
 
-  const auto& kernel_summary = kernel->summary();
+  const kir::KernelSummary& kernel_summary = kernel->summary();
+
+  // TODO: this replicates the target GPU version computation from
+  // executor_utils.
+  std::pair<int, int> target_arch;
+  bool compile_to_sass = false;
+  executor_utils::queryTargetGPUVersion(
+      properties,
+      std::ref(target_arch.first),
+      std::ref(target_arch.second),
+      compile_to_sass);
+
+  NVF_CHECK(
+      target_arch >= kernel_summary.min_device_version,
+      "Target compute capability is ",
+      target_arch.first,
+      ".",
+      target_arch.second,
+      " but this fusion requires at least ",
+      kernel_summary.min_device_version.first,
+      ".",
+      kernel_summary.min_device_version.second,
+      ". Reason: ",
+      kernel_summary.min_device_version_reason);
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
@@ -892,8 +916,11 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
+    } else if (id->isDeviceDim()) {
+      symbolic_sizes.push_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     }
-    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     if (id->hasExpandedExtent()) {
       NVF_ERROR(
           id->isBroadcast(),
@@ -939,7 +966,7 @@ at::Tensor allocateOutput(
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
-  if (alias_info.type == AliasType::NoAlias) {
+  if (alias_info.type == AllocationType::NoAlias) {
     auto alloc_tensor = at::native::empty_strided_cuda(
         out_info.sizes,
         out_info.strides,
@@ -956,7 +983,7 @@ at::Tensor allocateOutput(
   Val* aliased_io = alias_info.aliased_io;
   NVF_ERROR(
       aliased_io != nullptr,
-      "The other two AliasTypes currently must have an `aliased_io`.");
+      "The other two AllocationTypes currently must have an `aliased_io`.");
   NVF_ERROR(
       aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
       aliased_io->toInlineString(),
@@ -970,8 +997,8 @@ at::Tensor allocateOutput(
       PolymorphicValue_functions::toString(aliased_io_val));
   auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
 
-  if (alias_info.type == AliasType::InplaceUpdate) {
-    // Unlike for `AliasType::PointerArithmetic`, don't use
+  if (alias_info.type == AllocationType::InplaceUpdate) {
+    // Unlike for `AllocationType::PointerArithmetic`, don't use
     // ExpressionEvaluator to compute the output tensor. This is because
     // the output tensor may hold different data from the input, e.g., an
     // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
@@ -979,7 +1006,7 @@ at::Tensor allocateOutput(
     return aliased_io_tensor;
   }
 
-  NVF_ERROR(alias_info.type == AliasType::PointerArithmetic);
+  NVF_ERROR(alias_info.type == AllocationType::PointerArithmetic);
   at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
   NVF_ERROR(
       out_tensor.is_alias_of(aliased_io_tensor),
@@ -1027,8 +1054,9 @@ std::vector<at::Tensor> allocateOutputs(
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type == AliasType::NoAlias &&
-            kernel->getOutputAlias(rhs.second).type != AliasType::NoAlias);
+            kernel->getOutputAlias(lhs.second).type ==
+                AllocationType::NoAlias &&
+            kernel->getOutputAlias(rhs.second).type != AllocationType::NoAlias);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
@@ -1419,7 +1447,8 @@ void validateCooperativeLaunch(
   auto grid_size =
       launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
   auto max_active_blocks = num_blocks_per_SM *
-      at::cuda::getDeviceProperties(device_index)->multiProcessorCount;
+      at::cuda::getDeviceProperties((c10::DeviceIndex)device_index)
+          ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
@@ -1822,7 +1851,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     timer.init();
   }
 
-  if (execute_kernel_) {
+  if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1841,7 +1870,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.smem()));
       const int64_t device_id =
           static_cast<unsigned char>(options_.device.index());
-      const auto prop = at::cuda::getDeviceProperties(device_id);
+      const auto prop =
+          at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
           ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
       const int hw_max_warps =

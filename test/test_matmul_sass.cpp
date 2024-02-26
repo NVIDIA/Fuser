@@ -51,13 +51,18 @@ sass::Container getSASSFor(
     const bool promote_prologue_smem_reuse = false) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
   fusion.addOutput(tv2);
 
@@ -78,7 +83,7 @@ sass::Container getSASSFor(
   params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
   scheduleMatmul(&fusion, params);
 
-  auto inputs = matmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -106,14 +111,19 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   FusionGuard fg(&fusion);
 
   auto s0 = IrBuilder::create<Val>(DataType::Double);
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   fusion.addInput(s0);
 
-  auto tv2 = matmul(tv0, tv1, layout, true);
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
   auto tv3 = mul(s0, tv2);
 
   fusion.addOutput(tv3);
@@ -133,7 +143,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = matmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
   const double alpha = 2.5;
 
   FusionExecutor fe;

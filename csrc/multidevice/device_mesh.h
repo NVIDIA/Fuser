@@ -9,6 +9,7 @@
 #pragma once
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -52,6 +53,6 @@ class DeviceMesh final {
   std::vector<DeviceIdxType> vector_;
 };
 
-std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
+NVF_API std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser

@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
+#include <ir/base_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/multidevice.h>
-#include <multidevice/pipeline_ir.h>
 
 namespace nvfuser {
 
@@ -22,13 +22,12 @@ bool isLowerableToCommunication(Expr* expr);
 // device_index.
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
     DeviceIdxType device_index,
-    PipelineCommunication* c,
+    Expr* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
-
 } // namespace nvfuser
 
-#else
+#else // NVFUSER_DISTRIBUTED
 
 namespace nvfuser {
 

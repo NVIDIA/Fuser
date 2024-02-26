@@ -22,7 +22,7 @@ def layernorm_fwd_fusion(
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
 
-    T3, T4 = fd.ops.var_mean(T0, axes=[1], correction=0, keepdim=False)
+    T3, T4 = fd.ops.var_mean(T0, dims=[1], correction=0, keepdim=False)
 
     V6 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
     T7 = fd.ops.broadcast_in_dim(T3, shape=V6, broadcast_dims=[0])

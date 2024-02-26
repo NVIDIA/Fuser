@@ -128,7 +128,11 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(GridReduction* grid_reduction) final {
-    summary_.has_grid_reductions = true;
+    // summary.has_grid_reductions is used to determine whether we need a
+    // reduction workspace. Serial grid reductions do not require this
+    // workspace.
+    summary_.has_grid_reductions =
+        grid_reduction->serialReductionTensor() == nullptr;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -319,6 +323,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
+  summary_.min_device_version = GpuLower::current()->minDeviceVersion();
+  summary_.min_device_version_reason =
+      GpuLower::current()->minDeviceVersionReason();
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {

@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <c10/core/DeviceType.h>
 
@@ -143,7 +144,7 @@ class PrecomputedValues {
   PrecomputedValues() = delete;
   PrecomputedValues(PrecomputedValues&&) = default;
 
-  explicit PrecomputedValues(Fusion* fusion);
+  NVF_API explicit PrecomputedValues(Fusion* fusion);
 
   ~PrecomputedValues();
 

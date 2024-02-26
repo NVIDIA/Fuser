@@ -59,34 +59,29 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
 TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Pass) {
-  // Assumes layout is kAllSupportedMmaLayout::NT;
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+  for (auto layout : kAllSupportedMmaLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
 
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
 
-  auto tv0t = transpose(tv0, 0, 1);
-  auto tv1t = transpose(tv1, 0, 1);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = mul(tv0, tv1);
+    auto tv3 = sum(tv2, {-1});
 
-  std::vector<bool> bcast_dims(tv0->nDims() + 1, false);
-  bcast_dims.at(bcast_dims.size() - 2) = true;
-  auto tv0b = broadcast(tv0t, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 2) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  auto tv1b = broadcast(tv1t, bcast_dims);
-  auto tv2 = mul(tv0b, tv1b);
-  auto tv3 = sum(tv2, {-1});
-  fusion.addOutput(tv3);
+    fusion.addOutput(tv3);
 
-  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
 
-  nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-  combiner.replaceWithMmaOp();
+    nvfuser::mma_utils::CombineMulSum combiner(&fusion);
+    combiner.replaceWithMmaOp();
 
-  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+  }
 }
 
 // This test checks that the combiner does not incorrectly
@@ -163,7 +158,10 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true, true);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = sum(mul(tv0, tv1), {-1});
+
     fusion.addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
 
@@ -185,7 +183,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput2D(M, N, K, layout);
 
     FusionExecutor fe;
     fe.compileFusion(
@@ -210,13 +208,15 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 
     fusion->addInput(tv0);
     fusion->addInput(tv1);
+    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+    auto tv2 = sum(mul(tv0, tv1), {-1});
 
-    auto tv2 = matmul(tv0, tv1, layout, true, true);
     fusion->addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
-    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+    auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+    auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
     auto tref = atMatmul(t0, t1, layout);
 
     FusionExecutorCache executor_cache(std::move(fusion));
