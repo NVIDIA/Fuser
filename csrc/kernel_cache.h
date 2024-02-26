@@ -153,7 +153,7 @@ class FusionKernelRuntime {
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  NVF_API void compileFusionParallel(KernelArgumentHolder args);
+  NVF_API void compileFusionParallel(KernelArgumentHolder args, bool auto_schedule = true);
 
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
@@ -253,7 +253,7 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg, bool auto_schedule = true);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -514,7 +514,8 @@ class FusionExecutorCache {
   //! fusion executor is taking the ownership of `fusion`
   NVF_API explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
-      int64_t fusion_id = 0);
+      int64_t fusion_id = 0,
+      bool auto_scheduling = true);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -756,6 +757,8 @@ class FusionExecutorCache {
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.
   int64_t fusion_id_ = -1;
+
+  bool auto_schedule_ = true;
 };
 
 } // namespace nvfuser
