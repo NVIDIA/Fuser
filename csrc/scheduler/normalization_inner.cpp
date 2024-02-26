@@ -581,10 +581,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       buffer_bytes_per_batch,
       target_warps_per_sm * dev_prop->warpSize,
       register_overhead);
-  std::cout << "batches_per_block_inner_reduction_max: "
-            << batches_per_block_inner_reduction_max
-            << ", buffer_bytes_per_batch: " << buffer_bytes_per_batch
-            << std::endl;
 
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
