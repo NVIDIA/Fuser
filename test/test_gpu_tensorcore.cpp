@@ -2494,14 +2494,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 // See https://github.com/NVIDIA/Fuser/pull/1834
 TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
-  constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
   int M = 4096, N = 4096, K = 4096;
 
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, MmaLayout::TN);
+  auto layout = MmaLayout::TN;
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
 
   auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
   auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
