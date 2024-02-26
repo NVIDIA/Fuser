@@ -97,11 +97,33 @@ class IdModelTester : public IdModel {
     s2_iel_promotion_map = s1_root_resolution_map;
 
     propagatePromotionsInIELGraph(iel_graph, s2_iel_promotion_map);
+
+    s3_loop_promotion_map = projectIELPromotionToLoopGraph(
+        iel_graph,
+        s2_iel_promotion_map,
+        idGraph(IdMappingMode::LOOP),
+        inlining_info);
+
+    for (const auto& loop_group :
+             idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+      auto it = s3_loop_promotion_map.find(loop_group);
+      if (it == s3_loop_promotion_map.end()) {
+        std::cerr << "No promotion found yet for loop group of "
+                  << nvfuser::toString(loop_group) << std::endl;
+      }
+    }
+
+    std::cerr << "Step 3: initial loop promotion map:" << std::endl;
+    for (const auto& [loop_group, id] : s3_loop_promotion_map) {
+      std::cerr << nvfuser::toString(loop_group) << " -> " << id->name()
+                << std::endl;
+    }
   }
 
   ValGraph iel_graph;
   std::unordered_map<ValGroup, IterDomain*> s1_root_resolution_map;
   std::unordered_map<ValGroup, IterDomain*> s2_iel_promotion_map;
+  std::unordered_map<ValGroup, IterDomain*> s3_loop_promotion_map;
 };
 
 // Test if id is resolved to an ID that is exact mapped with

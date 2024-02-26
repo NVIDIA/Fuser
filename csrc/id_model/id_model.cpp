@@ -726,32 +726,21 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // build mappings of the loop groups.
   propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
 
-  std::unordered_map<ValGroup, IterDomain*> loop_graph_copy_promotion_map =
+  // Step 3: Determine the promotion of each loop graph based on the
+  // IEL promotion map. For each loop group, examine all the IEL
+  // promotions and find the most representative one that captures all
+  // the dependent input domains of the loop group
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map =
       projectIELPromotionToLoopGraph(
           iel_graph,
           iel_promotion_map,
           idGraph(IdMappingMode::LOOP),
           inlining_info);
 
-  for (const auto& loop_group :
-       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    auto it = loop_graph_copy_promotion_map.find(loop_group);
-    if (it == loop_graph_copy_promotion_map.end()) {
-      std::cerr << "No promotion found yet for loop group of "
-                << nvfuser::toString(loop_group) << std::endl;
-    }
-  }
-
-  std::cerr << "Step 3: initial loop promotion map:" << std::endl;
-  for (const auto& [loop_group, id] : loop_graph_copy_promotion_map) {
-    std::cerr << nvfuser::toString(loop_group) << " -> " << id->name()
-              << std::endl;
-  }
-
   // This is not a right map to return but just a placeholder since
   // the loop promotion map is not yet completely merged. It will be
   // replaced by a proper map.
-  return iel_promotion_map;
+  return loop_promotion_map;
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
@@ -1328,12 +1317,6 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::
     }
   }
 
-  std::cerr << "Promotion projected to loop groups:\n";
-  for (const auto& [loop_group, id] : loop_promotion_map) {
-    std::cerr << nvfuser::toString(loop_group) << " -> " << id->name()
-              << std::endl;
-  }
-
   return loop_promotion_map;
 }
 
@@ -1380,8 +1363,6 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     if (auto loop_graph_promotion_map_it =
             loop_graph_promotion_map.find(loop_group);
         loop_graph_promotion_map_it != loop_graph_promotion_map.end()) {
-      std::cerr << "Found in loop promotion: " << nvfuser::toString(loop_group)
-                << std::endl;
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(loop_graph_promotion_map_it->second),
           loop_graph_promotion_map_it->second);
