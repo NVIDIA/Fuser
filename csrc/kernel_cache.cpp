@@ -423,8 +423,11 @@ void prepareRuntimeOrder(
 
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
-    int64_t fusion_id, bool auto_scheduling)
-    : fusion_(std::move(fusion)), fusion_id_{fusion_id}, auto_schedule_(auto_scheduling) {}
+    int64_t fusion_id,
+    bool auto_scheduling)
+    : fusion_(std::move(fusion)),
+      fusion_id_{fusion_id},
+      auto_schedule_(auto_scheduling) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -1230,7 +1233,9 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 }
 
 // passing args by value because we will be modify this
-void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args, bool auto_schedule) {
+void FusionKernelRuntime::compileFusionParallel(
+    KernelArgumentHolder args,
+    bool auto_schedule) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
