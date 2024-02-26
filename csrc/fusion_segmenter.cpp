@@ -3859,6 +3859,9 @@ void SegmentCandidateFinder::findSegments() {
 
     if (forwarded_input->isScalar()) {
       // Will be resolved after this loop.
+      // resolveInputGroup doesn't resolve
+      // forwarded scalar inputs because their consumer_edges are always empty
+      // due to `removeScalarEdges`.
       continue;
     }
 
@@ -3867,9 +3870,7 @@ void SegmentCandidateFinder::findSegments() {
     // cleanupForwardedInputs.
   }
 
-  // Un-forward scalar inputs unconditionally. The loop above doesn't resolve
-  // forwarded scalar inputs because their consumer_edges are always empty due
-  // to `removeScalarEdges`.
+  // Un-forward scalar inputs unconditionally.
   for (SegmentedGroup* group : segmented_fusion_->groups()) {
     std::vector<Val*> forwarded_scalar_inputs;
     for (Val* input_val : group->inputs()) {
