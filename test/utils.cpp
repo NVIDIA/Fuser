@@ -256,20 +256,6 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmul(
-    TensorView* a,
-    TensorView* b,
-    MmaLayout layout,
-    bool as_mul_sum) {
-  a = canonicalizeInputToBMNK(a, layout, MmaOperand::A);
-  b = canonicalizeInputToBMNK(b, layout, MmaOperand::B);
-  if (as_mul_sum) {
-    return sum(mul(a, b), {-1});
-  } else {
-    return fusedMultiplySum(a, b, {-1});
-  }
-}
-
 // matmulAtInput2D provides batched inputs in a splitk-like ordering. It
 // provides contiguous tensors with these shapes
 //   TT: [M, B, K] [B, K, N]

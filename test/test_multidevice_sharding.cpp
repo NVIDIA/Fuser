@@ -34,7 +34,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   std::vector<int64_t> input_size = {num_devices, 3};
 
   TensorView* tv0 =
-      concreteTv ? makeContigConcreteTensor(input_size) : makeContigTensor(2);
+      concreteTv ? makeConcreteTensor(input_size) : makeContigTensor(2);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   TensorView* tv3 = sum(tv2, {1});
