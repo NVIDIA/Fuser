@@ -219,10 +219,10 @@ int64_t getMaxRegisterCountPerThread(
 }
 
 // Returns the maximum persistent batch size.
-// For example: assuming we have 64K registers per SM and 36 warps (1152 threads)
-// per SM. Each thread can use up to 56 registers. Then minus the register
-// overhead 16, there are 40 registers or 160 bytes to store the persistent
-// buffer.
+// For example: assuming we have 64K registers per SM and 36 warps (1152
+// threads) per SM. Each thread can use up to 56 registers. Then minus the
+// register overhead 16, there are 40 registers or 160 bytes to store the
+// persistent buffer.
 // (1) If each reduction element has 1 fp32 buffer and vectorized by 8,
 //     [buffer_bytes_per_batch] = 4 * 8 = 32. Then the maximum persistent
 //      batch size is 160 / 32 = 5
