@@ -244,8 +244,10 @@ int64_t getMaxPersistentBatch(
       register_for_buffer * scheduler_utils::bytes_per_register,
       buffer_bytes_per_batch);
 
-  // (3) It can't exceed [max_batches_per_block] to reduce serial workload and
-  //     to prevent suboptimal batch sizes that lower occupancy.
+  // (3) Avoid using very large persistent buffer size, which may lead to low
+  // occupancy due to the limitation of the current heuristics. TODO: remove
+  // this parameter when we have a better heuristic to select the best
+  // persistent batch size.
   constexpr int64_t max_batches_per_block = 10l;
   return std::min(max_batches_per_block, batch_from_register);
 }
