@@ -45,6 +45,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
 struct SelfMapping {
   IterDomain* id1;
   IterDomain* id2;
+  // For debugging, records which domain `id1` and `id2` belong to. This value
+  // is either "Root", "RFactor", or "Leaf". Consider making it an enum.
   std::string where;
 };
 
