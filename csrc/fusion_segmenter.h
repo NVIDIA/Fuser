@@ -664,17 +664,25 @@ class SegmentCandidateFinder {
   //!  scalar values in group
   void resolveScalarsInGroup(SegmentedGroup* group);
 
-  //! Duplicate and add all exprs from "inputs" in the group, to complete
-  //! inputs. These expressions are simply unary ops of inputs that we want to
-  //! recompute for each segment, instead of computing and producing a segmented
-  //! val. For example if we have:
-  //! tv1 = tv0 * 2;
-  //! tv3 = tv1 + tv2;
-  //! tv4 = tv1 + tv4
+  //! Duplicate and add all exprs from fusion inputs to `forwarded_input` into
+  //! the group, to complete inputs. These expressions are simply unary ops of
+  //! inputs that we want to recompute for each segment, instead of computing
+  //! and producing a segmented val. For example if we have:
+  //!
+  //!   tv1 = tv0 * 2;
+  //!   tv3 = tv1 + tv2;
+  //!   tv4 = tv1 + tv4
+  //!
   //! If we segmented on tv1, we would be producing an output for tv1 for 2
   //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
   //! tv0.
-  void resolveInputGroup(Val* forwarded_input);
+  void resolveNonscalarForwardedInput(Val* forwarded_input);
+
+  void resolveForwardedInputs();
+
+  // Creates the input group that ends at `forwarded_input`, i.e., the region
+  // between fusion inputs and `forwarded_input`.
+  SegmentedGroup* createInputGroup(Val* forwarded_input);
 
   //! Remove all scalar edges in group
   //!  (TODO: need structure better so we don't have to do this)

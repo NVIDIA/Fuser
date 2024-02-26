@@ -3768,6 +3768,43 @@ void SegmentCandidateFinder::trySetUpMerge(
   candidate_it->group->merge_through_ = candidate_it->edge;
 }
 
+void SegmentCandidateFinder::resolveForwardedInputs() {
+  for (Val* forwarded_input : forwarded_fusion_inputs_) {
+    if (forwarded_input->isFusionInput()) {
+      // Nothing to resolve.
+      continue;
+    }
+
+    if (forwarded_input->isScalar()) {
+      // Scalar forwarded inputs will be resolved after this loop.
+      // resolveNonscalarForwardedInput resolves only non-scalar ones because
+      // consumer_edges of a scalar input is always empty due to
+      // `removeScalarEdges`.
+      continue;
+    }
+
+    resolveNonscalarForwardedInput(forwarded_input);
+    // aux_group will be removed from segmented_fusion_ by
+    // cleanupForwardedInputs.
+  }
+
+  // Un-forward scalar inputs unconditionally.
+  for (SegmentedGroup* group : segmented_fusion_->groups()) {
+    std::vector<Val*> forwarded_scalar_inputs;
+    for (Val* input_val : group->inputs()) {
+      if (!input_val->isFusionInput() && input_val->isScalar()) {
+        forwarded_scalar_inputs.push_back(input_val);
+      }
+    }
+
+    group->input_vals = IterVisitor::getInputsTo(group->inputs());
+    auto input_exprs = StmtSort::getExprsTo(forwarded_scalar_inputs);
+    // Insert those expressions at the beginning of the group
+    group->exprs_.insert(
+        group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
+  }
+}
+
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
 
@@ -3851,44 +3888,11 @@ void SegmentCandidateFinder::findSegments() {
   segmented_fusion_->validateIfDebug();
 
   // Resolve all the input expressions needed in each group
-  for (Val* forwarded_input : forwarded_fusion_inputs_) {
-    if (forwarded_input->isFusionInput()) {
-      // Nothing to resolve.
-      continue;
-    }
+  resolveForwardedInputs();
 
-    if (forwarded_input->isScalar()) {
-      // Will be resolved after this loop.
-      // resolveInputGroup doesn't resolve
-      // forwarded scalar inputs because their consumer_edges are always empty
-      // due to `removeScalarEdges`.
-      continue;
-    }
-
-    resolveInputGroup(forwarded_input);
-    // aux_group will be removed from segmented_fusion_ by
-    // cleanupForwardedInputs.
-  }
-
-  // Un-forward scalar inputs unconditionally.
-  for (SegmentedGroup* group : segmented_fusion_->groups()) {
-    std::vector<Val*> forwarded_scalar_inputs;
-    for (Val* input_val : group->inputs()) {
-      if (!input_val->isFusionInput() && input_val->isScalar()) {
-        forwarded_scalar_inputs.push_back(input_val);
-      }
-    }
-
-    group->input_vals = IterVisitor::getInputsTo(group->inputs());
-    auto input_exprs = StmtSort::getExprsTo(forwarded_scalar_inputs);
-    // Insert those expressions at the beginning of the group
-    group->exprs_.insert(
-        group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
-  }
-
-  // Do not require segments to be disjoint because after resolveInputGroup a
-  // forwarded Expr can appear in multiple segments. See
-  // SegmentationTest.ForwardedExprsAreReplicated as an example.
+  // Do not require segments to be disjoint because, due to
+  // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
+  // from fusion inputs may be shared in multiple groups.
   segmented_fusion_->validateIfDebug(/*require_disjoint=*/false);
 
   // Forwarded input groups are no longer used. Clean them up.
@@ -3896,10 +3900,8 @@ void SegmentCandidateFinder::findSegments() {
 
   finalize();
 
-  // Do sanity check on the final graph. At this point, the graph may
-  // not be disjoint as some unary exprs from fusion inputs may be
-  // shared in multiple groups. See resolveInputGroup.
-  segmented_fusion_->validate(false);
+  // Do sanity check on the final graph.
+  segmented_fusion_->validate(/*require_disjoint=*/false);
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
@@ -3961,8 +3963,8 @@ void SegmentCandidateFinder::forwardInputs() {
         // saving its output as a forwarded input.
         forwarded_inputs.pushBack(uop->out());
       }
-      // Either way, `uop` is excluded from merging until `resolveInputGroup`
-      // adds it back to one of the segments.
+      // Either way, `uop` is excluded from merging until
+      // `resolveNonscalarForwardedInput` adds it back to one of the segments.
       excluded_inp_unary_exprs_.pushBack(uop);
     }
   }
@@ -4218,7 +4220,15 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   }
 }
 
-void SegmentCandidateFinder::resolveInputGroup(Val* forwarded_input) {
+SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
+  SegmentedGroup* group = segmented_fusion_->newGroup();
+  group->input_vals = IterVisitor::getInputsTo({forwarded_input});
+  group->exprs_ = StmtSort::getExprsTo({forwarded_input});
+  return group;
+}
+
+void SegmentCandidateFinder::resolveNonscalarForwardedInput(
+    Val* forwarded_input) {
   SegmentedGroup* aux_group = input2group_.at(forwarded_input);
   NVF_ERROR(aux_group->producer_edges.empty());
 
@@ -4230,10 +4240,7 @@ void SegmentCandidateFinder::resolveInputGroup(Val* forwarded_input) {
   aux_group->consumer_edges.clear();
 
   for (SegmentedGroup* consumer : consumers) {
-    // TODO: helper function?
-    SegmentedGroup* input_group = segmented_fusion_->newGroup();
-    input_group->input_vals = IterVisitor::getInputsTo({forwarded_input});
-    input_group->exprs_ = StmtSort::getExprsTo({forwarded_input});
+    SegmentedGroup* input_group = createInputGroup(forwarded_input);
 
     for (SegmentedEdge*& edge : consumer->producer_edges) {
       if (edge->from == aux_group && edge->val == forwarded_input) {
@@ -4242,13 +4249,10 @@ void SegmentCandidateFinder::resolveInputGroup(Val* forwarded_input) {
       }
     }
 
-    // TODO: helper
-    consumer->input_vals.erase(
-        std::remove(
-            consumer->input_vals.begin(),
-            consumer->input_vals.end(),
-            forwarded_input),
-        consumer->input_vals.end());
+    auto remove_from_vector = [](Val* e, std::vector<Val*>& v) {
+      v.erase(std::remove(v.begin(), v.end(), e), v.end());
+    };
+    remove_from_vector(forwarded_input, std::ref(consumer->input_vals));
 
     if (codeGenSupportedMerge(input_group, consumer)) {
       NVF_ERROR(to_merge_.empty());
