@@ -205,7 +205,7 @@ std::vector<int64_t> unshardedSize(
       std::back_inserter(unsharded_sizes));
   if (isSharded(tv)) {
     auto num_devices = tv->getDeviceMesh().vector().size();
-    unsharded_sizes[0] = num_devices;
+    unsharded_sizes[0] = static_cast<int64_t>(num_devices);
   }
   return unsharded_sizes;
 }
