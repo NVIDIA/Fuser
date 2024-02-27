@@ -231,24 +231,33 @@ TEST_F(SegmentationTest, InputForwardingUntilBinary) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({2, 3}, DataType::Half);
-  TensorView* out = castOp(DataType::Float, in);
-  out = neg(out);
-  out = sin(out);
-  out = add(out, IrBuilder::create<Val>(1.0f, DataType::Float));
+  TensorView* x = makeContigConcreteTensor({2, 3}, DataType::Half);
+  TensorView* y = makeContigConcreteTensor({2, 3}, DataType::Half);
+  fusion->addInput(x);
+  fusion->addInput(y);
+
+  x = castOp(DataType::Float, x);
+  x = neg(x);
+  x = sin(x);
+
+  y = castOp(DataType::Float, y);
+  y = sin(y);
+  y = neg(y);
+
+  TensorView* z = add(x, y);
   // This `segment_set` is needed to trigger input forwarding. Otherwise, the
   // whole fusion will be accepted by pointwise.
-  out = segment_set(out);
-
-  fusion->addInput(in);
-  fusion->addOutput(out);
+  z = segment_set(z);
+  fusion->addOutput(z);
 
   FusionExecutorCache fec(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({in_tensor, in_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -280,6 +289,44 @@ TEST_F(SegmentationTest, InputForwardingUntilOutput) {
       fec.runFusionWithInputs({in_tensor, in_tensor});
   testValidate(
       fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = slice(tv1, {0}, {5});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = sum(tv1, {1});
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10, 20}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
