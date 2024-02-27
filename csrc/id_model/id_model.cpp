@@ -52,7 +52,7 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 void IdModel::assertNoSelfMapping() {
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(*tv);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv);
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
@@ -210,9 +210,9 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 
 } // namespace
 
-std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView& tv) const {
+std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView* tv) const {
   std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
-      detectMappablePair(tv.getRootDomain(), *this, IdMappingMode::EXACT);
+      detectMappablePair(tv->getRootDomain(), *this, IdMappingMode::EXACT);
   // Root domains.
   if (mapped.has_value()) {
     return SelfMapping{
@@ -220,9 +220,9 @@ std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView& tv) const {
   }
 
   // Rfactor domains
-  if (tv.hasRFactor()) {
+  if (tv->hasRFactor()) {
     mapped =
-        detectMappablePair(tv.getRFactorDomain(), *this, IdMappingMode::EXACT);
+        detectMappablePair(tv->getRFactorDomain(), *this, IdMappingMode::EXACT);
     if (mapped.has_value()) {
       return SelfMapping{
           .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
@@ -233,7 +233,7 @@ std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView& tv) const {
   // TODO: Exact map isn't quite right here, it should be based on the index
   // map. However, it should also be impossible for index map to generate a
   // case like this.
-  mapped = detectMappablePair(tv.getLeafDomain(), *this, IdMappingMode::EXACT);
+  mapped = detectMappablePair(tv->getLeafDomain(), *this, IdMappingMode::EXACT);
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};

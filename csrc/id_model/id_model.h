@@ -136,7 +136,7 @@ class IdModel : public PolymorphicBase {
   //
   // TODO: Can we make this more of an alias analysis?
   // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  std::optional<SelfMapping> hasSelfMapping(const TensorView& tv) const;
+  std::optional<SelfMapping> hasSelfMapping(const TensorView* tv) const;
 
   std::string toString() const;
 
