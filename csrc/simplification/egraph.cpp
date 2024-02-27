@@ -8,11 +8,6 @@
 
 #include <simplification/egraph.h>
 
-namespace egraph {
-
-  
-
-} // namespace egraph
+namespace egraph {} // namespace egraph
 
 } // namespace nvfuser
-

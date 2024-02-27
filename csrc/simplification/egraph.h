@@ -80,6 +80,25 @@ struct FunctionType {
       TernaryOpType,
       DataType>
       op_type = std::monostate;
+
+ public:
+  PolymorphicValue evaluate(const std::vector<PolymorphicValue>& inputs) const {
+    switch (function_symbol) {
+      case ENodeFunctionSymbol::NoDefinition:
+        NVF_ERROR(
+            false,
+            "Cannot evaluate AST function that does not have a definition");
+      case ENodeFunctionSymbol::LoadStoreOp:
+        NVF_ERROR(inputs.size() == 1);
+        return inputs[0];
+        break;
+        // TODO: Refactor ops so that we can call static versions of each op and
+        // avoid creating new Exprs in the Fusion here.
+      default:
+        NVF_ERROR(false, "not yet implemented");
+        return std::monostate;
+    }
+  }
 };
 
 //! These objects mimic the Val AST and can be used to record input Vals and to
