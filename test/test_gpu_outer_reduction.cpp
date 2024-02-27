@@ -2148,7 +2148,7 @@ TEST_F(NVFuserTest, IterGroupedBlockReduction) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  DataType dtype = DataType::BFloat16;
+  DataType dtype = DataType::Half;
 
   auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
