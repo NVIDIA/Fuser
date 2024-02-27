@@ -543,7 +543,8 @@ class TestNvFuserFrontend(TestCase):
         shape = [2, 3, 4]
         new_shape = [6, 4]
 
-        inputs_with_list = [torch.randn(shape, device="cuda"), new_shape]
+        tensor = torch.randn(shape, device="cuda")
+        inputs_with_list = [tensor, new_shape]
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs_with_list[0])
@@ -559,8 +560,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_list)
         self.assertEqual(eager_out, nvf_out[0])
 
-        inputs_with_tuple = [torch.randn(shape, device="cuda"), tuple(new_shape)]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_tuple)
+        inputs_with_tuple = [tensor, tuple(new_shape)]
+        # expect to reuse fusion
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_tuple, new_fusion_expected=False)
         self.assertEqual(eager_out, nvf_out[0])
 
     # Testing a scenario where a broadcast requires a symbolic output shape
