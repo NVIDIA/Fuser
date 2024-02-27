@@ -190,11 +190,11 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
     const IdModel& id_graph,
     IdMappingMode mode) {
-  for (auto id1 : ids) {
-    for (auto id2 : ids) {
-      if (id1 == id2) {
-        continue;
-      }
+  size_t n = ids.size();
+  for (size_t i1 = 0; i1 < n; i1++) {
+    IterDomain* id1 = ids[i1];
+    for (size_t i2 = i1 + 1; i2 < n; i2++) {
+      IterDomain* id2 = ids[i2];
       if (id_graph.idGraph(mode).disjointValSets().permissiveAreMapped(
               id1, id2)) {
         return std::make_pair(id1, id2);
