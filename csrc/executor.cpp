@@ -2239,7 +2239,12 @@ void FusionExecutor::deserialize(
   NVF_ERROR(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
-  NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
+  NVF_ERROR(
+      toUnderlying(heuristic) == buffer->heuristic(),
+      ": ",
+      toUnderlying(heuristic),
+      " vs ",
+      buffer->heuristic());
 
   // Initialize CompileOptions
   options_.device = c10::Device(c10::DeviceType::CUDA, device_index);
