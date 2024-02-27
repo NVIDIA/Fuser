@@ -41,6 +41,17 @@ __device__ __inline__ __e4m3 __float2e4m3(const float f) {
 }
 
 __device__ __inline__ float __e4m32float(const __e4m3 h) {
+  unsigned short _tmp_buffer;
+  std::memcpy(&_tmp_buffer, &h, sizeof(uint8_t));
+  __attribute__((unused)) unsigned int _b32_buffer;
+  float val;
+  asm("{cvt.rn.f16x2.e4m3x2 %1, %2;}\n\t"
+      "cvt.u16.u32 %2, %1;\n\t"
+      "{cvt.f32.f16 %0, %2;}"
+      : "=f"(val), "=r"(_b32_buffer)
+      : "h"(_tmp_buffer));
+
+  return val;
 }
 
 __device__ __inline__ __e4m3 __real_then_2e4m3(const std::complex<float> c) {
