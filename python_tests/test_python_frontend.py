@@ -539,6 +539,30 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.sum(inputs[0].reshape(new_shape), dim=3)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_execute_with_tuple_and_list(self):
+        shape = [2, 3, 4]
+        new_shape = [6, 4]
+
+        inputs_with_list = [torch.randn(shape, device="cuda"), new_shape]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs_with_list[0])
+            n_shape = fd.define_vector(2)
+
+            t1 = fd.ops.reshape(t0, n_shape)
+            t2 = fd.ops.sum(t1, dims=[0])
+
+            fd.add_output(t2)
+
+        eager_out = torch.sum(inputs_with_list[0].reshape(new_shape), dim=0)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_list)
+        self.assertEqual(eager_out, nvf_out[0])
+
+        inputs_with_tuple = [torch.randn(shape, device="cuda"), tuple(new_shape)]
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_tuple)
+        self.assertEqual(eager_out, nvf_out[0])
+
     # Testing a scenario where a broadcast requires a symbolic output shape
     def test_tensor_shape(self):
         inputs = [
