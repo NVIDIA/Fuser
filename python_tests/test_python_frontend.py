@@ -562,7 +562,9 @@ class TestNvFuserFrontend(TestCase):
 
         inputs_with_tuple = [tensor, tuple(new_shape)]
         # expect to reuse fusion
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_tuple, new_fusion_expected=False)
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func, inputs_with_tuple, new_fusion_expected=False
+        )
         self.assertEqual(eager_out, nvf_out[0])
 
     # Testing a scenario where a broadcast requires a symbolic output shape

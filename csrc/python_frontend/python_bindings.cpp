@@ -542,7 +542,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              // Allows for a Vector of Sizes to be inputed as a list
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
               if (py::isinstance<py::list>(obj) ||
                   py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
