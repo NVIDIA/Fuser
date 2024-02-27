@@ -254,6 +254,8 @@ enum class MmaInputSmemSwizzle {
   B32 = 3,
 };
 
+constexpr int64_t core_matrix_width_bytes = 16;
+
 int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle);
 MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes);
 

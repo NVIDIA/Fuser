@@ -33,10 +33,20 @@ Mark one of the virtual functions as NVF_API. Use the destructor for this.
 If the destructor is not already virtual, mark it so now. An object with
 virtual functions should always have a virtual destructor.
 
-### I see that <Foo> is visible but I do not think it needs to be.
+### I see that `Foo` is visible but I do not think it needs to be.
 
 You are probably correct! Please fix it. You can do this by removing the
 `NVF_API` macro from the relevant place and compiling + linking. If linking
 succeeds then you were likely correct. However to *guarantee* that everything is
 setup properly, ensure `python3 -c "import nvfuser"` has an exit code of 0 and
 prints nothing.
+
+### Should I mark my new method or class as `NVF_API`?
+
+Your default answer should be "no". If a client is trying to use your new
+symbol and they see undefined symbol errors, then you should go back and
+mark it public.
+
+Due to the way our library is designed to be used, this happens rarely. Most
+users are going through the Python API, and if something is only accessed
+through Python then there should not be a need to mark it public.

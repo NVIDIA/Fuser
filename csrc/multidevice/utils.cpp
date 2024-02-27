@@ -30,7 +30,11 @@ bool isSharded(TensorView* tv) {
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
         !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized");
+        "only the outmost dimension can be device-parallelized",
+        "but axis ",
+        i,
+        " is sharded in tv ",
+        tv->toString());
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
 }
@@ -157,6 +161,21 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
     }
   }
   return static_cast<int64_t>(device_indices.size());
+}
+
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh({});
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    unshard(tv);
+  }
 }
 
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
