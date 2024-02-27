@@ -137,7 +137,7 @@ struct StructType {
         return *field.type;
       }
     }
-    NVF_ERROR(false, "Field ", name, " not found in struct ", name);
+    NVF_ERROR(false, "Field ", name, " not found in struct ", this->name);
   }
 
   inline bool operator==(const StructType& other) const;
