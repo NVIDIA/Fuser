@@ -206,7 +206,10 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
 
-  // TODO: Comment
+  // Given an IEL promotion map, identify the mapping of each loop
+  // group. The promotion must represent all the domains in each loop
+  // group. If a valid representative promotion is not found for a
+  // loop group, no mapping is added for the group.
   std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
@@ -215,20 +218,16 @@ class IdModel : public PolymorphicBase {
 
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
-  // within the loop group. It doesn't have to be in the loop
-  // group. Specifically, we examine each IEL group of the loop graph,
-  // and if an IEL group has a promotion, we consider it as a
+  // within the loop group. Specifically, we examine each IEL group of
+  // the loop group, and if an IEL group has a promotion, we consider it as a
   // candidate of the promotion of this loop group. If not, we include a
-  // domain of the IEL group as a candidate too. We also look at the
-  // inline promotion map since that may also contain the promotion the
-  // loop should be associated with. Once all candidates are obtained,
-  // we pick one that covers all the exact domains (cf. concrete domains
-  // in ComputeAtMap)
+  // domain of the IEL group as a candidate too. Once all candidates are
+  // obtained, we pick one that covers all the exact domains (cf. concrete
+  // domains in ComputeAtMap)
   IterDomain* findPromotionOfLoopGroup(
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
       const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
 

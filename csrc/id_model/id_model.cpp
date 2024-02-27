@@ -1293,23 +1293,21 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) {
-  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map;
-
-  std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
+  const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
       computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
       computeTerminalLoopIds(inlining_info);
 
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map;
+
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
-    // Error happens here. Likely iel_graph is stale
     IterDomain* promotion_id = findPromotionOfLoopGroup(
         loop_group,
         iel_graph,
         iel_promotion_map,
-        {},
         exact_covered_ids,
         terminal_loop_ids);
     if (promotion_id) {
@@ -1324,7 +1322,6 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     const ValGroup& loop_group,
     const ValGraph& iel_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
     const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
     const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
@@ -1340,10 +1337,14 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
       continue;
     }
 
-    // Grab the iel entry
+    // Grab the iel entry. There can be iter domains that were added
+    // after the IEL graph was built. All the promotion information is
+    // associated with the domains that exist in the original graph,
+    // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
     }
+
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);
 
     // Does it still need iel_promotion_map? The loop group already has
@@ -1358,14 +1359,6 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
       // If this terminal ID has a promotion, grab the promoted ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
-    }
-
-    if (auto loop_graph_promotion_map_it =
-            loop_graph_promotion_map.find(loop_group);
-        loop_graph_promotion_map_it != loop_graph_promotion_map.end()) {
-      exact_promoted_terminal_ids.emplace_back(
-          exact_graph.toGroup(loop_graph_promotion_map_it->second),
-          loop_graph_promotion_map_it->second);
     }
   }
 
