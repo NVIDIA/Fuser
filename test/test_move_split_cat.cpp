@@ -407,4 +407,6 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
 }
 
+// FIXME: test multiple split+cat pairs.
+
 } // namespace nvfuser
