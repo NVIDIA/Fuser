@@ -175,6 +175,7 @@ __device__ void blockIterGroupedReduce(
 
   block_sync::sync<Aligned>();
 
+  // Reduce down to nearest power of 2 for the tree reduction:
   int np2 = 1 << (31 - __clz(reduction_size));
 
   // Perform parallel reduction for each element in the array
