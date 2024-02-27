@@ -123,11 +123,11 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  inputs = {
+  unsharded_inputs = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
@@ -147,7 +147,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction] = GetParam();
-  if (!communicator->isBackendAvailable(backend)) {
+  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator->setDefaultBackend(backend);
@@ -169,10 +169,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   std::vector<int64_t> unsharded_input_sizes = {
       first_axis_extent, second_axis_extent, 3, 5};
-  std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
-  if (is_stage0_sharded) {
-    sharded_input_sizes[0] = 1;
-  }
+
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
@@ -197,10 +194,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {
-      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 namespace {
