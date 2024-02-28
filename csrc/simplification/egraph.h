@@ -40,22 +40,6 @@ namespace egraph {
 // Our terminology in the classes below attempts to match the paper when
 // possible.
 
-class EGraphGuard {
- public:
-  //! Set the active fusion so it can be manipulated.
-  NVF_API explicit EGraphGuard(EGraph* egraph);
-
-  NVF_API ~EGraphGuard();
-
-  NVF_API static EGraph* getCurEGraph();
-  static void setCurEGraph(EGraph* egraph);
-
- private:
-  EGraph* prev_egraph_;
-
-  static thread_local EGraph* active_egraph_;
-};
-
 //! This class is built to simplify Vals using E-graphs. The method we employ is
 //! based on equality saturation with rebuilding, as described in detail here:
 //! Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.
@@ -112,6 +96,9 @@ class EGraphSimplifier {
   //! vector of acceptable root Vals. This is useful for simplifying expressions
   //! within multiple scopes, where some variables might be out of scope for the
   //! purpose at hand.
+  // TODO: Instead of this acceptable_root_vals argument, we should pass a
+  // description of the scope in which all symbols need to be visible. See the
+  // note [Modeling term visibility in ASTNode] in enodes.h
   Val* getSimplifiedVal(
       Val* orig_val,
       std::vector<Val*>* acceptable_root_vals = nullptr);
@@ -171,8 +158,12 @@ class EGraphSimplifier {
   // At this point, a < c is proven, but we will continue exploring until
   // saturation (i.e. no more matches) or the time limit is reached.
 
-  //! Return an optimal Val* representing an ENode
-  Val* extract(ENode* enode);
+  //! Return an optimal Val* representing an ENode. First the selected ASTNode
+  //! from the eclass is extracted. Then if that ASTNode has a representing
+  //! Val*, we return it. If not, then we recursively obtain a Val* for each of
+  //! the ASTNode's producer ASTNodes and construct a new Val* combining those
+  //! producers into a simplified result.
+  Val* extract(Id eclass_id);
 
   //! If n is in hashcons_, then map it to its canonical ENode. If it is not yet
   //! in hashcons_
@@ -217,10 +208,32 @@ class EGraphSimplifier {
   //! uf_.find(n.id) (see Definition 2.7 of Willsey et al. 2021).
   ENodeHashCons<EClassIdType> hashcons_;
 
+  //! This is the object responsible for matching during each iteration of
+  //! explore()
+  RuleRunner rule_runner_;
+
   //! Soft limit for the time spent by explore(). Note that an iteration might
   //! finish after this time has elapsed, but no iteration will be launched
-  //! after that.
-  size_t exploration_time_limit_ms_ = 5000;
+  //! after that. In case explore() is called multiple times, this limit is
+  //! applied to the total runtime across all invocations.
+  size_t exploration_time_limit_ns_ = 5_000_000_000L;
+  size_t total_exploration_time_ns_ = 0L;
+};
+
+class EGraphGuard {
+ public:
+  //! Set the active fusion so it can be manipulated.
+  NVF_API explicit EGraphGuard(EGraph* egraph);
+
+  NVF_API ~EGraphGuard();
+
+  NVF_API static EGraph* getCurEGraph();
+  static void setCurEGraph(EGraph* egraph);
+
+ private:
+  EGraph* prev_egraph_;
+
+  static thread_local EGraph* active_egraph_;
 };
 
 } // namespace egraph

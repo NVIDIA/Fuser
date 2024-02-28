@@ -78,6 +78,17 @@ struct ASTNode {
   //! desired form.
   std::unordered_set<Val*> representing_vals{};
 
+  // [Modeling term visibility in ASTNode]
+  // TODO: we can represent visibility of each representing Val here
+  // For example, 8 bytes can represent the position of an ordered tree of
+  // scopes with height and node width at most 8.
+  //
+  // Visibility could be used to filter out representing vals recursively,
+  // enabling us to extract a representation that is visible at a particular
+  // scope. We could potentially also alter the analysis method to encourage
+  // higher visibility of intermediate nodes, so that we would automatically
+  // create easily-hoisted ASTNodes.
+
  public:
   //! Given a Val*, map its definition and producers to ASTNodes
   //! recursively.

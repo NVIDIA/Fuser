@@ -9,7 +9,6 @@
 
 #include <simplification/egraph_type.h>
 #include <simplification/enode.h>
-#include <simplification/union_find.h>
 
 #include <optional>
 
@@ -32,7 +31,13 @@ struct AnalysisData {
   DataType dtype;
 
   //! EClasses can represent a single unique value (this is checked in join()).
-  PolymorphicValue value;
+  PolymorphicValue constant;
+
+  //! We perform extraction on the fly by selecting an ASTNode to represent this
+  //! class every time we merge.
+  //! See Section 4.3 of Willsey et al. 2021 for a more detailed description of
+  //! how extraction is accomplished as an e-class analysis.
+  Id astnode_id;
 
  public:
   //! This is make(n) from Willsey et al. 2021.
@@ -42,25 +47,8 @@ struct AnalysisData {
   //! their merged EClass.
   //!
   //! Here we check that dtypes and
-  AnalysisData join(const AnalysisData& other) const {
-    NVF_ERROR(
-        dtype == other.dtype,
-        "Attempted to merge EClasses with different dtypes");
-    PolymorphicValue joined_value = value;
-    if (value.hasValue() && other.value.hasValue()) {
-      NVF_ERROR(
-          value == other.value,
-          "Attempted to merge EClasses with differing values ",
-          value,
-          " and ",
-          other.value);
-    } else if (value.hasValue()) {
-      joined_value = value;
-    } else {
-      joined_value = other.value;
-      return {.dtype = dtype, .value = joined_value};
-    }
-  }
+  AnalysisData join(const AnalysisData& other) const;
+}
 };
 
 } // namespace egraph
