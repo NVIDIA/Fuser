@@ -117,8 +117,7 @@ class MultiDeviceExecutor {
   void postCommunication(SegmentedGroup* group);
 
   // allocate inter-device communication recv buffers
-  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(
-      std::vector<c10::IValue> global_inputs_IValues);
+  void allocateBuffers(std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
@@ -139,6 +138,10 @@ class MultiDeviceExecutor {
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
   std::unordered_map<SegmentedGroup*, bool> is_resharding_;
+  // Cached objects used for MultiDevice allocation
+  std::vector<Val*> vals_to_allocate_;
+  std::unique_ptr<FusionExecutorCache> allocator_;
+
   MultiDeviceExecutorParams params_;
 };
 
