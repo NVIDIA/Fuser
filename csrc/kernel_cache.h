@@ -763,6 +763,8 @@ class FusionExecutorCache {
   // FusionExecutorCache.
   int64_t fusion_id_ = -1;
 
+  // flag to enable/disable autoscheduling.
+  // when false, the heuristics are not applied to the fusion
   bool auto_schedule_ = true;
 };
 
