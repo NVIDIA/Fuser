@@ -220,7 +220,7 @@ static std::string data_type2string(DataType t) {
             case DataType::BFloat16:
               return "__bfloat";
             case DataType::Float8_e4m3fn:
-              return "__e4m3fn";
+              return "__e4m3";
             case DataType::Float8_e5m2:
               return "__e5m2";
             case DataType::Int:
