@@ -177,50 +177,49 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
   }
   NVF_ERROR(split_in != nullptr);
 
-  for (auto i : c10::irange(pads.size())) {
-    // For each branch, check the sliced amount is the same as the padded
-    // amount. Otherwise, the slices don't form a split.
+  // Check that `frontier` form a split along `split_axis`.
+  std::vector<Slice> split_ranges;
+  split_ranges.reserve(frontier.size());
+  for (auto i : c10::irange(frontier.size())) {
     auto* slice = frontier[i]->as<SliceOp>();
-    PadOp* pad = pads[i];
-
-    auto [left_padding, right_padding] =
-        pad->getPadWidths(static_cast<int>(cat_axis));
-
-    for (Slice slice_range : slice->getRanges()) {
-      if (!slice_range.step->isOne()) {
-        return nullptr;
-      }
-    }
-
-    // Get the left and right expand of the slice, which are zero or negative.
-    Val* left_expand = nullptr;
-    Val* right_expand = nullptr;
-    auto* slice_out = slice->out()->as<TensorView>();
-    std::vector<Expr*> transforms = StmtSort::getExprsBetween(
-        {slice_out->getRootDomain().begin(), slice_out->getRootDomain().end()},
-        {slice_out->getRFactorDomain().begin(),
-         slice_out->getRFactorDomain().end()});
-    for (auto* transform : transforms) {
-      auto* resize = dynamic_cast<Resize*>(transform);
-      if (resize == nullptr) {
-        return nullptr;
-      }
-      if (resize->out() != slice_out->getRFactorDomain()[split_axis]) {
-        return nullptr;
-      }
-      left_expand = resize->leftExpand();
-      right_expand = resize->rightExpand();
-    }
-    if (left_expand == nullptr || right_expand == nullptr) {
+    const std::vector<Slice>& slice_ranges = slice->getRanges();
+    if (std::any_of(
+            slice_ranges.begin(),
+            slice_ranges.end(),
+            [](const Slice& slice_range) {
+              return !slice_range.step->isOne();
+            })) {
       return nullptr;
     }
 
-    if (!simplifyExpr(IrBuilder::addExpr(left_padding, left_expand))
-             ->isZeroInt()) {
-      return nullptr;
+    for (auto j : c10::irange(
+             static_cast<int64_t>(slice->out()->getRootDomain().size()))) {
+      if (j == split_axis) {
+        split_ranges.push_back(slice_ranges[j]);
+      } else {
+        if (slice->out()->getRootDomain()[j] !=
+            slice->out()->getMaybeRFactorDomain()[j]) {
+          return nullptr;
+        }
+      }
     }
-    if (!simplifyExpr(IrBuilder::addExpr(right_padding, right_expand))
-             ->isZeroInt()) {
+  }
+
+  if (!split_ranges.front().start->isZero()) {
+    return nullptr;
+  }
+  if (!frontier.back()
+           ->as<SliceOp>()
+           ->out()
+           ->getMaybeRFactorDomain()[split_axis]
+           ->definition()
+           ->as<Resize>()
+           ->rightExpand()
+           ->isZero()) {
+    return nullptr;
+  }
+  for (auto i : c10::irange(1, frontier.size())) {
+    if (!split_ranges[i - 1].stop->sameAs(split_ranges[i].start)) {
       return nullptr;
     }
   }
