@@ -10,4 +10,4 @@ In this directory:
 - `rules.cpp`
 
 
-[^1] [Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.](https://doi.org/10.5281/zenodo.4072013)
+[^1]: [Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.](https://doi.org/10.5281/zenodo.4072013)
