@@ -91,7 +91,7 @@ VarMeanResult variance_mean(
   auto dtype = x->getDataType().value();
   NVF_CHECK(
       !(dtype == DataType::Half || dtype == DataType::BFloat16 ||
-        type == DataType::Float8_e4m3fn || type == DataType::Float8_e5m2),
+        dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2),
       "variance_mean is not supported for ",
       dtype,
       " please upcast to float");

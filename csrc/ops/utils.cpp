@@ -345,10 +345,10 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
-    // note: double check how finite work here?
     case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
       return IrBuilder::create<Val>(
-          static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::infinity()));
+          static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::max()));
       break;
     case DataType::Float8_e5m2:
       return IrBuilder::create<Val>(
@@ -390,10 +390,10 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
       break;
-    // note: double check how finite work here?
     case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
       return IrBuilder::create<Val>(
-          static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::infinity()));
+          static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::max()));
       break;
     case DataType::Float8_e5m2:
       return IrBuilder::create<Val>(
