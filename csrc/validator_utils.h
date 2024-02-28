@@ -26,29 +26,42 @@ struct ValidationConstants {
   // Tolerances generated from randn + add + sum fusion
   // compared against double precision
   std::array<std::array<double, 2>, 20> sum_tolerances_float = {
-      {{4, 1.68222e-06},      {8, 2.23704e-06},      {16, 2.95788e-06},
-       {32, 4.4778e-06},      {64, 6.75395e-06},     {128, 8.57934e-06},
-       {256, 1.30594e-05},    {512, 2.19122e-05},    {1024, 3.3451e-05},
-       {2048, 5.78476e-05},   {4096, 0.000108292},   {8192, 0.00012207},
-       {16384, 0.000136882},  {32768, 0.000248561},  {65536, 0.000407594},
-       {131072, 0.000500901}, {262144, 0.000923019}, {524288, 0.00156909},
-       {1048576, 0.00223107}, {2097152, 0.00343043}}};
+      {{4, 8.29392e-06},       {8, 9.80065e-06},      {16, 1.22630e-05},
+       {32, 1.71170e-05},      {64, 2.12105e-05},     {128, 2.86866e-05},
+       {256, 3.92410e-05},     {512, 5.95525e-05},    {1024, 8.62084e-05},
+       {2048, 1.22814e-04},    {4096, 1.63618e-04},   {8192, 2.47255e-04},
+       {16384, 3.37849e-04},   {32768, 5.31622e-04},  {65536, 7.87915e-04},
+       {131072, 1.00538e-03},  {262144, 1.41515e-03}, {524288, 2.22404e-03},
+       {1048576, 3.08768e-03}, {2097152, 4.72822e-03}}};
 
   // Tolerances generated from randn + add + sum fusion
-  // compared against double precision
+  // compared against fp32 precision
   std::array<std::array<double, 2>, 20> sum_tolerances_half = {
-      {{4, 0.00390625},    {8, 0.0078125},    {16, 0.0078125},
-       {32, 0.0155334},    {64, 0.0156269},   {128, 0.0312042},
-       {256, 0.0312548},   {512, 0.0619979},  {1024, 0.0625103},
-       {2048, 0.124686},   {4096, 0.12501},   {8192, 0.24945},
-       {16384, 0.250049},  {32768, 0.498946}, {65536, 0.500071},
-       {131072, 0.985087}, {262144, 1.00006}, {524288, 1.99234},
-       {1048576, 2.00032}, {2097152, 3.99073}}};
+      {{4, 2.55661e-02},       {8, 3.88184e-02},      {16, 3.88241e-02},
+       {32, 4.61884e-02},      {64, 6.26907e-02},     {128, 7.64923e-02},
+       {256, 1.16180e-01},     {512, 1.48727e-01},    {1024, 2.35977e-01},
+       {2048, 2.71042e-01},    {4096, 4.51538e-01},   {8192, 5.76965e-01},
+       {16384, 8.43750e-01},   {32768, 1.16052e+00},  {65536, 1.85815e+00},
+       {131072, 2.52466e+00},  {262144, 3.62988e+00}, {524288, 4.48608e+00},
+       {1048576, 7.91895e+00}, {2097152, 9.35449e+00}}};
+
+  // Tolerances generated from randn + add + sum fusion
+  // compared against fp32 precision
+  std::array<std::array<double, 2>, 20> sum_tolerances_bfloat = {
+      {{4, 2.29774e-01},       {8, 2.38712e-01},      {16, 3.20366e-01},
+       {32, 3.81409e-01},      {64, 5.09972e-01},     {128, 6.98776e-01},
+       {256, 8.89732e-01},     {512, 1.13058e+00},    {1024, 1.76106e+00},
+       {2048, 2.31541e+00},    {4096, 3.72748e+00},   {8192, 4.65298e+00},
+       {16384, 7.46301e+00},   {32768, 8.82568e+00},  {65536, 1.45876e+01},
+       {131072, 1.71610e+01},  {262144, 2.96763e+01}, {524288, 3.55269e+01},
+       {1048576, 5.56523e+01}, {2097152, 7.13672e+01}}};
 
   double base_half_abs_tol = -1;
   double base_half_rel_tol = -1;
   double base_float_abs_tol = -1;
   double base_float_rel_tol = -1;
+  double base_bfloat_abs_tol = -1;
+  double base_bfloat_rel_tol = -1;
 };
 
 // Returns abs and relative values to use for validation
@@ -138,9 +151,9 @@ std::pair<double, double> getTolerance(
     }
     case DataType::BFloat16: {
       // Copied from float case
-      const auto& sum_tolerance_entry = tolerances.sum_tolerances_half;
-      const auto& base_abs = tolerances.base_half_abs_tol;
-      const auto& base_rel = tolerances.base_half_rel_tol;
+      const auto& sum_tolerance_entry = tolerances.sum_tolerances_bfloat;
+      const auto& base_abs = tolerances.base_bfloat_abs_tol;
+      const auto& base_rel = tolerances.base_bfloat_rel_tol;
 
       if (reduction_size <= 1) {
         // No reduction case
