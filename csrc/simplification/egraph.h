@@ -40,6 +40,22 @@ namespace egraph {
 // Our terminology in the classes below attempts to match the paper when
 // possible.
 
+class EGraphGuard {
+ public:
+  //! Set the active fusion so it can be manipulated.
+  NVF_API explicit EGraphGuard(EGraph* egraph);
+
+  NVF_API ~EGraphGuard();
+
+  NVF_API static EGraph* getCurEGraph();
+  static void setCurEGraph(EGraph* egraph);
+
+ private:
+  EGraph* prev_egraph_;
+
+  static thread_local EGraph* active_egraph_;
+};
+
 //! This class is built to simplify Vals using E-graphs. The method we employ is
 //! based on equality saturation with rebuilding, as described in detail here:
 //! Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.
