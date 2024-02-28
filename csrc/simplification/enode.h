@@ -22,7 +22,7 @@ namespace egraph {
 //! even how many arguments there are).
 struct FunctionType {
   //! What type of node is this
-  ENodeFunctionSymbol function_symbol = ENodeFunctionSymbol::NoDefinition;
+  ENodeFunctionSymbol symbol = ENodeFunctionSymbol::NoDefinition;
 
   //! This determines the actual operation, e.g. BinaryOpType::Add
   //! Note that the target DataType for CastOp can be inferred by the dtype of
