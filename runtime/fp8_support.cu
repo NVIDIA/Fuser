@@ -53,7 +53,3 @@ __device__ __inline__ float __e4m32float(const __e4m3 h) {
 
   return val;
 }
-
-__device__ __inline__ __e4m3 __real_then_2e4m3(const std::complex<float> c) {
-  return __float2e4m3(std::real(c));
-}

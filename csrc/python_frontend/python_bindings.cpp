@@ -399,6 +399,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Int32", DataType::Int32)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
+      .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
+      .value("Float8_e5m2", DataType::Float8_e5m2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
