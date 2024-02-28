@@ -991,11 +991,18 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Info about ops in the fusion, used to set model specific parameters
   // Exp op typically used in softmax is expensive and needs more registers.
+  // RNG op typically used in dropout should prioritize high occupancy.
   bool has_exp_op = false;
+  bool has_rng_op = false;
   for (auto expr : fusion->exprs()) {
     if (expr->isA<UnaryOp>() &&
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
+    }
+    if (expr->isA<RNGOp>()) {
+      has_rng_op = true;
+    }
+    if (has_exp_op && has_rng_op) {
       break;
     }
   }
@@ -1011,7 +1018,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
-      .has_exp_op = has_exp_op};
+      .has_exp_op = has_exp_op,
+      .has_rng_op = has_rng_op};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {

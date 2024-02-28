@@ -232,6 +232,7 @@ struct PersistentKernelProperties {
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  bool has_rng_op;
 };
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
