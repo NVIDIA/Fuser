@@ -545,6 +545,10 @@ class TensorDomain : public Val {
     return no_bcast_domain_.size() != leaf_domain_.size();
   }
 
+  bool hasDevice() const {
+    return no_device_domain_.size() != leaf_domain_.size();
+  }
+
   bool hasRFactor() const {
     return !rfactor_domain_.empty();
   }
@@ -568,6 +572,14 @@ class TensorDomain : public Val {
 
   const std::vector<IterDomain*>& noBroadcasts() const {
     return no_bcast_domain_;
+  }
+
+  const std::vector<IterDomain*>& noDevices() {
+    // TODO: properly initialize in constructors.
+    if (no_device_domain_.size() == 0) {
+      no_device_domain_ = noDevices(leaf_domain_);
+    }
+    return no_device_domain_;
   }
 
   // The input logical domain. The root domain of a consumer should equal the
@@ -625,6 +637,7 @@ class TensorDomain : public Val {
   void resetDomains() {
     no_reduction_domain_ = noReductions(leaf_domain_);
     no_bcast_domain_ = noBroadcasts(leaf_domain_);
+    no_device_domain_ = noDevices(leaf_domain_);
     has_reduction_ = hasReduction(leaf_domain_);
   }
 
@@ -680,6 +693,8 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>&);
   NVF_API static std::vector<IterDomain*> noBroadcasts(
       const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noDevices(
+      const std::vector<IterDomain*>&);
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
@@ -702,6 +717,7 @@ class TensorDomain : public Val {
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
+  std::vector<IterDomain*> no_device_domain_;
   std::vector<std::optional<bool>> contiguity_;
   bool has_reduction_ = false;
 };

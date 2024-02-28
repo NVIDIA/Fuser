@@ -2361,8 +2361,12 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   std::vector<int64_t> out_shape;
   out_shape.reserve(out_rfactor.size());
   for (IterDomain* id : out_rfactor) {
-    out_shape.push_back(
-        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+    if (id->isDeviceDim()) {
+      out_shape.push_back(1);
+    } else {
+      out_shape.push_back(
+          ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+    }
   }
 
   // TODO: check allocation domain and contiguity.
@@ -3764,6 +3768,17 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
       std::back_inserter(noBroadcastDomain),
       [](IterDomain* id) { return !id->isBroadcast(); });
   return noBroadcastDomain;
+}
+
+std::vector<IterDomain*> TensorDomain::noDevices(
+    const std::vector<IterDomain*>& td) {
+  std::vector<IterDomain*> noDeviceDomain;
+  std::copy_if(
+      td.begin(),
+      td.end(),
+      std::back_inserter(noDeviceDomain),
+      [](IterDomain* id) { return !id->isDeviceDim(); });
+  return noDeviceDomain;
 }
 
 /*static*/ std::vector<std::optional<bool>> TensorDomain::

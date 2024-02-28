@@ -15,6 +15,8 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 
+#include <chrono>
+
 namespace nvfuser {
 
 namespace {
@@ -155,12 +157,22 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  if (fe_.find(group) == fe_.end()) {
-    fe_.emplace(group, std::make_unique<FusionExecutor>());
-    fusions_.emplace(group, staged_fusion_->makeFusion(group));
-    fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
+  // if (fe_.find(group) == fe_.end()) {
+  //   fe_.emplace(group, std::make_unique<FusionExecutor>());
+  //   fusions_.emplace(group, staged_fusion_->makeFusion(group));
+  //   fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
+  // }
+  // outputs = fe_[group]->runFusion(group_input_IValues);
+  // auto fusion = staged_fusion_->makeFusion(group);
+  // bool matmul_cs = MatmulScheduler::canScheduleCompileTime(fusion.get());
+  // std::cout << "Can schedule matmul on this fusion? " << matmul_cs <<
+  // std::endl;
+  // FusionExecutorCache fec(std::move(fusion));
+  if (fec_.find(group) == fec_.end()) {
+    auto fusion = staged_fusion_->makeFusion(group);
+    fec_.emplace(group, std::make_unique<FusionExecutorCache>(std::move(fusion)));
   }
-  outputs = fe_[group]->runFusion(group_input_IValues);
+  outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
@@ -213,7 +225,11 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       inputs.size() == staged_fusion_->inputs().size(),
       "Wrong number of inputs");
 
+  auto start = std::chrono::high_resolution_clock::now();
   val_to_IValue_ = allocateRecvBuffers(inputs);
+  auto end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> duration = end - start;
+  std::cout << "Allocate recv buffers: " << duration.count() << "seconds" << std::endl;
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
@@ -224,9 +240,17 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
+      start = std::chrono::high_resolution_clock::now();
       postKernel(group);
+      end = std::chrono::high_resolution_clock::now();
+      duration = end - start;
+      std::cout << "Kernel call: " << duration.count() << "seconds" << std::endl;
     } else {
+      start = std::chrono::high_resolution_clock::now();
       postCommunication(group);
+      end = std::chrono::high_resolution_clock::now();
+      duration = end - start;
+      std::cout << "Comms call: " << duration.count() << "seconds" << std::endl;
     }
   }
 

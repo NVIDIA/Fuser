@@ -1016,7 +1016,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
     mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDz);
-  } else if (num_batch_dims != 0) {
+  } else if (num_batch_dims != 0 && !mma_result->axis(0)->isDeviceDim()) {
+    // if outermost axis is already parallelized across devices
+    // then it's not a batch dim.
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
   }
   switch (params.cta_order) {
