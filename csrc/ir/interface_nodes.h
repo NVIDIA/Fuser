@@ -545,6 +545,7 @@ class NVF_API TensorView : public Val {
     return !mesh_.vector().empty();
   }
 
+ protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
   }
