@@ -31,7 +31,8 @@ namespace egraph {
 //!   return match;
 //! };
 class Match {
-  Match(std::string_view rule_name) : rule_name_(rule_name) {}
+ public:
+  Match(size_t rule_id) : rule_id_(rule_id) {}
 
   //! Record but do not perform a merge of two EClasses
   void recordMerge(Id a, Id b) {
@@ -45,7 +46,7 @@ class Match {
   void apply() const;
 
  private:
-  std::string_view rule_name_;
+  size_t rule_id_;
   std::list<std::pair<Id, Id>> merges_;
 };
 
@@ -57,6 +58,8 @@ using ENodeListIterator = std::list<ENode*>::const_iterator;
 //! `AnalysisData` associated to each of the ENode's producer EClasses and so
 //! on.
 struct Rule {
+  std::string name = "unnamed-rule";
+
   //! Function that checks whether this Rule applies to this ENode based on a
   //! shallow check of the ENode attributes ignoring the producer EClasses. For
   //! example, consider the following rule:
@@ -89,17 +92,14 @@ struct Rule {
  protected:
   friend class RuleRunner;
 
-  //! This will be automatically set when detecting matches
-  std::string name = "unnamed-rule";
-
  public:
   //! Obtain a list of match objects for this rule. At each iteration of
   //! equality saturation these lists are chained together to collect all
   //! matches across all rules before applying the matches and rebuilding.
-  std::list<Match> findMatches() const {
+  std::list<Match> findMatches(size_t rule_id) const {
     std::list<Match> matches;
     for (auto n_it = targets.begin(); n_it != targets.end(); n_it++) {
-      std::optional<Match> m = check_match_fn(n_it);
+      std::optional<Match> m = check_match_fn(rule_id, n_it);
       if (m.has_value()) {
         matches.push_back(m.value());
       }

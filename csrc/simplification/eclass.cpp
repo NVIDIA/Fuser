@@ -31,4 +31,3 @@ void EClass::mergeFrom(const Id other_id) {
 } // namespace egraph
 
 } // namespace nvfuser
-

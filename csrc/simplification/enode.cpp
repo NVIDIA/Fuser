@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <ir/internal_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_nodes.h>
 #include <simplification/egraph_type.h>
 #include <simplification/enode.h>
 #include <type.h>
@@ -27,7 +27,8 @@ FunctionType FunctionType::fromVal(Val* val) {
     if (auto bop = dynamic_cast<::nvfuser::BinaryOp*>(def)) {
       op_type = bop->getBinaryOpType();
     } else {
-      NVF_ERROR(false, "Val ", val->toString(), " has an unsupported Expr type");
+      NVF_ERROR(
+          false, "Val ", val->toString(), " has an unsupported Expr type");
     }
   }
   return {symbol, op_type};
@@ -59,4 +60,3 @@ ASTNode ASTNode::fromVal(Val* val) {
 } // namespace egraph
 
 } // namespace nvfuser
-

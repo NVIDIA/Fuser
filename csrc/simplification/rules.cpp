@@ -35,18 +35,15 @@ RuleRunner::RuleRunner() {
       /*is_eligible_fn=*/[](size_t rule_id, ENode* n) { return true; },
       /*check_match_fn=*/
       [](size_t rule_id, ENodeListIterator& n) { return Match(rule_id); });
-
-  return all_rules;
 }
 
 std::list<Match> RuleRunner::runMatching() {
   std::list<Match> all_matches;
-  for (auto& r : rules_) {
-    std::list<Match> r_matches = r.findMatches();
-    for (auto& m : r_matches) {
-      // Label each match with the name of the rule that produced it
-      m.name = r.name;
-    }
+  for (int r_id : c10::irange(rules_.size())) {
+    // We attach IDs to matches to aid in debugging, since this will let us
+    // print the name of the corresponding rule once we have the list of matches
+    Rule& r = rules_[r_id];
+    std::list<Match> r_matches = r.findMatches(r_id);
     all_matches.splice(all_matches.end(), r_matches);
   }
   return all_matches;
