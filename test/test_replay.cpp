@@ -32,11 +32,8 @@ TEST_F(ReplayTest, HorizontallyMergeTwoReshapes) {
 
   std::vector<IterDomain*> new_out_root = IterDomain::clone(
       TensorDomain::noReductions(in->getMaybeRFactorDomain()));
-  TensorView* new_out = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(new_out_root), *out->getDataType());
-  new_out->setDomain(
-      TransformReplay::fullSelfReplay(new_out->domain(), r0->domain()));
-  // FIXME: how about allocation domain and contiguity?
+  TensorDomain* new_out_domain = TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_out_root, r0->getContiguity()), r0->domain());
+  TensorView* new_out = IrBuilder::create<TensorView>(new_out_domain, *out->getDataType());
 
   Expr* to_replay = r0->definition();
   auto create_fn = to_replay->newObjectFunc();
