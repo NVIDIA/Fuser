@@ -219,8 +219,8 @@ static std::string data_type2string(DataType t) {
               return "__half";
             case DataType::BFloat16:
               return "__bfloat";
-            case DataType::Float8_e4m3:
-              return "__fp8_e4m3";
+            case DataType::Float8_e4m3fn:
+              return "__fp8_e4m3fn";
             case DataType::Float8_e5m2:
               return "__fp8_e5m2";
             case DataType::Int:
@@ -1103,8 +1103,8 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
       return at::ScalarType::BFloat16;
     case DataType::Float8_e4m3fn:
       return at::ScalarType::Float8_e4m3fn;
-    case DataType::Float8_e5m2fn:
-      return at::ScalarType::Float8_e5m2fn;
+    case DataType::Float8_e5m2:
+      return at::ScalarType::Float8_e5m2;
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
