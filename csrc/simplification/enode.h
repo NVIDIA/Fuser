@@ -7,9 +7,15 @@
 // clang-format on
 #pragma once
 
+#include <ir/interface_nodes.h>
+#include <polymorphic_value.h>
 #include <simplification/egraph_type.h>
+#include <type.h>
 
+#include <cstdint>
 #include <optional>
+#include <unordered_set>
+#include <variant>
 
 namespace nvfuser {
 
@@ -22,38 +28,25 @@ namespace egraph {
 //! even how many arguments there are).
 struct FunctionType {
   //! What type of node is this
-  ENodeFunctionSymbol symbol = ENodeFunctionSymbol::NoDefinition;
+  FunctionSymbol symbol = FunctionSymbol::NoDefinition;
 
   //! This determines the actual operation, e.g. BinaryOpType::Add
   //! Note that the target DataType for CastOp can be inferred by the dtype of
   //! this ENode's EClass, but since we need to hash and compare ENodes we
   //! include that DataType here as data as well.
-  std::variant<
+  using OpType = std::variant<
       std::monostate,
       UnaryOpType,
       BinaryOpType,
       TernaryOpType,
-      DataType>
-      op_type = std::monostate;
+      DataType>;
+  OpType op_type;
 
  public:
-  PolymorphicValue evaluate(const std::vector<PolymorphicValue>& inputs) const {
-    switch (function_symbol) {
-      case ENodeFunctionSymbol::NoDefinition:
-        NVF_ERROR(
-            false,
-            "Cannot evaluate AST function that does not have a definition");
-      case ENodeFunctionSymbol::LoadStoreOp:
-        NVF_ERROR(inputs.size() == 1);
-        return inputs[0];
-        break;
-        // TODO: Refactor ops so that we can call static versions of each op and
-        // avoid creating new Exprs in the Fusion here.
-      default:
-        NVF_ERROR(false, "not yet implemented");
-        return std::monostate;
-    }
-  }
+  static FunctionType fromVal(Val* val);
+
+  //! Evaluate this type of function, given some arguments
+  PolymorphicValue evaluate(const std::vector<PolymorphicValue>& inputs) const;
 };
 
 //! These objects mimic the Val AST and can be used to record input Vals and to
@@ -92,17 +85,8 @@ struct ASTNode {
  public:
   //! Given a Val*, map its definition and producers to ASTNodes
   //! recursively.
-  static ASTNode fromVal(Val* val) {
-    auto symb = ENodeFunctionSymbol::NoDefinition;
-    if (Expr* def = val->definition()) {
-      if (auto bop = dynamic_cast<BinaryOp*>(def)) {
-      } else {
-        NVF_ERROR(false, "Val ");
-      }
-    }
-    return {.representing_vals = {val}};
-  }
-}
+  static ASTNode fromVal(Val* val);
+};
 
 //! An ENode is an abstraction of a Val where its producers have been replaced
 //! with EClasses. It is like an ASTNode, but whereas an ASTNode holds a Val, an
@@ -114,10 +98,11 @@ struct ENode {
   FunctionType definition;
 
   //! EClass IDs of all function arguments.
-  std::vector<EClassIdType> producer_eclass_ids;
+  std::vector<Id> producer_ids;
 
   //! When a Val is registered using EGraph::registerVal(v), then v is
-  //! associated with an ASTNode and that
+  //! associated with an ASTNode. Multiple of these can exist for one ENode,
+  //! corresponding to the various members of producer EClasses.
   std::list<ASTNode> concrete_enodes;
 };
 

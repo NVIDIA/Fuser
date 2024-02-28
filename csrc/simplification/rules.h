@@ -9,6 +9,10 @@
 #include <simplification/egraph.h>
 #include <simplification/egraph_type.h>
 
+#include <string_view>
+
+namespace nvfuser {
+
 namespace egraph {
 
 //! This generic object defines a matched rewrite rule. See Figure 5 from
@@ -35,22 +39,17 @@ class Match {
   }
 
  protected:
-  friend class EGraphSimplifier;
+  friend class EGraph;
 
   //! Apply all of the recorded merges
-  void apply() const {
-    EGraph* eg = EGraphGuard::getCurEGraph();
-    for (auto& [a, b] : merges_) {
-      eg->merge(a, b);
-    }
-  }
+  void apply() const;
 
  private:
-  std::string_view rule_name;
+  std::string_view rule_name_;
   std::list<std::pair<Id, Id>> merges_;
 };
 
-using ENodeListIterator = std::list<ENode*>::iterator;
+using ENodeListIterator = std::list<ENode*>::const_iterator;
 
 //! Describes a rewrite rule that inspects ENodes. Based on the inspection, it
 //! creates new ENodes and merges EClass. Each rule may depend on the structure
@@ -72,14 +71,20 @@ struct Rule {
   //!
   //! This indicates that only ENodes that are greater-than expressions should
   //! be added to .targets.
-  std::function<bool(ENode*)> is_eligible_fn = [](ENode*) { return false; };
+  std::function<bool(size_t, ENode*)> is_eligible_fn = [](size_t rule_id,
+                                                          ENode*) {
+    NVF_ERROR("Running uninitialized Rule");
+    return false;
+  };
 
   //! Check whether an element of `targets` is a match. An iterator is passed so
   //! that the class can erase the ENode from the target list if the rule
   //! should no longer be fired.
-  std::function<std::optional<Match>(std::list<ENode*>::iterator&)>
-      check_match_fn =
-          [](std::list<ENode*>::iterator&) { return std::nullopt; };
+  std::function<std::optional<Match>(size_t, ENodeListIterator&)>
+      check_match_fn = [](size_t rule_id, ENodeListIterator& n_it) {
+        NVF_ERROR("Running uninitialized rule");
+        return std::nullopt;
+      };
 
  protected:
   friend class RuleRunner;
@@ -94,7 +99,7 @@ struct Rule {
   std::list<Match> findMatches() const {
     std::list<Match> matches;
     for (auto n_it = targets.begin(); n_it != targets.end(); n_it++) {
-      std::optional<Match> m = checkMatch(n_it);
+      std::optional<Match> m = check_match_fn(n_it);
       if (m.has_value()) {
         matches.push_back(m.value());
       }
@@ -103,7 +108,7 @@ struct Rule {
   }
 
  protected:
-  friend class EGraphSimplifier;
+  friend class EGraphSimp;
 
   //! This is a list of target ENodes. Each of these will be considered for
   //! matching during each pass. If this Rule determines that there is no need
@@ -112,14 +117,18 @@ struct Rule {
   std::list<ENode*> targets = {};
 };
 
-//! This is the main interface for running the matching pass
+//! This is the main interface for running the matching pass. This holds a
+//! collection of Rules to execute, each of which maintains a list of target
+//! ENodes.
 class RuleRunner {
  public:
+  RuleRunner();
+
   std::list<Match> runMatching();
 
  private:
-  std::list<Rule> rules_;
-}
+  std::vector<Rule> rules_;
+};
 
 } // namespace egraph
 

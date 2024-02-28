@@ -9,24 +9,32 @@
 #include <simplification/egraph.h>
 #include <simplification/egraph_type.h>
 
+#include <list>
+
+namespace nvfuser {
+
 namespace egraph {
 
-RuleRunner::RuleRunner() {
-  if (initialized) {
-    return all_rules;
+void Match::apply() const {
+  EGraph* eg = EGraphGuard::getCurEGraph();
+  for (auto& [a, b] : merges_) {
+    eg->merge(a, b);
   }
-  // This is where we define rules. Not that order does not matter.
+}
 
+RuleRunner::RuleRunner() {
   // TESTING RULES
 
   // Some rules for testing only. This fires always and never matches.
-  rules_.push_back(Rule{"never-fires", [](ENode* n) { return true; }});
+  rules_.emplace_back(
+      "never-fires", [](size_t rule_id, ENode* n) -> bool { return true; });
 
   // This matches all ENodes but does not perform any merges
-  rules_.push_back(Rule{
-      .name = "empty-match",
-      .is_eligible_fn = [](ENode* n) { return true; },
-      .check_match_fn = [&name](ENodeListIterator& n) { return Match(); }});
+  rules_.emplace_back(
+      "empty-match",
+      /*is_eligible_fn=*/[](size_t rule_id, ENode* n) { return true; },
+      /*check_match_fn=*/
+      [](size_t rule_id, ENodeListIterator& n) { return Match(rule_id); });
 
   return all_rules;
 }

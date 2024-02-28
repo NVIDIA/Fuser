@@ -194,6 +194,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+  ${NVFUSER_SRCS_DIR}/simplification/analysis.cpp
+  ${NVFUSER_SRCS_DIR}/simplification/eclass.cpp
+  ${NVFUSER_SRCS_DIR}/simplification/egraph.cpp
+  ${NVFUSER_SRCS_DIR}/simplification/enode.cpp
+  ${NVFUSER_SRCS_DIR}/simplification/rules.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
   ${NVFUSER_SRCS_DIR}/type_promotion.cpp

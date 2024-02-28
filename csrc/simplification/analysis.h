@@ -37,18 +37,19 @@ struct AnalysisData {
   //! class every time we merge.
   //! See Section 4.3 of Willsey et al. 2021 for a more detailed description of
   //! how extraction is accomplished as an e-class analysis.
-  Id astnode_id;
+  std::optional<Id> astnode_id;
 
  public:
   //! This is make(n) from Willsey et al. 2021.
-  static AnalysisData fromENode(const ENode& a);
+  static AnalysisData fromENode(const Id n_id);
 
   //! Join this AnalysisData with data from another EClass to form data for
   //! their merged EClass.
   //!
-  //! Here we check that dtypes and
-  AnalysisData join(const AnalysisData& other) const;
-}
+  //! Here we check that dtypes match for the given classes, we fold constants,
+  //! and we also select between astnode_id and other.astnode_id to perform
+  //! on-the-fly extraction.
+  AnalysisData joinFrom(const AnalysisData& other) const;
 };
 
 } // namespace egraph

@@ -10,6 +10,7 @@
 #include <simplification/eclass.h>
 #include <simplification/egraph_type.h>
 #include <simplification/enode.h>
+#include <simplification/rules.h>
 #include <simplification/union_find.h>
 
 #include <optional>
@@ -51,7 +52,7 @@ namespace egraph {
 //! val)`. Additionally, axioms can be declared via the assumeTrue method.
 //!
 //! Simplified values can then be extracted via `getSimplifiedVal(Val*)`.
-class EGraphSimplifier {
+class EGraph {
  public:
   //! Register a Val so it becomes visible.
   //!
@@ -64,9 +65,7 @@ class EGraphSimplifier {
   //! In case val is an immediate constant, we additionally look for any
   //! existing registered ENodes with that value and if we find any, we merge
   //! their EClasses.
-  ENode* registerVal(Val* val) {
-    auto c = ASTNode::fromVal(val);
-  }
+  Id registerVal(Val* val);
 
   //! Register val and merge its EClass with that of `true`.
   void assumeTrue(Val* val);
@@ -113,6 +112,35 @@ class EGraphSimplifier {
   //! instead only a shallow check is done to determine whether
   //! registerVal(predicate) is equivalent to true_enode_ or false_enode_.
   std::optional<bool> provenValue(Val* predicate);
+
+ protected:
+  friend EClass;
+  friend Match;
+
+  //! We generally prefer to pass around Id integers instead of pointers. We can
+  //! get the pointer in constant time as it's held in the eclass_up_ vector.
+  ENode* getENodeFromId(Id a) {
+    return enodes_up_.at(a).get();
+  }
+
+  EClass* getEClassFromId(Id a) {
+    return eclasses_up_.at(a).get();
+  }
+
+  //! Note that this is non-const since uf_.find(a) is non-const due to path
+  //! compression.
+  Id getCanonicalEClassId(Id a) {
+    return uf_.find(a);
+  }
+
+  //! Note that this is non-const since uf_.find(a) is non-const due to path
+  //! compression.
+  EClass* getCanonicalEClassFromId(Id a) {
+    return getEClassFromId(getCanonicalEClassId(a));
+  }
+
+  //! Merge two EClasses
+  Id merge(Id a, Id b);
 
  private:
   //! [E-Graph Expression Simplification (Internals)]
@@ -165,9 +193,12 @@ class EGraphSimplifier {
   //! producers into a simplified result.
   Val* extract(Id eclass_id);
 
-  //! If n is in hashcons_, then map it to its canonical ENode. If it is not yet
-  //! in hashcons_
-  ENode canonicalizeENode(const ENode& n) {}
+  //! Replace all producer EClass IDs with their canonicalized versions
+  void canonicalizeENode(ENode& n) {
+    for (Id& producer_id : n.producer_ids) {
+      producer_id = getCanonicalEClassId(producer_id);
+    }
+  }
 
   //! After we have merged EClasses, the hashcons structure might not
   //! This method is called upward merging: see Section 3.1 of Willsey et al.
@@ -176,12 +207,6 @@ class EGraphSimplifier {
 
   //! See Section 3.2 of Willsey et al. 2021.
   void rebuild();
-
-  //! Note that this is non-const since uf_.find(a) is non-const due to path
-  //! compression.
-  EClass* getCanonicalEClass(EClassIdType a) {
-    return eclasses_up_.at(uf_.find(a)).get();
-  }
 
  private:
   //! These containers owns all of this EGraph's ENodes and EClass objects. Note
@@ -200,23 +225,28 @@ class EGraphSimplifier {
   //  - The HashCons H is called hashcons_.
 
   //! The UnionFind used to define the equivalence relation describing EClasses
-  UnionFind<EClassIdType> uf_;
+  UnionFind<Id> uf_;
 
   //! This maps ENode IDs to EClass IDs.
   //! Importantly, we maintain "The HashCons Invariant" which states that given
   //! a "canonical" ENode n (see canonicalize()) this object will map n to
   //! uf_.find(n.id) (see Definition 2.7 of Willsey et al. 2021).
-  ENodeHashCons<EClassIdType> hashcons_;
+  // TODO
+  // ENodeHashCons<Id> hashcons_;
 
   //! This is the object responsible for matching during each iteration of
   //! explore()
   RuleRunner rule_runner_;
 
+  //! This holds a list of EClasses that were merged during this iteration and
+  //! need to be repaired
+  std::vector<Id> worklist_;
+
   //! Soft limit for the time spent by explore(). Note that an iteration might
   //! finish after this time has elapsed, but no iteration will be launched
   //! after that. In case explore() is called multiple times, this limit is
   //! applied to the total runtime across all invocations.
-  size_t exploration_time_limit_ns_ = 5_000_000_000L;
+  size_t exploration_time_limit_ns_ = 5'000'000'000L;
   size_t total_exploration_time_ns_ = 0L;
 };
 

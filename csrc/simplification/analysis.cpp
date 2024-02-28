@@ -5,10 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma once
 
-#include <simplification/egraph_type.h>
 #include <simplification/analysis.h>
+#include <simplification/egraph_type.h>
 
 #include <optional>
 
@@ -16,7 +15,7 @@ namespace nvfuser {
 
 namespace egraph {
 
-AnalysisData AnalysisData::join(const AnalysisData& other) const {
+AnalysisData AnalysisData::joinFrom(const AnalysisData& other) const {
   NVF_ERROR(
       dtype == other.dtype,
       "Attempted to merge EClasses with different dtypes");
@@ -30,7 +29,7 @@ AnalysisData AnalysisData::join(const AnalysisData& other) const {
         " and ",
         other.constant);
   } else {
-    joined_constant = constant.hasValue() ? constant other.constant;
+    joined_constant = constant.hasValue() ? constant : other.constant;
   }
 
   // Select a representative ASTNode.
@@ -38,7 +37,7 @@ AnalysisData AnalysisData::join(const AnalysisData& other) const {
   // this EClass. Our implementation should seek to encourage simplicity by
   // estimating a cost for each ASTNode and propagating that information forward
   // during these join steps.
-  Id joined_astnode_id = astnode_id;
+  std::optional<Id> joined_astnode_id = astnode_id;
 
   return {
       .dtype = dtype,

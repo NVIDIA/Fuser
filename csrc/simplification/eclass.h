@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <simplification/analysis.h>
 #include <simplification/egraph_type.h>
 #include <simplification/enode.h>
-#include <simplification/union_find.h>
 
 #include <optional>
 
@@ -17,7 +17,7 @@ namespace nvfuser {
 
 namespace egraph {
 
-class EGraphSimplifier;
+class EGraph;
 
 //! An EClass is simply an equivalence class of ENodes. This represents Vals
 //! that are all proven to have exactly the same value in the generated kernel.
@@ -27,37 +27,27 @@ class EGraphSimplifier;
 struct EClass {
   AnalysisData data;
 
+  //! ENodes that are members of this class
+  std::list<Id> members;
+
   //! Holds pairs of ENodes and EClasses. Parent ENodes represent functions
   //! some of whose arguments are members of this EClass. The corresponding
   //! EClasses are the EClasses of those ENodes which might need to be merged
   //! during repair(). See the code listing in Fig. 4 of Willsey et al. 2021.
-  std::list<std::pair<Id, Id>> parents;
-
-  //! ENodes that are members of this class
-  std::list<Id> members;
+  std::list<std::pair<Id, Id>> parents = {};
 
  protected:
-  friend EGraphSimplifier;
+  friend EGraph;
 
-  static EClass fromENode(const ENode& n) {
+  static EClass fromENode(const Id n_id) {
     // create new analysis data
-    return {.data = AnalysisData::fromENode(n), .members = {n}, .parents = {}};
+    return {
+        .data = AnalysisData::fromENode(n_id), .members = std::list<Id>{n_id}};
   }
 
   //! Merge in and drain another EClass. After this operation, the other EClass
   //! will be left with empty parents and members lists.
-  void mergeFrom(EClass& other) {
-    if (&other == this) {
-      return;
-    }
-
-    // See Fig. 9 of Willsey et al. 2021
-    data.joinFrom(other.data);
-
-    // TODO: merge in union-find
-
-    // TODO: add this EClass to work-list
-  }
+  void mergeFrom(const Id other_id);
 };
 
 } // namespace egraph

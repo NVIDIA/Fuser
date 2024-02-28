@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 namespace nvfuser {
 
 namespace egraph {
@@ -27,7 +29,7 @@ using Id = uint32_t;
 // more than 2 arguments and their order is arbitrary; two ENodes with this
 // symbol and the same op_type, with the same collection of arguments but in
 // permutated order should always map to the same EClass ID.
-enum ENodeFunctionSymbol {
+enum FunctionSymbol {
   NoDefinition,
   LoadStoreOp,
   CastOp,
