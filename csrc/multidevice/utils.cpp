@@ -26,7 +26,10 @@ bool isSharded(TensorView* tv) {
   }
   // Currently, only the most external dim is allowed to be sharded and we don't
   // allow split/merge
-  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
+  NVF_ERROR(
+      !is_sharded[0] ||
+      (TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(0) ==
+       TensorDomain::noReductions(tv->getLeafDomain()).at(0)));
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
         !is_sharded.at(i),

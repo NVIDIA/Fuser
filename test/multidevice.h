@@ -100,6 +100,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   bool auto_schedule_in_execute = false;
+  std::vector<at::Tensor> ref_unsharded_outputs;
 };
 
 } // namespace nvfuser

@@ -291,6 +291,87 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true)));
 
+enum class SchedulingMode {
+  noIntraDeviceScheduling,
+  manualScheduling,
+  reductionScheduler,
+  automaticScheduling,
+};
+
+std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
+  switch (mode) {
+    case SchedulingMode::noIntraDeviceScheduling:
+      return out << "noIntraDeviceScheduling";
+    case SchedulingMode::manualScheduling:
+      return out << "manualScheduling";
+    case SchedulingMode::reductionScheduler:
+      return out << "reductionScheduler";
+    case SchedulingMode::automaticScheduling:
+      return out << "automaticScheduling";
+    default:
+      NVF_ERROR(false);
+  }
+  return out;
+}
+
+void shardOutMostDim(TensorView* tv) {
+  TensorDomain::noReductions(tv->getLeafDomain())
+      .at(0)
+      ->parallelize(ParallelType::DIDx);
+}
+
+using PipelineTestStagedReductionParams = std::tuple<SchedulingMode>;
+class PipelineTestStagedReduction
+    : public PipelineTest,
+      public ::testing::WithParamInterface<PipelineTestStagedReductionParams> {
+};
+
+// 1D staged reduction
+// Inputs: X[A,B,C]
+TEST_P(PipelineTestStagedReduction, staged_reduction) {
+  auto [scheduling_mode] = GetParam();
+
+  int num_devices = communicator->size();
+  int A = num_devices;
+  int B = 8;
+  int C = 32;
+  std::vector<int64_t> unsharded_input_sizes = {A, B, C};
+  std::vector<int64_t> input_sizes(unsharded_input_sizes);
+  input_sizes[0] = 1;
+
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
+  TensorView* tv1 = sum(tv0, {2});
+  TensorView* tv_out = sum(tv1, {0});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv_out);
+
+  // multi device scheduling:
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
+  for (auto tv : ir_utils::allTvs(fusion.get())) {
+    shardOutMostDim(tv);
+    tv->setDeviceMesh(mesh);
+  }
+
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
+  ref_unsharded_outputs = {at::sum(
+      unsharded_inputs.at(0).toTensor(), at::OptionalIntArrayRef({0, 2}))};
+
+  auto_schedule_in_execute =
+      (scheduling_mode == SchedulingMode::automaticScheduling);
+
+  executeAndValidate();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SchedulingModes,
+    PipelineTestStagedReduction,
+    ::testing::Combine(::testing::Values(
+        SchedulingMode::noIntraDeviceScheduling,
+        SchedulingMode::automaticScheduling)));
+
 } // namespace nvfuser
 
 #endif

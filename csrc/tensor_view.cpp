@@ -937,6 +937,8 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   TensorView* producer =
       IrBuilder::create<TensorView>(producer_domain, getDataType().value());
 
+  producer->setDeviceMesh(mesh_);
+
   // Set domain of consumer
   setDomain(consumer_domain);
   TensorView* consumer = this;

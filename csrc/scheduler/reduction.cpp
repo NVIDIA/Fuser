@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/reduction.h>
@@ -1182,6 +1183,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
     reduction_tv->reorder(
         scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
   }
+
+  NVF_ERROR(!(rparams.schedule_3D && isSharded(reduction_tv)));
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
       fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
