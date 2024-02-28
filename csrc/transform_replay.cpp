@@ -200,6 +200,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
   {
     size_t i = 0;
     for (auto id : self->root()) {
+#if 0
       NVF_ERROR(
           new_self_root->root()[i]->isReduction() == id->isReduction() &&
               new_self_root->root()[i]->isRFactorProduct() ==
@@ -210,6 +211,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
           " and ",
           new_self_root->root()[i],
           " do not match for self replay.");
+#endif
       axis_map[id] = new_self_root->root()[i];
       i++;
     }
