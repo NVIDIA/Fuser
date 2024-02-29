@@ -1248,6 +1248,12 @@ void MostInlinedTransformPropagator::propagateSibling(
 
 namespace {
 
+// Replays transformations in `old_domain` on `new_root` and returns the new
+// TensorDomain that's rooted at `new_root`. This shares quite some code with
+// TransformReplay::fullSelfReplay, which can be cleaned up. The main
+// challenge for that is that this function uses `ReplayTransformations` and
+// `fullSelfReplay` uses `ReplaySelf`, a simplified version of
+// `ReplayTransformations` leveraging the fact that it's a self-replay.
 TensorDomain* fullReplay(
     const TensorDomain* old_domain,
     const std::vector<IterDomain*>& new_root) {
@@ -1267,24 +1273,30 @@ TensorDomain* fullReplay(
       old_domain->toString(0, /*leaf_only=*/false));
   ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
 
-  // FIXME: using std::transform.
   std::vector<IterDomain*> new_leaf;
   new_leaf.reserve(old_domain->nDims());
-  for (IterDomain* old_leaf_id : old_domain->leaf()) {
-    new_leaf.push_back(replay.getReplay().at(old_leaf_id));
-  }
+  std::transform(
+      old_domain->leaf().begin(),
+      old_domain->leaf().end(),
+      std::back_inserter(new_leaf),
+      [&](IterDomain* old_leaf_id) {
+        return replay.getReplay().at(old_leaf_id);
+      });
 
   if (!old_domain->hasRFactor()) {
     return IrBuilder::create<TensorDomain>(
         old_domain->container(), new_root, new_leaf, old_domain->contiguity());
   }
 
-  // FIXME: using std::transform.
   std::vector<IterDomain*> new_rfactor;
   new_rfactor.reserve(old_domain->rfactor().size());
-  for (IterDomain* old_rfactor_id : old_domain->rfactor()) {
-    new_rfactor.push_back(replay.getReplay().at(old_rfactor_id));
-  }
+  std::transform(
+      old_domain->rfactor().begin(),
+      old_domain->rfactor().end(),
+      std::back_inserter(new_rfactor),
+      [&](IterDomain* old_rfactor_id) {
+        return replay.getReplay().at(old_rfactor_id);
+      });
 
   return IrBuilder::create<TensorDomain>(
       old_domain->container(),
