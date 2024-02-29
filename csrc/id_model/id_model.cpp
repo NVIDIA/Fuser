@@ -51,17 +51,20 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 } // namespace
 
 void IdModel::assertNoSelfMapping() {
-  NVF_ERROR(
-      !hasSelfMapping(),
-      "Unsupported domain mapping detected in ",
-      std::get<0>(*self_mapping_info_)->toString(),
-      ". ",
-      std::get<3>(*self_mapping_info_),
-      " domains, ",
-      std::get<1>(*self_mapping_info_)->toString(),
-      " and ",
-      std::get<2>(*self_mapping_info_)->toString(),
-      ", are mapped with each other.");
+  for (TensorView* tv : tvs_) {
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv);
+    NVF_CHECK(
+        !self_mapping.has_value(),
+        "Unsupported domain mapping detected in ",
+        tv,
+        ". ",
+        self_mapping->where,
+        " domains, ",
+        self_mapping->id1,
+        " and ",
+        self_mapping->id2,
+        ", are mapped with each other.");
+  }
 }
 
 IdModel::IdModel(
@@ -189,12 +192,12 @@ namespace {
 std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
     const IdModel& id_graph,
-    IdMappingMode mode) {
-  for (auto id1 : ids) {
-    for (auto id2 : ids) {
-      if (id1 == id2) {
-        continue;
-      }
+    const IdMappingMode mode) {
+  size_t n = ids.size();
+  for (size_t i1 = 0; i1 < n; i1++) {
+    IterDomain* id1 = ids[i1];
+    for (size_t i2 = i1 + 1; i2 < n; i2++) {
+      IterDomain* id2 = ids[i2];
       if (id_graph.idGraph(mode).disjointValSets().permissiveAreMapped(
               id1, id2)) {
         return std::make_pair(id1, id2);
@@ -205,62 +208,38 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
   return std::nullopt;
 }
 
-// It is assumed that for any tensor represented by a list of domains,
-// those domains should never be mapped with each other. It may be
-// possible to lift this assumption, but it's unclear if it could
-// matter in practice.
-std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-findFirstSelfMapping(
-    const std::vector<TensorView*>& all_tvs,
-    const IdModel& id_model) {
-  for (auto tv : all_tvs) {
-    // For each tensor, make sure root, rfactor and leaf domains
-    // should not include domains that are mapped with another domain
-    // in the same set of domains. This may be overly conservative,
-    // and it maybe enough to check the root domains.
+} // namespace
 
-    // Root domains
-    auto self_mappped_root_pair =
-        detectMappablePair(tv->getRootDomain(), id_model, IdMappingMode::EXACT);
-    if (self_mappped_root_pair.has_value()) {
-      return std::make_tuple(
-          tv,
-          self_mappped_root_pair->first,
-          self_mappped_root_pair->second,
-          "Root");
-    }
+std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView* tv) const {
+  std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
+      detectMappablePair(tv->getRootDomain(), *this, IdMappingMode::EXACT);
+  // Root domains.
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
+  }
 
-    // Rfactor domains
-    if (tv->hasRFactor()) {
-      auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRFactorDomain(), id_model, IdMappingMode::EXACT);
-      if (self_mappped_rf_pair.has_value()) {
-        return std::make_tuple(
-            tv,
-            self_mappped_rf_pair->first,
-            self_mappped_rf_pair->second,
-            "RFactor");
-      }
+  // Rfactor domains
+  if (tv->hasRFactor()) {
+    mapped =
+        detectMappablePair(tv->getRFactorDomain(), *this, IdMappingMode::EXACT);
+    if (mapped.has_value()) {
+      return SelfMapping{
+          .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
     }
+  }
 
-    // Leaf domains
-    // TODO: Exact map isn't quite right here, it should be based on the index
-    // map. However, it should also be impossible for index map to generate a
-    // case like this.
-    auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->leaf(), id_model, IdMappingMode::EXACT);
-    if (self_mappped_leaf_pair.has_value()) {
-      return std::make_tuple(
-          tv,
-          self_mappped_leaf_pair->first,
-          self_mappped_leaf_pair->second,
-          "Leaf");
-    }
+  // Leaf domains
+  // TODO: Exact map isn't quite right here, it should be based on the index
+  // map. However, it should also be impossible for index map to generate a
+  // case like this.
+  mapped = detectMappablePair(tv->getLeafDomain(), *this, IdMappingMode::EXACT);
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
   }
   return std::nullopt;
 }
-
-} // namespace
 
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
@@ -878,7 +857,6 @@ void IdModel::buildAllGraphs() {
 
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
   }
