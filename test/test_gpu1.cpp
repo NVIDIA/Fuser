@@ -2745,7 +2745,8 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
 
   for (const auto& fp8_type : fp8_variants) {
     for (const auto& src_type : cast_targets) {
-      Fusion fusion fg(&fusion);
+      Fusion fusion;
+      FusionGuard fg(&fusion);
 
       TensorView* tv0 = makeSymbolicTensor(2, src_type);
 
