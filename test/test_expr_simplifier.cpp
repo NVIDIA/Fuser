@@ -10,6 +10,7 @@
 
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
+#include <simplification/egraph.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -467,11 +468,15 @@ using namespace stupid_simple_compiler::ops;
 class ExprSimplifierTest : public NVFuserTest {
   std::unique_ptr<Fusion> fusion_ptr;
   std::unique_ptr<FusionGuard> fusion_guard_ptr;
+  std::unique_ptr<egraph::EGraph> egraph_ptr;
+  std::unique_ptr<egraph::EGraphGuard> egraph_guard_ptr;
 
   void SetUp() override {
     NVFuserTest::SetUp();
     fusion_ptr = std::make_unique<Fusion>();
     fusion_guard_ptr = std::make_unique<FusionGuard>(fusion_ptr.get());
+    egraph_ptr = std::make_unique<egraph::EGraph>();
+    egraph_guard_ptr = std::make_unique<egraph::EGraphGuard>(egraph_ptr.get());
   }
 };
 

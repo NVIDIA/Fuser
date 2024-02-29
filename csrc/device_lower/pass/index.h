@@ -12,7 +12,9 @@
 #include <instrumentation.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 #include <root_domain_map.h>
+#include <simplification/egraph.h>
 
 #include <unordered_set>
 #include <vector>

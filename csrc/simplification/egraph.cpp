@@ -124,6 +124,8 @@ EGraphGuard::~EGraphGuard() {
 
 // Cast to non-cast because many users need it.
 /*static*/ EGraph* EGraphGuard::getCurEGraph() {
+  NVF_ERROR(
+      active_egraph_ != nullptr, "EGraphGuard does not yet hold an EGraph");
   return active_egraph_;
 }
 

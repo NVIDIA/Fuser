@@ -1742,6 +1742,11 @@ void IndexLowering::handle(const kir::BlockSerializeRelease* sync) {
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
+  // This is used by experimental e-graph based expression simplification if
+  // we enable EnableOption::EGraphSimplifyExpr
+  egraph::EGraph eg;
+  egraph::EGraphGuard egraph_guard(&eg);
+
   for (auto expr : exprs) {
     OptOutConstDispatch::dispatch(expr);
   }
