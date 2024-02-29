@@ -121,6 +121,10 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
        base_type == DataType::Float8_e4m3fn || base_type == DataType::Float8_e5m2)) {
     return true;
   }
+  if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
+      (base_type == DataType::Float8_e4m3fn || base_type == DataType::Float8_e5m2)) {
+    return true;
+  }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
        wider_type == DataType::ComplexDouble) &&
       base_type == DataType::Int32) {

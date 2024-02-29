@@ -6,10 +6,6 @@
  */
 // clang-format on
 
-#define __NVFUSER_HALF_TO_US(var) *(reinterpret_cast<unsigned short*>(&(var)))
-#define __NVFUSER_HALF_TO_CUS(var) \
-  *(reinterpret_cast<const unsigned short*>(&(var)))
-
 struct __e4m3;
 __device__ __inline__ __e4m3 __float2e4m3(const float);
 
