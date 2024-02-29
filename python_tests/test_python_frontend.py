@@ -49,6 +49,13 @@ def is_pre_ampere():
     return prop.major < 8
 
 
+def is_pre_hopper():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
+
 def setUpModule():
     from nvfuser import enable_automatic_serialization
 
@@ -226,6 +233,7 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
 
+    @unittest.skipIf(is_pre_hopper(), "Only supported on Hopper and newer devices.")
     def test_cast_fp8(self):
         def fn(in_type, out_type):
             inputs = [
