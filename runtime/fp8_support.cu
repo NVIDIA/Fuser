@@ -97,13 +97,13 @@ __device__ __inline__ float __e4m32float(const __e4m3 h) {
 }
 
 __device__ __inline__ __e4m3 __half2e4m3(const __half h) {
-  float buffer;
+  uint32_t buffer;
   memcpy(&buffer, &h, sizeof(__half));
   unsigned short _tmp_buffer;
   __e4m3 val;
   asm("{cvt.rn.satfinite.e4m3x2.f16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "f"(buffer));
+      : "r"(buffer));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
@@ -123,13 +123,13 @@ __device__ __inline__ __half __e4m32half(const __e4m3 h) {
 }
 
 __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
-  float buffer;
+  uint32_t buffer;
   memcpy(&buffer, &h, sizeof(__bfloat));
   unsigned short _tmp_buffer;
   __e4m3 val;
   asm("{cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "f"(buffer));
+      : "r"(buffer));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
@@ -204,13 +204,13 @@ __device__ __inline__ float __e5m22float(const __e5m2 h) {
 }
 
 __device__ __inline__ __e5m2 __half2e5m2(const __half h) {
-  float buffer;
+  uint32_t buffer;
   memcpy(&buffer, &h, sizeof(__half));
   unsigned short _tmp_buffer;
   __e5m2 val;
   asm("{cvt.rn.satfinite.e5m2x2.f16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "f"(buffer));
+      : "r"(buffer));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
@@ -230,13 +230,13 @@ __device__ __inline__ __half __e5m22half(const __e5m2 h) {
 }
 
 __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
-  float buffer;
+  uint32_t buffer;
   memcpy(&buffer, &h, sizeof(__bfloat));
   unsigned short _tmp_buffer;
   __e5m2 val;
   asm("{cvt.rn.satfinite.e5m2x2.bf16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "f"(buffer));
+      : "r"(buffer));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
