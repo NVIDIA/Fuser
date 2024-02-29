@@ -2,7 +2,6 @@ import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
 from .core import DEVICE_PROPERTIES
-import numpy as np
 import itertools
 import os
 
@@ -83,7 +82,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             #    Numpy arrays are not JSON serializable so convert them to enable storing benchmark data.
 
             hidden_range = []
-            for hs in range(D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size): # (768, 4*18432)
+            for hs in range(
+                D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size
+            ):  # (768, 4*18432)
                 hidden_range.append(hs)
                 if BENCHMARK_MODE == "weekly":
                     # Additionally benchmark hidden sizes at steps (256 + 2, 256 + 4, 256 + 8)
@@ -92,7 +93,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
             # Reduce max hidden size for largest batch size (16384) to avoid OOM in RMSNorm.
             # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 8) for weekly.
-            input_ranges.append(([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 8, hidden_range)))
+            input_ranges.append(
+                ([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 8, hidden_range))
+            )
 
             for batch_range, hidden_range in input_ranges:
                 inputs.extend(list(itertools.product(batch_range, hidden_range)))
