@@ -1307,6 +1307,8 @@ MmaOpDetails getMmaOpDetails(
       details.n_axes,
       details.k_axes);
 
+  details.input_layout = MmaLayout::TN;
+
   return details;
 }
 

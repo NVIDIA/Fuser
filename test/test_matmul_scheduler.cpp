@@ -2239,6 +2239,131 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
+TEST_F(MatmulSchedulerTest, AllocationDomain2) {
+  // int M = 256, N = 256, K = 128;
+  int M = 504, N = 136, K = 248;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv1 = makeContigTensor(2, DataType::Half); // M,K
+  TensorView* tv2 = makeContigTensor(2, DataType::Half); // K, N
+  tv2->setAllocationDomain({tv2->axis(1), tv2->axis(0)}, true);
+
+  auto layout = MmaLayout::TT;
+  std::vector<bool> bcast_dims_a = {false, false, true};
+  std::vector<bool> bcast_dims_b = {true, false, false};
+  auto* tva2 = broadcast(tv1, bcast_dims_a);
+
+  auto* tvb2 = broadcast(tv2, bcast_dims_b);
+  tvb2->setAllocationDomain(
+      {tvb2->axis(0), tvb2->axis(2), tvb2->axis(1)}, true);
+
+  TensorView* tv3 = fusedMultiplySum(tva2, tvb2, {1});
+
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addOutput(tv3);
+  // tv2->setAllocationDomain({tv2->axis(1), tv2->axis(0)}, true);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  const int smem_double_buffer_stage = 4;
+  const bool use_smem_epilogue = false;
+  const bool promote_prologue_smem_reuse = false;
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage =
+      smem_double_buffer_stage;
+  params.use_smem_epilogue = use_smem_epilogue;
+  params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
+  scheduleMatmul(fusion.get(), params);
+
+  // auto inputs = matmulAtInput2D(M, N, K, layout);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto inputs_first = at::randn({M, K}, options);
+  auto inputs_second = at::randn({K, N}, options).as_strided({K, N}, {1, K});
+
+  auto tref = atMatmul(
+      inputs_first.to(at::kFloat), inputs_second.to(at::kFloat), layout);
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      fusion.get(),
+      {inputs_first, inputs_second},
+      LaunchParams(),
+      matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs_first, inputs_second});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+}
+
+TEST_F(MatmulSchedulerTest, ref_works) {
+  // int M = 256, N = 256, K = 128;
+  int M = 504, N = 136, K = 248;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv1 = makeContigTensor(2, DataType::Half); // M,K
+  TensorView* tv2 = makeContigTensor(2, DataType::Half); // N, K
+
+  auto layout = MmaLayout::TN;
+  std::vector<bool> bcast_dims_a = {false, true, false};
+  std::vector<bool> bcast_dims_b = {true, false, false};
+  auto* tva2 = broadcast(tv1, bcast_dims_a);
+  auto* tvb2 = broadcast(tv2, bcast_dims_b);
+
+  TensorView* tv3 = fusedMultiplySum(tva2, tvb2, {-1});
+
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addOutput(tv3);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  const int smem_double_buffer_stage = 4;
+  const bool use_smem_epilogue = false;
+  const bool promote_prologue_smem_reuse = false;
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage =
+      smem_double_buffer_stage;
+  params.use_smem_epilogue = use_smem_epilogue;
+  params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
+  scheduleMatmul(fusion.get(), params);
+
+  // auto inputs = matmulAtInput2D(M, N, K, layout);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto inputs_first = at::randn({M, K}, options);
+  auto inputs_second = at::randn({N, K}, options);
+
+  auto tref = atMatmul(
+      inputs_first.to(at::kFloat), inputs_second.to(at::kFloat), layout);
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      fusion.get(),
+      {inputs_first, inputs_second},
+      LaunchParams(),
+      matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs_first, inputs_second});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

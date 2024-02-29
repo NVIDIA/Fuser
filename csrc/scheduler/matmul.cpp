@@ -730,7 +730,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
+  // const auto fusion_layout = mma_utils::getMmaLayout(fusion);
+  const auto fusion_layout =
+      mma_utils::DataWrapperOpt<MmaLayout>(MmaLayout::TN);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   const auto& gemm_tile = params.tile_sizes;
@@ -804,6 +806,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     load_op = LoadStoreOpType::CpAsync;
     cache_op = CacheOp::Global;
   }
+
+  std::cout << "B before reorder: " << b->toString();
+  auto x = scheduler_utils::maybeRfactorReorderAsAllocationMap(b);
+  b->domain()->reorder(x);
+  std::cout << "B after reorder: " << b->toString();
 
   NVF_ERROR(a->uses().size() == 1);
   NVF_ERROR(b->uses().size() == 1);
