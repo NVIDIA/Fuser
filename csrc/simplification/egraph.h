@@ -102,17 +102,11 @@ class EGraph {
       Val* orig_val,
       std::vector<Val*>* acceptable_root_vals = nullptr);
 
-  //! Check whether a Val, whose type must be DataType::Bool, has been proven.
-  //! If not, return std::nullopt. If the predicate has been proven, return
-  //! true. If its negation has been proven, return false.
-  //!
-  //! Note that this is an equivalent but lighter-weight form of
+  //! Get the constant value (if any) of the equivalence class that this Val*
+  //! belongs to. Note that this is an equivalent but lighter-weight form of
   //!   extract(registerVal(predicate))->getValue()
-  //! In particular, this method does not perform a full call to extract();
-  //! instead only a shallow check is done to determine whether
-  //! registerVal(predicate) is equivalent to ENodes with constant values of
-  //! either true or false.
-  std::optional<bool> provenValue(Val* predicate);
+  //! In particular, this method does not perform a full call to extract().
+  PolymorphicValue getMaybeConstantValue(Val* val);
 
  protected:
   friend EClass;
@@ -120,80 +114,26 @@ class EGraph {
 
   //! We generally prefer to pass around Id integers instead of pointers. We can
   //! get the pointer in constant time as it's held in the eclass_up_ vector.
-  ENode* getENodeFromId(Id a) {
+  ENode* getENodeFromId(Id a) const {
     return enodes_up_.at(a).get();
-  }
-
-  EClass* getEClassFromId(Id a) {
-    return eclasses_up_.at(a).get();
   }
 
   //! Note that this is non-const since uf_.find(a) is non-const due to path
   //! compression.
-  Id getCanonicalEClassId(Id a) {
+  Id getCanonicalENodeId(Id a) {
     return uf_.find(a);
   }
 
   //! Note that this is non-const since uf_.find(a) is non-const due to path
   //! compression.
-  EClass* getCanonicalEClassFromId(Id a) {
-    return getEClassFromId(getCanonicalEClassId(a));
+  EClass* getEClassFromId(Id a) {
+    return eclasses_up_.at(getCanonicalENodeId(a)).get();
   }
 
   //! Merge two EClasses
   Id merge(Id a, Id b);
 
  private:
-  //! [E-Graph Expression Simplification (Internals)]
-  //! Two phases are used
-
-  //! Run the exploration phase. This phase is iterative, and repeats until
-  //! either the time limit is reached.
-  void explore();
-
-  // Suppose we start with
-  //   a < b  ~  true
-  //   c < d  ~  false
-  //   b == d ~  true
-  // Then during exploration, we might query a < c to see whether it has been
-  // proven true yet. This introduces another enode, so that we have
-  //   a < b  ~  true
-  //   c < d  ~  false
-  //   b == d ~  true
-  //   a < c  ~  {}
-  // Then we will iteratively explore, using pattern matching on the parents of
-  // a, b, and c:
-  //   a < b  ~  true
-  //   c < d  ~  false
-  //   b == d ~  true
-  //   a < c  ~  {}
-  //   // Rule 1: merge negation of all enodes equiv to true with false and vice
-  //   versa
-  //   !(a < b) ~ false
-  //   !(c < d) ~ true
-  //   b != d ~  false
-  //   // Rule 2: trivial rewrites e.g. !(x < y) => x >= y and x < y => y > x
-  //   a >= b  ~  false
-  //   c >= d  ~  true
-  //   b > a   ~  false
-  //   d > c   ~  false
-  //   d == b  ~  true
-  //   // Rule 3: if x == y ~ true then merge classes of x and y
-  //   b == d  => merge {b} and {d}
-  //   // Rule 4: Look at parent enodes of each side of inequality. If any of
-  //   // those parents is also an inequality, perform some basic matches such
-  //   // as x < y && y <= z => x < z
-  //   {c} >= {b, d} is true && a < b, so merge a < b ~ true
-  // At this point, a < c is proven, but we will continue exploring until
-  // saturation (i.e. no more matches) or the time limit is reached.
-
-  //! Return an optimal Val* representing an ENode. First the selected ASTNode
-  //! from the eclass is extracted. Then if that ASTNode has a representing
-  //! Val*, we return it. If not, then we recursively obtain a Val* for each of
-  //! the ASTNode's producer ASTNodes and construct a new Val* combining those
-  //! producers into a simplified result.
-  Val* extract(Id eclass_id);
-
   //! Replace all producer EClass IDs with their canonicalized versions
   void canonicalizeENode(ENode& n) {
     for (Id& producer_id : n.producer_ids) {
@@ -204,10 +144,22 @@ class EGraph {
   //! After we have merged EClasses, the hashcons structure might not
   //! This method is called upward merging: see Section 3.1 of Willsey et al.
   //! 2021.
-  void repair();
+  void repair(Id eclass_id);
 
+  //!
   //! See Section 3.2 of Willsey et al. 2021.
   void rebuild();
+
+  //! If necessary (see saturated_), iteratively find apply matches and
+  //! rebuild().
+  void saturate();
+
+  //! Return an optimal Val* representing an ENode. First the selected ASTNode
+  //! from the eclass is extracted. Then if that ASTNode has a representing
+  //! Val*, we return it. If not, then we recursively obtain a Val* for each of
+  //! the ASTNode's producer ASTNodes and construct a new Val* combining those
+  //! producers into a simplified result.
+  Val* extract(Id eclass_id);
 
  private:
   //! These containers owns all of this EGraph's ENodes and EClass objects. Note
@@ -239,16 +191,21 @@ class EGraph {
   //! explore()
   RuleRunner rule_runner_;
 
-  //! This holds a list of EClasses that were merged during this iteration and
-  //! need to be repaired
+  //! This holds a vector of EClasses that were merged during this iteration and
+  //! need to be repaired. These might not be canonical or even unique.
   std::vector<Id> worklist_;
 
   //! Soft limit for the time spent by explore(). Note that an iteration might
   //! finish after this time has elapsed, but no iteration will be launched
   //! after that. In case explore() is called multiple times, this limit is
   //! applied to the total runtime across all invocations.
-  size_t exploration_time_limit_ns_ = 5'000'000'000L;
-  size_t total_exploration_time_ns_ = 0L;
+  float exploration_time_limit_ms_ = 5000.0f;
+  float total_exploration_time_ms_ = 0.0f;
+
+  //! Determines whether we need to run equality saturation. This defaults to
+  //! true and is set to false whenever equality saturation completes with no
+  //! new rule matches. It is reset to true whenever an ENode is added.
+  bool saturated_ = true;
 };
 
 class EGraphGuard {

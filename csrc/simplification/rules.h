@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma once
 
 #include <simplification/egraph.h>
 #include <simplification/egraph_type.h>
@@ -39,11 +40,8 @@ class Match {
     merges_.emplace_back(a, b);
   }
 
- protected:
-  friend class EGraph;
-
   //! Apply all of the recorded merges
-  void apply() const;
+  void apply(EGraph* egraph) const;
 
  private:
   size_t rule_id_;

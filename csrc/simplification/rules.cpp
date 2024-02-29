@@ -15,10 +15,9 @@ namespace nvfuser {
 
 namespace egraph {
 
-void Match::apply() const {
-  EGraph* eg = EGraphGuard::getCurEGraph();
+void Match::apply(EGraph* egraph) const {
   for (auto& [a, b] : merges_) {
-    eg->merge(a, b);
+    egraph->merge(a, b);
   }
 }
 
