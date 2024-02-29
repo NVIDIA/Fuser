@@ -1054,13 +1054,37 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
 
     case supported_switch_pair(DataType::Float8_e5m2, DataType::Float):
       return "__e5m22float";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::Double):
+      return "__e5m22double";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::Half):
+      return "__e5m22half";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::BFloat16):
+      return "__e5m22bfloat";
     case supported_switch_pair(DataType::Float, DataType::Float8_e5m2):
       return "__float2e5m2";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e5m2):
+      return "__double2e5m2";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e5m2):
+      return "__half2e5m2";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e5m2):
+      return "__bfloat2e5m2";
 
     case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Float):
       return "__e4m32float";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Double):
+      return "__e4m32double";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Half):
+      return "__e4m32half";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::BFloat16):
+      return "__e4m32bfloat";
     case supported_switch_pair(DataType::Float, DataType::Float8_e4m3fn):
       return "__float2e4m3";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e4m3fn):
+      return "__double2e4m3";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e4m3fn):
+      return "__half2e4m3";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e4m3fn):
+      return "__bfloat2e4m3";
 
     default:
       return nullptr;
