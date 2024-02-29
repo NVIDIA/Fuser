@@ -13,25 +13,18 @@ namespace nvfuser {
 
 namespace egraph {
 
-Id EGraph::registerVal(Val* val) {
-  // Create an ASTNode for this Val
-  auto a = ASTNode::fromVal(val);
-  // Use the ASTNode HashCons to see if we have an existing registered node. If
-  // so, replace a with it.
-
-  // TODO: Finish this using the hashcons
-  return 0;
-}
-
 Val* EGraph::getSimplifiedVal(
     Val* orig_val,
     std::vector<Val*>* acceptable_root_vals) {
+  /*Id id = */ ENode::fromVal(orig_val);
   saturate();
+  // TODO: get selected ASTNode for class of Id
+  // TODO: construct a Val* from the selected ASTNode
   return orig_val;
 }
 
 PolymorphicValue EGraph::getMaybeConstantValue(Val* val) {
-  Id id = registerVal(val);
+  Id id = ENode::fromVal(val);
   saturate();
   return getEClassFromId(id)->data.constant;
 }

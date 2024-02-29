@@ -8,6 +8,7 @@
 
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
+#include <simplification/eclass.h>
 #include <simplification/egraph_type.h>
 #include <simplification/enode.h>
 #include <type.h>
@@ -20,9 +21,9 @@ namespace nvfuser {
 
 namespace egraph {
 
-FunctionType FunctionType::fromVal(Val* val) {
+FunctionDesc FunctionDesc::fromVal(Val* val) {
   auto symbol = FunctionSymbol::NoDefinition;
-  FunctionType::OpType op_type;
+  FunctionDesc::OpType op_type;
   if (Expr* def = val->definition()) {
     if (auto bop = dynamic_cast<::nvfuser::BinaryOp*>(def)) {
       op_type = bop->getBinaryOpType();
@@ -34,7 +35,7 @@ FunctionType FunctionType::fromVal(Val* val) {
   return {symbol, op_type};
 }
 
-PolymorphicValue FunctionType::evaluate(
+PolymorphicValue FunctionDesc::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   switch (symbol) {
     case FunctionSymbol::NoDefinition:
@@ -53,8 +54,65 @@ PolymorphicValue FunctionType::evaluate(
   }
 }
 
-ASTNode ASTNode::fromVal(Val* val) {
-  return {.definition = FunctionType::fromVal(val), .representing_vals = {val}};
+// Since ASTNodes are owned by their ENodes, we need to
+static
+
+    Id
+    ENode::fromVal(Val* val) {
+  NVF_ERROR(val->isScalar(), "EGraph currently only models scalars");
+  EGraph* eg = EGraphGuard::getCurEGuard();
+  FunctionDesc definition;
+  std::vector<Id> producer_ids;
+  if (Expr* def = val->definition()) {
+    // Recursive case
+    if (auto lsop = dynamic_cast<UnaryOp*>(def)) {
+      // Note: we currently ignore cacheOp here since we intend this only for
+      // use on scalars.
+      definition.symbol = FunctionSymbol::LoadStoreOp;
+    } else if (auto cop = dynamic_cast<CastOp*>(def)) {
+      definition.symbol = FunctionSymbol::CastOp;
+      definition.op_type = val->dtype();
+    } else if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+      definition.symbol = FunctionSymbol::UnaryOp;
+      definition.op_type = uop->getUnaryOpType();
+    } else {
+      NVF_ERROR(false, "Unsupported definition: ", def->toString());
+    }
+
+    // Recurse into producers and get their Ids
+    producer_ids.reserve(def->inputs().size());
+    for (Val* inp : def->inputs()) {
+      producer_ids.push_back(fromVal(inp));
+    }
+  } else {
+    // Variable without definition. This could be an input scalar or a loop
+    // index.
+    definition.symbol = FunctionSymbol::NoDefinition;
+  }
+
+  // The immediate producer ENodes have representing Vals, which are the
+  // def->inputs(). So there will now be ASTNodes attached to those ENodes if we
+  // look up the Ids in producer_ids. We will gather those and combine them to
+  // form this ASTNode.
+  std::vector<ASTNode*> producer_astnodes;
+  producer_astnodes.reserve(producer_ids.size());
+  for (Id producer_id : producer_ids) {
+    ENode* producer_enode = eg->getENodeFromId(producer_id);
+  }
+
+  std::unique_ptr<ENode> enode_ptr{definition, producer_ids, {astnode}};
+
+  // add and get Id
+  Id id = eg->add(std::move(enode_ptr));
+
+  if (val->isConst()) {
+    // Immediate constant
+    // TODO: check that this constant does not clash with possibly pre-existing
+    // constant. This could happen if the ENode already exists and has a
+    // constant folded.
+    EClass* eclass = eg->getEClassFromId(id);
+    NVF_ERROR();
+  }
 }
 
 } // namespace egraph

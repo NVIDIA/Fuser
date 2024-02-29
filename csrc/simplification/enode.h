@@ -26,7 +26,7 @@ namespace egraph {
 
 //! This struct describes a function without describing any of its arguments (or
 //! even how many arguments there are).
-struct FunctionType {
+struct FunctionDesc {
   //! What type of node is this
   FunctionSymbol symbol = FunctionSymbol::NoDefinition;
 
@@ -43,7 +43,7 @@ struct FunctionType {
   OpType op_type;
 
  public:
-  static FunctionType fromVal(Val* val);
+  static FunctionDesc fromVal(Val* val);
 
   //! Evaluate this type of function, given some arguments
   PolymorphicValue evaluate(const std::vector<PolymorphicValue>& inputs) const;
@@ -55,7 +55,7 @@ struct FunctionType {
 //! Multiple Val*s can represent a single ASTNode.
 struct ASTNode {
   //! This describes the type of the definition, but not the actual arguments.
-  FunctionType definition;
+  FunctionDesc definition;
 
   //! Unrolled loop indices are not constants as Vals (i.e. v->isConstInt() is
   //! false), but in the generated kernel they are constant. This is useful for
@@ -65,6 +65,9 @@ struct ASTNode {
 
   //! Compute a coarse estimate of the complexity of computing this value.
   size_t complexity = 0;
+
+  //! Point to producers
+  std::vector<ASTNode*> producer_astnodes;
 
   //! This is a collection of Vals from the Fusion that have this exact form.
   //! This can be used during extraction to select pre-existing Vals with a
@@ -81,11 +84,6 @@ struct ASTNode {
   // scope. We could potentially also alter the analysis method to encourage
   // higher visibility of intermediate nodes, so that we would automatically
   // create easily-hoisted ASTNodes.
-
- public:
-  //! Given a Val*, map its definition and producers to ASTNodes
-  //! recursively.
-  static ASTNode fromVal(Val* val);
 };
 
 //! An ENode is an abstraction of a Val where its producers have been replaced
@@ -95,7 +93,7 @@ struct ASTNode {
 //! amount of possible Vals with a handful of ENodes.
 struct ENode {
   //! This describes the type of the definition, but not the actual arguments.
-  FunctionType definition;
+  FunctionDesc definition;
 
   //! EClass IDs of all function arguments.
   std::vector<Id> producer_ids;
@@ -103,7 +101,13 @@ struct ENode {
   //! When a Val is registered using EGraph::registerVal(v), then v is
   //! associated with an ASTNode. Multiple of these can exist for one ENode,
   //! corresponding to the various members of producer EClasses.
-  std::vector<ASTNode> concrete_enodes;
+  std::vector<ASTNode> astnodes;
+
+ public:
+  //! Construct and add() an ENode from a Val*. To do this, we construct and add
+  //! its producers then get their Ids, recursively. Instead of an ENode*, this
+  //! returns an Id to emphasize that this also adds the ENode to the EGraph.
+  static Id fromVal(Val* val);
 };
 
 } // namespace egraph

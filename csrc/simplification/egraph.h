@@ -45,29 +45,9 @@ namespace egraph {
 //! based on equality saturation with rebuilding, as described in detail here:
 //! Willsey et al. egg: Fast and Extensible Equality Saturation. POPL 2021.
 //! https://doi.org/10.5281/zenodo.4072013
-//!
-//! [E-Graph Expression Simplification (Interface)]
-//! In this approach, Vals can be simplified in batches. The user first provides
-//! a collection of values that will need simplifying, via `registerVal(Val*
-//! val)`. Additionally, axioms can be declared via the assumeTrue method.
-//!
-//! Simplified values can then be extracted via `getSimplifiedVal(Val*)`.
 class EGraph {
  public:
-  //! Register a Val so it becomes visible.
-  //!
-  //! This can either create a new ENode to represent val, or reuse an existing
-  //! one:
-  //!  - If val has a definition, then its inputs are registered and a new ENode
-  //!  is created if an equivalent one does not exist.
-  //!  - If val has no definition, we always create a new ENode for it
-  //!
-  //! In case val is an immediate constant, we additionally look for any
-  //! existing registered ENodes with that value and if we find any, we merge
-  //! their EClasses.
-  Id registerVal(Val* val);
-
-  //! Register val and merge its EClass with that of `true`.
+  //! Add val and merge its EClass with that of `true`.
   void assumeTrue(Val* val);
 
   //! Extract a Val* that is a simplified form of the original.
@@ -136,6 +116,13 @@ class EGraph {
   Id numENodes() const {
     return uf_.size();
   }
+
+  //! Take ownership of an ENode by adding it to enodes_up_, enlarge the
+  //! union-find to hold it, and create a new singleton eclass containing only
+  //! this ENode. Note that if this ENode already exists (according to the
+  //! hashcons), then we will reuse it, merging in the list of ASTNodes
+  //! representing enode_ptr to the existing ENode.
+  Id add(std::unique_ptr<ENode> enode_ptr);
 
  private:
   //! Replace all producer EClass IDs with their canonicalized versions

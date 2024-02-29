@@ -2712,7 +2712,6 @@ Val* simplifyExpr(
 
   if (isOptionEnabled(EnableOption::EGraphSimplifyExpr)) {
     auto* eg = egraph::EGraphGuard::getCurEGraph();
-    eg->registerVal(value);
     // TODO: add assumptions
     // TODO: add restrict to free variables based on VarInfo?
     // TODO: preserve_error should probably go in the EGraph constructor

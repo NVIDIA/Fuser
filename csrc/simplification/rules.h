@@ -74,7 +74,9 @@ class RuleRunner {
   //! and b. Note that if a == b, then this method has no effect. Otherwise we
   //! push the a,b pair along with the currently running rule ID onto the
   //! substitutions_ vector.
-  void registerSub(Id a, Id b);
+  //!
+  //! Note that this takes ownership of the ENode b and returns a pointer to it.
+  ENode* registerSub(Id a, ENode& b);
 
   //! This method should be called from any rule that detects it should not be
   //! called again for the given ENode since all possible substitutions have
