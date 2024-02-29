@@ -51,7 +51,7 @@ __device__ __inline__ __e4m3 __double2e4m3(const double f) {
       "{cvt.rn.satfinite.e4m3x2.f32 %0, %2, %1;}\n\t"
       : "=h"(_tmp_buffer)
       : "f"(buffer), "f"(f_const_zero), "d"(f));
-  std::memcpy(&tmp, &_tmp_buffer, sizeof(uint8_t));
+  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
 }
@@ -158,7 +158,7 @@ __device__ __inline__ __e5m2 __double2e5m2(const double f) {
       "{cvt.rn.satfinite.e5m2x2.f32 %0, %2, %1;}\n\t"
       : "=h"(_tmp_buffer)
       : "f"(buffer), "f"(f_const_zero), "d"(f));
-  std::memcpy(&tmp, &_tmp_buffer, sizeof(uint8_t));
+  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
 }
