@@ -47,7 +47,7 @@ __device__ __inline__ double __e4m32double(const __e4m3 h) {
   asm("{\n\t"
       ".reg .b32 buf0;\n\t"
       "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, bug0;\n\t"
+      "cvt.u16.u32 %1, buf0;\n\t"
       "cvt.f64.f16 %0, %1;"
       "}"
       : "=d"(val)
@@ -184,7 +184,7 @@ __device__ __inline__ double __e5m22double(const __e5m2 h) {
   asm("{\n\t"
       ".reg .b32 buf0;\n\t"
       "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, bug0;\n\t"
+      "cvt.u16.u32 %1, buf0;\n\t"
       "cvt.f64.f16 %0, %1;"
       "}"
       : "=d"(val)
