@@ -178,7 +178,7 @@ struct DataType {
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
-  static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2; 
+  static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
@@ -251,7 +251,8 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 // Returns if the datatype is a floating point type
 inline bool isFloatingPointType(DataType dtype) {
   return dtype == DataType::Double || dtype == DataType::Float ||
-      dtype == DataType::Half || dtype == DataType::BFloat16 || dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
+      dtype == DataType::Half || dtype == DataType::BFloat16 ||
+      dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
 }
 
 // Returns if the datatype is an integer type

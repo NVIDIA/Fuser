@@ -351,8 +351,8 @@ Val* getMinimumValue(DataType v) {
           static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::max()));
       break;
     case DataType::Float8_e5m2:
-      return IrBuilder::create<Val>(
-          static_cast<double>(-std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
@@ -396,8 +396,8 @@ Val* getMaximumValue(DataType v) {
           static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::max()));
       break;
     case DataType::Float8_e5m2:
-      return IrBuilder::create<Val>(
-          static_cast<double>(std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      return IrBuilder::create<Val>(static_cast<double>(
+          std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());

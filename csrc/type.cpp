@@ -112,17 +112,20 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
        wider_type == DataType::ComplexDouble) &&
       (base_type == DataType::Double || base_type == DataType::Float ||
        base_type == DataType::Half || base_type == DataType::BFloat16 ||
-       base_type == DataType::Float8_e4m3fn || base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
     return true;
   }
   if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
       (base_type == DataType::Float || base_type == DataType::Half ||
        base_type == DataType::BFloat16 ||
-       base_type == DataType::Float8_e4m3fn || base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
     return true;
   }
   if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
-      (base_type == DataType::Float8_e4m3fn || base_type == DataType::Float8_e5m2)) {
+      (base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
     return true;
   }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
