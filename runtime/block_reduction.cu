@@ -118,6 +118,10 @@ __device__ void blockReduce(
 // is parallelized by bdimy. This function works as follows:
 // (1) Each thread vectorized loads N elements from input register array to
 // smem. (2) do N * bdimx parallel reductions in smem.
+
+// TODO: merge `blockIterGroupedReduce` with `blockReduce`
+// (1) for-loops are fully unrolled should not cause overhead for `blockReduce`
+// (2) used in gridReduce, needs to change correspodning gridReduce function
 template <
     bool X_REDUCE,
     bool Y_REDUCE,
