@@ -15,43 +15,100 @@ namespace nvfuser {
 
 namespace egraph {
 
-void Match::apply(EGraph* egraph) const {
-  for (auto& [a, b] : merges_) {
-    egraph->merge(a, b);
-  }
-}
-
 RuleRunner::RuleRunner() {
   // TESTING RULES
 
   // Some rules for testing only. This fires always and never matches.
   Rule never_fire{
       .name = "never-fire",
-      .is_eligible_fn = [](size_t rule_id, ENode* n) -> bool { return false; },
-      .check_match_fn = [](size_t rule_id, ENodeListIterator& n_it)
-          -> std::optional<Match> { return std::nullopt; }};
+      .is_eligible_fn = [](ENode* n) -> bool { return false; },
+      .check_match_fn = [](RuleRunner* runner, ENode* n) {}};
   rules_.push_back(never_fire);
-  // rules_.push_back(
-  // Rule{"never-fire", [](size_t rule_id, ENode* n) { return false; }});
 
-  // This matches all ENodes but does not perform any merges
-  // rules_.emplace_back(
-  //    "empty-match",
-  //    /*is_eligible_fn=*/[](size_t rule_id, ENode* n) { return true; },
-  //    /*check_match_fn=*/
-  //    [](size_t rule_id, ENodeListIterator& n) { return Match(rule_id); });
+  NVF_ERROR(
+      rules_.size() < std::numeric_limits<RuleId>::max(),
+      "RuleId type ",
+      typeid(RuleId).name(),
+      " has capacity ",
+      std::numeric_limits<RuleId>::max(),
+      " but there are ",
+      rules_.size(),
+      // Overhead is due to the encoding of worklist e.g. running 4 rules
+      // requires a worklist encoded as 4 0 1 2 3 even though the highest RuleId
+      // used is 3.
+      " defined rules and RuleRunner has overhead of 1 element.");
 }
 
-std::list<Match> RuleRunner::runMatching() {
-  std::list<Match> all_matches;
-  for (int r_id : c10::irange(rules_.size())) {
-    // We attach IDs to matches to aid in debugging, since this will let us
-    // print the name of the corresponding rule once we have the list of matches
-    Rule& r = rules_[r_id];
-    std::list<Match> r_matches = r.findMatches(r_id);
-    all_matches.splice(all_matches.end(), r_matches);
+size_t RuleRunner::runMatching() {
+  NVF_ERROR(
+      substitutions_.empty(),
+      "runMatching() must not be called twice before applySubstitutions()");
+
+  EGraph* eg = EGraphGuard::getCurEGraph();
+
+  // Before matching, check for unseen ENodes and insert them into the worklist
+  // if necessary. Because of this, we don't need to explicitly register new
+  // ENodes when they are created.
+  std::vector<RuleId> enode_rules;
+  for (Id unseen_enode_id = seen_enodes_; unseen_enode_id < eg->numENodes();
+       ++unseen_enode_id) {
+    ENode* unseen_enode = eg->getENodeFromId(unseen_enode_id);
+    enode_rules.clear();
+    for (RuleId r_id : c10::irange(rules_.size())) {
+      const Rule& r = rules_[r_id];
+      // TODO: rules can be filtered with an EnableOption here
+      if (r.is_eligible_fn(unseen_enode)) {
+        enode_rules.push_back(r_id);
+      }
+    }
+    // Encode and append enode_rules to worklist
+    worklist_.reserve(worklist_.size() + 1LL + enode_rules.size());
+    worklist_.push_back(enode_rules.size());
+    worklist_.insert(worklist_.end(), enode_rules.begin(), enode_rules.end());
   }
-  return all_matches;
+  seen_enodes_ = eg->numENodes();
+
+  // After this point, no new enodes will be processed in the worklist until the
+  // next call to the present function. This is intentional, since running rules
+  // on ENodes before their original substitutions are performed could lead to
+  // infinite recursion.
+
+  // NOTE: This algorithm assumes that new rules are not added for seen ENodes
+  // during matching of a Rule. However, rules can be removed for a given ENode
+  // if they mark themselves as exhausted. In this case we need to decrement the
+  // rule count for that ENode and skip it in the worklist. This type of
+  // operation can be done in place while looping over the worklist in ascending
+  // order.
+  size_t read_pos = 0;
+  std::vector<RuleId>::iterator write_it = worklist_.begin();
+  Id enode_id = 0;
+  substitutions_.clear();
+  while (read_pos < worklist_.size()) {
+    ENode* enode = eg->getENodeFromId(enode_id++);
+    enode_rules.clear();
+    for (RuleId i = worklist_[read_pos++]; i > 0; --i) {
+      const RuleId rule_id = worklist_[read_pos++];
+      const Rule& rule = rules_[rule_id];
+      current_rule_exhausted_ = false;
+      rule.check_match_fn(this, enode);
+      if (!current_rule_exhausted_) {
+        enode_rules.push_back(rule_id);
+      }
+    }
+    // write enode_rules back to worklist, since it contains non-exhausted rules
+    // for this enode
+    *(write_it++) = enode_rules.size();
+    worklist_.insert(write_it, enode_rules.begin(), enode_rules.end());
+  }
+
+  return substitutions_.size();
+}
+
+void RuleRunner::applySubstitutions() {
+  EGraph* eg = EGraphGuard::getCurEGraph();
+  for (auto& [old_id, new_id] : substitutions_) {
+    eg->merge(old_id, new_id);
+  }
 }
 
 } // namespace egraph

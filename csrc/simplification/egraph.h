@@ -110,7 +110,7 @@ class EGraph {
 
  protected:
   friend EClass;
-  friend Match;
+  friend RuleRunner;
 
   //! We generally prefer to pass around Id integers instead of pointers. We can
   //! get the pointer in constant time as it's held in the eclass_up_ vector.
@@ -132,6 +132,10 @@ class EGraph {
 
   //! Merge two EClasses
   Id merge(Id a, Id b);
+
+  Id numENodes() const {
+    return uf_.size();
+  }
 
  private:
   //! Replace all producer EClass IDs with their canonicalized versions

@@ -72,17 +72,12 @@ void EGraph::saturate() {
   float elapsed_ms = 0.0f;
 
   while (true) {
-    std::list<Match> matches = rule_runner_.runMatching();
-
-    if (matches.empty()) {
-      // no more matches. declare saturated and exit
-      saturated_ = true;
+    saturated_ = rule_runner_.runMatching() == 0;
+    if (saturated_) {
       break;
     }
 
-    for (auto& m : matches) {
-      m.apply(this);
-    }
+    rule_runner_.applySubstitutions();
 
     // Since we applied some matches, we need to rebuild derived EClasses by
     // canonicalizing their ENodes and rebuilding their data.

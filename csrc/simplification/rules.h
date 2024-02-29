@@ -16,39 +16,11 @@ namespace nvfuser {
 
 namespace egraph {
 
-//! This generic object defines a matched rewrite rule. See Figure 5 from
-//! Willsey et al. 2021.
-//!
-//! Rewrite rules implement `Rule::checkMatch` which can construct one of these
-//! objects if the pattern matches. When building a Match, a Rule may create new
-//! ENodes, but should not merge any EClasses. Instead, they should describe the
-//! merge like follows:
-//!
-//! match_fn = [&name](std::list<ENode*>::iterator& n_it) {
-//!   Match match(name);
-//!   ...
-//!   match.recordMerge(id1, id2);
-//!   ...
-//!   return match;
-//! };
-class Match {
- public:
-  Match(size_t rule_id) : rule_id_(rule_id) {}
+class RuleRunner;
 
-  //! Record but do not perform a merge of two EClasses
-  void recordMerge(Id a, Id b) {
-    merges_.emplace_back(a, b);
-  }
-
-  //! Apply all of the recorded merges
-  void apply(EGraph* egraph) const;
-
- private:
-  size_t rule_id_;
-  std::list<std::pair<Id, Id>> merges_;
-};
-
-using ENodeListIterator = std::list<ENode*>::const_iterator;
+// If RuleRunner.rules_ exceeds this capacity then an error will be thrown in
+// its constructor.
+using RuleId = uint8_t;
 
 //! Describes a rewrite rule that inspects ENodes. Based on the inspection, it
 //! creates new ENodes and merges EClass. Each rule may depend on the structure
@@ -67,12 +39,11 @@ struct Rule {
   //!    .is_eligible_fn=[](ENode* n) {
   //!        return n->definition.symbol == ENodeFunctionSymbol::BinaryOp &&
   //!               n->definition.op_type == BinaryOpType::GT;},
-  //!    .check_match_fn=[](size_t rule_id, ENodeListIterator& n_it) { ... }};
+  //!    .check_match_fn=[](RuleRunner* runner, ENode* n) { ... }};
   //!
   //! This indicates that only ENodes that are greater-than expressions should
   //! be added to .targets.
-  std::function<bool(size_t, ENode*)> is_eligible_fn = [](size_t rule_id,
-                                                          ENode*) {
+  std::function<bool(ENode*)> is_eligible_fn = [](ENode*) {
     NVF_ERROR("Running uninitialized Rule");
     return false;
   };
@@ -80,31 +51,10 @@ struct Rule {
   //! Check whether an element of `targets` is a match. An iterator is passed so
   //! that the class can erase the ENode from the target list if the rule
   //! should no longer be fired.
-  std::function<std::optional<Match>(size_t, ENodeListIterator&)>
-      check_match_fn = [](size_t rule_id, ENodeListIterator& n_it) {
+  std::function<void(RuleRunner*, ENode*)> check_match_fn =
+      [](RuleRunner* runner, ENode* n_it) {
         NVF_ERROR("Running uninitialized rule");
-        return std::nullopt;
       };
-
-  //! Obtain a list of match objects for this rule. At each iteration of
-  //! equality saturation these lists are chained together to collect all
-  //! matches across all rules before applying the matches and rebuilding.
-  std::list<Match> findMatches(size_t rule_id) const {
-    std::list<Match> matches;
-    for (auto n_it = targets.begin(); n_it != targets.end(); n_it++) {
-      std::optional<Match> m = check_match_fn(rule_id, n_it);
-      if (m.has_value()) {
-        matches.push_back(m.value());
-      }
-    }
-    return matches;
-  }
-
-  //! This is a list of target ENodes. Each of these will be considered for
-  //! matching during each pass. If this Rule determines that there is no need
-  //! to try matching an ENode again, it can be removed from this list. Note
-  //! that once an ENode is removed, it will never be reinserted.
-  std::list<ENode*> targets = {};
 };
 
 //! This is the main interface for running the matching pass. This holds a
@@ -114,10 +64,55 @@ class RuleRunner {
  public:
   RuleRunner();
 
-  std::list<Match> runMatching();
+  //! Run all rules and return the number of matches detected.
+  size_t runMatching();
+
+  //! Apply substitutions found during runMatching().
+  void applySubstitutions();
+
+  //! Registers a substitution; i.e. request merging the EClasses of ENodes a
+  //! and b. Note that if a == b, then this method has no effect. Otherwise we
+  //! push the a,b pair along with the currently running rule ID onto the
+  //! substitutions_ vector.
+  void registerSub(Id a, Id b);
+
+  //! This method should be called from any rule that detects it should not be
+  //! called again for the given ENode since all possible substitutions have
+  //! been performed.
+  void markRuleExhausted();
 
  private:
+  //! This allows us to use the RuleRunner as a context object, so that a match
+  //! can mark itself exhausted and prevent it running again needlessly.
+  bool current_rule_exhausted_;
+
+  //! This is simply the number of ENodes we have proceesed in the worklist so
+  //! far. When we begin runMatching(), if we detect that there are unseen
+  //! ENodes in the EGraph then we gather process those ENodes to check their
+  //! eligibility against our rules and add them to the worklist as appropriate.
+  Id seen_enodes_ = 0;
+
+  //! This tracks the currently running rule and associates it with each
+  //! registered substitution.
+  size_t current_rule_;
+
+  //! Collection of all rules, populated in the constructor
   std::vector<Rule> rules_;
+
+  //! This is a flattened vector of vectors of Rules representing a worklist,
+  //! with one vector of Rule Ids for each ENode. It is a sparse representation
+  //! of a NxR array of flags
+  //!
+  //!  N0 i0 i1 i2 N1 i3 i4 N2 N3 i5 ...
+  //!
+  //! Here Na indicates the length of the worklist for ENode a. After reading
+  //! this length Na the following Na many IDs are the RuleIds of rules we
+  //! should apply to ENode a.
+  std::vector<RuleId> worklist_;
+
+  //! When runMatching is called, this vector is cleared and each rule from
+  //! rules_ is run on each term for which that rule has not been exhausted.
+  std::vector<std::pair<Id, Id>> substitutions_;
 };
 
 } // namespace egraph

@@ -30,14 +30,14 @@ struct AnalysisData {
   //! Each EClass must represent terms whose types match
   DataType dtype;
 
-  //! EClasses can represent a single unique value (this is checked in join()).
-  PolymorphicValue constant;
-
   //! We perform extraction on the fly by selecting an ASTNode to represent this
   //! class every time we merge.
   //! See Section 4.3 of Willsey et al. 2021 for a more detailed description of
   //! how extraction is accomplished as an e-class analysis.
   std::optional<Id> astnode_id;
+
+  //! EClasses can represent a single unique value (this is checked in join()).
+  PolymorphicValue constant;
 
  public:
   //! This is make(n) from Willsey et al. 2021.

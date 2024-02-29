@@ -28,21 +28,20 @@ struct EClass {
   AnalysisData data;
 
   //! ENodes that are members of this class
-  std::list<Id> members;
+  std::vector<Id> members;
 
   //! Holds pairs of ENodes and EClasses. Parent ENodes represent functions
   //! some of whose arguments are members of this EClass. The corresponding
   //! EClasses are the EClasses of those ENodes which might need to be merged
   //! during repair(). See the code listing in Fig. 4 of Willsey et al. 2021.
-  std::list<std::pair<Id, Id>> parents = {};
+  std::vector<std::pair<Id, Id>> parents;
 
  protected:
   friend EGraph;
 
   static EClass fromENode(const Id n_id) {
     // create new analysis data
-    return {
-        .data = AnalysisData::fromENode(n_id), .members = std::list<Id>{n_id}};
+    return {.data = AnalysisData::fromENode(n_id), .members = {n_id}};
   }
 
   //! Merge in and drain another EClass. After this operation, the other EClass

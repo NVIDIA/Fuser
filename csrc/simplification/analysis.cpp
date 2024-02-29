@@ -41,8 +41,8 @@ AnalysisData AnalysisData::joinFrom(const AnalysisData& other) const {
 
   return {
       .dtype = dtype,
-      .constant = joined_constant,
-      .astnode_id = joined_astnode_id};
+      .astnode_id = joined_astnode_id,
+      .constant = joined_constant};
 }
 
 } // namespace egraph

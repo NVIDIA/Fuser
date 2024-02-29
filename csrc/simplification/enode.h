@@ -103,7 +103,7 @@ struct ENode {
   //! When a Val is registered using EGraph::registerVal(v), then v is
   //! associated with an ASTNode. Multiple of these can exist for one ENode,
   //! corresponding to the various members of producer EClasses.
-  std::list<ASTNode> concrete_enodes;
+  std::vector<ASTNode> concrete_enodes;
 };
 
 } // namespace egraph
