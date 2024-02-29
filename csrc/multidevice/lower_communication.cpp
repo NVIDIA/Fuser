@@ -443,13 +443,6 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           static_cast<size_t>(output_tensor.size(0)) == 1,
       "Sharded dimension should have allocation size 1, but is ",
       output_tensor.size(0));
-  NVF_ERROR(!sender_mesh.vector().empty(), "sender mesh is empty");
-  NVF_ERROR(!receiver_mesh.vector().empty(), "receiver mesh is empty");
-
-  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh)) {
-    return {};
-  }
-
   if (is_reduction) {
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();
