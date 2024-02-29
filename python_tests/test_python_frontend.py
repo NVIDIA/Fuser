@@ -226,6 +226,26 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_cast_fp8(self):
+        def fn(in_type, out_type):
+            inputs = [
+                torch.randn([5, 5], device="cuda").to(in_type),
+            ]
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.ops.cast(T0, dtype=torch_dtype_to_nvfuser_dtype(out_type))
+                fd.add_output(T1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            eager_out == inputs[0].to(out_type)
+            self.assertEqual(eager_out, nvf_out[0])
+
+        for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
+            for type1 in [torch.float8_e4m3fn, torch.float8_e5m2]:
+                fn(type0, type1)
+                fn(type1, type0)
+
     def test_promote_to_double(self):
         inputs = [
             torch.randn(2, 4, device="cuda", dtype=torch.float16),
