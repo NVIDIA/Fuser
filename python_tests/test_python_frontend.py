@@ -12,6 +12,7 @@ import re
 from typing import List, Callable
 import tempfile
 import unittest
+import os
 
 import torch
 import torch.nn.functional as F
@@ -34,6 +35,19 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
+# This DEBUG_SERDE environment flag is used to debug serialization failures.
+#
+# 1) It disables automatically saving FusionCache upon program exit.
+#
+# 2) It resets the FusionCache after each test, which is useful for isolating
+# failures. Note, some failures only occur when running multiple tests
+# together and accumulating fusions in the cache.
+#
+# 3) It keeps the temporary files that are created during serde_check.
+# Normally, these files are deleted after each test.
+env_var_debug_serde = os.getenv("DEBUG_SERDE", None)
+debug_serde: bool = env_var_debug_serde in ("true", "1")
+
 
 def is_pre_volta():
     if not RUN_NVFUSER:
@@ -50,10 +64,12 @@ def is_pre_ampere():
 
 
 def setUpModule():
-    from nvfuser import enable_automatic_serialization
+    if not debug_serde:
+        from nvfuser import enable_automatic_serialization
 
-    # Turn on default serialization upon program exit
-    enable_automatic_serialization()
+        # Turn on default serialization upon program exit
+        enable_automatic_serialization()
+
     # Automatically load common workplace
     fc = FusionCache.get()
     # Clear FusionCache because the tests expect a new fusion to be generated.
@@ -70,8 +86,12 @@ def serde_check(test_fn: Callable):
         self, fusion_func, inputs = args
 
         # NOTE: For debug purposes, clear FusionCache before running first test
-        # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
-        #    FusionCache.reset()
+        is_new_fusion_expected = ("new_fusion_expected" not in kwargs) or kwargs[
+            "new_fusion_expected"
+        ]
+        if debug_serde and is_new_fusion_expected:
+            FusionCache.reset()
+            assert FusionCache.get().num_fusions() == 0
 
         # skip_serde_check is only used by the decorator so remove it before running test_fn
         skip_serde_check = kwargs.pop("skip_serde_check", False)
@@ -86,16 +106,27 @@ def serde_check(test_fn: Callable):
         inputs_copy = deepcopy(inputs)
         test_fn(self, fusion_func, inputs_copy, **kwargs)
 
-        with tempfile.NamedTemporaryFile() as tmp:
-            # Serialize FusionCache
-            fc = FusionCache.get()
-            fc.serialize(tmp.name)
+        # If DEBUG_SERDE is enabled, the temporary file is not deleted automatically
+        with tempfile.NamedTemporaryFile(delete=debug_serde) as tmp:
+            try:
+                # Serialize FusionCache
+                fc = FusionCache.get()
+                fc.serialize(tmp.name)
 
-            FusionCache.reset()
+                FusionCache.reset()
 
-            # Get new FusionCache because the previous one was destroyed by the reset call.
-            fc = FusionCache.get()
-            fc.deserialize(tmp.name)
+                # Get new FusionCache because the previous one was destroyed by the reset call.
+                fc = FusionCache.get()
+                fc.deserialize(tmp.name)
+            except Exception as e:
+                if not debug_serde:
+                    raise RuntimeError(
+                        "***** Use DEBUG_SERDE=true to debug serialization failure."
+                    )
+                else:
+                    raise RuntimeError(
+                        f"***** {tmp.name} contains the serialized binary for this failure."
+                    )
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
