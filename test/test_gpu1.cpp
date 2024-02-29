@@ -2737,44 +2737,63 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionCastOps_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
+  std::vector<DataType> fp8_variants(
+      {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
+  std::vector<DataType> cast_targets(
+      {DataType::Double, DataType::Float, DataType::BFloat16, DataType::Half});
 
-  TensorView* tv0 = makeSymbolicTensor(2, DataType::Half);
+  for (const auto& fp8_type : fp8_variants) {
+    for (const auto& src_type : cast_targets) {
+      Fusion fusion fg(&fusion);
 
-  TensorView* intrm1 = castOp(DataType::Float, tv0);
-  TensorView* out = castOp(DataType::Half, intrm1);
+      TensorView* tv0 = makeSymbolicTensor(2, src_type);
 
-  fusion.addInput(tv0);
-  fusion.addOutput(out);
-  tv0->computeAt(out, -1);
+      TensorView* intrm1 = castOp(fp8_type, tv0);
+      TensorView* out = castOp(src_type, intrm1);
 
-  out->axis(0)->parallelize(ParallelType::BIDx);
-  out->axis(-1)->parallelize(ParallelType::TIDx);
+      fusion.addInput(tv0);
+      fusion.addOutput(out);
+      tv0->computeAt(out, -1);
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+      out->axis(0)->parallelize(ParallelType::BIDx);
+      out->axis(-1)->parallelize(ParallelType::TIDx);
 
-  at::Tensor input1 = at::randn({1, 4}, options);
-  at::Tensor ref_output = at::empty_like(input1);
+      auto at_src_type = data_type_to_aten(src_type);
+      auto at_fp8_type = data_type_to_aten(fp8_type);
 
-  std::array<c10::IValue, 1> inputs = {input1};
-  const at::ArrayRef<c10::IValue> input_ivalues(inputs);
+      auto options =
+          at::TensorOptions().dtype(at_src_type).device(at::kCUDA, 0);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, input_ivalues);
-  auto outputs = fe.runFusion(input_ivalues);
+      at::Tensor input1 = at::randn({1, 4}, options);
 
-  ref_output = at::_cast_Half(at::_cast_Double(input1));
+      // std::array<c10::IValue, 1> inputs = {input1};
+      // const at::ArrayRef<c10::IValue> input_ivalues(inputs);
+      std::vector<c10::IValue> inputs = {input1};
 
-  NVF_CHECK(
-      outputs[0].equal(ref_output),
-      "\nOp Type: -- ",
-      "cast FP16->FP32->FP16",
-      " -- had a mismatch.\n",
-      "\nABS MAX DIFF: ",
-      outputs[0].sub(ref_output).abs().max(),
-      "\n");
+      FusionExecutor fe;
+
+      if (!deviceMajorMinorCheck(9)) {
+        ASSERT_THAT(
+            [&]() { fe.compileFusion(&fusion, inputs); },
+            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+                "Reason: Fusion contains Float8_xxx values which was introduced in Hopper (9.0)")));
+        GTEST_SKIP() << "skipping tests on pre-HOPPER GPUs";
+      } else {
+        fe.compileFusion(&fusion, inputs);
+        auto outputs = fe.runFusion(inputs);
+
+        at::Tensor ref_output = input1.to(at_fp8_type).to(at_src_type);
+
+        NVF_CHECK(
+            outputs[0].equal(ref_output),
+            "cast to fp8 and back had a mismatch.\n",
+            "\nABS MAX DIFF: ",
+            outputs[0].sub(ref_output).abs().max(),
+            "\n");
+      }
+    }
+  }
 }
 
 // Start off simple, block on the outer dim
