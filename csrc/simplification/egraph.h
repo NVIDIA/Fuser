@@ -137,7 +137,7 @@ class EGraph {
   //! Replace all producer EClass IDs with their canonicalized versions
   void canonicalizeENode(ENode& n) {
     for (Id& producer_id : n.producer_ids) {
-      producer_id = getCanonicalEClassId(producer_id);
+      producer_id = getCanonicalENodeId(producer_id);
     }
   }
 
@@ -173,7 +173,8 @@ class EGraph {
   // map M mapping EClass IDs to EClasses, and a HashCons H from ENodes to
   // EClass IDs.
   //  - The UnionFind U is called uf_
-  //  - The map M is getCanonicalEClass() and consists of a |->
+  //  - The map M is eclasses_up_[getCanonicalENodeId()]->members and consists
+  //  of a |->
   //    eclasses_up_[uf_.find(a)].
   //  - The HashCons H is called hashcons_.
 

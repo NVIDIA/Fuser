@@ -38,8 +38,9 @@ PolymorphicValue EGraph::getMaybeConstantValue(Val* val) {
 
 void EGraph::repair(Id eclass_id) {
   EClass* eclass = getEClassFromId(eclass_id);
-  for (auto parent_id : eclass->parents()) {
+  for ([[maybe_unused]] auto parent_id : eclass->parents) {
     // Parents are ENode consumers of eclass
+    // TODO: upward merging
   }
 }
 
@@ -99,8 +100,8 @@ void EGraph::saturate() {
 
 Id EGraph::merge(Id a, Id b) {
   // First canonicalize a and b
-  a = getCanonicalEClassId(a);
-  b = getCanonicalEClassId(b);
+  a = getCanonicalENodeId(a);
+  b = getCanonicalENodeId(b);
 
   Id new_id = uf_.merge(a, b);
 
