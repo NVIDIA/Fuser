@@ -119,6 +119,11 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
+    // skip expr grouped reduction
+    if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
+      return;
+    }
+    // process iteration grouped reduction
     summary_.has_iter_grouped_reductions = true;
     int num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
@@ -129,6 +134,7 @@ class KernelIrScanner : private IrVisitor {
     }
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+
     NVF_ERROR(
         num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
             num_grouped_iterations == 8 || num_grouped_iterations == 16,
