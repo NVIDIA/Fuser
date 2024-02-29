@@ -172,7 +172,7 @@ __device__ __inline__ double __e5m22double(const __e5m2 h) {
   double val;
   asm("{cvt.rn.f16x2.e5m2x2 %1, %2;}\n\t"
       "cvt.u16.u32 %2, %1;\n\t"
-      "{cvt.f32.f16 %0, %2;}"
+      "{cvt.f64.f16 %0, %2;}"
       : "=d"(val), "=r"(_b32_buffer)
       : "h"(_tmp_buffer));
 
