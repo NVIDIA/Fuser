@@ -22,6 +22,14 @@ Id EGraph::registerVal(Val* val) {
   return 0;
 }
 
+Val* EGraph::getSimplifiedVal(
+    Val* orig_val,
+    std::vector<Val*>* acceptable_root_vals) {
+  std::cout << "WARNING: Not simplifying " << orig_val->toInlineString()
+            << std::endl;
+  return orig_val;
+}
+
 Id EGraph::merge(Id a, Id b) {
   // First canonicalize a and b
   a = getCanonicalEClassId(a);

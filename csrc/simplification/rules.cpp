@@ -26,15 +26,21 @@ RuleRunner::RuleRunner() {
   // TESTING RULES
 
   // Some rules for testing only. This fires always and never matches.
-  rules_.emplace_back(
-      "never-fires", [](size_t rule_id, ENode* n) -> bool { return true; });
+  Rule never_fire{
+      .name = "never-fire",
+      .is_eligible_fn = [](size_t rule_id, ENode* n) -> bool { return false; },
+      .check_match_fn = [](size_t rule_id, ENodeListIterator& n_it)
+          -> std::optional<Match> { return std::nullopt; }};
+  rules_.push_back(never_fire);
+  // rules_.push_back(
+  // Rule{"never-fire", [](size_t rule_id, ENode* n) { return false; }});
 
   // This matches all ENodes but does not perform any merges
-  rules_.emplace_back(
-      "empty-match",
-      /*is_eligible_fn=*/[](size_t rule_id, ENode* n) { return true; },
-      /*check_match_fn=*/
-      [](size_t rule_id, ENodeListIterator& n) { return Match(rule_id); });
+  // rules_.emplace_back(
+  //    "empty-match",
+  //    /*is_eligible_fn=*/[](size_t rule_id, ENode* n) { return true; },
+  //    /*check_match_fn=*/
+  //    [](size_t rule_id, ENodeListIterator& n) { return Match(rule_id); });
 }
 
 std::list<Match> RuleRunner::runMatching() {

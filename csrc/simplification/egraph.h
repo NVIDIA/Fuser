@@ -108,9 +108,10 @@ class EGraph {
   //!
   //! Note that this is an equivalent but lighter-weight form of
   //!   extract(registerVal(predicate))->getValue()
-  //! In particular, this method does not perform a full call to extract(),
+  //! In particular, this method does not perform a full call to extract();
   //! instead only a shallow check is done to determine whether
-  //! registerVal(predicate) is equivalent to true_enode_ or false_enode_.
+  //! registerVal(predicate) is equivalent to ENodes with constant values of
+  //! either true or false.
   std::optional<bool> provenValue(Val* predicate);
 
  protected:

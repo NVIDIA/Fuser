@@ -152,6 +152,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"id_model", EnableOption::IdModel},
+      {"egraph_simplify_expr", EnableOption::EGraphSimplifyExpr},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},

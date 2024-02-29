@@ -80,6 +80,8 @@ enum class DebugDumpOption {
 //!
 enum class EnableOption {
   IdModel, //! Enable IdModel
+  EGraphSimplifyExpr, //! Use experimental e-graph implementation of
+                      //! simplifyExpr
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops

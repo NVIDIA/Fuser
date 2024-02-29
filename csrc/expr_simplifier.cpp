@@ -15,6 +15,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <simplification/egraph.h>
 #include <utils.h>
 
 #include <cmath>
@@ -2708,6 +2709,16 @@ Val* simplifyExpr(
     std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
+
+  if (isOptionEnabled(EnableOption::EGraphSimplifyExpr)) {
+    auto* eg = egraph::EGraphGuard::getCurEGraph();
+    eg->registerVal(value);
+    // TODO: add assumptions
+    // TODO: add restrict to free variables based on VarInfo?
+    // TODO: preserve_error should probably go in the EGraph constructor
+    return eg->getSimplifiedVal(value);
+  }
+
   const Context context(variables, assumptions, preserve_error);
   auto logger = debug_print::createLogger(value);
 

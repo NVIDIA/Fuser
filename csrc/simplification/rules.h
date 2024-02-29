@@ -69,8 +69,7 @@ struct Rule {
   //!    .is_eligible_fn=[](ENode* n) {
   //!        return n->definition.symbol == ENodeFunctionSymbol::BinaryOp &&
   //!               n->definition.op_type == BinaryOpType::GT;},
-  //!    .check_match_fn=[](ENodeListIterator& n_it) { ... },
-  //!  };
+  //!    .check_match_fn=[](size_t rule_id, ENodeListIterator& n_it) { ... }};
   //!
   //! This indicates that only ENodes that are greater-than expressions should
   //! be added to .targets.
@@ -89,10 +88,6 @@ struct Rule {
         return std::nullopt;
       };
 
- protected:
-  friend class RuleRunner;
-
- public:
   //! Obtain a list of match objects for this rule. At each iteration of
   //! equality saturation these lists are chained together to collect all
   //! matches across all rules before applying the matches and rebuilding.
@@ -106,9 +101,6 @@ struct Rule {
     }
     return matches;
   }
-
- protected:
-  friend class EGraphSimp;
 
   //! This is a list of target ENodes. Each of these will be considered for
   //! matching during each pass. If this Rule determines that there is no need
