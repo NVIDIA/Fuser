@@ -129,6 +129,11 @@ class KernelIrScanner : private IrVisitor {
     }
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+    NVF_ERROR(
+        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
+            num_grouped_iterations == 8 || num_grouped_iterations == 16,
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        num_grouped_iterations);
   }
 
   void handle(GridWelford* grid_welford) final {

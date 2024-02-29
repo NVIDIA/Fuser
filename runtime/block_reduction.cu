@@ -134,6 +134,11 @@ __device__ void blockIterGroupedReduce(
     bool read_pred,
     bool write_pred,
     T init_val) {
+  // N should be a valid vectorization factor
+  static_assert(
+      N == 2 || N == 4 || N == 8 || N == 16,
+      "N should be a valid vectorization factor, one of (2, 4, 8, 16)!");
+
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
 
@@ -152,13 +157,23 @@ __device__ void blockIterGroupedReduce(
   unsigned int smem_offset =
       (reduction_idx * reduction_size + reduction_tid) * N;
   if (read_pred) {
+    // This section calculates the number of vectorized load operations required
+    // to fetch all elements of an array into shared memory, assuming each load
+    // can transfer up to 16 bytes. For example, with fusion input vectorized by
+    // 8 (N = 8) and computations in fp32 (sizeof(T) = 4 bytes), the total data
+    // size is 4 * 8 = 32 bytes, necessitating 32 / 16 = 2 load transactions.
+    // Each transaction loads 16 / 4 (bytes per element) = 4 elements.
     if constexpr (sizeof(T) * N <= 16) {
       loadGeneric<T, N>(shared_mem + smem_offset, const_cast<T*>(inp_val));
     } else {
-      // may larger than 16 bytes, e.g. input fp16 vectorized by 8
-      // but calculation is fp32/fp64 vectorized by 8
       constexpr unsigned int total_loads = sizeof(T) * N / 16;
       constexpr unsigned int elements_per_load = 16 / sizeof(T);
+      static_assert(
+          sizeof(T) * N == 16 * total_loads,
+          "This combination of vectorization factor and data type is not supported!");
+      static_assert(
+          sizeof(T) * elements_per_load == 16,
+          "This data type is not supported!");
 #pragma unroll
       for (unsigned int i = 0; i < total_loads; ++i) {
         loadGeneric<T, elements_per_load>(

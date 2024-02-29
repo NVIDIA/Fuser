@@ -2144,7 +2144,7 @@ TEST_F(
 }
 #endif
 
-TEST_F(NVFuserTest, IterGroupedBlockReduction) {
+TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
