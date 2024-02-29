@@ -287,4 +287,6 @@ struct MostInlinedTransformPropagator
   void propagateSibling(TensorView* from, TensorView* to) override;
 };
 
+Expr* replayExprWithNewInput(Expr* e, Val* new_in);
+
 } // namespace nvfuser

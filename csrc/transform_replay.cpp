@@ -200,7 +200,6 @@ TensorDomain* TransformReplay::fullSelfReplay(
   {
     size_t i = 0;
     for (auto id : self->root()) {
-#if 0
       NVF_ERROR(
           new_self_root->root()[i]->isReduction() == id->isReduction() &&
               new_self_root->root()[i]->isRFactorProduct() ==
@@ -211,7 +210,6 @@ TensorDomain* TransformReplay::fullSelfReplay(
           " and ",
           new_self_root->root()[i],
           " do not match for self replay.");
-#endif
       axis_map[id] = new_self_root->root()[i];
       i++;
     }
@@ -1246,6 +1244,85 @@ void MostInlinedTransformPropagator::propagateSibling(
   } else if (debug_print) {
     debug() << "  replay skipped" << std::endl;
   }
+}
+
+namespace {
+
+TensorDomain* fullReplay(
+    const TensorDomain* old_domain,
+    const std::vector<IterDomain*>& new_root) {
+  std::unordered_map<IterDomain*, IterDomain*> old_root_to_new;
+  NVF_CHECK(
+      old_domain->root().size() == new_root.size(),
+      "Unable to replay transformations on a root domain of different size: ",
+      old_domain->root().size(),
+      " vs ",
+      new_root.size());
+  for (auto i : c10::irange(new_root.size())) {
+    old_root_to_new[old_domain->root()[i]] = new_root[i];
+  }
+  NVF_CHECK(
+      !old_domain->hasAllocation(),
+      "Due to #986, the allocation domain may or may not be between root and leaf. So, when `old_domain` has allocation, it may be incorrect to use its leaf as the target domain: ",
+      old_domain->toString(0, /*leaf_only=*/false));
+  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+
+  // FIXME: using std::transform.
+  std::vector<IterDomain*> new_leaf;
+  new_leaf.reserve(old_domain->nDims());
+  for (IterDomain* old_leaf_id : old_domain->leaf()) {
+    new_leaf.push_back(replay.getReplay().at(old_leaf_id));
+  }
+
+  if (!old_domain->hasRFactor()) {
+    return IrBuilder::create<TensorDomain>(
+        old_domain->container(), new_root, new_leaf, old_domain->contiguity());
+  }
+
+  // FIXME: using std::transform.
+  std::vector<IterDomain*> new_rfactor;
+  new_rfactor.reserve(old_domain->rfactor().size());
+  for (IterDomain* old_rfactor_id : old_domain->rfactor()) {
+    new_rfactor.push_back(replay.getReplay().at(old_rfactor_id));
+  }
+
+  return IrBuilder::create<TensorDomain>(
+      old_domain->container(),
+      new_root,
+      new_rfactor,
+      new_leaf,
+      old_domain->contiguity());
+}
+
+} // namespace
+
+Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
+  auto* new_in_tv = dynamic_cast<TensorView*>(new_in);
+  NVF_CHECK(
+      new_in_tv != nullptr,
+      "This function doesn't support non-TensorView input yet: ",
+      new_in);
+
+  std::vector<Val*> new_outs;
+  new_outs.reserve(e->outputs().size());
+
+  for (Val* old : e->outputs()) {
+    auto* old_tv = dynamic_cast<TensorView*>(old);
+    NVF_CHECK(
+        old_tv != nullptr,
+        "This function doesn't support non-TensorView outputs yet: ",
+        old);
+
+    std::vector<IterDomain*> new_root = IterDomain::clone(
+        TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain()));
+    TensorDomain* new_domain = fullReplay(old_tv->domain(), new_root);
+    TensorView* new_tv =
+        IrBuilder::create<TensorView>(new_domain, *old->getDataType());
+    new_outs.push_back(new_tv);
+  }
+
+  return e->newObjectFunc()(
+      e->container(), {new_in_tv}, new_outs, e->attributes());
 }
 
 } // namespace nvfuser

@@ -25,26 +25,26 @@ TEST_F(ReplayTest, HorizontallyMergeTwoReshapes) {
 
   TensorView* in = makeContigConcreteTensor({4, 5});
   TensorView* s0 = slice(in, {0, 0}, {4, 2});
-  TensorView* s1 = slice(in, {0, 2}, {4, 5});
   TensorView* r0 = reshape(s0, {4, 2}, {2, 2, 2});
+  TensorView* p0 = permute(r0, {1, 0, 2});
+  TensorView* n0 = neg(p0);
+
+  TensorView* s1 = slice(in, {0, 2}, {4, 5});
   TensorView* r1 = reshape(s1, {4, 3}, {2, 2, 3});
-  TensorView* out = cat({r0, r1}, /*dim=*/-1);
+  TensorView* p1 = permute(r1, {1, 0, 2});
+  TensorView* n1 = neg(p1);
+
+  TensorView* out = cat({n0, n1}, /*dim=*/-1);
 
   fusion->addInput(in);
   fusion->addOutput(out);
 
-  std::vector<IterDomain*> r_root = IterDomain::clone(
-      TensorDomain::noReductions(in->getMaybeRFactorDomain()));
-  TensorDomain* r_domain = TransformReplay::fullSelfReplay(
-      IrBuilder::create<TensorDomain>(r_root), r0->domain());
-  TensorView* r = IrBuilder::create<TensorView>(r_domain, *out->getDataType());
-
-  Expr* to_replay = r0->definition();
-  auto create_fn = to_replay->newObjectFunc();
-  create_fn(to_replay->container(), {in}, {r}, to_replay->attributes());
-  // To preserve the output allocation domain, we create a Set between `r` and
-  // `out` instead of replacing the fusion output.
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, r);
+  Expr* merged = replayExprWithNewInput(r0->definition(), in);
+  merged = replayExprWithNewInput(p0->definition(), merged->output(0));
+  merged = replayExprWithNewInput(n0->definition(), merged->output(0));
+  // To preserve the output allocation domain, we create a Set between
+  // `merged`'s output and `out` instead of replacing the fusion output.
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, merged->output(0));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({4, 5}, options);
@@ -56,7 +56,9 @@ TEST_F(ReplayTest, HorizontallyMergeTwoReshapes) {
 
   std::vector<at::Tensor> slices = at::split(in_tensor, {2, 3}, /*dim=*/-1);
   at::Tensor expected_out_tensor = at::cat(
-      {slices[0].view({2, 2, 2}), slices[1].view({2, 2, 3})}, /*dim=*/-1);
+      {-slices[0].view({2, 2, 2}).permute({1, 0, 2}),
+       -slices[1].view({2, 2, 3}).permute({1, 0, 2})},
+      /*dim=*/-1);
 
   EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
 }
