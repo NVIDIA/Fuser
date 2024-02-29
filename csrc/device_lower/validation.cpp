@@ -1008,7 +1008,10 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 void validateMma(Fusion* fusion) {
   // To avoid errors in analysis when using ATen evaluation for matmul, only
   // validate expressions that require codegen. See PR # 1775 and Issue #1812
-  auto exprs = lower_utils::getExprsToCodegen(fusion);
+  std::vector<Val*> outs_requiring_codegen =
+      lower_utils::getFusionOutputsRequiringCodegen(fusion);
+  auto exprs = StmtSort::getExprsBetween(
+      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
