@@ -76,7 +76,7 @@ TEST_F(HostForLoopTest, kernelSingleIO) {
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, output));
 }
 
-TEST_F(HostForLoopTest, hostFusion) {
+TEST_F(HostForLoopTest, HostIrContainer) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -90,7 +90,7 @@ TEST_F(HostForLoopTest, hostFusion) {
   tv1->axis(0)->parallelize(ParallelType::Host);
   tv2->axis(0)->parallelize(ParallelType::Host);
 
-  auto host_fusion = hir::makeHostFusionFromFusion(fusion.get());
+  auto host_fusion = hir::makeHostIrContainerFromFusion(fusion.get());
 
   // debug()<< "\nunordered_exprs:\n";
   // for (auto expr : host_fusion->unordered_exprs()) {

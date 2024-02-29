@@ -25,7 +25,7 @@ class Scope;
 } // namespace kir
 
 namespace hir {
-class HostFusion;
+class HostIrContainer;
 } // namespace hir
 
 void checkInlineable(const Expr* expr);
@@ -74,8 +74,8 @@ class IrPrinter {
   virtual void handle(const kir::Kernel* kernel);
   virtual void handle(kir::Kernel& kernel);
 
-  virtual void handle(const hir::HostFusion* host_fusion);
-  virtual void handle(hir::HostFusion& host_fusion);
+  virtual void handle(const hir::HostIrContainer* host_fusion);
+  virtual void handle(hir::HostIrContainer& host_fusion);
 
  protected:
   std::ostream& os() {

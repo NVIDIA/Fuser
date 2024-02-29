@@ -833,7 +833,7 @@ ForLoop::ForLoop(
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>()
-      || passkey.ir_container_->isA<hir::HostFusion>(),
+      || passkey.ir_container_->isA<hir::HostIrContainer>(),
       "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
@@ -841,7 +841,7 @@ ForLoop::ForLoop(
   if (start == nullptr && iter_domain->isThread()) {
     start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
   }
-  if (start == nullptr && iter_domain->isHostDim() && !passkey.ir_container_->isA<hir::HostFusion>()) {
+  if (start == nullptr && iter_domain->isHostDim() && !passkey.ir_container_->isA<hir::HostIrContainer>()) {
     start = FusionGuard::getCurFusion()->oneVal();
   }
   if (step == nullptr) {
@@ -1003,7 +1003,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim() || (iter_domain()->isHostDim() && !iter_domain()->fusion()->isA<hir::HostFusion>())) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() || (iter_domain()->isHostDim() && !iter_domain()->fusion()->isA<hir::HostIrContainer>())) {
     return true;
   }
 

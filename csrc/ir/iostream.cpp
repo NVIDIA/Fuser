@@ -78,7 +78,7 @@ void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
 }
 
-void IrPrinter::handle(const hir::HostFusion* host_fusion) {
+void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
   NVF_CHECK(host_fusion != nullptr);
 
   // host_fusion declaration
@@ -108,7 +108,7 @@ void IrPrinter::handle(const hir::HostFusion* host_fusion) {
   os() << "END.\n\n";
 }
 
-void IrPrinter::handle(hir::HostFusion& host_fusion) {
+void IrPrinter::handle(hir::HostIrContainer& host_fusion) {
   handle(&host_fusion);
 }
 

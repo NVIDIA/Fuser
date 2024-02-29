@@ -318,7 +318,7 @@ DISPATCH_FOR_ALL_KIR_VALS(M)
 void OptOutConstDispatch::handle(const hir::ExecuteFusion* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const hir::SaveSlicedOutput* stmt) {
+void OptOutConstDispatch::handle(const hir::ExecuteComm* stmt) {
   unhandled(stmt);
 }
 
@@ -345,7 +345,7 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 void OptOutDispatch::handle(hir::ExecuteFusion* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(hir::SaveSlicedOutput* stmt) {
+void OptOutDispatch::handle(hir::ExecuteComm* stmt) {
   unhandled(stmt);
 }
 
