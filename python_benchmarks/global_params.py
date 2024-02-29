@@ -59,7 +59,8 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             [16]: Latency bound state
             [512, 1024]: Just filled the machine
             [16384]: Steady state (full machine)
-        Hidden size: [768, 4*18432] (step size = 8)
+        Hidden size: Additonally benchmark hidden sizes at
+            [step_size + 2, step_size + 4, step_size + 8] to check vectorization.
     Note: The hidden size is restricted to 2 * 18432 for the batch size 16384 to avoid OOM.
     """
     inputs = []
@@ -75,21 +76,24 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
 
             if BENCHMARK_MODE == "weekly":
-                step_size = 8
                 batch_range = [16, 512, 1024]
 
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
-            # NOTE: Numpy arrays are not JSON serializable so convert them to enable storing benchmark data.
-            hidden_range = np.arange(
-                D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size
-            ).tolist()  # (768, 4*18432)
+            # NOTE: (This is not applicable to the updated implementation but leaving it here for future updates).
+            #    Numpy arrays are not JSON serializable so convert them to enable storing benchmark data.
+
+            hidden_range = []
+            for hs in range(D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size): # (768, 4*18432)
+                hidden_range.append(hs)
+                if BENCHMARK_MODE == "weekly":
+                    # Additionally benchmark hidden sizes at steps (256 + 2, 256 + 4, 256 + 8)
+                    hidden_range.extend([hs + 2, hs + 4, hs + 8])
             input_ranges.append((batch_range, hidden_range))
 
             # Reduce max hidden size for largest batch size (16384) to avoid OOM in RMSNorm.
-            hidden_range = np.arange(
-                D_MODEL_MIN, 2 * D_MODEL_MAX + 1, step_size
-            ).tolist()  # (768, 2*18432)
-            input_ranges.append(([16384], hidden_range))
+            # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 8) for weekly.
+            input_ranges.append(([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 8, hidden_range)))
+
             for batch_range, hidden_range in input_ranges:
                 inputs.extend(list(itertools.product(batch_range, hidden_range)))
 
