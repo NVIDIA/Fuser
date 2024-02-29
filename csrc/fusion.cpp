@@ -837,34 +837,4 @@ bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
-std::vector<Expr*> Fusion::getExprsToCodegen() {
-  std::vector<Expr*> exprs_requiring_codegen;
-  exprs_requiring_codegen.reserve(exprs().size());
-
-  for (auto expr : exprs()) {
-    bool is_expr_codegen = std::none_of(
-        expr->outputs().begin(), expr->outputs().end(), [this](Val* out) {
-          return this->getOutputAlias(out).type != AllocationType::Evaluate;
-        });
-
-    if (is_expr_codegen) {
-      exprs_requiring_codegen.emplace_back(expr);
-    }
-  }
-  return exprs_requiring_codegen;
-}
-
-std::vector<Val*> Fusion::getFusionOutputsRequiringCodegen() {
-  std::vector<Val*> outs_requiring_codegen;
-  outs_requiring_codegen.reserve(outputs().size());
-  std::copy_if(
-      outputs().begin(),
-      outputs().end(),
-      std::back_inserter(outs_requiring_codegen),
-      [this](Val* out) {
-        return (this->getOutputAlias(out).type != AllocationType::Evaluate);
-      });
-  return outs_requiring_codegen;
-}
-
 } // namespace nvfuser

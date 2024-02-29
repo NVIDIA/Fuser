@@ -261,16 +261,6 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
-  //! Returns the expressions that require codegen.
-  //! Expressions where all the outputs are marked to be computed through
-  //! expression evaluator are filtered out.
-  std::vector<Expr*> getExprsToCodegen();
-
-  //! Returns the fusion outputs that require codegen.
-  //! The fusion outputs to be computed through expression evaluator are
-  //! filtered out.
-  std::vector<Val*> getFusionOutputsRequiringCodegen();
-
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
     permuted_input_map_.insert({index, permutation});

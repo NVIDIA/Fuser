@@ -1510,7 +1510,7 @@ void ExprSegmentationSorter::sort() {
   // or any output marked for expression evaluator (AllocationType::Evaluate).
   // Those outputs will be computed by ExpressionEvaluator.
   std::vector<Val*> outs_requiring_codegen =
-      fusion_->getFusionOutputsRequiringCodegen();
+      lower_utils::getFusionOutputsRequiringCodegen(fusion_);
 
   // Not putting the exprs between fusion inputs and allKnownVals() here
   // because they are computed using the expr evaluator.

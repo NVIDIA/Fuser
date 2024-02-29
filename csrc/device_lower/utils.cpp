@@ -852,6 +852,36 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
   return buffer_size;
 }
 
+std::vector<Expr*> getExprsToCodegen(Fusion* fusion) {
+  std::vector<Expr*> exprs_requiring_codegen;
+  exprs_requiring_codegen.reserve(fusion->exprs().size());
+
+  for (auto expr : fusion->exprs()) {
+    bool is_expr_codegen = std::none_of(
+        expr->outputs().begin(), expr->outputs().end(), [&fusion](Val* out) {
+          return fusion->getOutputAlias(out).type != AllocationType::Evaluate;
+        });
+
+    if (is_expr_codegen) {
+      exprs_requiring_codegen.emplace_back(expr);
+    }
+  }
+  return exprs_requiring_codegen;
+}
+
+std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
+  std::vector<Val*> outs_requiring_codegen;
+  outs_requiring_codegen.reserve(fusion->outputs().size());
+  std::copy_if(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      std::back_inserter(outs_requiring_codegen),
+      [&fusion](Val* out) {
+        return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
+      });
+  return outs_requiring_codegen;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

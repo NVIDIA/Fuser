@@ -865,7 +865,7 @@ class PredicateChcker : public IterVisitor {
 PredicateElimination::PredicateElimination(Fusion* fusion) {
   // To avoid errors in analysis when using ATen evaluation for matmul, only use
   // outputs that require codegen. See PR # 1775 and Issue #1812
-  traverseTo(fusion->getFusionOutputsRequiringCodegen());
+  traverseTo(lower_utils::getFusionOutputsRequiringCodegen(fusion));
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
