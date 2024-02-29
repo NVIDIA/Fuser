@@ -238,7 +238,7 @@ class TestNvFuserFrontend(TestCase):
                 fd.add_output(T1)
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-            eager_out == inputs[0].to(out_type)
+            eager_out = inputs[0].to(out_type)
             self.assertEqual(eager_out, nvf_out[0])
 
         for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
