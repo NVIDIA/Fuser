@@ -127,9 +127,11 @@ __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
   memcpy(&buffer, &h, sizeof(__bfloat));
   unsigned short _tmp_buffer;
   __e4m3 val;
-  asm("{cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;}\n\t"
+  asm("cvt.rn.f16.bf16 %2, %2;\n\t"
+      "cvt.u32.u16 %1, %2;\n\t"
+      "{cvt.rn.satfinite.e4m3x2.f16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "r"(buffer));
+      : "r"(buffer), "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
@@ -143,7 +145,7 @@ __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 h) {
   asm("{cvt.rn.f16x2.e4m3x2 %1, %2;}\n\t"
       "cvt.u16.u32 %0, %1;"
       "cvt.bf16.f16 %0, %0;"
-      : "=h"(__NVFUSER_HALF_TO_US(val)), "=r"(_b32_buffer)
+      : "=h"(__NVFUSER_BFLOAT_TO_US(val)), "=r"(_b32_buffer)
       : "h"(_tmp_buffer));
 
   return val;
@@ -234,9 +236,11 @@ __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
   memcpy(&buffer, &h, sizeof(__bfloat));
   unsigned short _tmp_buffer;
   __e5m2 val;
-  asm("{cvt.rn.satfinite.e5m2x2.bf16x2 %0, %1;}\n\t"
+  asm("cvt.rn.f16.bf16 %2, %2;\n\t"
+      "cvt.u32.u16 %1, %2;\n\t"
+      "{cvt.rn.satfinite.e5m2x2.f16x2 %0, %1;}\n\t"
       : "=h"(_tmp_buffer)
-      : "r"(buffer));
+      : "r"(buffer), "h"(__NVFUSER_BFLOAT_TO_CUS(h)));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
 
   return val;
