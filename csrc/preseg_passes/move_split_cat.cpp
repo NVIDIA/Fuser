@@ -253,7 +253,7 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
         merged_out = permute(merged_out, permutation);
         continue;
       }
-      NVF_ERROR("Not implemented");
+      NVF_ERROR(false, "Replay is not implemented for this Expr: ", to_replay);
     }
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
