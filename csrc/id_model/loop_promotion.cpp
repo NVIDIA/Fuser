@@ -8,6 +8,7 @@
 #include <id_model/id_model.h>
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
 
@@ -482,9 +483,41 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const bool loop_promote_inputs = !loop_graph_promotion_map.empty() &&
         hasUniqueInputLoopGroups(iel_expr, iel_graph, loop_graph);
 
+    // FusionReshapePersistentShmoo with
+    // std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
+    // std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
+    // Incorrect loop promotion at the second segment. Need to use the
+    // step 3 result when propagating through IEL expr of merge 104
+    // and 197.
+    bool war = iel_expr->front()->isA<Split>() &&
+        iel_expr->front()->input(0)->definition() &&
+        iel_expr->front()->input(0)->definition()->isA<Merge>();
+
     for (const ValGroup& iel_inp_group : iel_inp_groups) {
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
+
+      if (war) {
+        // This is a copy of the loop_promote_inputs block below. When
+        // war is true, this block should be prioritized.
+
+        // Promote loops based on the loop promotion map. If the loop promotion
+        // map should be used and has an entry we should use that promotion.
+        if (loop_promote_inputs) {
+          const ValGroup& loop_copy_group =
+              loop_graph.toGroup(iel_inp_group->front());
+          auto inp_loop_promo_it =
+              loop_graph_promotion_map.find(loop_copy_group);
+          if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
+            maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
+            an_input_was_promoted = true;
+            VERBOSE() << "Promoted input by loop promotion: "
+                      << nvfuser::toString(iel_inp_group) << " -> "
+                      << inp_loop_promo_it->second->name() << std::endl;
+            continue;
+          }
+        }
+      }
 
       // Propagate IEL promotions when available.
       if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
@@ -616,7 +649,21 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       // Don't overwrite initialized cases due to rfactor markings.
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
-      }
+      } else {
+        if (!getenv("DISABLE_COMBINE")) {
+          VERBOSE() << "Combining coverage of "
+                    << nvfuser::toString(output_group) << ". "
+                    << nvfuser::toString(covered_ids[output_group]);
+          covered_ids[output_group].pushBack(covered);
+        } else {
+          VERBOSE() << "Avoid overwriting covered group of "
+                    << nvfuser::toString(output_group) << ". Existing: "
+                    << nvfuser::toString(covered_ids[output_group])
+                    << ". New: " << nvfuser::toString(covered)
+                    << ", expr: " << exact_expr->front()->toString()
+                    << std::endl;
+        }
+      }        
     }
   }
 
@@ -668,9 +715,11 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
+  for (auto loop_group_val : *loop_group) {    
+    auto loop_id = loop_group_val->as<IterDomain>();
+    
     // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+    if (!terminal_loop_ids.has(loop_id)) {
       continue;
     }
 
@@ -680,6 +729,13 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
+    }
+
+    // TODO: Terminal rfactor domains are definitely a promotion domain
+    if (id_model_.viewRfactorIds().find(loop_id) != id_model_.viewRfactorIds().end()) {
+      VERBOSE() << "Terminal rfactor id found: " << loop_id->toString()
+                << std::endl;
+      return loop_id;
     }
 
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);

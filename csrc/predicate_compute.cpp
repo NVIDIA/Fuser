@@ -381,12 +381,22 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+  std::vector<RootPredicateInfo> pred_info_vec;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
+      TensorIndexer::isSupported(GpuLower::current()->kernel())) {
+    pred_info_vec = gpu_lower->tensorIndexer().getPredicates(
+        out_tv,
+        expr,
+        loops,
+        false);
+  } else {
+    pred_info_vec = Index::getReferenceRootPredicates(
+        out_tv,
+        loops,
+        rotated_loops,
+        nullptr,
+        pred_type == PredicateType::Padding);
+  }
 
   std::vector<Val*> preds;
 
@@ -443,6 +453,8 @@ Val* PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
+  //std::cerr << "Predicate: " << cond->toInlineString() << std::endl;
+
   RECORD_AND_RETURN(cond);
 }
 
@@ -477,8 +489,21 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  auto ref_pred_info = Index::getReferenceRootPredicates(
-      out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+  std::vector<RootPredicateInfo> ref_pred_info;
+  bool is_unswitch = unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unswitch ||
+      unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unroll;
+  if (TensorIndexer::isSupported(GpuLower::current()->kernel()) &&
+      ((is_unswitch &&
+        hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate")) ||
+       (!is_unswitch &&
+        hasEnableOptionArgument(
+            EnableOption::IdModel, "vectorize_predicate")))) {
+    ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
+        out_tv, tv_expr, for_loops_, is_unswitch);
+  } else {
+    ref_pred_info = Index::getReferenceRootPredicates(
+        out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+  }
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the

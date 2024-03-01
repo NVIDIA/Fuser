@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -366,6 +367,7 @@ class IndexSwizzle : public IndexCompute {
 //! Predicate information of a root or contiguous merged domain
 class RootPredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
@@ -478,18 +480,20 @@ class Index {
       const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {},
-      bool generate_pointer = false,
-      DataType as_type = DataType::Null);
+      const std::unordered_map<IterDomain*, Val*>& override_index,
+      bool generate_pointer,
+      DataType as_type,
+      TensorIndexer* tensor_indexer);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
       TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false,
-      DataType as_type = DataType::Null);
+      const std::unordered_map<int, Val*>& override_index,
+      bool generate_pointer,
+      DataType as_type,
+      TensorIndexer* tensor_indexer);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
   //! allocation domain of a producer tensor. The size of the returned
@@ -503,6 +507,12 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
+  static Val* getProducerStridedIndices2(
+      TensorView* producer,
+      const TensorView* consumer,
+      const std::vector<kir::ForLoop*>& loops,
+      TensorIndexer* tensor_indexer);
+
   //! Returns a vector of strided indices mapped onto the (rfactor)
   //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
@@ -513,6 +523,11 @@ class Index {
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false);
+
+  static Val* getConsumerStridedIndices2(
+      TensorView* consumer,
+      const std::vector<kir::ForLoop*>& loops,
+      TensorIndexer* tensor_indexer);
 
   //! Returns the logical index linearized from a multi-dimension address into a
   //! linear memory address a consumer tensor. The returned index is intended to
@@ -539,6 +554,7 @@ class Index {
       const TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      TensorIndexer* tensor_indexer,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   //! Take a consumer tensorview and loop nest and generates predicates
@@ -623,5 +639,22 @@ void ensureStaticIndexing(
     kir::ForLoop* alloc_loop,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
+
+struct PredicateDomainInfo {
+ public:
+  // Iteration domain to predicate
+  IterDomain* id = nullptr;
+  // The set of iteration domains that make up the id. If this is for
+  // a non-divisible split, the set only contains the id itself. This
+  // set is used to remove redundant predicates when gathering
+  // unswitch predicates.
+  std::unordered_set<IterDomain*> covered_ids;
+  // True if this predicate is for an intermediate domain. Examples
+  // include domains with non-divisible split and resized domains.
+  bool is_intermediate_domain = false;
+};
+
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv);
 
 } // namespace nvfuser

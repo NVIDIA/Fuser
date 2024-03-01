@@ -20,6 +20,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -803,6 +804,12 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+
+  if (getenv("DISABLE_CONTIG_INDEXING")) {
+    std::cerr << "Disabling contig indexing\n";
+    contig_ids_.clear();
+  }
+
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
@@ -1964,10 +1971,20 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    TensorIndexer* tensor_indexer,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
+    return tensor_indexer->getPerDimIndex(
+        producer_tv,
+        producer_tv->getMaybeRFactorDomain(),
+        consumer_tv->definition(),
+        loops);
+  } else {
+    auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
@@ -2442,6 +2459,28 @@ Val* Index::getProducerStridedIndices(
   }
 }
 
+Val* Index::getProducerStridedIndices2(
+    TensorView* producer,
+    const TensorView* consumer,
+    const std::vector<kir::ForLoop*>& loops,
+    TensorIndexer* tensor_indexer) {
+  Expr* expr = consumer->definition();
+  NVF_ERROR(
+      expr != nullptr,
+      "No definition found for a consumer tensor: ",
+      consumer->toString());
+
+  NVF_ERROR(
+      std::find(expr->inputs().begin(), expr->inputs().end(), producer) !=
+          expr->inputs().end(),
+      "Producer tensor not found in consumer definition: ",
+      expr->toString(),
+      ", producer: ",
+      producer->toString());
+
+  return tensor_indexer->getIndex(producer, expr, loops);
+}
+
 // Producer is the inputs of an expression
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
@@ -2450,14 +2489,36 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
-  auto index = getProducerStridedIndices(
-      producer,
-      consumer,
-      loops,
-      rotated_loops,
-      override_index,
-      generate_pointer);
+    DataType as_type,
+    TensorIndexer* tensor_indexer) {
+  Val* index = nullptr;
+
+  // tensor_indexer may be null even when opted in when a given fusion
+  // is not supported
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
+    index =
+        getProducerStridedIndices2(producer, consumer, loops, tensor_indexer);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            address_offset,
+            IrBuilder::create<Val>(
+                dataTypeSize(*producer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), address_offset);
+    }
+  } else {
+    index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+  }
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
@@ -2524,6 +2585,21 @@ Val* Index::getConsumerStridedIndices(
   }
 }
 
+Val* Index::getConsumerStridedIndices2(
+    TensorView* consumer,
+    const std::vector<kir::ForLoop*>& loops,
+    TensorIndexer* tensor_indexer) {
+  Expr* expr = consumer->definition();
+  NVF_ERROR(
+      expr != nullptr,
+      "No definition found for a consumer tensor: ",
+      consumer->toString());
+
+  NVF_ERROR(tensor_indexer != nullptr);
+
+  return tensor_indexer->getIndex(consumer, expr, loops);
+}
+
 // Consumer is the output of an expression
 kir::TensorIndex* Index::getConsumerIndex(
     TensorView* consumer,
@@ -2531,29 +2607,38 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
-  auto index = getConsumerStridedIndices(
-      consumer, loops, rotated_loops, override_index, generate_pointer);
+    DataType as_type,
+    TensorIndexer* tensor_indexer) {
+  Val* index = nullptr;
+
+  // tensor_indexer may be null even when opted in when a given fusion
+  // is not supported
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
+    index = getConsumerStridedIndices2(consumer, loops, tensor_indexer);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (consumer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            index,
+            IrBuilder::create<Val>(
+                dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), address_offset);
+    }
+  } else {
+    index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);
 }
 
 namespace {
-
-struct PredicateDomainInfo {
- public:
-  // Iteration domain to predicate
-  IterDomain* id = nullptr;
-  // The set of iteration domains that make up the id. If this is for
-  // a non-divisible split, the set only contains the id itself. This
-  // set is used to remove redundant predicates when gathering
-  // unswitch predicates.
-  std::unordered_set<IterDomain*> covered_ids;
-  // True if this predicate is for an intermediate domain. Examples
-  // include domains with non-divisible split and resized domains.
-  bool is_intermediate_domain = false;
-};
 
 // Find iteration domains in the history of a consumer to predicate comprised
 // only of merge operations. Only return iteration domains that are subsequently
@@ -2653,28 +2738,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     contig_id_infos.push_back(contig_id_info);
   }
   return contig_id_infos;
-}
-
-std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
-    TensorView* consumer_tv) {
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-
-  std::vector<PredicateDomainInfo> pred_info_vec;
-
-  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
-  if (it == non_divisible_split_info.splitsToPredicate().end()) {
-    return {};
-  }
-
-  const auto& splits_to_predicate = it->second;
-
-  for (auto split : splits_to_predicate) {
-    PredicateDomainInfo info{split->in(), {split->in()}, true};
-    pred_info_vec.emplace_back(info);
-  }
-
-  return pred_info_vec;
 }
 
 bool needsPadding(TensorView* tv) {
@@ -3100,6 +3163,28 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 
 } // namespace
 
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
+  if (it == non_divisible_split_info.splitsToPredicate().end()) {
+    return {};
+  }
+
+  const auto& splits_to_predicate = it->second;
+
+  for (auto split : splits_to_predicate) {
+    PredicateDomainInfo info{split->in(), {split->in()}, true};
+    pred_info_vec.emplace_back(info);
+  }
+
+  return pred_info_vec;
+}
+
 // Returns predicates and the concrete (by loop map) root domains they cover
 std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
@@ -3162,6 +3247,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
+
     // No predicates needed for braodcasted indices.
     if (contig_id->isBroadcast()) {
       continue;
@@ -3178,7 +3264,11 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     // generated in lower_misaligned_vectorization.
     //
     // Can not omit stop index even if it is zero. This is important for empty
-    // tensor support, because in empty tensor the extent of an ID can be zero
+    // tensor support, because in empty tensor the extent of an ID can
+    // be zero
+    // This also happens with buffer initialization loops for
+    // reductions, where reduction domains do not have corresponding
+    // loops.
     if (consumer_stop_indexing_it == consumer_stop_index_map.end()) {
       continue;
     }

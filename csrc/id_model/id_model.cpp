@@ -525,10 +525,18 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
+    // Merge with broadcast should be always trivial. Repro1713 has a
+    // merge with a broadcast domain of extent 32. If not trivial, an
+    // index for the extent-32 broadcast domain is required, but
+    // there's no index for the broadcast domain. We may also want to
+    // consider making broadcast domains always having a size-1
+    // extent.
+    if (merge->inner()->extent()->isOneInt() ||
+        (false && merge->inner()->isBroadcast())) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt() ||
+        (false && merge->outer()->isBroadcast())) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
@@ -703,22 +711,23 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_root = producer_tv->getMaybeRFactorDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
-          ca_deps_filter.begin(), ca_deps_filter.end());
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_root.begin(), producer_root.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() +
+                 producer_tv->getComputePosition(consumer_tv)});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
         auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
 
@@ -741,6 +750,24 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
       }
     }
+
+    auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    if (consumer_tvs.size() > 1) {
+      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+      info.ordered_sibling_ids.pushBack(
+          {all_consumer_ids.begin(), all_consumer_ids.end()});
+      for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        auto consumer_tv_i = consumer_tvs.vector().at(i);
+        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+
+        auto sibling_map =
+            exact_graph.buildMapBetween(all_consumer_ids, all_consumer_i_ids);
+
+        for (const auto& [c_id_1, c_ids] : sibling_map) {
+          info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+        }
+      }
+    }
   }
   return info;
 }
@@ -760,6 +787,16 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
       for (Val* c_id : c_ids) {
         idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
+  }
+
+  for (IterDomain* id : info.ordered_sibling_ids) {
+    auto entry_it = info.sibling_maps.find(id);
+    if (entry_it != info.sibling_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& sibling_ids = entry_it->second;
+      for (Val* sibling_id : sibling_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(id, sibling_id);
       }
     }
   }
@@ -848,7 +885,7 @@ void IdModel::propagateLoopPTypes() const {
 }
 
 void IdModel::buildAllGraphs() {
-  VERBOSE() << "*** Building all graphs ***";
+  VERBOSE() << "*** Building all graphs ***\n";
 
   if (tvs_.empty()) {
     return;
@@ -873,16 +910,18 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
+  if (!getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
+  }
+
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
-  }
-
-  buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
   }
 
   buildPermissiveGraph();
@@ -892,12 +931,25 @@ void IdModel::buildAllGraphs() {
         idGraph(IdMappingMode::PERMISSIVE));
   }
 
-  // Permissive graph needs the trivial exprs from the almost exact graph to
-  // build correctly. Once built though we can remove the trivial expressions
-  // from the almost exact graph.
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
-
   buildLoopGraph();
+
+  // Simplify the AlmostExact graph by removing trivial exprs. Note
+  // that since trivial exps are now gone, if trivial exprs are
+  // replayed, their trivial mappings won't be automatically detected.
+  // Explicit updates with the AlmostExact mapping rules will be
+  // required. For example, if this removal were done before
+  // buildLoopGraph, the resulting AlmostExact graph would include
+  // unmapped domains should be mapped according to the AlmostExact
+  // mapping rules.
+
+  if (getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
+  }
+  // idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {

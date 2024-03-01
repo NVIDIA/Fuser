@@ -649,4 +649,20 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+// Returns true if memory_type is shared in parallel_type
+inline bool isShared(MemoryType memory_type, ParallelType parallel_type) {
+  switch (memory_type) {
+    case MemoryType::Local:
+      return !isParallelTypeThread(parallel_type) &&
+          !isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Shared:
+      return !isParallelTypeBlockDim(parallel_type) &&
+          !isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Global:
+      return !isParallelTypeDeviceDim(parallel_type);
+    default:
+      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+  }
+}
+
 } // namespace nvfuser::ir_utils

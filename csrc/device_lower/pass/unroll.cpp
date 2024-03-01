@@ -34,28 +34,6 @@ kir::ForLoop* cloneLoopNest(const kir::ForLoop* for_loop) {
   return new_loop;
 }
 
-// Returns true if expr is an expression that initializes a reduction
-// buffer.
-bool isReductionInitExpr(const Expr* expr) {
-  // False if its output isn't a TensorView
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
-  }
-  // False if it doesn't have any reduction axis
-  const auto out_tv = expr->outputs()[0]->as<TensorView>();
-  if (!out_tv->domain()->hasReduction()) {
-    return false;
-  }
-  // False if it has have TensorView inputs as initialization should
-  // never use TensorViews
-  const auto tv_filter_inp_view =
-      ir_utils::filterByType<TensorView>(expr->inputs());
-  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
-    return false;
-  }
-  return true;
-}
-
 } // namespace
 
 void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
@@ -83,7 +61,7 @@ void UnrollPass::dispatch(Expr* expr) {
     // If this expr is for initializing a reduction output tensor, the
     // thread predicate can be ignored if the tensor is not shared by
     // any of the predicated parallel types
-    if (isReductionInitExpr(expr)) {
+    if (lower_utils::isReductionInitExpr(expr)) {
       if (out_tv->getMemoryType() == MemoryType::Local) {
         // Local is always private, so we can always ignore thread predicates
         thread_pred = GpuLower::current()->kernel()->trueVal();
@@ -132,7 +110,7 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     // Reduction may need a separate predicate for writes.
-    if (!isReductionInitExpr(expr) && out_tv->domain()->hasReduction()) {
+    if (!lower_utils::isReductionInitExpr(expr) && out_tv->domain()->hasReduction()) {
       const auto write_pred = unswitched_loop_
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(

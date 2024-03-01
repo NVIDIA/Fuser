@@ -387,16 +387,18 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
+  resolveComputeWith(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
+
   // Transitory testing of IdModel if enabled. No existing
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
-  // names
+  // names. Note computeWith should be resolved before building
+  // IdModel. Otherwise computeWith inlining is not reflected in the
+  // model.
   if (true || isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+    id_model_ = std::make_unique<IdModel>(fusion_);
   }
-
-  resolveComputeWith(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
     debug() << compute_at_map_->toString() << std::endl;
@@ -495,6 +497,16 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "vectorize_predicate")) {
+    if (TensorIndexer::isSupported(fusion_)) {
+      tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    }
+  }
 }
 
 kir::Kernel* GpuLower::kernel() const {
