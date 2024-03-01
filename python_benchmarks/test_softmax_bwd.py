@@ -92,9 +92,7 @@ def test_softmax_bwd_nvf_benchmark(
         fd.validate([eager_output, inputs[1]], [inputs[0].grad])
 
     if not disable_benchmarking:
-        run_benchmark(
-            benchmark, fd.execute, inputs, iobytes=softmax_bwd_iobytes(size, dtype)
-        )
+        run_benchmark(benchmark, fd.execute, inputs)
 
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
