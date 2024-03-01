@@ -59,7 +59,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             [512, 1024]: Just filled the machine
             [16384]: Steady state (full machine)
         Hidden size: Additonally benchmark hidden sizes at
-            [step_size + 2, step_size + 4, step_size + 8] to check vectorization.
+            [step_size + 2, step_size + 4, step_size + 8, step_size + 16] to check vectorization.
     Note: The hidden size is restricted to 2 * 18432 for the batch size 16384 to avoid OOM.
     """
     inputs = []
@@ -87,14 +87,14 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             ):  # (768, 4*18432)
                 hidden_range.append(hs)
                 if BENCHMARK_MODE == "weekly":
-                    # Additionally benchmark hidden sizes at steps (256 + 2, 256 + 4, 256 + 8)
+                    # Additionally benchmark hidden sizes at steps (256 + 2, 256 + 4, 256 + 8, 256 + 16)
                     hidden_range.extend([hs + 2, hs + 4, hs + 8, hs + 16])
             input_ranges.append((batch_range, hidden_range))
 
             # Reduce max hidden size for largest batch size (16384) to avoid OOM in RMSNorm.
-            # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 8) for weekly.
+            # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 16) for weekly.
             input_ranges.append(
-                ([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 8, hidden_range))
+                ([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 16, hidden_range))
             )
 
             for batch_range, hidden_range in input_ranges:
