@@ -16,6 +16,8 @@
 
 namespace nvfuser {
 
+using testing::Contains;
+
 using MoveSplitCatTest = NVFuserTest;
 
 TEST_F(MoveSplitCatTest, Cancellable_Adjacent) {
@@ -114,6 +116,50 @@ TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+}
+
+MATCHER(IsPermute, "") {
+  if (auto* set = dynamic_cast<LoadStoreOp*>(arg)) {
+    if (auto* set_out = dynamic_cast<TensorView*>(set->out())) {
+      return set_out->hasRFactor();
+    }
+  }
+  return false;
+}
+
+TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 3, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 3, 5});
+  s0 = permute(s0, {1, 0, 2});
+  s1 = permute(s1, {1, 0, 2});
+  TensorView* out = cat({s0, s1}, /*dim=*/-1);
+  out->setAllocationDomain({out->axis(2), out->axis(0), out->axis(1)}, true);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3, 5}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  // Check the two permutes are merged to one.
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  ASSERT_EQ(runtime->executors().size(), 1)
+      << "After merging, the whole fusion can be scheduled unsegmented.";
+  const FusionExecutor& executor = runtime->executors().front();
+  kir::Kernel* kernel = executor.kernel();
+  EXPECT_THAT(kernel->exprs(), Contains(IsPermute()).Times(1));
+
+  // Due to the incompatible output allocation order, the output can't be an
+  // alias.
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_MultiplePermutesInBetween) {
