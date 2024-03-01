@@ -1531,7 +1531,6 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-// checked_rels is used internally to prevent infinite recursion
 bool lessThan(
     Val* x,
     Val* y,
