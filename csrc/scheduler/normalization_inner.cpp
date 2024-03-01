@@ -440,16 +440,17 @@ bool compareTwoHeuristics(
 // Generate a heuristic for each possible persistent batch size.
 // (1) If the maximum occupancy is less than the target occupancy, use the batch
 //     leads to the largest occupancy.
-// (2) Otherwise, sort the heuristics to prioritize occupancy.
+// (2) If prioritize occupancy, sort the heuristics based on:
 //     (a) Prefer occupancy larger than target.
 //     (b) Prefer divisible by persistent batch size.
 //     (c) Prefer large register overhead.
 //     (d) Prefer large occupancy.
 //     (e) Tiebreaker, use large persistent batch size.
-// (3) For softmax, a special rule is used to reduce inter-thread communication
+// (3) If prioritize block size, sort the heuristics based on:
 //     (a) Prefer bdimx_val equals power of 2
 //     (b) Prefer occupancy larger than target.
 //     (c) Tiebreaker, use small bdimx
+// Currently, prioritize occupancy is used for all fusions except softmax.
 std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -559,9 +560,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   if (current_max_occupancy < target_warps_per_sm) {
     best_heuristic = all_heuristics.at(idx_max_occupancy);
   } else {
-    // Ideally, should prioritize occupancy for all cases.
-    // But it leads to regression for softmax.
-    bool prioritize_occupancy = has_rng_op || !has_exp_op;
+    // Prioritize occupancy for all fusions except softmax.
+    // Not sure why softmax has regression (about 10%) if prioritize occupancy.
+    // So condition [!has_exp_op] is added to filter out softmax.
+    bool prioritize_occupancy = has_rng_op || (!has_exp_op);
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
