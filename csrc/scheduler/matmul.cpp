@@ -34,7 +34,7 @@ void MatmulScheduler::schedule(Fusion* fusion) {
   if (isOptionEnabled(EnableOption::MatmulExprEval)) {
     NVF_CHECK(fusion->outputs().size() == 1)
     fusion->aliasOutputToInput(
-        fusion->outputs()[0], nullptr, AllocationType::Evaluate);
+        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
     scheduler_debug_utils::log(
         __FILE__,
         ":",

@@ -775,51 +775,50 @@ void Fusion::aliasOutputToInput(
       type != AllocationType::NoAlias,
       "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
 
-  if (type == AllocationType::InplaceUpdate) {
-    // `input` can be a cast of a fusion input.
-    if (!input->isFusionInput()) {
-      auto input_expr = input->definition();
-      NVF_ERROR(
-          input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
-      auto input_uop = input_expr->as<UnaryOp>();
-      NVF_ERROR(
-          input_uop->getUnaryOpType() == UnaryOpType::Cast,
-          "expected aliased input to be output of cast op");
-      input = input_uop->in();
-    }
-    NVF_ERROR(
-        input->getDataType().has_value() && output->getDataType().has_value(),
-        "requires DataType to be available for aliased output to input");
-
-    if (input->getDataType().value() != output->getDataType().value()) {
-      output = castOp(input->getDataType().value(), output);
-    }
-
-    NVF_ERROR(
-        isAliasCompatible(input, output),
-        "The input and output values are not alias-compatible.");
-    // Let integration hide any output that wasn't a fusion output when
-    // `aliasOutputToInput` was called. For example, running mean and var for
-    // batch norm.
-    io_alias_[output] = AliasInfo{
-        .type = type,
-        .aliased_io = input,
-        .hide_output = !output->isFusionOutput()};
-
-    // TODO: output should be marked at the end of fusion definition #1488
-    if (!output->isFusionOutput()) {
-      addOutput(output);
-    }
+  if (type == AllocationType::Evaluate) {
+    NVF_CHECK(
+        output->isFusionOutput(),
+        "Only fusion outputs can be expression evaluated.");
+    io_alias_[output] =
+        AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
     return;
   }
+  
+  NVF_ERROR(type == AllocationType::InplaceUpdate);
+  // `input` can be a cast of a fusion input.
+  if (!input->isFusionInput()) {
+    auto input_expr = input->definition();
+    NVF_ERROR(
+        input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
+    auto input_uop = input_expr->as<UnaryOp>();
+    NVF_ERROR(
+        input_uop->getUnaryOpType() == UnaryOpType::Cast,
+        "expected aliased input to be output of cast op");
+    input = input_uop->in();
+  }
+  NVF_ERROR(
+      input->getDataType().has_value() && output->getDataType().has_value(),
+      "requires DataType to be available for aliased output to input");
 
-  // AllocationType::Evaluate
-  NVF_ERROR(type == AllocationType::Evaluate);
-  NVF_CHECK(
-      output->isFusionOutput(),
-      "Only fusion outputs can be expression evaluated.");
-  io_alias_[output] =
-      AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
+  if (input->getDataType().value() != output->getDataType().value()) {
+    output = castOp(input->getDataType().value(), output);
+  }
+
+  NVF_ERROR(
+      isAliasCompatible(input, output),
+      "The input and output values are not alias-compatible.");
+  // Let integration hide any output that wasn't a fusion output when
+  // `aliasOutputToInput` was called. For example, running mean and var for
+  // batch norm.
+  io_alias_[output] = AliasInfo{
+      .type = type,
+      .aliased_io = input,
+      .hide_output = !output->isFusionOutput()};
+
+  // TODO: output should be marked at the end of fusion definition #1488
+  if (!output->isFusionOutput()) {
+    addOutput(output);
+  }
 }
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
