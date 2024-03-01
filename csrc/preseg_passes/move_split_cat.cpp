@@ -72,6 +72,38 @@ bool horizontallyMergeable(
   return false;
 }
 
+// Returns the inputs of `cat` and the dimension over which the inputs are
+// concatenated.
+std::pair<std::vector<PadOp*>, int64_t> getCatInputsAndAxis(CatOp* cat) {
+  std::vector<PadOp*> pads;
+  pads.reserve(cat->inputs().size());
+  int64_t cat_axis = -1;
+
+  for (Val* in : cat->inputs()) {
+    // nvFuser implements cat as PadOp->CatOp.
+    PadOp* pad = in->definition()->as<PadOp>();
+    pads.push_back(pad);
+
+    std::vector<int> padded_axes = pad->getPaddedAxes();
+    NVF_ERROR(
+        padded_axes.size() == 1,
+        "One of `cat`'s consumers pads 0 or multiple dimensions: ",
+        pad);
+    if (cat_axis == -1) {
+      cat_axis = padded_axes[0];
+    } else {
+      NVF_ERROR(
+          cat_axis == padded_axes[0],
+          "Pads before a Cat should have the same padded axis, but found ",
+          cat_axis,
+          " vs ",
+          padded_axes[0]);
+    }
+  }
+  NVF_ERROR(cat_axis != -1);
+  return {pads, cat_axis};
+}
+
 // If `exprs` are `SliceOp`s that form a split, returns the base tensor of the
 // split. Returns null otherwise.
 TensorView* exprsFormSplit(
@@ -177,18 +209,19 @@ TensorView* exprsFormSplit(
 TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
   NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
 
-  // `frontier` initially contains the preceding Exprs of the `PadOp`s. Then, we
+  auto [pads, cat_axis] = getCatInputsAndAxis(cat);
+
+  // `frontier` initially contains the preceding Exprs of `pads`. Then, we
   // repeatedly try to move the frontier up in lockstep as long as Exprs in the
   // frontier can be horizontally merged and applied on the unsplit tensor.
   std::vector<Expr*> frontier;
-  frontier.reserve(cat->inputs().size());
-  for (Val* in : cat->inputs()) {
-    auto* pad = in->definition()->as<PadOp>();
+  frontier.reserve(pads.size());
+  for (PadOp* pad : pads) {
     frontier.push_back(pad->in()->definition());
   }
 
   // Exit the loop when any Expr in `frontier` is a slice or a null.
-  int64_t split_axis = cat->concatenatedDim();
+  int64_t split_axis = cat_axis;
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
