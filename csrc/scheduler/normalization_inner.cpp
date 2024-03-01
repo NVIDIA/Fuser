@@ -565,8 +565,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        // why clangtidy says "lambda capture 'target_warps_per_sm' is not
-        // required to be captured for this use"?
         [&register_overhead, &prioritize_occupancy](
             const HeuristicParams& a, const HeuristicParams& b) {
           return compareTwoHeuristics(
@@ -577,10 +575,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               prioritize_occupancy);
         });
     best_heuristic = all_heuristics.at(0);
-  }
-
-  for (auto h : all_heuristics) {
-    h.print();
   }
 
   // Fill in the reduction params
