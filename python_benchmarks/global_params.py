@@ -88,7 +88,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 hidden_range.append(hs)
                 if BENCHMARK_MODE == "weekly":
                     # Additionally benchmark hidden sizes at steps (256 + 2, 256 + 4, 256 + 8)
-                    hidden_range.extend([hs + 2, hs + 4, hs + 8])
+                    hidden_range.extend([hs + 2, hs + 4, hs + 8, hs + 16])
             input_ranges.append((batch_range, hidden_range))
 
             # Reduce max hidden size for largest batch size (16384) to avoid OOM in RMSNorm.
