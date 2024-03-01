@@ -3543,7 +3543,7 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
-  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 2)
+  ASSERT_EQ(rparams->unroll_factor_redu_dom, 2)
       << "Unexpected vectorization factor";
 
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);

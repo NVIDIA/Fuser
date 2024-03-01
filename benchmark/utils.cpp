@@ -51,9 +51,9 @@ std::string toString(const ReductionParams& rparams) {
   }
 
   ss << " // Inner Reduction Domain: "
-     << (rparams.cross_block_inner_reduction ? "cross block reduction / " : "")
+     << (rparams.cross_block_reduction ? "cross block reduction / " : "")
      << (rparams.pad_inner_reduction_to_warp ? "pad to warp / " : "")
-     << (rparams.cross_grid_inner_reduction ? "cross grid reduction / " : "");
+     << (rparams.cross_grid_reduction ? "cross grid reduction / " : "");
 
   if (rparams.batches_per_block_inner_reduction > 1 ||
       rparams.persistent_kernel) {
@@ -61,18 +61,16 @@ std::string toString(const ReductionParams& rparams) {
        << " / ";
   }
 
-  ss << (rparams.cross_grid_inner_reduction &&
-                 rparams.split_grid_dim_inner_reduction
+  ss << (rparams.cross_grid_reduction && rparams.split_grid_dim_reduction
              ? "split grid dimension / "
              : "")
      << (rparams.vectorize_inner_reduction ? "vectorize / " : "")
-     << (rparams.unroll_factor_inner_reduction > 1 &&
+     << (rparams.unroll_factor_redu_dom > 1 &&
                  !rparams.vectorize_inner_reduction
              ? "unroll / "
              : "");
-  if (rparams.unroll_factor_inner_reduction > 1 ||
-      rparams.vectorize_inner_reduction) {
-    ss << "factor " << rparams.unroll_factor_inner_reduction;
+  if (rparams.unroll_factor_redu_dom > 1 || rparams.vectorize_inner_reduction) {
+    ss << "factor " << rparams.unroll_factor_redu_dom;
   }
   return ss.str();
 }

@@ -1061,4 +1061,65 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+TEST_F(NVFuserTest, TMP2) {
+  const int dim0 = 4096;
+  const int dim1 = 2048;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = set(tv0);
+  auto tv2 = castOp(DataType::Float, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = set(tv3);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(DataType::Half))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0});
+
+  testValidate(
+      fusion, cg_outputs, {t0}, {t0.to(at::kFloat).sum({0})}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, TMP) {
+  const int dim0 = 4096;
+  const int dim1 = 2048;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = set(tv0);
+  auto tv2 = castOp(DataType::Float, tv1);
+  auto tv3 = sum(tv2, {0});
+  auto tv4 = set(tv3);
+  fusion.addInput(tv0);
+  fusion.addOutput(tv4);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->split(-1, 8);
+    if(tv == tv0 || tv == tv1 || tv == tv4){
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(DataType::Half))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(
+      &fusion, cg_outputs, {t0}, {t0.to(at::kFloat).sum({0})}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

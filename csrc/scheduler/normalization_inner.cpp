@@ -286,11 +286,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
       bdimx);
   int64_t persistent_batch =
       ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
-  rparams->cross_block_inner_reduction = true;
-  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->cross_block_reduction = true;
+  rparams->block_dim_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp = true;
   rparams->batches_per_block_inner_reduction = persistent_batch;
-  rparams->unroll_factor_inner_reduction = vectorize_factor;
+  rparams->unroll_factor_redu_dom = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
 
   // Iter
@@ -771,15 +771,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   rparams->cparams.index_type = index_type;
 
   // Inner reduction domain
-  rparams->cross_block_inner_reduction = true;
-  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->cross_block_reduction = true;
+  rparams->block_dim_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
   rparams->batches_per_block_inner_reduction =
       batches_per_block_inner_reduction;
 
   // For persistent schedules always have to mark the reduction unrolled
   // otherwise rfactor can fail
-  rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
+  rparams->unroll_factor_redu_dom = inner_reduction_unroll_factor;
   rparams->vectorize_inner_reduction = vectorize;
 
   // Iter domain
