@@ -30,19 +30,21 @@ namespace nvfuser {
 // complex transformations.
 class OrderedIdInformation : public OptInDispatch {
  public:
-  OrderedIdInformation() = delete;
-
-  OrderedIdInformation(
+  static OrderedIdInformation get(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& alloc_domain,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info);
+      const ConcretizedBroadcastDomains& concrete_info) {
+    OrderedIdInformation info(alloc_domain, concrete_info);
+    info.traverseTo(ids);
+    return info;
+  }
 
   const std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
   idToAllocIds() const {
     return id_to_alloc_ids_;
   }
 
-  bool isConsistentlyOrdered(IterDomain* id) const {
+  virtual bool isConsistentlyOrdered(IterDomain* id) const {
     return consistently_ordered_ids_.find(id) !=
         consistently_ordered_ids_.end();
   }
@@ -52,7 +54,29 @@ class OrderedIdInformation : public OptInDispatch {
         exclusively_consumes_allocs_.end();
   }
 
- private:
+ protected:
+  OrderedIdInformation(
+      const std::vector<IterDomain*>& alloc_domain,
+      const ConcretizedBroadcastDomains& concrete_info);
+
+  virtual void traverseTo(const std::vector<IterDomain*>& ids);
+
+  virtual std::vector<IterDomain*>::const_iterator findActiveId(
+      IterDomain* id) const {
+    return std::find(active_ids_.begin(), active_ids_.end(), id);
+  }
+
+  bool isActiveId(IterDomain* id) const;
+
+  int64_t getActiveIdPos(IterDomain* id) const;
+
+  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
+ protected:
   // Returns if the id in active_ids should be in exclusively_consumes_allocs_
   bool checkExclusivelyConsumesAllocs(IterDomain* id);
 
@@ -107,7 +131,11 @@ class OrderedIdInformation : public OptInDispatch {
   // TODO: This constraint is more conservative than necessary as it's only if
   // the domain is concretized within the local indexing, not in the entire
   // fusion.
-  std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
+  const ConcretizedBroadcastDomains& concrete_info_;
+
+
+  // TODO: Temporary WAR to do ContigIDGroup-specific processing
+  bool using_id_graph_ = false;
 };
 
 // Based on provided divisible split set, goes through expressions and marks all

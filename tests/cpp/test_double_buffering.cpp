@@ -683,4 +683,39 @@ TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
+// Repro for the issue with unswitched double buffer loops
+// (https://github.com/NVIDIA/Fuser/issues/2159)
+TEST_F(DoubleBufferingTest, UnswitchRepro) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->split(-1, 8);
+  tv2->split(0, 1, false);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(2);
+
+  tv2->axis(0)->parallelize(ParallelType::Unswitch);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  tv1->doubleBuffer();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

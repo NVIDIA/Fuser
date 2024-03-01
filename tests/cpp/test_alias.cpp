@@ -1109,6 +1109,7 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  GTEST_SKIP() << "conflict with compute-sanitizer";
   ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
@@ -1179,6 +1180,7 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
 }
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
+  GTEST_SKIP() << "conflict with compute-sanitizer";
   ProfilerOptionsGuard option_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();

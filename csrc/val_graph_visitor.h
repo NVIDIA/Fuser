@@ -118,4 +118,88 @@ class ValGraphStmtSort : public ValGraphVisitor {
   ValGroups sorted_vals_;
 };
 
+enum class ExprDirection { Forward, Backward, Undefined };
+
+std::ostream& operator<<(std::ostream&, const ExprDirection);
+
+using ExprPath = std::vector<std::pair<ExprGroup, ExprDirection>>;
+
+inline ExprDirection reverse(ExprDirection direction) {
+  if (direction == ExprDirection::Forward) {
+    return ExprDirection::Backward;
+  } else if (direction == ExprDirection::Backward) {
+    return ExprDirection::Forward;
+  } else {
+    return ExprDirection::Undefined;
+  }
+}
+
+inline ExprPath reverse(const ExprPath& path) {
+  auto rev = path;
+  std::reverse(rev.begin(), rev.end());
+  for (auto& [eg, direction] : rev) {
+    direction = reverse(direction);
+  }
+  return rev;
+}
+
+class ValGraphBFS {
+ public:
+  using GroupType = std::variant<ExprGroup, ValGroup>;
+
+  static ExprPath getExprsBetweenVals(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to);
+
+  ValGraphBFS(
+      const ValGraph& graph,
+      std::vector<GroupType> from_groups,
+      std::vector<GroupType> to_groups)
+      : graph_(graph),
+        from_groups_(std::move(from_groups)),
+        to_groups_(std::move(to_groups)) {}
+
+  virtual ~ValGraphBFS() = default;
+
+  virtual void handle(const GroupType& group);
+
+  virtual void handle(const ValGroup& val_group);
+
+  virtual void handle(const ExprGroup& expr_group);
+
+  virtual void traverse();
+
+  virtual bool isReady(const GroupType& group) const;
+
+  virtual bool isReady(const ExprGroup& expr_group) const;
+
+  virtual bool isDependencySatisfied(const GroupType& group) const;
+
+  virtual bool isReady(const ValGroup& val_group) const;
+
+  virtual bool isVisited(const GroupType& group) const;
+
+  virtual void setVisited(const GroupType& group);
+
+  virtual void addNewNeighbors(const GroupType& group);
+
+  virtual void setPrevGroup(const GroupType& group);
+
+  virtual bool excludeFromTraversal(const GroupType& group) const {
+    return false;
+  }
+
+  // Extend this to support Val paths as well
+  virtual ExprPath getShortestExprPath();
+
+ protected:
+  const ValGraph& graph_;
+  const std::vector<GroupType> from_groups_;
+  const std::vector<GroupType> to_groups_;
+  std::deque<GroupType> to_visit_;
+  std::unordered_set<GroupType> visited_;
+  std::unordered_map<GroupType, std::vector<GroupType>> prev_groups_;
+};
+
 } // namespace nvfuser

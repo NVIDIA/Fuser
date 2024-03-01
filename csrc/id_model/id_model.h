@@ -35,6 +35,10 @@ struct StatefulInliningInfo {
   // root domains
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
+
+  VectorOfUniqueEntries<IterDomain*> ordered_sibling_ids;
+
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>> sibling_maps;
 };
 
 StatefulInliningInfo buildStatefulInliningInfo(
@@ -133,6 +137,10 @@ class IdModel : public PolymorphicBase {
   }
 
   std::string toString() const;
+
+  Fusion* fusion() const {
+    return tvs_.at(0)->fusion();
+  }
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
   // LOOP. This is by default called from the constructor

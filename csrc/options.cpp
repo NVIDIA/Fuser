@@ -269,6 +269,15 @@ const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().getArgs(option);
 }
 
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg) {
+  if (!isOptionEnabled(EnableOption::IdModel)) {
+    return false;
+  }
+
+  const auto& args = getEnableOptionArguments(option);
+  return std::find(args.begin(), args.end(), arg) != args.end();
+}
+
 bool isOptionDisabled(DisableOption option) {
   return DisableOptionsGuard::getCurOptions().has(option);
 }

@@ -131,7 +131,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
@@ -499,6 +501,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp

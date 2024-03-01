@@ -882,6 +882,28 @@ Val* getNumThreadsInTensorView(TensorView* tv) {
   return num_threads;
 }
 
+// Returns true if expr is an expression that initializes a reduction
+// buffer.
+bool isReductionInitExpr(const Expr* expr) {
+  // False if its output isn't a TensorView
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+  // False if it doesn't have any reduction axis
+  const auto out_tv = ir_utils::getTvOutput(expr);
+  if (!out_tv->domain()->hasReduction()) {
+    return false;
+  }
+  // False if it has have TensorView inputs as initialization should
+  // never use TensorViews
+  const auto tv_filter_inp_view =
+      ir_utils::filterByType<TensorView>(expr->inputs());
+  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

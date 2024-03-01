@@ -517,10 +517,18 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
+    // Merge with broadcast should be always trivial. Repro1713 has a
+    // merge with a broadcast domain of extent 32. If not trivial, an
+    // index for the extent-32 broadcast domain is required, but
+    // there's no index for the broadcast domain. We may also want to
+    // consider making broadcast domains always having a size-1
+    // extent.
+    if (merge->inner()->extent()->isOneInt() ||
+        (false && merge->inner()->isBroadcast())) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt() ||
+        (false && merge->outer()->isBroadcast())) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
@@ -583,7 +591,33 @@ void IdModel::buildAlmostExactGraph() {
   }
 
   for (const auto& [id1, id2] : ids_to_map) {
+#if 0
+    VERBOSE() << "Mapping almost exact: " << id1->name() << ", " << id2->name()
+              << std::endl;
+#endif
     almost_exact_graph.mapVals(id1, id2);
+#if 0
+    std::cerr << "Updated\n";
+    for (const auto& g :
+             idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().disjointSets()) {
+      std::cerr << nvfuser::toString(g) << std::endl;
+    }
+#endif
+
+#if 0
+    for (const auto& g :
+         idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().disjointSets()) {
+      auto is_84 = std::find_if(g->begin(), g->end(), [](auto val) {
+        return val->name() == 84;
+      }) != g->end();
+      auto is_86 = std::find_if(g->begin(), g->end(), [](auto val) {
+                     return val->name() == 86;
+                   }) != g->end();
+      if (is_84 && is_86) {
+        VERBOSE() << "Mapped: " << nvfuser::toString(g) << std::endl;
+      }
+    }
+#endif
   }
 
   almost_exact_graph.validateConsistency();
@@ -695,22 +729,23 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_root = producer_tv->getMaybeRFactorDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
-          ca_deps_filter.begin(), ca_deps_filter.end());
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+
+        // Grab all iteration domains in producer that its compute at iter domains
+        // depend on.
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_root.begin(), producer_root.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputePosition(consumer_tv)});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
         auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
 
@@ -733,6 +768,24 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
       }
     }
+
+    auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    if (consumer_tvs.size() > 1) {
+      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+      info.ordered_sibling_ids.pushBack(
+          {all_consumer_ids.begin(), all_consumer_ids.end()});
+      for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        auto consumer_tv_i = consumer_tvs.vector().at(i);
+        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+
+        auto sibling_map =
+            exact_graph.buildMapBetween(all_consumer_ids, all_consumer_i_ids);
+
+        for (const auto& [c_id_1, c_ids] : sibling_map) {
+          info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+        }
+      }
+    }
   }
   return info;
 }
@@ -752,6 +805,16 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
       for (Val* c_id : c_ids) {
         idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
+  }
+
+  for (IterDomain* id : info.ordered_sibling_ids) {
+    auto entry_it = info.sibling_maps.find(id);
+    if (entry_it != info.sibling_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& sibling_ids = entry_it->second;
+      for (Val* sibling_id : sibling_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(id, sibling_id);
       }
     }
   }
@@ -949,8 +1012,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   // The loop map is built for loop_graph_copy. Update the map to the
   // latest loop graph
-  final_loop_promotion_map =
-      updateValGroupIdMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+  final_loop_promotion_map = updateValGroupIdMap(
+      final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
@@ -1142,7 +1205,7 @@ void IdModel::propagateLoopPTypes() const {
 }
 
 void IdModel::buildAllGraphs() {
-  VERBOSE() << "*** Building all graphs ***";
+  VERBOSE() << "*** Building all graphs ***\n";
 
   if (tvs_.empty()) {
     return;
@@ -1167,16 +1230,18 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
+  if (!getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
+  }
+
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
-  }
-
-  buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
   }
 
   buildPermissiveGraph();
@@ -1186,12 +1251,25 @@ void IdModel::buildAllGraphs() {
         idGraph(IdMappingMode::PERMISSIVE));
   }
 
-  // Permissive graph needs the trivial exprs from the almost exact graph to
-  // build correctly. Once built though we can remove the trivial expressions
-  // from the almost exact graph.
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
-
   buildLoopGraph();
+
+  // Simplify the AlmostExact graph by removing trivial exprs. Note
+  // that since trivial exps are now gone, if trivial exprs are
+  // replayed, their trivial mappings won't be automatically detected.
+  // Explicit updates with the AlmostExact mapping rules will be
+  // required. For example, if this removal were done before
+  // buildLoopGraph, the resulting AlmostExact graph would include
+  // unmapped domains should be mapped according to the AlmostExact
+  // mapping rules.
+
+  if (getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
+  }
+  //idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {
@@ -1321,7 +1399,7 @@ Expr* findMatchingExpr(
             iel_expr->front(), maybe_promoted_input_use_group->front())) {
       continue;
     }
-    
+
     // This is just an extra sanity check. Make sure all exprs in
     // the use group are mapped
     NVF_ERROR(
@@ -1421,9 +1499,41 @@ void IdModel::propagatePromotionsInIELGraph(
     std::vector<IterDomain*> maybe_promoted_inputs;
     maybe_promoted_inputs.reserve(iel_inp_groups.size());
 
+    // FusionReshapePersistentShmoo with
+    // std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
+    // std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
+    // Incorrect loop promotion at the second segment. Need to use the
+    // step 3 result when propagating through IEL expr of merge 104
+    // and 197.
+    bool war = iel_expr->front()->isA<Split>() &&
+        iel_expr->front()->input(0)->definition() &&
+        iel_expr->front()->input(0)->definition()->isA<Merge>();
+
     for (const ValGroup& iel_inp_group : iel_inp_groups) {
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
+
+      if (war) {
+        // This is a copy of the loop_promote_inputs block below. When
+        // war is true, this block should be prioritized.
+
+        // Promote loops based on the loop promotion map. If the loop promotion
+        // map should be used and has an entry we should use that promotion.
+        if (loop_promote_inputs) {
+          const ValGroup& loop_copy_group =
+              loop_graph.toGroup(iel_inp_group->front());
+          auto inp_loop_promo_it =
+              loop_graph_promotion_map.find(loop_copy_group);
+          if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
+            maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
+            an_input_was_promoted = true;
+            VERBOSE() << "Promoted input by loop promotion: "
+                      << nvfuser::toString(iel_inp_group) << " -> "
+                      << inp_loop_promo_it->second->name() << std::endl;
+            continue;
+          }
+        }
+      }
 
       // Propagate IEL promotions when available.
       if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
@@ -1660,7 +1770,11 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
           return view_rfactor_ids.find(id->as<IterDomain>()) !=
               view_rfactor_ids.end();
         })) {
-      covered_ids[id_group] = {id_group};
+      if (!getenv("STOP_RF")) {
+        VERBOSE() << "Stop coverage analysis at " << nvfuser::toString(id_group)
+                  << std::endl;
+        covered_ids[id_group] = {id_group};
+      }
     }
 
     // Initialize broadcast groups to empty since broadcast domains
@@ -1686,6 +1800,28 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       // Don't overwrite initialized cases due to rfactor markings.
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
+        if (std::any_of(
+                output_group->begin(), output_group->end(), [](auto val) {
+                  return val->name() == 25;
+                })) {
+          VERBOSE() << "Setting covered group of "
+                    << nvfuser::toString(output_group)
+                    << ", expr: " << exact_expr->front()->toString();
+        }
+      } else {
+        if (!getenv("DISABLE_COMBINE")) {
+          VERBOSE() << "Combining coverage of "
+                    << nvfuser::toString(output_group) << ". "
+                    << nvfuser::toString(covered_ids[output_group]);
+          covered_ids[output_group].pushBack(covered);
+        } else {
+          VERBOSE() << "Avoid overwriting covered group of "
+                    << nvfuser::toString(output_group) << ". Existing: "
+                    << nvfuser::toString(covered_ids[output_group])
+                    << ". New: " << nvfuser::toString(covered)
+                    << ", expr: " << exact_expr->front()->toString()
+                    << std::endl;
+        }
       }
     }
   }
@@ -1744,12 +1880,17 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
 
   std::unordered_map<ValGroup, IterDomain*> promotion_map;
 
+  VERBOSE() << "Finding the projection for " << nvfuser::toString(loop_group)
+            << std::endl;
+
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
+  for (auto loop_group_val : *loop_group) {
+    auto loop_id = loop_group_val->as<IterDomain>();
+
     // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+    if (!terminal_loop_ids.has(loop_id)) {
       continue;
     }
 
@@ -1759,6 +1900,14 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
+    }
+
+    if (!getenv("TERMINAL_RF")) {
+      if (view_rfactor_ids_.find(loop_id) != view_rfactor_ids_.end()) {
+        VERBOSE() << "Terminal rfactor id found: " << loop_id->toString()
+                  << std::endl;
+        return loop_id;
+      }
     }
 
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);
@@ -1795,9 +1944,15 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
   ValGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
+    NVF_ERROR(
+        covered_it != exact_covered_ids.end(),
+        "Couldn't find covered ids for exact group: ",
+        nvfuser::toString(exact_group));
     loop_group_covered_ids.pushBack(covered_it->second);
   }
+
+  VERBOSE() << "loop_group_covered_ids: "
+            << nvfuser::toString(loop_group_covered_ids) << std::endl;
 
   // Check if any of the candidate Iter Domains we collected cover all the
   // exact groups of loop_group_covered_ids. If so, that's the correct
@@ -1807,10 +1962,17 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     IterDomain* terminal_id = entry.second;
     auto covered_it = exact_covered_ids.find(terminal_id_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
+
+    VERBOSE() << "Projection candidate: " << terminal_id->toString()
+              << ", covering: " << nvfuser::toString(covered_it->second)
+              << std::endl;
     if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
       return terminal_id;
     }
   }
+
+  VERBOSE() << "Could not find a promotion of loop group: "
+            << nvfuser::toString(loop_group) << std::endl;
 
   return nullptr;
 }
