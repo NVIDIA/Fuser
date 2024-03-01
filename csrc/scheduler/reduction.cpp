@@ -1211,9 +1211,10 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
 
   // allow iter domain grouped reduction for block outer reduction.
-  // the var name is confusing, should rename [cross_grid/block_inner_reduction]
-  // to [cross_grid/block_reduction]
-  const bool use_grouped_reduction = !rparams.cross_grid_inner_reduction &&
+  // TODO: the var name is confusing, should rename
+  // [cross_grid/block_inner_reduction] to [cross_grid/block_reduction], see
+  // https://github.com/NVIDIA/Fuser/issues/1863
+  const bool use_iter_grouped_reduction = !rparams.cross_grid_inner_reduction &&
       !rparams.fastest_dim && rparams.cross_block_inner_reduction;
 
   reduction_scheduler_utils::multiReductionInliner(
@@ -1222,7 +1223,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       reference_tv,
       unroll,
       vectorize,
-      use_grouped_reduction,
+      use_iter_grouped_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
