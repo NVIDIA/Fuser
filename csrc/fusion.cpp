@@ -823,9 +823,7 @@ void Fusion::aliasOutputToInput(
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
   static AliasInfo no_alias_info{
-      .type = AllocationType::New,
-      .aliased_io = nullptr,
-      .hide_output = false};
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     return search->second;
   }

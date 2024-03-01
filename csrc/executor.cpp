@@ -1060,8 +1060,7 @@ std::vector<at::Tensor> allocateOutputs(
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type ==
-                AllocationType::New &&
+            kernel->getOutputAlias(lhs.second).type == AllocationType::New &&
             kernel->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
