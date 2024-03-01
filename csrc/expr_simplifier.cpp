@@ -1399,18 +1399,11 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-struct hashValPair {
-  size_t operator()(const std::pair<Val*, Val*>& p) const {
-    return (size_t)p.first ^ (size_t)p.second;
-  }
-};
-
-using ValPairMap = std::unordered_map<std::pair<Val*, Val*>, bool, hashValPair>;
 bool lessThan(
     Val* x,
     Val* y,
     const Context& context,
-    ValPairMap* checked_rels = nullptr);
+    int depth = 0);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1543,7 +1536,27 @@ bool lessThan(
     Val* x,
     Val* y,
     const Context& context,
-    ValPairMap* checked_rels) {
+    int depth) {
+  // Max recursion depth of 2 levels was tested to be sufficient transitivity
+  // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
+  // that test, I observed the following test CPU runtimes (average of ten
+  // spaced runs) on a typical workstation:
+  //   recursion depth  time (sec)  Simplified?
+  //        0              1.5         no
+  //        1              1.5         no
+  //        2              1.9         yes
+  //        3              9.3         yes
+  //        4            133           yes
+  // This reflects the combinatorial explosion of brute-forcing the lessThan
+  // transitive closure. For now, we are setting this value to 2 since it
+  // appears to have a relatively minor impact on compile time while still
+  // providing the desired speedup for HSH matmul.
+  const int max_recursion_depth = 2;
+  if (depth >= 0) {
+    // This is used to track recursion depth. Passing depth=-1 disables
+    // incrementing, allowing infinite recursion.
+    depth++;
+  }
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1569,24 +1582,15 @@ bool lessThan(
       return true;
     }
   }
-  std::unique_ptr<ValPairMap> checked_rel_ptr = nullptr;
   for (const auto& [a, b] : context.getKnownLessEqual()) {
-    // he we try to minimize re-proving these relations
-    if (checked_rels == nullptr) {
-      checked_rel_ptr = std::make_unique<ValPairMap>();
-      checked_rels = checked_rel_ptr.get();
+    if (depth >= max_recursion_depth) {
+      // Limit the recursion depth to avoid infinite recursion
+      // In practice only a few levels are usually enough transitivity to prove
+      // what is needed for index expressions.
+      continue;
     }
-    auto xy = std::make_pair(x, y);
-    checked_rels->emplace(
-        xy, false); // skip current value to avoid infinite recursion
-    auto ita = checked_rels->find(std::make_pair(x, a));
-    bool lta = ita != checked_rels->end()
-        ? ita->second
-        : lessThan(x, a, context, checked_rels);
-    auto itb = checked_rels->find(std::make_pair(b, y));
-    bool ltb = itb != checked_rels->end()
-        ? itb->second
-        : lessThan(b, y, context, checked_rels);
+    bool lta = lessThan(x, a, context, depth);
+    bool ltb = lessThan(b, y, context, depth);
     // x < a implies x <= b
     bool lea = lta ? true : lessEqual(x, a, context);
     bool leb = ltb ? true : lessEqual(b, y, context);
@@ -1595,7 +1599,6 @@ bool lessThan(
         (lta && leb) ||
         // x <= a & a <= b & b < y  -->  x < y
         (lea && ltb)) {
-      (*checked_rels)[xy] = true;
       return true;
     }
   }
