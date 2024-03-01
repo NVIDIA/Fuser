@@ -508,6 +508,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_pointwise.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/test/test_replay.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
   ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/test/test_segmentation.cpp
