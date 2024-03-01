@@ -118,6 +118,9 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_block_welford || out_dom->hasBlockReduction();
   }
 
+  // Don't need to differentiate between iteration and expr grouped reductions.
+  // May extend to support both iteration and expr grouped block reductions.
+  // Grouped grid reductions are handled by GroupedGridReduction.
   void handle(GroupedReductionOp* grouped_rop) final {
     // skip expr grouped reduction
     if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
