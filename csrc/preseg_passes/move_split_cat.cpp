@@ -108,7 +108,7 @@ std::pair<std::vector<PadOp*>, int64_t> getCatInputsAndAxis(CatOp* cat) {
 // split. Returns null otherwise.
 TensorView* exprsFormSplit(
     const std::vector<Expr*>& exprs,
-    const int split_axis) {
+    const int64_t split_axis) {
   // Checks that all exprs are slices and are based on the
   // same tensor. Otherwise, they don't form a split.
   TensorView* split_in = nullptr;
