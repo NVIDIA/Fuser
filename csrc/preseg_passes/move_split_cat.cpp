@@ -17,6 +17,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -262,25 +263,22 @@ void CancelSplitCat::run() {
       continue;
     }
 
-    TensorView* merged_out = split_in;
+    Val* merged_out = split_in;
     for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
          i++) {
-      Expr* to_replay = *i;
-      // TODO(wujingyue): instead of an op-type dispatch, try a more general
-      // approach suggested by @jacobhinkle:
-      // https://github.com/NVIDIA/Fuser/pull/1782#discussion_r1496123087.
-      if (to_replay->isA<LoadStoreOp>()) {
-        auto* set_out = to_replay->output(0)->as<TensorView>();
-        std::vector<int64_t> permutation = *ir_utils::computePermutation(
-            set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
-        merged_out = permute(merged_out, permutation);
-        continue;
-      }
-      NVF_ERROR(false, "Replay is not implemented for this Expr: ", to_replay);
+      Expr* merged = replayExprWithNewInput(*i, merged_out);
+      NVF_ERROR(
+          merged->outputs().size() == 1,
+          "Currently, we merge only unary ops, so it would be a programming "
+          "mistake when the number of outputs is ",
+          merged->outputs().size());
+      merged_out = merged->output(0);
     }
-
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        cat->output(0), merged_out);
+    // `cat->output(0)` may be a fusion output with allocation domain.
+    // Therefore, instead of replacing the output, we create a Set to preserve
+    // the output allocation domain.
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, cat->output(0), merged_out);
   }
 }
 
