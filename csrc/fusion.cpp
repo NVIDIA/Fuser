@@ -783,7 +783,7 @@ void Fusion::aliasOutputToInput(
         AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
     return;
   }
-  
+
   NVF_ERROR(type == AllocationType::InplaceUpdate);
   // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
