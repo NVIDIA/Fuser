@@ -772,8 +772,8 @@ void Fusion::aliasOutputToInput(
     Val* input,
     const AllocationType type) {
   NVF_CHECK(
-      type != AllocationType::NoAlias,
-      "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
+      type != AllocationType::New,
+      "New is returned automatically for a missing key. Don't add it explicitly.");
 
   if (type == AllocationType::Evaluate) {
     NVF_CHECK(
@@ -784,7 +784,7 @@ void Fusion::aliasOutputToInput(
     return;
   }
 
-  NVF_ERROR(type == AllocationType::InplaceUpdate);
+  NVF_ERROR(type == AllocationType::ReuseBuffer);
   // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
@@ -823,7 +823,7 @@ void Fusion::aliasOutputToInput(
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
   static AliasInfo no_alias_info{
-      .type = AllocationType::NoAlias,
+      .type = AllocationType::New,
       .aliased_io = nullptr,
       .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {

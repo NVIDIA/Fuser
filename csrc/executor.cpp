@@ -986,7 +986,7 @@ at::Tensor allocateOutput(
   }
 
   switch (alias_info.type) {
-    case AllocationType::NoAlias: {
+    case AllocationType::New: {
       auto alloc_tensor = at::native::empty_strided_cuda(
           out_info.sizes,
           out_info.strides,
@@ -999,7 +999,7 @@ at::Tensor allocateOutput(
       }
       return alloc_tensor;
     }
-    case AllocationType::InplaceUpdate:
+    case AllocationType::ReuseBuffer:
       // Unlike for `AllocationType::Evaluate`, don't use
       // ExpressionEvaluator to compute the output tensor. This is because
       // the output tensor may hold different data from the input, e.g., an
@@ -1061,8 +1061,8 @@ std::vector<at::Tensor> allocateOutputs(
           const std::pair<int64_t, Val*>& rhs) {
         return (
             kernel->getOutputAlias(lhs.second).type ==
-                AllocationType::NoAlias &&
-            kernel->getOutputAlias(rhs.second).type != AllocationType::NoAlias);
+                AllocationType::New &&
+            kernel->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
