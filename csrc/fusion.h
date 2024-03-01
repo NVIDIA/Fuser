@@ -90,10 +90,14 @@ enum class AllocationType : int {
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
-  // For example, the output of a ViewOp is merely a pointer arithmetic of the
-  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
-  // cheaply compute the output tensor.
-  PointerArithmetic,
+  // This is used to cheaply compute the output tensor using
+  // `ExpressionEvaluator` (instead of a kernel) for:
+  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // pointer arithmetic of the input.  In this case, aliased_io is a non-null
+  // tensor.
+  // 2. To evaluate output tensors which are not aliases. For example, default
+  // scheduling in matmul when EnableOption::MatmulExprEval is set.
+  Evaluate,
 };
 
 struct AliasInfo {
