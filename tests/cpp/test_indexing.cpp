@@ -30,8 +30,8 @@ TEST_F(IndexingTest, Test1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  //int w = 3, x = 4, y = 7, z = 8;
-  //auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // int w = 3, x = 4, y = 7, z = 8;
+  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto tv0 = makeSymbolicTensor(3);
   auto tv1 = makeSymbolicTensor(4);
@@ -71,11 +71,17 @@ TEST_F(IndexingTest, Test1) {
 
   for (auto expr : fusion.exprs()) {
     std::cerr << expr->toString();
+
     for (auto tv_out : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      std::cerr << "Consumer indexing of " << tv_out->toString() << std::endl;
       indexing.getIndex(tv_out, expr);
     }
+    for (auto tv_inp : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      std::cerr << "Producer indexing of " << tv_inp->toString() << std::endl;
+      indexing.getIndex(tv_inp, expr);
+    }
   }
-  
+
 #if 0
 
   FusionExecutor fe;
@@ -89,7 +95,7 @@ TEST_F(IndexingTest, Test1) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
-#endif  
+#endif
 }
 
 } // namespace nvfuser

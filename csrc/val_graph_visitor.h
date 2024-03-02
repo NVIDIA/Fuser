@@ -121,7 +121,7 @@ class ValGraphStmtSort : public ValGraphVisitor {
 class ValGraphBFS {
  public:
   using GroupType = std::variant<ExprGroup, ValGroup>;
-  
+
   static ExprGroups getExprsBetweenVals(
       const ValGraph& graph,
       const ValGroups& from,
@@ -131,13 +131,16 @@ class ValGraphBFS {
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<GroupType> from_groups,
-      std::vector<GroupType> to_groups): graph_(graph), from_groups_(std::move(from_groups)), to_groups_(std::move(to_groups)) {}
+      std::vector<GroupType> to_groups)
+      : graph_(graph),
+        from_groups_(std::move(from_groups)),
+        to_groups_(std::move(to_groups)) {}
 
   virtual void handle(const GroupType& group);
 
   virtual void handle(const ValGroup& val_group);
-  
-  virtual void handle(const ExprGroup& expr_group);    
+
+  virtual void handle(const ExprGroup& expr_group);
 
   void traverse();
 
