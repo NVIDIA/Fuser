@@ -278,7 +278,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     //   semantical
     //   3. tensor output that's aliasing (Does aliased src matter?)
     if (out_tv == nullptr || out_tv->hasAllocation() ||
-        fusion->getOutputAlias(out_val).type != AllocationType::NoAlias) {
+        fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
 
