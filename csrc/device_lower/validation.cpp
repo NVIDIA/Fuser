@@ -1179,18 +1179,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
 
-      NVF_CHECK(
-          is_allreduce,
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for allreduce reductions: ",
-          rop->toString());
-
-      NVF_CHECK(
-          tv->domain()->hasGridReduction(),
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for grid reductions: ",
-          rop->toString());
-
       std::vector<BinaryOpType> op_types({rop->getReductionOpType()});
       std::vector<Val*> init_vals({rop->init()});
       std::vector<Val*> outputs({rop->out()});

@@ -357,7 +357,7 @@ void multiReductionInliner(
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -375,7 +375,7 @@ void multiReductionInliner(
       reference_tv,
       unroll,
       vectorize,
-      is_outer_grid_persistence,
+      use_grouped_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
@@ -440,7 +440,7 @@ void propagateParallelization(
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
@@ -518,9 +518,7 @@ void propagateParallelization(
       if (are_unrolled.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
           auto id = tv->axis((int)i);
-          // Use Group only for grid reductions (i.e., not for rfactor'ed
-          // reductions)
-          if (is_outer_grid_persistence &&
+          if (use_grouped_reduction &&
               std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
                   reduction_tvs.end() &&
               id->getParallelType() == ParallelType::Vectorize) {
