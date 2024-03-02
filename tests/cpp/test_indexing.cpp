@@ -14,8 +14,8 @@
 
 #include <fusion.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <id_model/to_string.h>
-#include <indexing.h>
 #include <inlining.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
@@ -96,6 +96,38 @@ TEST_F(IndexingTest, Test1) {
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 #endif
+}
+
+TEST_F(IndexingTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // int w = 3, x = 4, y = 7, z = 8;
+
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv2->inlineAt(1);
+  tv2->setMemoryType(MemoryType::Global);
+
+  fusion.print();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  //testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

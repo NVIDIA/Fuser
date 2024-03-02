@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <id_model/indexing.h>
 #include <id_model/to_string.h>
-#include <indexing.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
@@ -53,37 +53,100 @@ bool isAllocated(IterDomain* id, TensorView* tv) {
       !id->isBroadcast() && !id->isReduction();
 }
 
-std::vector<IterDomain*> getIndexDomains(
+Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
+  int64_t stride_dim = -1;
+  for (const auto i : c10::irange(alloc_dim + 1)) {
+    if (alloc_dom.at(i)->isReduction()) {
+      continue;
+    }
+    ++stride_dim;
+  }
+  if (stride_dim == -1) {
+    return nullptr;
+  }
+
+  return IrBuilder::getItemExpr(
+      IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
+      stride_dim);
+}
+
+std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     TensorView* tv,
     Expr* expr,
     const IdModel& id_model) {
-  // TODO: Contiguity
+  // TODO: Contig merged indexing
+
+  std::vector<IterDomain*> index_domains;
+  std::vector<std::optional<bool>> contiguity;
 
   if (tv->hasAllocation()) {
-    return tv->getAllocationDomain();
-  }
-
-  // If allocation domain is not set, assume that:
-  // Local/Shared: leaf domains to the right of the CA position
-  // Global: rfactor domains
-
-  if (tv->getMemoryType() == MemoryType::Global) {
-    return tv->getMaybeRFactorDomain();
+    index_domains = tv->getAllocationDomain();
+    contiguity = tv->domain()->contiguity();
   } else {
-    std::vector<IterDomain*> index_domains;
-    index_domains.reserve(tv->nDims() - tv->getComputeAtPosition());
-    for (const auto i : c10::irange(tv->getComputeAtPosition(), tv->nDims())) {
-      auto leaf_id = tv->axis((int)i);
-
-      if (!isAllocated(leaf_id, tv)) {
-        continue;
-      }
-
-      auto promotion_id = getLoopPromotion(leaf_id, id_model);
-      index_domains.push_back(promotion_id);
+    // If allocation domain is not set, assume that:
+    // Local/Shared: leaf domains to the right of the CA position
+    // Global: rfactor domains
+    if (tv->getMemoryType() == MemoryType::Global) {
+      index_domains = tv->getMaybeRFactorDomain();
+      contiguity = tv->domain()->contiguity();
+    } else {
+      index_domains = {
+          tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
+          tv->getLeafDomain().end()};
+      contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
     }
-    return index_domains;
   }
+
+  NVF_ERROR(index_domains.size() == contiguity.size());
+
+  std::vector<Val*> strides(index_domains.size(), nullptr);
+  Val* cur_contig_stride = tv->fusion()->oneVal();
+  for (const auto i : c10::irange(index_domains.size())) {
+    auto dim = index_domains.size() - i - 1;
+    auto index_domain = index_domains.at(dim);
+
+    if (index_domain->isReduction()) {
+      continue;
+    }
+
+    if (!contiguity.at(dim).has_value()) {
+      NVF_ERROR(index_domains.at(dim)->isBroadcast());
+    } else if (isAllocated(index_domain, tv)) {
+      if (contiguity.at(dim).value()) {
+        strides[dim] = cur_contig_stride;
+        cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+            index_domains.at(dim)->extent(), cur_contig_stride);
+      } else {
+        strides[dim] = getAllocationStride(tv, (int64_t)dim);
+        cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+            index_domains.at(dim)->extent(), strides[dim]);
+      }
+    }
+  }
+
+  std::vector<IterDomain*> actual_index_domains;
+  std::vector<Val*> actual_strides;
+  for (const auto i : c10::irange(index_domains.size())) {
+    auto index_domain = index_domains.at(i);
+    if (!isAllocated(index_domain, tv)) {
+      continue;
+    }
+    auto promotion_id = getLoopPromotion(index_domain, id_model);
+    actual_index_domains.push_back(promotion_id);
+    actual_strides.push_back(strides.at(i));
+    NVF_ERROR(
+        actual_strides.back() != nullptr,
+        "Stride unknown for ",
+        index_domain->toString(),
+        " (promoted to ",
+        promotion_id->toString(),
+        ")");
+  }
+
+  NVF_ERROR(actual_index_domains.size() == actual_strides.size());
+
+  return {actual_index_domains, actual_strides};
 }
 
 ExprGroups getExprsBetween(
@@ -319,17 +382,21 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
       expr->outputs().end();
 
   std::cerr << "getIndex of " << tv->toString() << " as "
-            << (as_consumer ? "consumer" : "producer") << " in "
-            << expr->toString();
+            << (as_consumer ? "consumer" : "producer") << std::endl;
 
   auto loop_domains = getLoopDomains(expr, id_model_);
 
   std::cerr << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
-  auto index_domains = getIndexDomains(tv, expr, id_model_);
+  const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
 
   std::cerr << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
+  std::cerr << "Strides:";
+  for (const auto& stride : strides) {
+    std::cerr << " " << stride->toInlineString();
+  }
+  std::cerr << std::endl;
 
   auto indexing_path =
       getExprsBetween(loop_domains, index_domains, exact_graph);
@@ -364,14 +431,21 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
     index_compute.propagate(expr_group);
   }
 
-  for (const auto& index_domain : index_domains) {
+  Val* index = tv->fusion()->zeroVal();
+  for (const auto i : c10::irange(index_domains.size())) {
+    auto index_domain = index_domains.at(i);
     auto idx = index_compute.getIndex(index_domain);
     NVF_ERROR(idx != nullptr, "Index not found for ", index_domain->toString());
     std::cerr << "Index of " << index_domain->toString() << ": "
               << idx->toInlineString() << std::endl;
+
+    index = SimplifyingIrBuilder::addExpr(
+        index, SimplifyingIrBuilder::mulExpr(idx, strides.at(i)));
   }
 
-  return nullptr;
+  std::cerr << "Index: " << index->toInlineString() << std::endl;
+
+  return index;
 }
 
 } // namespace nvfuser
