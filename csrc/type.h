@@ -70,6 +70,8 @@ enum class PrimDataType {
   Float,
   Half,
   BFloat16,
+  Float8_e4m3fn,
+  Float8_e5m2,
   // Integral types
   Int,
   Int32,
@@ -175,6 +177,8 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
+  static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
+  static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
@@ -247,7 +251,8 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 // Returns if the datatype is a floating point type
 inline bool isFloatingPointType(DataType dtype) {
   return dtype == DataType::Double || dtype == DataType::Float ||
-      dtype == DataType::Half || dtype == DataType::BFloat16;
+      dtype == DataType::Half || dtype == DataType::BFloat16 ||
+      dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
 }
 
 // Returns if the datatype is an integer type
@@ -373,6 +378,14 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
     at::BFloat16);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float8_e4m3fn,
+    at::ScalarType::Float8_e4m3fn,
+    at::Float8_e4m3fn);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float8_e5m2,
+    at::ScalarType::Float8_e5m2,
+    at::Float8_e5m2);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int,
     at::ScalarType::Long,
@@ -942,6 +955,10 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       return sizeof(at::Half);
     case DataType::BFloat16:
       return sizeof(at::BFloat16);
+    case DataType::Float8_e4m3fn:
+      return sizeof(at::Float8_e4m3fn);
+    case DataType::Float8_e5m2:
+      return sizeof(at::Float8_e5m2);
     case DataType::Index:
       NVF_ERROR(
           false, "The actual type of Index is only known at compile time.");
