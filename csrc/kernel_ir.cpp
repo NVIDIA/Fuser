@@ -1089,7 +1089,9 @@ bool ForLoop::isGroup() const {
 
   return ExprFinder::exists(
       this,
-      {typeid(kir::GroupedGridReduction), typeid(kir::GroupedGridWelford)});
+      {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)

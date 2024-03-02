@@ -772,28 +772,36 @@ void Fusion::aliasOutputToInput(
     Val* input,
     const AllocationType type) {
   NVF_CHECK(
-      type != AllocationType::NoAlias,
-      "NoAlias is returned automatically for a missing key. Don't add it explicitly.");
+      type != AllocationType::New,
+      "New is returned automatically for a missing key. Don't add it explicitly.");
 
-  if (type == AllocationType::InplaceUpdate) {
-    // `input` can be a cast of a fusion input.
-    if (!input->isFusionInput()) {
-      auto input_expr = input->definition();
-      NVF_ERROR(
-          input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
-      auto input_uop = input_expr->as<UnaryOp>();
-      NVF_ERROR(
-          input_uop->getUnaryOpType() == UnaryOpType::Cast,
-          "expected aliased input to be output of cast op");
-      input = input_uop->in();
-    }
+  if (type == AllocationType::Evaluate) {
+    NVF_CHECK(
+        output->isFusionOutput(),
+        "Only fusion outputs can be expression evaluated.");
+    io_alias_[output] =
+        AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
+    return;
+  }
+
+  NVF_ERROR(type == AllocationType::ReuseBuffer);
+  // `input` can be a cast of a fusion input.
+  if (!input->isFusionInput()) {
+    auto input_expr = input->definition();
     NVF_ERROR(
-        input->getDataType().has_value() && output->getDataType().has_value(),
-        "requires DataType to be available for aliased output to input");
+        input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
+    auto input_uop = input_expr->as<UnaryOp>();
+    NVF_ERROR(
+        input_uop->getUnaryOpType() == UnaryOpType::Cast,
+        "expected aliased input to be output of cast op");
+    input = input_uop->in();
+  }
+  NVF_ERROR(
+      input->getDataType().has_value() && output->getDataType().has_value(),
+      "requires DataType to be available for aliased output to input");
 
-    if (input->getDataType().value() != output->getDataType().value()) {
-      output = castOp(input->getDataType().value(), output);
-    }
+  if (input->getDataType().value() != output->getDataType().value()) {
+    output = castOp(input->getDataType().value(), output);
   }
 
   NVF_ERROR(
@@ -815,9 +823,7 @@ void Fusion::aliasOutputToInput(
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
   static AliasInfo no_alias_info{
-      .type = AllocationType::NoAlias,
-      .aliased_io = nullptr,
-      .hide_output = false};
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     return search->second;
   }

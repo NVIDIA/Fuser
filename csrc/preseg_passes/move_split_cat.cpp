@@ -10,19 +10,64 @@
 #include <vector>
 
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
 
-// Returns true when Exprs in the frontier can be horizontally merged and
-// applied on the unsplit tensor.
-bool horizontallyMergeable(
+class CancelSplitCat {
+ public:
+  CancelSplitCat(Fusion* fusion)
+      : fusion_(fusion),
+        id_model_(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true) {}
+
+  // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
+  // merges ops in between.
+  void run();
+
+ private:
+  // Returns true when Exprs in the frontier can be horizontally merged and
+  // applied on the unsplit tensor.
+  bool horizontallyMergeable(
+      const std::vector<Expr*>& frontier,
+      int64_t& split_axis);
+
+  // Finds the canceling split of `cat` and returns the input TensorView of the
+  // split. A split (implemented as multiple `slice`s) and a cat cancel when
+  // they work on the same dimension. For example, when
+  //
+  //   s0 = in[:, :5]
+  //   s1 = in[:, 5:]
+  //   out = cat([s0, s1], dim=-1)
+  //
+  // findCancelingSplit(out) returns `in`.
+  //
+  // `cat` doesn't have to immediately follow the split. For example, when
+  //
+  //   s0 = in[:, :5]
+  //   s1 = in[:, 5:]
+  //   t0 = permute(s0)
+  //   t1 = permute(s1)
+  //   out = cat([t0, t1], dim=0)
+  //
+  // In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
+  // `permute` into `use_def_chain` so the caller can reconstruct `out` by
+  // replaying `use_def_chain` (in reverse order) on `in`.
+  TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain);
+
+  Fusion* fusion_;
+
+  IdModel id_model_;
+};
+
+bool CancelSplitCat::horizontallyMergeable(
     const std::vector<Expr*>& frontier,
     int64_t& split_axis) {
   NVF_ERROR(!frontier.empty());
@@ -185,28 +230,9 @@ TensorView* exprsFormSplit(
   return split_in;
 }
 
-// Finds the canceling split of `cat` and returns the input TensorView of the
-// split. A split (implemented as multiple `slice`s) and a cat cancel when they
-// work on the same dimension. For example, when
-//
-//   s0 = in[:, :5]
-//   s1 = in[:, 5:]
-//   out = cat([s0, s1], dim=-1)
-//
-// findCancelingSplit(out) returns `in`.
-//
-// `cat` doesn't have to immediately follow the split. For example, when
-//
-//   s0 = in[:, :5]
-//   s1 = in[:, 5:]
-//   t0 = permute(s0)
-//   t1 = permute(s1)
-//   out = cat([t0, t1], dim=0)
-//
-// In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
-// `permute` into `use_def_chain` so the caller can reconstruct `out` by
-// replaying `use_def_chain` (in reverse order) on `in`.
-TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
+TensorView* CancelSplitCat::findCancelingSplit(
+    CatOp* cat,
+    std::vector<Expr*>& use_def_chain) {
   NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
 
   auto [pads, cat_axis] = getCatInputsAndAxis(cat);
@@ -244,10 +270,8 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
   return split_in;
 }
 
-} // namespace
-
-void MoveSplitCatPass::runPass(Fusion* fusion) {
-  std::vector<Expr*> exprs = fusion->exprs();
+void CancelSplitCat::run() {
+  std::vector<Expr*> exprs = fusion_->exprs();
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::vector<Expr*> use_def_chain;
     TensorView* split_in = findCancelingSplit(cat, std::ref(use_def_chain));
@@ -255,26 +279,29 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    TensorView* merged_out = split_in;
+    Val* merged_out = split_in;
     for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
          i++) {
-      Expr* to_replay = *i;
-      // TODO(wujingyue): instead of an op-type dispatch, try a more general
-      // approach suggested by @jacobhinkle:
-      // https://github.com/NVIDIA/Fuser/pull/1782#discussion_r1496123087.
-      if (to_replay->isA<LoadStoreOp>()) {
-        auto* set_out = to_replay->output(0)->as<TensorView>();
-        std::vector<int64_t> permutation = *ir_utils::computePermutation(
-            set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
-        merged_out = permute(merged_out, permutation);
-        continue;
-      }
-      NVF_ERROR(false, "Replay is not implemented for this Expr: ", to_replay);
+      Expr* merged = replayExprWithNewInput(*i, merged_out);
+      NVF_ERROR(
+          merged->outputs().size() == 1,
+          "Currently, we merge only unary ops, so it would be a programming "
+          "mistake when the number of outputs is ",
+          merged->outputs().size());
+      merged_out = merged->output(0);
     }
-
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        cat->output(0), merged_out);
+    // `cat->output(0)` may be a fusion output with allocation domain.
+    // Therefore, instead of replacing the output, we create a Set to preserve
+    // the output allocation domain.
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, cat->output(0), merged_out);
   }
+}
+
+} // namespace
+
+void MoveSplitCatPass::runPass(Fusion* fusion) {
+  CancelSplitCat(fusion).run();
 }
 
 } // namespace nvfuser::preseg_passes
