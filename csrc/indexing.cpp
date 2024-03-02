@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <id_model/to_string.h>
 #include <indexing.h>
 #include <ir/builder.h>
@@ -23,34 +24,40 @@ IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
   auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
   NVF_ERROR(
       loop_promotion_map_it != loop_promotion_map.end(),
-      "No loop promotion found: ", id->toString());
+      "No loop promotion found: ",
+      id->toString());
 
   return loop_promotion_map_it->second;
 }
 
-std::vector<IterDomain*> getLoopDomains(
-    TensorView* tv,
-    Expr* expr,
-    const IdModel& id_model) {
+std::vector<IterDomain*> getLoopDomains(Expr* expr, const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
-  std::vector<IterDomain*> loop_domains;
+  // Assume consumer-based indexing. Needs to revisit for ops like
+  // scatter
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
 
-  for (auto leaf_id : tv->getLeafDomain()) {
-    NVF_ERROR(loop_graph.hasGroup(leaf_id));
+  for (auto& loop_id : loop_domains) {
+    NVF_ERROR(loop_graph.hasGroup(loop_id));
 
-    auto promotion_id = getLoopPromotion(leaf_id, id_model);
+    auto promotion_id = getLoopPromotion(loop_id, id_model);
 
-    loop_domains.push_back(promotion_id);
+    loop_id = promotion_id;
   }
 
   return loop_domains;
+}
+
+bool isAllocated(IterDomain* id, TensorView* tv) {
+  return ir_utils::isShared(tv->getMemoryType(), id->getParallelType()) &&
+      !id->isBroadcast() && !id->isReduction();
 }
 
 std::vector<IterDomain*> getIndexDomains(
     TensorView* tv,
     Expr* expr,
     const IdModel& id_model) {
+  // TODO: Contiguity
 
   if (tv->hasAllocation()) {
     return tv->getAllocationDomain();
@@ -66,7 +73,12 @@ std::vector<IterDomain*> getIndexDomains(
     std::vector<IterDomain*> index_domains;
     index_domains.reserve(tv->nDims() - tv->getComputeAtPosition());
     for (const auto i : c10::irange(tv->getComputeAtPosition(), tv->nDims())) {
-      auto leaf_id = tv->axis(i);
+      auto leaf_id = tv->axis((int)i);
+
+      if (!isAllocated(leaf_id, tv)) {
+        continue;
+      }
+
       auto promotion_id = getLoopPromotion(leaf_id, id_model);
       index_domains.push_back(promotion_id);
     }
@@ -78,7 +90,6 @@ ExprGroups getExprsBetween(
     const std::vector<IterDomain*>& loop_domains,
     const std::vector<IterDomain*>& index_domains,
     const ValGraph& exact_graph) {
-
   const ValGroups loop_domain_groups = exact_graph.toGroups(loop_domains);
   const ValGroups index_domain_groups = exact_graph.toGroups(index_domains);
 
@@ -121,8 +132,7 @@ void IndexCompute::propagate(const ExprGroup& expr_group) {
 
 Val* IndexCompute::getIndex(IterDomain* id) const {
   const ValGroup& id_group = exact_graph_.toGroup(id);
-  if (auto it = index_map_.find(id_group);
-      it != index_map_.end()) {
+  if (auto it = index_map_.find(id_group); it != index_map_.end()) {
     return it->second;
   } else {
     return nullptr;
@@ -157,8 +167,7 @@ bool IndexCompute::isForward(Expr* expr) const {
   // already processed
   for (const auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
     NVF_ERROR(
-        getIndex(out) != nullptr,
-        "Output index not found: ", out->toString());
+        getIndex(out) != nullptr, "Output index not found: ", out->toString());
   }
 
   return false;
@@ -179,11 +188,9 @@ void IndexCompute::handle(Split* split) {
     auto outer_idx = getIndex(split->outer());
     auto inner_idx = getIndex(split->inner());
     auto in_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, split->factor()),
-        inner_idx);
+        SimplifyingIrBuilder::mulExpr(outer_idx, split->factor()), inner_idx);
     setIndex(split->in(), in_idx);
   }
-
 }
 
 void IndexCompute::handle(Merge* merge) {
@@ -198,8 +205,7 @@ void IndexCompute::handle(Merge* merge) {
     auto outer_idx = getIndex(merge->outer());
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext),
-        inner_idx);
+        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
     setIndex(merge->out(), out_idx);
   } else {
     auto out_idx = getIndex(merge->out());
@@ -210,6 +216,29 @@ void IndexCompute::handle(Merge* merge) {
   }
 }
 
+ParallelType getParallelType(const ValGroup& loop_group) {
+  ParallelType common_pt = ParallelType::Serial;
+  for (const auto val : *loop_group) {
+    auto pt = val->as<IterDomain>()->getParallelType();
+    if (common_pt == pt || pt == ParallelType::Serial) {
+      continue;
+    } else if (common_pt == ParallelType::Serial) {
+      common_pt = pt;
+    } else {
+      // Inconsistent parallelization
+      NVF_ERROR(
+          false,
+          "Inconsistent parallelization detected. ",
+          "Known type: ",
+          common_pt,
+          "New type: ",
+          pt);
+    }
+  }
+
+  return common_pt;
+}
+
 } // namespace
 
 Indexing::Indexing(const IdModel& id_model) : id_model_(id_model) {
@@ -218,8 +247,11 @@ Indexing::Indexing(const IdModel& id_model) : id_model_(id_model) {
 
 void Indexing::buildLoopIndexMap() {
   Fusion* fusion = id_model_.idGraph(IdMappingMode::LOOP)
-      .disjointValSets()
-      .disjointSets().front()->front()->fusion();
+                       .disjointValSets()
+                       .disjointSets()
+                       .front()
+                       ->front()
+                       ->fusion();
 
   FusionGuard fg(fusion);
 
@@ -236,45 +268,30 @@ void Indexing::buildLoopIndexMap() {
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
-    if (auto result = std::find_if(
-            loop_group->begin(),
-            loop_group->end(),
-            [](Val* val) {
-              return val->as<IterDomain>()->isThread();
-            });
-        result != loop_group->end()) {
-      auto ptype = (*result)->as<IterDomain>()->getParallelType();
-      NVF_ERROR(std::all_of(
-          loop_group->begin(), loop_group->end(), [ptype](Val* val) {
-            auto this_ptype = val->as<IterDomain>()->getParallelType();
-            return this_ptype == ParallelType::Serial ||
-                this_ptype == ptype;
-          }),
-                "Inconsistent parallelization detected with loop group of: ",
-                nvfuser::toString(loop_group));
-
-      loop_index_map_[loop_group] =
-          NamedScalar::getParallelIndex(ptype);
+    ParallelType ptype = getParallelType(loop_group);
+    if (isParallelTypeThread(ptype)) {
+      loop_index_map_[loop_group] = NamedScalar::getParallelIndex(ptype);
       continue;
     }
 
     // The device paralle type is not included in "isThread". We don't
     // allocate any index variable for device-parallel domains.
-    if (auto result = std::find_if(
-            loop_group->begin(),
-            loop_group->end(),
-            [](Val* val) { return val->as<IterDomain>()->isDeviceDim(); });
-        result != loop_group->vector().end()) {
+    if (isParallelTypeDeviceDim(ptype)) {
+      loop_index_map_[loop_group] = fusion->zeroVal();
+      continue;
+    }
+
+    // Vectorized domain just uses zero
+    if (ptype == ParallelType::Vectorize) {
       loop_index_map_[loop_group] = fusion->zeroVal();
       continue;
     }
 
     // All loops in this set are non-parallel, non-concretized broadcast
     //  iterdomains, their "index variable" should be zero.
-    if (std::all_of(
-            loop_group->begin(),
-            loop_group->end(),
-            [](Val* val) { return val->as<IterDomain>()->isBroadcast(); })) {
+    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
+          return val->as<IterDomain>()->isBroadcast();
+        })) {
       loop_index_map_[loop_group] = fusion->zeroVal();
       continue;
     }
@@ -284,8 +301,7 @@ void Indexing::buildLoopIndexMap() {
 
     // Everything now should be serial concrete loops,
     //   we just allocate a loop index integer for each set of loops.
-    loop_index_map_[loop_group] =
-        IrBuilder::create<Val>(DataType::Index);
+    loop_index_map_[loop_group] = IrBuilder::create<Val>(DataType::Index);
   }
 }
 
@@ -298,17 +314,15 @@ void Indexing::buildLoopIndexMap() {
 Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
   const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
 
-  bool as_consumer = std::find(
-      expr->outputs().begin(),
-      expr->outputs().end(),
-      tv) != expr->outputs().end();
+  bool as_consumer =
+      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+      expr->outputs().end();
 
-  std::cerr << "getIndex of "
-            << tv->toString()
-            << " as " << (as_consumer ? "consumer" : "producer")
-            << " in " << expr->toString();
+  std::cerr << "getIndex of " << tv->toString() << " as "
+            << (as_consumer ? "consumer" : "producer") << " in "
+            << expr->toString();
 
-  auto loop_domains = getLoopDomains(tv, expr, id_model_);
+  auto loop_domains = getLoopDomains(expr, id_model_);
 
   std::cerr << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
@@ -317,8 +331,8 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
   std::cerr << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
 
-  auto indexing_path = getExprsBetween(
-      loop_domains, index_domains, exact_graph);
+  auto indexing_path =
+      getExprsBetween(loop_domains, index_domains, exact_graph);
 
   std::cerr << "Indexing path:\n";
   for (const auto& expr_group : indexing_path) {
@@ -339,8 +353,8 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
     auto loop_index_map_it = loop_index_map_.find(loop_group);
     NVF_ERROR(loop_index_map_it != loop_index_map_.end());
     const auto& exact_group = exact_graph.toGroup(loop_id);
-    NVF_ERROR(
-        initial_index_map.emplace(exact_group, loop_index_map_it->second).second);
+    NVF_ERROR(initial_index_map.emplace(exact_group, loop_index_map_it->second)
+                  .second);
   }
 
   IndexCompute index_compute(
@@ -352,13 +366,9 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
 
   for (const auto& index_domain : index_domains) {
     auto idx = index_compute.getIndex(index_domain);
-    NVF_ERROR(
-        idx != nullptr,
-        "Index not found for ",
-        index_domain->toString());
+    NVF_ERROR(idx != nullptr, "Index not found for ", index_domain->toString());
     std::cerr << "Index of " << index_domain->toString() << ": "
-              << idx->toInlineString()
-              << std::endl;
+              << idx->toInlineString() << std::endl;
   }
 
   return nullptr;

@@ -155,8 +155,9 @@ ExprGroups ValGraphBFS::getExprsBetweenVals(
     const ValGraph& graph,
     const ValGroups& from,
     const ValGroups& to) {
-
-  ValGraphBFS bfs(graph,  {from.vector().begin(), from.vector().end()},
+  ValGraphBFS bfs(
+      graph,
+      {from.vector().begin(), from.vector().end()},
       {to.vector().begin(), to.vector().end()});
 
   bfs.traverse();
@@ -176,11 +177,11 @@ std::string toString(const ValGraphBFS::GroupType& g) {
   }
 }
 
-}
+} // namespace
 
 void ValGraphBFS::traverse() {
+#if 0
   std::stringstream ss;
-
   ss << "  Disjoint Ids:\n"
      << idGroupsString(graph_, 2)
      << "\n  Disjoint Expression groups:\n"
@@ -199,14 +200,15 @@ void ValGraphBFS::traverse() {
     std::cerr << " " << toString(g);
   }
   std::cerr << std::endl;
+#endif
 
   auto is_all_terminal_visited = [&]() -> bool {
-    //std::cerr << "Is all terminal visited\n";
-    bool b =
-        std::all_of(to_groups_.begin(), to_groups_.end(), [&](const GroupType& group) -> bool {
-          return isVisited(group);
-        });
-    //std::cerr << "Visited? : " << b << std::endl;
+    // std::cerr << "Is all terminal visited\n";
+    bool b = std::all_of(
+        to_groups_.begin(),
+        to_groups_.end(),
+        [&](const GroupType& group) -> bool { return isVisited(group); });
+    // std::cerr << "Visited? : " << b << std::endl;
     return b;
   };
 
@@ -220,7 +222,7 @@ void ValGraphBFS::traverse() {
     to_visit_.pop_front();
 
     if (isVisited(g)) {
-      //std::cerr << "Already visited: " << toString(g) << std::endl;
+      // std::cerr << "Already visited: " << toString(g) << std::endl;
       continue;
     }
 
@@ -233,7 +235,7 @@ void ValGraphBFS::traverse() {
 #endif
 
     if (!isReady(g)) {
-      //std::cerr << "Not yet ready: " << toString(g) << std::endl;
+      // std::cerr << "Not yet ready: " << toString(g) << std::endl;
       to_visit_.emplace_back(g);
       continue;
     }
@@ -248,7 +250,7 @@ void ValGraphBFS::traverse() {
 
   if (!is_all_terminal_visited()) {
     std::stringstream ss;
-    for (const auto& to_group: to_groups_) {
+    for (const auto& to_group : to_groups_) {
       if (!isVisited(to_group)) {
         ss << " " << toString(to_group);
       }
@@ -263,15 +265,19 @@ bool ValGraphBFS::isReady(const GroupType& group) const {
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
     // Either all inputs or all outputs must have been visited
     auto inputs = graph_.inputGroups(*eg);
-    if (!inputs.empty() && std::all_of(
+    if (!inputs.empty() &&
+        std::all_of(
             inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
               return isVisited(input);
             })) {
       return true;
     }
     auto outputs = graph_.outputGroups(*eg);
-    if (!outputs.empty() && std::all_of(
-            outputs.begin(), outputs.end(), [&](const ValGroup& output) -> bool {
+    if (!outputs.empty() &&
+        std::all_of(
+            outputs.begin(),
+            outputs.end(),
+            [&](const ValGroup& output) -> bool {
               return isVisited(output);
             })) {
       return true;
@@ -281,7 +287,8 @@ bool ValGraphBFS::isReady(const GroupType& group) const {
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&group)) {
     // In the case of Val, requires one def or use expr.
     // Check if any use is visited
-    if (!graph_.getUses(*vg).empty() && std::any_of(
+    if (!graph_.getUses(*vg).empty() &&
+        std::any_of(
             graph_.getUses(*vg).begin(),
             graph_.getUses(*vg).end(),
             [&](const ExprGroup& use_eg) -> bool {
@@ -290,7 +297,8 @@ bool ValGraphBFS::isReady(const GroupType& group) const {
       return true;
     }
     // Check if all defs are visited
-    if (!graph_.getDefinitions(*vg).empty() && std::any_of(
+    if (!graph_.getDefinitions(*vg).empty() &&
+        std::any_of(
             graph_.getDefinitions(*vg).begin(),
             graph_.getDefinitions(*vg).end(),
             [&](const ExprGroup& def_eg) -> bool {
@@ -306,39 +314,44 @@ bool ValGraphBFS::isReady(const GroupType& group) const {
 }
 
 bool ValGraphBFS::isVisited(const GroupType& g) const {
-  //std::cerr << "Is visited: " << toString(g) << ": " << (visited_.find(g) != visited_.end()) << std::endl;
+  // std::cerr << "Is visited: " << toString(g) << ": " << (visited_.find(g) !=
+  // visited_.end()) << std::endl;
   return visited_.find(g) != visited_.end();
 }
 
 void ValGraphBFS::setVisited(const GroupType& g) {
   visited_.emplace(g);
-  //std::cerr << "Set visited: " << toString(g) << std::endl;
+  // std::cerr << "Set visited: " << toString(g) << std::endl;
 }
 
 void ValGraphBFS::addNewNeighbors(const GroupType& g) {
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
     for (const auto& vg : graph_.inputGroups(*eg)) {
       if (!isVisited(vg)) {
-        //std::cerr << "Adding neighbor: " << nvfuser::toString(vg) << std::endl;
+        // std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
+        // std::endl;
         to_visit_.emplace_back(vg);
       }
     }
     for (const auto& vg : graph_.outputGroups(*eg)) {
       if (!isVisited(vg)) {
-        //std::cerr << "Adding neighbor: " << nvfuser::toString(vg) << std::endl;
+        // std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
+        // std::endl;
         to_visit_.emplace_back(vg);
       }
     }
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
-    for (const auto& eg: graph_.getUses(*vg)) {
+    for (const auto& eg : graph_.getUses(*vg)) {
       if (!isVisited(eg)) {
-        //std::cerr << "Adding neighbor: " << nvfuser::toString(eg) << std::endl;
+        // std::cerr << "Adding neighbor: " << nvfuser::toString(eg) <<
+        // std::endl;
         to_visit_.emplace_back(eg);
       }
     }
-    for (const auto& eg: graph_.getDefinitions(*vg)) {
+    for (const auto& eg : graph_.getDefinitions(*vg)) {
       if (!isVisited(eg)) {
-        //std::cerr << "Adding neighbor: " << nvfuser::toString(eg) << std::endl;
+        // std::cerr << "Adding neighbor: " << nvfuser::toString(eg) <<
+        // std::endl;
         to_visit_.emplace_back(eg);
       }
     }
@@ -352,15 +365,19 @@ void ValGraphBFS::setPrevGroup(const GroupType& group) {
 
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
     auto inputs = graph_.inputGroups(*eg);
-    if (!inputs.empty() && std::all_of(
+    if (!inputs.empty() &&
+        std::all_of(
             inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
               return isVisited(input);
             })) {
       prev_groups = {inputs.begin(), inputs.end()};
     }
     auto outputs = graph_.outputGroups(*eg);
-    if (!outputs.empty() && std::all_of(
-            outputs.begin(), outputs.end(), [&](const ValGroup& output) -> bool {
+    if (!outputs.empty() &&
+        std::all_of(
+            outputs.begin(),
+            outputs.end(),
+            [&](const ValGroup& output) -> bool {
               return isVisited(output);
             })) {
       prev_groups = {outputs.begin(), outputs.end()};
@@ -369,16 +386,16 @@ void ValGraphBFS::setPrevGroup(const GroupType& group) {
     if (auto it = std::find_if(
             graph_.getUses(*vg).begin(),
             graph_.getUses(*vg).end(),
-            [&](const ExprGroup& use_eg) -> bool {
-              return isVisited(use_eg);
-            }); it != graph_.getUses(*vg).end()) {
+            [&](const ExprGroup& use_eg) -> bool { return isVisited(use_eg); });
+        it != graph_.getUses(*vg).end()) {
       prev_groups.emplace_back(*it);
     } else if (auto it = std::find_if(
-            graph_.getDefinitions(*vg).begin(),
-            graph_.getDefinitions(*vg).end(),
-            [&](const ExprGroup& use_eg) -> bool {
-              return isVisited(use_eg);
-            }); it !=  graph_.getDefinitions(*vg).end()) {
+                   graph_.getDefinitions(*vg).begin(),
+                   graph_.getDefinitions(*vg).end(),
+                   [&](const ExprGroup& use_eg) -> bool {
+                     return isVisited(use_eg);
+                   });
+               it != graph_.getDefinitions(*vg).end()) {
       prev_groups.emplace_back(*it);
     }
   } else {
@@ -402,18 +419,18 @@ void ValGraphBFS::handle(const GroupType& group) {
 }
 
 void ValGraphBFS::handle(const ValGroup& val_group) {
-  //std::cerr << "Handle: " << nvfuser::toString(val_group) << std::endl;
+  // std::cerr << "Handle: " << nvfuser::toString(val_group) << std::endl;
 }
 
 void ValGraphBFS::handle(const ExprGroup& expr_group) {
-  //std::cerr << "Handle: " << nvfuser::toString(expr_group) << std::endl;
+  // std::cerr << "Handle: " << nvfuser::toString(expr_group) << std::endl;
 }
 
 ExprGroups ValGraphBFS::getShortestExprPath() const {
   std::vector<ExprGroup> path;
 
   std::deque<GroupType> to_visit;
-  for (const auto& to_group: to_groups_) {
+  for (const auto& to_group : to_groups_) {
     to_visit.emplace_back(to_group);
   }
 
@@ -433,7 +450,7 @@ ExprGroups ValGraphBFS::getShortestExprPath() const {
     auto prev_groups_it = prev_groups_.find(group);
     NVF_ERROR(prev_groups_it != prev_groups_.end());
 
-    for (const auto& prev_group: prev_groups_it->second) {
+    for (const auto& prev_group : prev_groups_it->second) {
       to_visit.emplace_back(prev_group);
     }
   }
