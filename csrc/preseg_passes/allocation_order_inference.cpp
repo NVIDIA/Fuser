@@ -76,16 +76,12 @@ class AllocationOrderInferencer : public IterVisitor {
   // returns the candidate that dominates the allocation order.
   //
   // It scans through each candidate to find the first one that:
+  //   1. is a TensorView
+  //   2. has an entry in alloc_order_map_
+  //   3. has the highest number of non_broadcast IterDomain
   //
-  //   1. when there's only one operand has a recorded allocation order, it
-  //   forwards that. This could happen when: we have inputs without recorded
-  //   allocation order, or one of the operands being a scalar;
-  //   2. When both tensor have recorded allocation order. The one tensor with
-  //   more non-broadcast iterdomain will be dominating the output allocation
-  //   order. The motivation behind it to avoid breaking allocation order
-  //   propagation from binary operation against unsqueezed vector tensors.
-  //
-  //   In the event of a tie, we'll just propagate the allocation order of lhs.
+  // The function is used to resolve allocation order propagation for operator with multiple operands. The one operand with the most number of non-broadcast IterDomain will be dominating the output allocation order. The motivation behind it to avoid breaking allocation order propagation from operands produced by broadcast.
+  // e.g. When a binary operator could take in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to propagate the channels_last allocation order to output.
   TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
 
   // alloc_order_map_ records the allocation order of each TensorView.
@@ -102,6 +98,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
+  // helper utils to count the number of non broadcast iterdomain
   auto countNonBroadcastID = [](const TensorView* tv) -> size_t {
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
@@ -111,14 +108,17 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<
 
   for (auto* val_ptr : candidates) {
     auto* tv_ptr = dynamic_cast<TensorView*>(val_ptr);
+    // skip non TensorView entry
     if (tv_ptr == nullptr) {
       continue;
     }
 
+    // skip entry that doesn't have an allocation order
     if (alloc_order_map_.count(tv_ptr) == 0) {
       continue;
     }
 
+    // check if current entry sets new record for num of non broadcast iterdomain
     if (size_t non_bc_count = countNonBroadcastID(tv_ptr); non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_ount;
       src = tv_ptr;
