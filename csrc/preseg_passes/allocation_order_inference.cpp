@@ -120,28 +120,12 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<
 
     // check if current entry sets new record for num of non broadcast iterdomain
     if (size_t non_bc_count = countNonBroadcastID(tv_ptr); non_bc_count > non_bc_high_water_mark) {
-      non_bc_high_water_mark = non_bc_ount;
+      non_bc_high_water_mark = non_bc_count;
       src = tv_ptr;
     }
   }
 
   return src;
-}
-
-
-  auto countNonBroadcastID = [](const TensorView* tv) {
-    return std::count_if(
-        tv->getMaybeRFactorDomain().begin(),
-        tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
-  };
-
-  // otherwise, we propagate the one with more non-broadcast iterdomains.
-  if (countNonBroadcastID(lhs) >= countNonBroadcastID(rhs)) {
-    alloc_order_map_[out] = lhs_iter->second;
-  } else {
-    alloc_order_map_[out] = rhs_iter->second;
-  }
 }
 
 // UnaryOp propagation forward allocation order from input to output
