@@ -67,6 +67,11 @@ class ReplayTransformations : public IterVisitor {
     return *this;
   }
 
+  ReplayTransformations& setMarkRFactor(bool mark_rfactor) {
+    mark_rfactor_ = mark_rfactor;
+    return *this;
+  }
+
   // Replays outputs that were generated from ids.first on ids.second
   void runReplay();
 
@@ -144,6 +149,8 @@ class ReplayTransformations : public IterVisitor {
   // Indicates if we want to replay resize ops on the replayed
   // tensor.
   bool replay_resize_ = false;
+
+  bool mark_rfactor_ = false;
 
   size_t counter_ = 0;
 

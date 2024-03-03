@@ -51,7 +51,12 @@ void ReplayTransformations::handle(Split* s) {
 
   // Replay the split onto mapped
   auto outs = IterDomain::split(
-      mapped, s->factor(), s->innerSplit(), s->startOffset(), s->stopOffset());
+      mapped,
+      s->factor(),
+      s->innerSplit(),
+      s->startOffset(),
+      s->stopOffset(),
+      mark_rfactor_);
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
 
@@ -121,7 +126,7 @@ void ReplayTransformations::handle(Merge* m) {
       " however one or both are not leaf nodes.");
 
   // Replay the merge operation
-  auto out = IterDomain::merge(id_outer_mapped, id_inner_mapped);
+  auto out = IterDomain::merge(id_outer_mapped, id_inner_mapped, mark_rfactor_);
 
   // Remove inputs from the leaf IDs
   leaf_ids_.erase(id_outer_mapped);
@@ -250,10 +255,7 @@ void ReplayTransformations::handle(Resize* exp) {
 
   if (replay_resize_) {
     out = IterDomain::resize(
-        mapped,
-        exp->leftExpand(),
-        exp->rightExpand(),
-        mapped->isRFactorProduct());
+        mapped, exp->leftExpand(), exp->rightExpand(), mark_rfactor_);
   }
 
   leaf_ids_.erase(mapped);

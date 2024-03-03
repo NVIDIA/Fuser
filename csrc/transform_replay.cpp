@@ -1257,7 +1257,7 @@ namespace {
 TensorDomain* fullReplay(
     const TensorDomain* old_domain,
     const std::vector<IterDomain*>& new_root) {
-  std::unordered_map<IterDomain*, IterDomain*> old_root_to_new;
+  std::unordered_map<IterDomain*, IterDomain*> old_to_new;
   NVF_CHECK(
       old_domain->root().size() == new_root.size(),
       "Unable to replay transformations on a root domain of different size: ",
@@ -1265,45 +1265,53 @@ TensorDomain* fullReplay(
       " vs ",
       new_root.size());
   for (auto i : c10::irange(new_root.size())) {
-    old_root_to_new[old_domain->root()[i]] = new_root[i];
+    old_to_new[old_domain->root()[i]] = new_root[i];
   }
   NVF_CHECK(
       !old_domain->hasAllocation(),
-      "Due to #986, the allocation domain may or may not be between root and leaf. So, when `old_domain` has allocation, it may be incorrect to use its leaf as the target domain: ",
+      "Due to #986, the allocation domain may or may not be between root "
+      "and leaf. So, when `old_domain` has allocation, it may be incorrect "
+      "to use its leaf as the target domain: ",
       old_domain->toString(0, /*leaf_only=*/false));
-  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+
+  std::optional<std::vector<IterDomain*>> new_rfactor = std::nullopt;
+  if (old_domain->hasRFactor()) {
+    auto replay = ReplayTransformations(old_domain->rfactor(), old_to_new)
+                      .setMarkRFactor(true);
+    new_rfactor.emplace();
+    new_rfactor->reserve(old_domain->rfactor().size());
+    for (IterDomain* old_rfactor_id : old_domain->rfactor()) {
+      IterDomain* new_rfactor_id = replay.getReplay().at(old_rfactor_id);
+      old_to_new.try_emplace(old_rfactor_id, new_rfactor_id);
+      new_rfactor->push_back(new_rfactor_id);
+    }
+  }
 
   std::vector<IterDomain*> new_leaf;
   new_leaf.reserve(old_domain->nDims());
-  std::transform(
-      old_domain->leaf().begin(),
-      old_domain->leaf().end(),
-      std::back_inserter(new_leaf),
-      [&](IterDomain* old_leaf_id) {
-        return replay.getReplay().at(old_leaf_id);
-      });
+  {
+    auto replay = ReplayTransformations(old_domain->leaf(), old_to_new)
+                      .setMarkRFactor(false);
+    std::transform(
+        old_domain->leaf().begin(),
+        old_domain->leaf().end(),
+        std::back_inserter(new_leaf),
+        [&](IterDomain* old_leaf_id) {
+          return replay.getReplay().at(old_leaf_id);
+        });
+  }
 
-  if (!old_domain->hasRFactor()) {
+  if (new_rfactor.has_value()) {
+    return IrBuilder::create<TensorDomain>(
+        old_domain->container(),
+        new_root,
+        *new_rfactor,
+        new_leaf,
+        old_domain->contiguity());
+  } else {
     return IrBuilder::create<TensorDomain>(
         old_domain->container(), new_root, new_leaf, old_domain->contiguity());
   }
-
-  std::vector<IterDomain*> new_rfactor;
-  new_rfactor.reserve(old_domain->rfactor().size());
-  std::transform(
-      old_domain->rfactor().begin(),
-      old_domain->rfactor().end(),
-      std::back_inserter(new_rfactor),
-      [&](IterDomain* old_rfactor_id) {
-        return replay.getReplay().at(old_rfactor_id);
-      });
-
-  return IrBuilder::create<TensorDomain>(
-      old_domain->container(),
-      new_root,
-      new_rfactor,
-      new_leaf,
-      old_domain->contiguity());
 }
 
 } // namespace

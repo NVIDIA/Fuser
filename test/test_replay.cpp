@@ -60,8 +60,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
 }
 
-// Currently fails due to #1857.
-TEST_F(ReplayTest, DISABLED_HorizontallyMergeReshapeAndNeg) {
+TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
