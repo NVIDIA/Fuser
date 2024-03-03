@@ -1324,10 +1324,20 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
         old_tv != nullptr,
         "This function doesn't support non-TensorView outputs yet: ",
         old);
+    TensorDomain* old_domain = old_tv->domain();
 
-    std::vector<IterDomain*> new_root = IterDomain::clone(
-        TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain()));
-    TensorDomain* new_domain = fullReplay(old_tv->domain(), new_root);
+    std::vector<IterDomain*> new_root;
+    new_root.reserve(old_domain->root().size());
+    size_t i = 0;
+    for (IterDomain* in_rfactor_id :
+         TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
+      new_root.push_back(
+          IterDomainBuilder(in_rfactor_id)
+              .is_rfactor_domain(old_domain->root()[i]->isRFactorProduct())
+              .build());
+      i++;
+    }
+    TensorDomain* new_domain = fullReplay(old_domain, new_root);
     TensorView* new_tv =
         IrBuilder::create<TensorView>(new_domain, *old->getDataType());
     new_outs.push_back(new_tv);
