@@ -54,6 +54,7 @@ class AllocationOrderInferencer : public IterVisitor {
   void handle(UnaryOp*) override;
   void handle(BroadcastOp*) override;
   void handle(BinaryOp*) override;
+  void handle(TernaryOp*) override;
   // TODO: Add more propagation rules
   // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
@@ -72,6 +73,21 @@ class AllocationOrderInferencer : public IterVisitor {
     return false;
   }
 
+  // returns the candidate that dominates the allocation order.
+  //
+  // It scans through each candidate to find the first one that:
+  //
+  //   1. when there's only one operand has a recorded allocation order, it
+  //   forwards that. This could happen when: we have inputs without recorded
+  //   allocation order, or one of the operands being a scalar;
+  //   2. When both tensor have recorded allocation order. The one tensor with
+  //   more non-broadcast iterdomain will be dominating the output allocation
+  //   order. The motivation behind it to avoid breaking allocation order
+  //   propagation from binary operation against unsqueezed vector tensors.
+  //
+  //   In the event of a tie, we'll just propagate the allocation order of lhs.
+  TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
+
   // alloc_order_map_ records the allocation order of each TensorView.
   // Since it only handles permutation from a rfactor domain to allocation
   // domain, it can be interpreted as:
@@ -81,6 +97,52 @@ class AllocationOrderInferencer : public IterVisitor {
   //        allocation order   0,  2,  1
   std::unordered_map<const TensorView*, AllocationOrder>& alloc_order_map_;
 };
+
+TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<Val*>& candidates) {
+  TensorView* src = nullptr;
+  size_t non_bc_high_water_mark = 0;
+
+  auto countNonBroadcastID = [](const TensorView* tv) -> size_t {
+    return std::count_if(
+        tv->getMaybeRFactorDomain().begin(),
+        tv->getMaybeRFactorDomain().end(),
+        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
+  };
+
+  for (auto* val_ptr : candidates) {
+    auto* tv_ptr = dynamic_cast<TensorView*>(val_ptr);
+    if (tv_ptr == nullptr) {
+      continue;
+    }
+
+    if (alloc_order_map_.count(tv_ptr) == 0) {
+      continue;
+    }
+
+    if (size_t non_bc_count = countNonBroadcastID(tv_ptr); non_bc_count > non_bc_high_water_mark) {
+      non_bc_high_water_mark = non_bc_ount;
+      src = tv_ptr;
+    }
+  }
+
+  return src;
+}
+
+
+  auto countNonBroadcastID = [](const TensorView* tv) {
+    return std::count_if(
+        tv->getMaybeRFactorDomain().begin(),
+        tv->getMaybeRFactorDomain().end(),
+        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
+  };
+
+  // otherwise, we propagate the one with more non-broadcast iterdomains.
+  if (countNonBroadcastID(lhs) >= countNonBroadcastID(rhs)) {
+    alloc_order_map_[out] = lhs_iter->second;
+  } else {
+    alloc_order_map_[out] = rhs_iter->second;
+  }
+}
 
 // UnaryOp propagation forward allocation order from input to output
 void AllocationOrderInferencer::handle(UnaryOp* op) {
@@ -166,69 +228,20 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
   alloc_order_map_[out] = permutation.value();
 }
 
-// BinaryOp propagation tries to merge the allocation order of both inputs
-//
-//   1. when there's only one operand has a recorded allocation order, it
-//   forwards that. This could happen when: we have inputs without recorded
-//   allocation order, or one of the operands being a scalar;
-//   2. When both tensor have recorded allocation order. The one tensor with
-//   more non-broadcast iterdomain will be dominating the output allocation
-//   order. The motivation behind it to avoid breaking allocation order
-//   propagation from binary operation against unsqueezed vector tensors.
-//
-//   In the event of a tie, we'll just propagate the allocation order of lhs.
 void AllocationOrderInferencer::handle(BinaryOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   if (out == nullptr) {
     return;
   }
-  auto* lhs = dynamic_cast<TensorView*>(op->lhs());
-  auto* rhs = dynamic_cast<TensorView*>(op->rhs());
-  if (lhs == nullptr) {
-    // propagate rhs when lhs is not a tensor
-    // Note: rhs could also be non-tensor, which we'll just skip setting
-    // allocation order for output and return
-    propagateAllocationOrder(rhs, out);
-    return;
-  }
-  if (rhs == nullptr) {
-    // propagate lhs when rhs is not a tensor
-    propagateAllocationOrder(lhs, out);
-    return;
-  }
+  propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
+}
 
-  // both operands are tensors
-  auto lhs_iter = alloc_order_map_.find(lhs);
-  auto rhs_iter = alloc_order_map_.find(rhs);
-
-  if (rhs_iter == alloc_order_map_.end()) {
-    propagateAllocationOrder(lhs, out);
+void AllocationOrderInferencer::handle(TernaryOp* op) {
+  auto* out = dynamic_cast<TensorView*>(op->out());
+  if (out == nullptr) {
     return;
   }
-  if (lhs_iter == alloc_order_map_.end()) {
-    propagateAllocationOrder(rhs, out);
-    return;
-  }
-
-  // we have allocation order recorded for both tensor
-  // if both allocation order agree, we just propagate it
-  if (lhs_iter->second == rhs_iter->second) {
-    alloc_order_map_[out] = lhs_iter->second;
-    return;
-  }
-  auto countNonBroadcastID = [](const TensorView* tv) {
-    return std::count_if(
-        tv->getMaybeRFactorDomain().begin(),
-        tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
-  };
-
-  // otherwise, we propagate the one with more non-broadcast iterdomains.
-  if (countNonBroadcastID(lhs) >= countNonBroadcastID(rhs)) {
-    alloc_order_map_[out] = lhs_iter->second;
-  } else {
-    alloc_order_map_[out] = rhs_iter->second;
-  }
+  propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
 }
 
 } // namespace
