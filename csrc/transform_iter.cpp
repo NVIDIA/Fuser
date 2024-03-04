@@ -57,7 +57,7 @@ void ReplayTransformations::handle(Split* s) {
       s->innerSplit(),
       s->startOffset(),
       s->stopOffset(),
-      s->outer()->isRFactorProduct());
+      replay_rfactor_ && s->outer()->isRFactorProduct());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
 
@@ -128,7 +128,9 @@ void ReplayTransformations::handle(Merge* m) {
 
   // Replay the merge operation
   auto out = IterDomain::merge(
-      id_outer_mapped, id_inner_mapped, m->out()->isRFactorProduct());
+      id_outer_mapped,
+      id_inner_mapped,
+      replay_rfactor_ && m->out()->isRFactorProduct());
 
   // Remove inputs from the leaf IDs
   leaf_ids_.erase(id_outer_mapped);
@@ -172,6 +174,7 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   if (replay_swizzle_) {
     // Replay the swizzle onto mapped
+    // FIXME: isRFactorProduct
     outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
 
     // Remove mapped from the leaf IDs
@@ -219,6 +222,7 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
 
   if (replay_swizzle_) {
     // Replay the swizzle onto mapped
+    // FIXME: isRFactorProduct
     outs = IterDomain::swizzle(swizzle_2d->swizzleType(), mapped_x, mapped_y);
 
     // Remove mapped from the leaf IDs
@@ -260,7 +264,7 @@ void ReplayTransformations::handle(Resize* exp) {
         mapped,
         exp->leftExpand(),
         exp->rightExpand(),
-        exp->out()->isRFactorProduct());
+        replay_rfactor_ && exp->out()->isRFactorProduct());
   }
 
   leaf_ids_.erase(mapped);

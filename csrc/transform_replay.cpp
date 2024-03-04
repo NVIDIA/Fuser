@@ -1269,9 +1269,12 @@ TensorDomain* fullReplay(
   }
   NVF_CHECK(
       !old_domain->hasAllocation(),
-      "Due to #986, the allocation domain may or may not be between root and leaf. So, when `old_domain` has allocation, it may be incorrect to use its leaf as the target domain: ",
+      "Due to #986, the allocation domain may or may not be between root and "
+      "leaf. So, when `old_domain` has allocation, it may be incorrect to "
+      "use its leaf as the target domain: ",
       old_domain->toString(0, /*leaf_only=*/false));
-  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+  auto replay = ReplayTransformations(old_domain->leaf(), old_root_to_new)
+                    .setReplayRFactor(true);
 
   std::vector<IterDomain*> new_leaf;
   new_leaf.reserve(old_domain->nDims());
