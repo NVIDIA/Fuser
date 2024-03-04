@@ -99,11 +99,11 @@ bool CancelSplitCat::horizontallyMergeable(
   ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
   {
     const std::vector<IterDomain*>& first_rfactor =
-        slices[0]->output(0)->as<TensorView>()->getMaybeRFactorDomain();
+        slices[0]->out()->getMaybeRFactorDomain();
     size_t num_dims = first_rfactor.size();
     for (size_t i = 1; i < slices.size(); i++) {
       const std::vector<IterDomain*>& rfactor =
-          slices[i]->output(0)->as<TensorView>()->getMaybeRFactorDomain();
+          slices[i]->out()->getMaybeRFactorDomain();
       if (rfactor.size() != num_dims) {
         return false;
       }

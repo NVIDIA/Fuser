@@ -364,7 +364,7 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   FusionGuard fg(fusion.get());
 
   TensorView* sdpa_backward_out =
-      makeContigConcreteTensor({b, h * 3, s, f}, DataType::BFloat16);
+      makeContigConcreteTensor({b, h * 3, s, f}, DataType::Half);
   sdpa_backward_out->setAllocationDomain(
       {sdpa_backward_out->axis(0),
        sdpa_backward_out->axis(2),
@@ -384,7 +384,7 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   TensorView* cat_out = cat({dq, dk, dv}, /*dim=*/-1);
   TensorView* sum_out = castOp(DataType::Float, cat_out);
   sum_out = sum(sum_out, {0, 1});
-  sum_out = castOp(DataType::BFloat16, sum_out);
+  sum_out = castOp(DataType::Half, sum_out);
   TensorView* view_out =
       reshape(cat_out, {b, s, h * f * 3}, {b * s, h * f * 3});
   TensorView* permute_out = permute(view_out, {1, 0});
@@ -394,7 +394,7 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   fusion->addOutput(view_out);
   fusion->addOutput(permute_out);
 
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor in_tensor =
       at::randn({b * h * 3 * s * f}, options)
           .as_strided({b, h * 3, s, f}, {h * 3 * s * f, f, h * 3 * f, 1});
