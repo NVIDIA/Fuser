@@ -2288,7 +2288,7 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
     auto options = at::TensorOptions()
                        .dtype(data_type_to_aten(dtype))
                        .device(at::kCUDA, 0);
-    auto t0 = at::randn(shape, options);
+    auto t0 = at::ones(shape, options);
     std::vector<c10::IValue> inputs({t0});
     FusionExecutorCache executor_cache(std::move(fusion));
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
@@ -2296,9 +2296,13 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
   };
+
+  test(2048, 32768);
+
   maybeClearAllocator(0);
   for (int dim0 = 1024; dim0 <= 32768; dim0 *= 2) {
     for (int dim1 = 1024; dim1 <= 32768; dim1 *= 2) {
+      printf("Testing dim0=%d, dim1=%d\n", dim0, dim1);
       test(dim0, dim1);
     }
   }

@@ -707,6 +707,11 @@ __device__ void iterGroupedGridReduceLastBlock(
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
           threadIdx, blockDim);
 
+  // index into iteration dim
+  const auto thread_offset =
+      index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
+          threadIdx, blockDim);
+
   // Stride by the "non-participating" threads
   const auto input_stride_for_thread_in_segment =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
@@ -721,14 +726,26 @@ __device__ void iterGroupedGridReduceLastBlock(
   for (nvfuser_index_t reduction_i = id_in_block_segment;
        reduction_i < grid_reduction_segment_size;
        reduction_i += input_stride_for_thread_in_segment) {
-    auto work_buf_offset = reduction_i * block_reduction_segment_size +
-        block_reduction_segment_idx;
+    // index to global memory
+    auto work_buf_offset =
+        reduction_i * (block_reduction_segment_size * grid_segment_size) +
+        block_reduction_segment_size * idx_in_grid_segment + thread_offset;
+    work_buf_offset *= VECT_FACTOR;
+
+    // vectorized load from global memory
+    constexpr int total_bytes = VECT_FACTOR * sizeof(T);
+    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
+    constexpr int n_elements = total_bytes <= 16 ? VECT_FACTOR : 16 / sizeof(T);
 #pragma unroll
-    for (int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++) {
-      const volatile T* my_work_buf = in +
-          (entrance_ind * grid_segment_size + idx_in_grid_segment) *
-              grid_reduction_segment_size * block_reduction_segment_size;
-      reduction_op(inp[entrance_ind], my_work_buf[work_buf_offset]);
+    for (int i = 0; i < n_loads; i++) {
+      int i_offset = i * n_elements;
+      T in_reg[n_elements];
+      loadGlobalToLocal<T, n_elements, true, CacheOp::Global>(
+          &in_reg[0], const_cast<T*>(in + work_buf_offset + i_offset));
+#pragma unroll
+      for (int j = 0; j < n_elements; j++) {
+        reduction_op(inp[i_offset + j], in_reg[j]);
+      }
     }
   }
 
@@ -828,14 +845,21 @@ __device__ void iterGroupedGridReduce(
     auto thread_offset =
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
             threadIdx, blockDim);
+
+    // vectorized write to work_buf [global memory]
     auto work_buf_offset =
-        block_offset * block_reduction_segment_size + thread_offset;
+        block_offset * (block_reduction_segment_size * grid_segment_size) +
+        block_reduction_segment_size * idx_in_grid_segment + thread_offset;
+    work_buf_offset *= VECT_FACTOR;
+
+    constexpr int total_bytes = VECT_FACTOR * sizeof(T);
+    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
+    constexpr int n_elements = total_bytes <= 16 ? VECT_FACTOR : 16 / sizeof(T);
 #pragma unroll
-    for (int entrance_ind = 0; entrance_ind < VECT_FACTOR; entrance_ind++) {
-      volatile T* my_work_buf = work_buf +
-          (entrance_ind * grid_segment_size + idx_in_grid_segment) *
-              grid_reduction_segment_size * block_reduction_segment_size;
-      my_work_buf[work_buf_offset] = block_reduction_val[entrance_ind];
+    for (int i = 0; i < n_loads; i++) {
+      loadLocalToGlobal<T, n_elements, true>(
+          &work_buf[work_buf_offset + i * n_elements],
+          &block_reduction_val[i * n_elements]);
     }
   }
 
