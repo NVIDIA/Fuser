@@ -229,7 +229,7 @@ void AllocationOrderInferencer::handle(TernaryOp* op) {
   propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
 }
 
-void AllocationOrderInferencer::handle(PadOp*) {
+void AllocationOrderInferencer::handle(PadOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   auto* in = dynamic_cast<TensorView*>(op->in());
   propagateAllocationOrder(in, out);
