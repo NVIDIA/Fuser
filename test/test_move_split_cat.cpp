@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -17,6 +18,8 @@
 namespace nvfuser {
 
 using testing::Contains;
+using testing::IsTrue;
+using testing::Property;
 
 using MoveSplitCatTest = NVFuserTest;
 
@@ -118,6 +121,7 @@ TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
   EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
 }
 
+namespace {
 MATCHER(IsPermute, "") {
   if (auto* set = dynamic_cast<LoadStoreOp*>(arg)) {
     if (auto* set_out = dynamic_cast<TensorView*>(set->out())) {
@@ -126,6 +130,7 @@ MATCHER(IsPermute, "") {
   }
   return false;
 }
+} // namespace
 
 TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
   auto fusion = std::make_unique<Fusion>();
@@ -151,11 +156,8 @@ TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
 
   // Check the two permutes are merged to one.
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  ASSERT_EQ(runtime->executors().size(), 1)
-      << "After merging, the whole fusion can be scheduled unsegmented.";
-  const FusionExecutor& executor = runtime->executors().front();
-  kir::Kernel* kernel = executor.kernel();
-  EXPECT_THAT(kernel->exprs(), Contains(IsPermute()).Times(1));
+  Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
+  EXPECT_THAT(complete_fusion->exprs(), Contains(IsPermute()).Times(1));
 
   // Due to the incompatible output allocation order, the output can't be an
   // alias.
@@ -407,6 +409,60 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
 }
 
-// FIXME: test multiple split+cat pairs.
+TEST_F(MoveSplitCatTest, MultiplePairs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* merged = makeContigConcreteTensor({4, 6});
+  fusion->addInput(merged);
+
+  // Region 0. Mergeable because both slices are permuted in the same way and
+  // the cat axis matches the split axis.
+  TensorView* s0 = slice(merged, {0, 0}, {2, 6});
+  TensorView* s1 = slice(merged, {2, 0}, {4, 6});
+  s0 = permute(s0, {1, 0});
+  s1 = permute(s1, {1, 0});
+  merged = cat({s0, s1}, /*dim=*/1);
+
+  // Region 1. Not mergeable because the outer dimension is split and the inner
+  // dimension is catted.
+  s0 = slice(merged, {0, 0}, {3, 4});
+  s1 = slice(merged, {3, 0}, {6, 4});
+  s0 = reshape(s0, {3, 4}, {6, 2});
+  s1 = reshape(s1, {3, 4}, {6, 2});
+  merged = cat({s0, s1}, /*dim=*/1);
+
+  // Region 2. Mergeable because both slices are reshaped in the same way and
+  // the outer dimension is split and catted.
+  s0 = slice(merged, {0, 0}, {3, 4});
+  s1 = slice(merged, {3, 0}, {6, 4});
+  s0 = reshape(s0, {3, 4}, {6, 2});
+  s1 = reshape(s1, {3, 4}, {6, 2});
+  merged = cat({s0, s1}, /*dim=*/0);
+
+  fusion->addOutput(merged);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({4, 6}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
+  std::vector<Expr*> exprs = complete_fusion->exprs();
+
+  // Only region 1 is not mergeable, so we expect to see only that region
+  // contains two slices and one cat in the pre-segmenter fusion.
+  EXPECT_THAT(
+      exprs, Contains(Property(&Expr::isA<SliceOp>, IsTrue())).Times(2));
+  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<CatOp>, IsTrue())).Times(1));
+  // The two permutes in region 0 are expected to be merged.
+  EXPECT_THAT(exprs, Contains(IsPermute()).Times(1));
+  // The two reshapes in region 1 stay as is and the two reshapes in region 2
+  // are merged. Therefore, three reshapes in total.
+  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<ViewOp>, IsTrue())).Times(3));
+}
 
 } // namespace nvfuser
