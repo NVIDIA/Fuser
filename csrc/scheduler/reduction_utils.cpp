@@ -386,7 +386,14 @@ void multiReductionInliner(
   }
 
   // TODO: plumb this out
-  const bool use_serial_grid_reduction = true;
+  bool use_serial_grid_reduction = false;
+  for (const auto i : c10::irange(reduction_tv->nDims())) {
+    const IterDomain* id = reduction_tv->axis(i);
+    if (id->getParallelType() == ParallelType::Group) {
+      use_serial_grid_reduction = true;
+      break;
+    }    
+  }
   if (use_serial_grid_reduction) {
     // rFactor the reduction to separate out the grid reduction, and set that
     // dimension up for serial grid reduction.
