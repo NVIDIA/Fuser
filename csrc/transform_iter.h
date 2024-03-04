@@ -150,6 +150,7 @@ class ReplayTransformations : public IterVisitor {
   // tensor.
   bool replay_resize_ = false;
 
+  // Whether to copy the `rf` flag from ops producing `target_domain`.
   bool replay_rfactor_ = false;
 
   size_t counter_ = 0;
