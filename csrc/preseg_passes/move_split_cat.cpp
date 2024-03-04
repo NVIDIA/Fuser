@@ -9,21 +9,65 @@
 
 #include <vector>
 
-#include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
 
-// Returns true when Exprs in the frontier can be horizontally merged and
-// applied on the unsplit tensor.
-bool horizontallyMergeable(
+class CancelSplitCat {
+ public:
+  CancelSplitCat(Fusion* fusion)
+      : fusion_(fusion),
+        id_model_(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true) {}
+
+  // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
+  // merges ops in between.
+  void run();
+
+ private:
+  // Returns true when Exprs in the frontier can be horizontally merged and
+  // applied on the unsplit tensor.
+  bool horizontallyMergeable(
+      const std::vector<Expr*>& frontier,
+      int64_t& split_axis);
+
+  // Finds the canceling split of `cat` and returns the input TensorView of the
+  // split. A split (implemented as multiple `slice`s) and a cat cancel when
+  // they work on the same dimension. For example, when
+  //
+  //   s0 = in[:, :5]
+  //   s1 = in[:, 5:]
+  //   out = cat([s0, s1], dim=-1)
+  //
+  // findCancelingSplit(out) returns `in`.
+  //
+  // `cat` doesn't have to immediately follow the split. For example, when
+  //
+  //   s0 = in[:, :5]
+  //   s1 = in[:, 5:]
+  //   t0 = permute(s0)
+  //   t1 = permute(s1)
+  //   out = cat([t0, t1], dim=0)
+  //
+  // In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
+  // `permute` into `use_def_chain` so the caller can reconstruct `out` by
+  // replaying `use_def_chain` (in reverse order) on `in`.
+  TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain);
+
+  Fusion* fusion_;
+
+  IdModel id_model_;
+};
+
+bool CancelSplitCat::horizontallyMergeable(
     const std::vector<Expr*>& frontier,
     int64_t& split_axis) {
   NVF_ERROR(!frontier.empty());
@@ -73,75 +117,104 @@ bool horizontallyMergeable(
   return false;
 }
 
-// Returns the inputs of `cat` and the dimension over which the inputs are
-// concatenated.
-std::pair<std::vector<PadOp*>, int64_t> getCatInputsAndAxis(CatOp* cat) {
-  std::vector<PadOp*> pads;
-  pads.reserve(cat->inputs().size());
-  int64_t cat_axis = -1;
+// If `exprs` are `SliceOp`s that form a split, returns the base tensor of the
+// split. Returns null otherwise.
+TensorView* exprsFormSplit(
+    const std::vector<Expr*>& exprs,
+    const int64_t split_axis) {
+  // Checks that all exprs are slices and are based on the
+  // same tensor. Otherwise, they don't form a split.
+  TensorView* split_in = nullptr;
+  for (Expr* e : exprs) {
+    auto* slice = dynamic_cast<SliceOp*>(e);
+    if (slice == nullptr) {
+      return nullptr;
+    }
 
-  for (Val* in : cat->inputs()) {
-    // nvFuser implements cat as PadOp->CatOp.
-    PadOp* pad = in->definition()->as<PadOp>();
-    pads.push_back(pad);
-
-    std::vector<int> padded_axes = pad->getPaddedAxes();
-    NVF_ERROR(
-        padded_axes.size() == 1,
-        "One of `cat`'s consumers pads 0 or multiple dimensions: ",
-        pad);
-    if (cat_axis == -1) {
-      cat_axis = padded_axes[0];
-    } else {
-      NVF_ERROR(
-          cat_axis == padded_axes[0],
-          "Pads before a Cat should have the same padded axis, but found ",
-          cat_axis,
-          " vs ",
-          padded_axes[0]);
+    if (split_in == nullptr) {
+      split_in = slice->in();
+    } else if (split_in != slice->in()) {
+      return nullptr;
     }
   }
-  NVF_ERROR(cat_axis != -1);
-  return {pads, cat_axis};
+  NVF_ERROR(split_in != nullptr);
+
+  // Check that `exprs` (already known to be `SliceOp`s) form a split along
+  // `split_axis`.
+  //
+  // `split_ranges[i]` is the slice range of `exprs[i]` for the split axis.
+  std::vector<Slice> split_ranges;
+  split_ranges.reserve(exprs.size());
+  for (auto i : c10::irange(exprs.size())) {
+    auto* slice = exprs[i]->as<SliceOp>();
+    const std::vector<Slice>& slice_ranges = slice->getRanges();
+    // Check the steps are all one.
+    if (std::any_of(
+            slice_ranges.begin(),
+            slice_ranges.end(),
+            [](const Slice& slice_range) {
+              return !slice_range.step->isOne();
+            })) {
+      return nullptr;
+    }
+
+    // Check only the split axis is sliced.
+    for (auto j : c10::irange(
+             static_cast<int64_t>(slice->out()->getRootDomain().size()))) {
+      const bool sliced =
+          (slice->out()->getRootDomain()[j] !=
+           slice->out()->getMaybeRFactorDomain()[j]);
+      if ((j == split_axis) != sliced) {
+        return nullptr;
+      }
+    }
+
+    // Collect the slice range for the split axis.
+    split_ranges.push_back(slice_ranges[split_axis]);
+  }
+
+  if (!split_ranges.front().start->isZero()) {
+    return nullptr;
+  }
+  // Due to the limitation of `sameAs` mentioned in #1859, I can't check
+  // split_ranges.back().stop is the same as the dimension size. Below is a
+  // slightly lengthy workaround.
+  if (!exprs.back()
+           ->as<SliceOp>()
+           ->out()
+           ->getMaybeRFactorDomain()[split_axis]
+           ->definition()
+           ->as<Resize>()
+           ->rightExpand()
+           ->isZero()) {
+    return nullptr;
+  }
+  for (size_t i = 0; i + 1 < exprs.size(); i++) {
+    if (!split_ranges[i].stop->sameAs(split_ranges[i + 1].start)) {
+      return nullptr;
+    }
+  }
+
+  return split_in;
 }
 
-// Finds the canceling split of `cat` and returns the input TensorView of the
-// split. A split (implemented as multiple `slice`s) and a cat cancel when they
-// work on the same dimension. For example, when
-//
-//   s0 = in[:, :5]
-//   s1 = in[:, 5:]
-//   out = cat([s0, s1], dim=-1)
-//
-// findCancelingSplit(out) returns `in`.
-//
-// `cat` doesn't have to immediately follow the split. For example, when
-//
-//   s0 = in[:, :5]
-//   s1 = in[:, 5:]
-//   t0 = permute(s0)
-//   t1 = permute(s1)
-//   out = cat([t0, t1], dim=0)
-//
-// In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
-// `permute` into `use_def_chain` so the caller can reconstruct `out` by
-// replaying `use_def_chain` (in reverse order) on `in`.
-TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
+TensorView* CancelSplitCat::findCancelingSplit(
+    CatOp* cat,
+    std::vector<Expr*>& use_def_chain) {
   NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
 
-  auto [pads, cat_axis] = getCatInputsAndAxis(cat);
-
-  // `frontier` initially contains the preceding Exprs of `pads`. Then, we
+  // `frontier` initially contains the preceding Exprs of the `PadOp`s. Then, we
   // repeatedly try to move the frontier up in lockstep as long as Exprs in the
   // frontier can be horizontally merged and applied on the unsplit tensor.
   std::vector<Expr*> frontier;
-  frontier.reserve(pads.size());
-  for (PadOp* pad : pads) {
+  frontier.reserve(cat->inputs().size());
+  for (Val* in : cat->inputs()) {
+    auto* pad = in->definition()->as<PadOp>();
     frontier.push_back(pad->in()->definition());
   }
 
   // Exit the loop when any Expr in `frontier` is a slice or a null.
-  int64_t split_axis = cat_axis;
+  int64_t split_axis = cat->concatenatedDim();
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
@@ -160,78 +233,12 @@ TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain) {
     }
   }
 
-  // Check that `frontier` has only slices, and that all slices are based on the
-  // same tensor. Otherwise, they don't form a split.
-  TensorView* split_in = nullptr;
-  for (Expr* e : frontier) {
-    auto* slice = dynamic_cast<SliceOp*>(e);
-    if (slice == nullptr) {
-      return nullptr;
-    }
-
-    if (split_in == nullptr) {
-      split_in = slice->in();
-    } else if (split_in != slice->in()) {
-      return nullptr;
-    }
-  }
-  NVF_ERROR(split_in != nullptr);
-
-  for (auto i : c10::irange(pads.size())) {
-    // For each branch, check the sliced amount is the same as the padded
-    // amount. Otherwise, the slices don't form a split.
-    auto* slice = frontier[i]->as<SliceOp>();
-    PadOp* pad = pads[i];
-
-    auto [left_padding, right_padding] =
-        pad->getPadWidths(static_cast<int>(cat_axis));
-
-    for (Slice slice_range : slice->getRanges()) {
-      if (!slice_range.step->isOne()) {
-        return nullptr;
-      }
-    }
-
-    // Get the left and right expand of the slice, which are zero or negative.
-    Val* left_expand = nullptr;
-    Val* right_expand = nullptr;
-    auto* slice_out = slice->out()->as<TensorView>();
-    std::vector<Expr*> transforms = StmtSort::getExprsBetween(
-        {slice_out->getRootDomain().begin(), slice_out->getRootDomain().end()},
-        {slice_out->getRFactorDomain().begin(),
-         slice_out->getRFactorDomain().end()});
-    for (auto* transform : transforms) {
-      auto* resize = dynamic_cast<Resize*>(transform);
-      if (resize == nullptr) {
-        return nullptr;
-      }
-      if (resize->out() != slice_out->getRFactorDomain()[split_axis]) {
-        return nullptr;
-      }
-      left_expand = resize->leftExpand();
-      right_expand = resize->rightExpand();
-    }
-    if (left_expand == nullptr || right_expand == nullptr) {
-      return nullptr;
-    }
-
-    if (!simplifyExpr(IrBuilder::addExpr(left_padding, left_expand))
-             ->isZeroInt()) {
-      return nullptr;
-    }
-    if (!simplifyExpr(IrBuilder::addExpr(right_padding, right_expand))
-             ->isZeroInt()) {
-      return nullptr;
-    }
-  }
-
+  TensorView* split_in = exprsFormSplit(frontier, split_axis);
   return split_in;
 }
 
-} // namespace
-
-void MoveSplitCatPass::runPass(Fusion* fusion) {
-  std::vector<Expr*> exprs = fusion->exprs();
+void CancelSplitCat::run() {
+  std::vector<Expr*> exprs = fusion_->exprs();
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::vector<Expr*> use_def_chain;
     TensorView* split_in = findCancelingSplit(cat, std::ref(use_def_chain));
@@ -239,26 +246,29 @@ void MoveSplitCatPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    TensorView* merged_out = split_in;
+    Val* merged_out = split_in;
     for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
          i++) {
-      Expr* to_replay = *i;
-      // TODO(wujingyue): instead of an op-type dispatch, try a more general
-      // approach suggested by @jacobhinkle:
-      // https://github.com/NVIDIA/Fuser/pull/1782#discussion_r1496123087.
-      if (to_replay->isA<LoadStoreOp>()) {
-        auto* set_out = to_replay->output(0)->as<TensorView>();
-        std::vector<int64_t> permutation = *ir_utils::computePermutation(
-            set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
-        merged_out = permute(merged_out, permutation);
-        continue;
-      }
-      NVF_ERROR("Not implemented");
+      Expr* merged = replayExprWithNewInput(*i, merged_out);
+      NVF_ERROR(
+          merged->outputs().size() == 1,
+          "Currently, we merge only unary ops, so it would be a programming "
+          "mistake when the number of outputs is ",
+          merged->outputs().size());
+      merged_out = merged->output(0);
     }
-
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        cat->output(0), merged_out);
+    // `cat->output(0)` may be a fusion output with allocation domain.
+    // Therefore, instead of replacing the output, we create a Set to preserve
+    // the output allocation domain.
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, cat->output(0), merged_out);
   }
+}
+
+} // namespace
+
+void MoveSplitCatPass::runPass(Fusion* fusion) {
+  CancelSplitCat(fusion).run();
 }
 
 } // namespace nvfuser::preseg_passes
