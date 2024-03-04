@@ -1273,8 +1273,8 @@ TensorDomain* fullReplay(
       "leaf. So, when `old_domain` has allocation, it may be incorrect to "
       "use its leaf as the target domain: ",
       old_domain->toString(0, /*leaf_only=*/false));
-  auto replay = ReplayTransformations(old_domain->leaf(), old_root_to_new)
-                    .setReplayRFactor(true);
+  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+  replay.setReplayRFactor(true);
 
   std::vector<IterDomain*> new_leaf;
   new_leaf.reserve(old_domain->nDims());
