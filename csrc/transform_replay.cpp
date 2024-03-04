@@ -1334,6 +1334,8 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     size_t i = 0;
     for (IterDomain* in_rfactor_id :
          TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
+      // Copy the `rf` flag from `old_domain` and everything else from
+      // `in_rfactor_id`.
       new_root.push_back(
           IterDomainBuilder(in_rfactor_id)
               .is_rfactor_domain(old_domain->root()[i]->isRFactorProduct())
