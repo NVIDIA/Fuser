@@ -385,6 +385,74 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
+  // TODO: plumb this out
+  const bool use_serial_grid_reduction = true;
+  if (use_serial_grid_reduction) {
+    // rFactor the reduction to separate out the grid reduction, and set that
+    // dimension up for serial grid reduction.
+    std::vector<int> grid_reduce_dims;
+    std::vector<int> block_reduce_dims;
+    std::vector<int> grouped_dims;
+    int tidx_dim = -1;
+    int unswitch_dim = -1;
+    int num_grouped_elements = 1;
+    for (const auto i : c10::irange(reduction_tv->nDims())) {
+      const IterDomain* id = reduction_tv->axis(i);
+      if (id->getParallelType() == ParallelType::Group) {
+        grouped_dims.push_back(i);
+        NVF_ERROR(id->extent()->value().hasValue());
+        num_grouped_elements *= id->extent()->value().as<int64_t>();
+      } else if (id->getParallelType() == ParallelType::TIDx) {
+        tidx_dim = i;
+      } else if (id->getParallelType() == ParallelType::Unswitch) {
+        unswitch_dim = i;
+      } else if (id->isReduction()) {
+        if (id->isBlockDim()) {
+          grid_reduce_dims.push_back(i);
+        } else if (id->isThreadDim()) {
+          block_reduce_dims.push_back(i);
+        }
+      }
+    }
+    if (!grid_reduce_dims.empty()) {
+      // rfactor the reduction
+      // Scheduling grid reduction:
+      // Starting with
+      //  reduction[iBx iTx iUS iG rBy rTy]
+      // we rFactor to
+      //  block_reduction[iBx iTx iUS iG iBy rTy]
+      //  reduction[iBx iTx iUS iS rBy] = sum(block_reduction)
+      // Then we split the formerly grouped dimension explicitly into
+      // vectorized and serial dims iG -> iS, iV to form
+      //  reduction[iBx iTx iUS iS rBy, iV]
+
+      // Vectorize the grouped dimensions (joining/splitting if necessary)
+      int vec_size = 1;
+      while (num_grouped_elements >= (2 * vec_size) &&
+             num_grouped_elements % (2 * vec_size) == 0 &&
+             dataTypeSize(reduction_tv->dtype()) * vec_size <= 8) {
+        vec_size *= 2;
+      }
+      NVF_ERROR(
+          grouped_dims.size() == 1, "Multiple grouped dims not yet supported");
+      int grouped_dim = grouped_dims[0];
+
+      // After this, reduction_tv is now the outer reduction dimension
+      /*TensorView* block_reduction_tv = */ reduction_tv->rFactor(
+          block_reduce_dims);
+
+      reduction_tv->definition()
+          ->as<ReductionOp>()
+          ->requestSerialGridReduction();
+      // grouped_dim might be larger than vec_size...
+      reduction_tv->axis(grouped_dim)->parallelize(ParallelType::Serial);
+      reduction_tv->split(grouped_dim, vec_size, /*inner_split=*/true);
+      reduction_tv->axis(grouped_dim + 1)->parallelize(ParallelType::Vectorize);
+      reduction_tv->reorder(
+          {{grouped_dim + 1, -1}, {tidx_dim, -2}, {unswitch_dim, -3}});
+    }
+  }
+
   // Inline the schedule
   inlineMost();
 }
