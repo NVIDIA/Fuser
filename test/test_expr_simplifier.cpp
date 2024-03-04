@@ -1129,7 +1129,7 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
     EXPECT_TRUE(val->value());          \
   }
   EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {"0 < 8"_}));
-  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < i0"_, {}, {"i0 < 8"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < neg( i0 )"_, {}, {"i0 < 8"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) < 0"_, {}, {"0 < i0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("0 < abs( i0 )"_, {}, {"0 < i0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"i0 > 0"_}));
