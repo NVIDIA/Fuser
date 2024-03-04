@@ -1321,31 +1321,31 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
   std::vector<Val*> new_outs;
   new_outs.reserve(e->outputs().size());
 
-  for (Val* old : e->outputs()) {
-    auto* old_tv = dynamic_cast<TensorView*>(old);
+  for (Val* old_out : e->outputs()) {
+    auto* old_out_tv = dynamic_cast<TensorView*>(old_out);
     NVF_CHECK(
-        old_tv != nullptr,
+        old_out_tv != nullptr,
         "This function doesn't support non-TensorView outputs yet: ",
-        old);
-    TensorDomain* old_domain = old_tv->domain();
+        old_out);
+    TensorDomain* old_domain = old_out_tv->domain();
 
-    std::vector<IterDomain*> new_root;
-    new_root.reserve(old_domain->root().size());
+    std::vector<IterDomain*> new_out_root;
+    new_out_root.reserve(old_domain->root().size());
     size_t i = 0;
     for (IterDomain* in_rfactor_id :
          TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
       // Copy the `rf` flag from `old_domain` and everything else from
       // `in_rfactor_id`.
-      new_root.push_back(
+      new_out_root.push_back(
           IterDomainBuilder(in_rfactor_id)
               .is_rfactor_domain(old_domain->root()[i]->isRFactorProduct())
               .build());
       i++;
     }
-    TensorDomain* new_domain = fullReplay(old_domain, new_root);
-    TensorView* new_tv =
-        IrBuilder::create<TensorView>(new_domain, *old->getDataType());
-    new_outs.push_back(new_tv);
+    TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
+    TensorView* new_out_tv =
+        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+    new_outs.push_back(new_out_tv);
   }
 
   return e->newObjectFunc()(
