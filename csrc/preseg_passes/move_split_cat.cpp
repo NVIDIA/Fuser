@@ -26,14 +26,20 @@ class CancelSplitCat {
  public:
   CancelSplitCat(Fusion* fusion)
       : fusion_(fusion),
+        id_model_(
+            fusion,
+            /*build_graphs=*/false,
+            /*allow_self_mapping=*/true),
         id_model_for_merging_(
             fusion,
-            /*build_graphs=*/true,
-            /*allow_self_mapping=*/true),
-        id_model_for_propagation_(
-            fusion,
-            /*build_graphs=*/true,
-            /*allow_self_mapping=*/true) {}
+            /*build_graphs=*/false,
+            /*allow_self_mapping=*/true) {
+    id_model_.buildExactGraph();
+    exact_graph_ = &id_model_.idGraph(IdMappingMode::EXACT);
+    id_model_for_merging_.buildExactGraph();
+    exact_graph_for_merging_ =
+        &id_model_for_merging_.idGraph(IdMappingMode::EXACT);
+  }
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
   // merges ops in between.
@@ -76,10 +82,16 @@ class CancelSplitCat {
 
   Fusion* fusion_;
 
-  // TODO(wujingyue): keep two `IdGraph`s not two `IdModel`s. An `IdModel`
-  // contains multiple graphs and we only care about the exact graph in it.
-  IdModel id_model_for_merging_;
-  IdModel id_model_for_propagation_;
+  // `id_model_` and `exact_graph_` are supposed to be read-only and reflect the
+  // original fusion.
+  IdModel id_model_; // Holds *exact_graph_.
+  ValGraph* exact_graph_;
+
+  // `id_model_for_merging_` and `exact_graph_for_merging_` are used for
+  // `horizontallyMergeable`, which unionizes IterDomains in slices and checks
+  // IterDomains in pads are unionized in the same way.
+  IdModel id_model_for_merging_; // Holds *exact_graph_for_merging.
+  ValGraph* exact_graph_for_merging_;
 };
 
 bool sameOp(const std::vector<Expr*>& frontier) {
@@ -95,8 +107,6 @@ bool CancelSplitCat::horizontallyMergeable(
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
 
-  // FIXME: make it a class member.
-  ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
   {
     const std::vector<IterDomain*>& first_rfactor =
         slices[0]->out()->getMaybeRFactorDomain();
@@ -108,7 +118,7 @@ bool CancelSplitCat::horizontallyMergeable(
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
-        exact_graph.mapVals(first_rfactor[j], rfactor[j]);
+        exact_graph_for_merging_->mapVals(first_rfactor[j], rfactor[j]);
       }
     }
   }
@@ -131,7 +141,7 @@ bool CancelSplitCat::horizontallyMergeable(
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
-        if (!exact_graph.disjointValSets().strictAreMapped(
+        if (!exact_graph_for_merging_->disjointValSets().strictAreMapped(
                 first_root[j], root[j])) {
           return false;
         }
@@ -220,14 +230,12 @@ int64_t CancelSplitCat::propagateCatAxis(
     const std::vector<IterDomain*>& source,
     const std::vector<IterDomain*>& destination,
     int64_t cat_axis) {
-  ValGraph& exact_graph =
-      id_model_for_propagation_.idGraph(IdMappingMode::EXACT);
-  ValGroup cat_dim = exact_graph.toGroup(destination[cat_axis]);
+  ValGroup cat_dim = exact_graph_->toGroup(destination[cat_axis]);
   while (
       std::none_of(source.begin(), source.end(), [&](IterDomain* source_dim) {
-        return exact_graph.toGroup(source_dim) == cat_dim;
+        return exact_graph_->toGroup(source_dim) == cat_dim;
       })) {
-    const ExprGroups& defining_groups = exact_graph.getDefinitions(cat_dim);
+    const ExprGroups& defining_groups = exact_graph_->getDefinitions(cat_dim);
     if (defining_groups.size() != 1) {
       return -1;
     }
@@ -235,13 +243,13 @@ int64_t CancelSplitCat::propagateCatAxis(
     Expr* def = defining_group->front();
     // FIXME: make this a function so we can early return.
     if (Split* split = dynamic_cast<Split*>(def)) {
-      if (exact_graph.toGroup(split->outer()) == cat_dim) {
-        cat_dim = exact_graph.toGroup(split->in());
+      if (exact_graph_->toGroup(split->outer()) == cat_dim) {
+        cat_dim = exact_graph_->toGroup(split->in());
       } else {
         return -1;
       }
     } else if (Merge* merge = dynamic_cast<Merge*>(def)) {
-      cat_dim = exact_graph.toGroup(merge->outer());
+      cat_dim = exact_graph_->toGroup(merge->outer());
     } else {
       return -1;
     }
@@ -251,7 +259,7 @@ int64_t CancelSplitCat::propagateCatAxis(
                  source.begin(),
                  source.end(),
                  [&](IterDomain* source_dim) {
-                   return exact_graph.toGroup(source_dim) == cat_dim;
+                   return exact_graph_->toGroup(source_dim) == cat_dim;
                  }) -
       source.begin();
   return cat_axis;
