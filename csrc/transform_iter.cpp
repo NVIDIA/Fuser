@@ -174,7 +174,6 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   if (replay_swizzle_) {
     // Replay the swizzle onto mapped
-    // FIXME: isRFactorProduct
     outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
 
     // Remove mapped from the leaf IDs
@@ -222,7 +221,6 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
 
   if (replay_swizzle_) {
     // Replay the swizzle onto mapped
-    // FIXME: isRFactorProduct
     outs = IterDomain::swizzle(swizzle_2d->swizzleType(), mapped_x, mapped_y);
 
     // Remove mapped from the leaf IDs
