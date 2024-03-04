@@ -43,7 +43,7 @@ class CancelSplitCat {
   // Returns true when Exprs between `slices` and `pads` can be horizontally
   // merged and applied on the input of the split.
   bool horizontallyMergeable(
-      const std::vector<Expr*>& slices,
+      const std::vector<SliceOp*>& slices,
       const std::vector<PadOp*>& pads);
 
   int64_t propagateCatAxis(
@@ -90,7 +90,7 @@ bool sameOp(const std::vector<Expr*>& frontier) {
 }
 
 bool CancelSplitCat::horizontallyMergeable(
-    const std::vector<Expr*>& slices,
+    const std::vector<SliceOp*>& slices,
     const std::vector<PadOp*>& pads) {
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
@@ -142,20 +142,15 @@ bool CancelSplitCat::horizontallyMergeable(
   return true;
 }
 
-// If `exprs` are `SliceOp`s that form a split, returns the base tensor of the
+// If `slices` form a split, returns the base tensor of the
 // split. Returns null otherwise.
-TensorView* exprsFormSplit(
-    const std::vector<Expr*>& exprs,
+TensorView* slicesFormSplit(
+    const std::vector<SliceOp*>& slices,
     const int64_t split_axis) {
   // Checks that all exprs are slices and are based on the
   // same tensor. Otherwise, they don't form a split.
   TensorView* split_in = nullptr;
-  for (Expr* e : exprs) {
-    auto* slice = dynamic_cast<SliceOp*>(e);
-    if (slice == nullptr) {
-      return nullptr;
-    }
-
+  for (auto* slice : slices) {
     if (split_in == nullptr) {
       split_in = slice->in();
     } else if (split_in != slice->in()) {
@@ -169,9 +164,8 @@ TensorView* exprsFormSplit(
   //
   // `split_ranges[i]` is the slice range of `exprs[i]` for the split axis.
   std::vector<Slice> split_ranges;
-  split_ranges.reserve(exprs.size());
-  for (auto i : c10::irange(exprs.size())) {
-    auto* slice = exprs[i]->as<SliceOp>();
+  split_ranges.reserve(slices.size());
+  for (auto* slice : slices) {
     const std::vector<Slice>& slice_ranges = slice->getRanges();
     // Check the steps are all one.
     if (std::any_of(
@@ -204,8 +198,7 @@ TensorView* exprsFormSplit(
   // Due to the limitation of `sameAs` mentioned in #1859, I can't check
   // split_ranges.back().stop is the same as the dimension size. Below is a
   // slightly lengthy workaround.
-  if (!exprs.back()
-           ->as<SliceOp>()
+  if (!slices.back()
            ->out()
            ->getMaybeRFactorDomain()[split_axis]
            ->definition()
@@ -214,7 +207,7 @@ TensorView* exprsFormSplit(
            ->isZero()) {
     return nullptr;
   }
-  for (size_t i = 0; i + 1 < exprs.size(); i++) {
+  for (size_t i = 0; i + 1 < slices.size(); i++) {
     if (!split_ranges[i].stop->sameAs(split_ranges[i + 1].start)) {
       return nullptr;
     }
@@ -318,20 +311,30 @@ TensorView* CancelSplitCat::findCancelingSplit(
     }
   }
 
-  if (!horizontallyMergeable(frontier, pads)) {
+  std::vector<SliceOp*> slices;
+  slices.reserve(frontier.size());
+  for (Expr* e : frontier) {
+    auto* slice = dynamic_cast<SliceOp*>(e);
+    if (slice == nullptr) {
+      return nullptr;
+    }
+    slices.push_back(slice);
+  }
+
+  if (!horizontallyMergeable(slices, pads)) {
     return nullptr;
   }
 
   // Find the corresponding split_axis.
-  int64_t split_axis = propagateCatAxis(
-      frontier[0]->as<SliceOp>()->out()->getMaybeRFactorDomain(),
+  const int64_t split_axis = propagateCatAxis(
+      slices[0]->out()->getMaybeRFactorDomain(),
       pads[0]->out()->as<TensorView>()->getRootDomain(),
       cat->concatenatedDim());
   if (split_axis == -1) {
     return nullptr;
   }
 
-  TensorView* split_in = exprsFormSplit(frontier, split_axis);
+  TensorView* split_in = slicesFormSplit(slices, split_axis);
   return split_in;
 }
 
