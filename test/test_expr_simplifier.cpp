@@ -217,6 +217,9 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
   } else if (name == "abs") {
     NVF_CHECK(args.size() == 1, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::absExpr(args.at(0));
+  } else if (name == "neg") {
+    NVF_CHECK(args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::negExpr(args.at(0));
   }
   NVF_CHECK(false, "Unknown function: ", name);
 }
@@ -1117,16 +1120,25 @@ TEST_F(ExprSimplifierTest, FactorizeGcd) {
       simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
 }
 
-TEST_F(ExprSimplifierTest, ModByBound) {
-  Fusion* fusion = FusionGuard::getCurFusion();
-  Val* i0 = IrBuilder::create<Val>(DataType::Int);
-  Val* i1 = IrBuilder::create<Val>(DataType::Int);
-  std::vector<Val*> assumptions{
-      IrBuilder::ltExpr(i0, i1),
-  };
-  EXPECT_TRUE(simplifyExpr(IrBuilder::modExpr(i0, i1))->sameAs(i1));
-  EXPECT_TRUE(
-      simplifyExpr(IrBuilder::divExpr(i0, i1))->sameAs(fusion->zeroVal()));
+// See https://github.com/NVIDIA/Fuser/pull/1827
+TEST_F(ExprSimplifierTest, OrderTransitivity) {
+  // Macro is just for nicer error printing
+#define EXPECT_VALUE_TRUE(val)          \
+  EXPECT_TRUE(val->value().hasValue()); \
+  if (val->value().hasValue()) {        \
+    EXPECT_TRUE(val->value());          \
+  }
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {"0 < 8"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < i0"_, {}, {"i0 < 8"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) < 0"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("0 < abs( i0 )"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"i0 > 0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( i0 ) ) < 0"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(
+      simplifyExpr("neg( abs( i0 ) ) < i1"_, {}, {"i1 >= 0 && i0 > 0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( 8 ) ) < i0"_, {}, {"i0 >= 0"_}));
+#undef EXPECT_VALUE_TRUE
 }
 
 } // namespace nvfuser
