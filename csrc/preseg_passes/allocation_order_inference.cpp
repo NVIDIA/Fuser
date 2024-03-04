@@ -55,6 +55,7 @@ class AllocationOrderInferencer : public IterVisitor {
   void handle(BroadcastOp*) override;
   void handle(BinaryOp*) override;
   void handle(TernaryOp*) override;
+  void handle(PadOp*) override;
   // TODO: Add more propagation rules
   // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
@@ -226,6 +227,12 @@ void AllocationOrderInferencer::handle(TernaryOp* op) {
     return;
   }
   propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
+}
+
+void AllocationOrderInferencer::handle(PadOp*) {
+  auto* out = dynamic_cast<TensorView*>(op->out());
+  auto* in = dynamic_cast<TensorView*>(op->in());
+  propagateAllocationOrder(in, out);
 }
 
 } // namespace
