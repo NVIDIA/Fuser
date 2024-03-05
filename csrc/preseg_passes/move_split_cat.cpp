@@ -282,7 +282,7 @@ TensorView* slicesFormSplit(
 int64_t CancelSplitCat::computeCatAxisAfterZipping(
     const std::vector<IterDomain*>& slice_rfactor,
     IterDomain* cat_id) {
-  ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   ValGroup cat_group = exact_graph.toGroup(cat_id);
   while (cat_group != nullptr) {
     // If `cat_group` contains a slice rfactor ID, return the index of that ID.
