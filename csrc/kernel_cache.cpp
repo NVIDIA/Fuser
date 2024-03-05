@@ -423,8 +423,11 @@ void prepareRuntimeOrder(
 
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
-    int64_t fusion_id)
-    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
+    int64_t fusion_id,
+    bool auto_schedule)
+    : fusion_(std::move(fusion)),
+      fusion_id_{fusion_id},
+      auto_schedule_(auto_schedule) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -818,7 +821,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
-        kernel_runtimes.size()));
+        kernel_runtimes.size(),
+        auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -1006,10 +1010,12 @@ FusionKernelRuntime::FusionKernelRuntime(
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
-    int64_t runtime_id)
+    int64_t runtime_id,
+    bool auto_schedule)
     : fusion_id_{fusion_id},
       concrete_id_{concrete_id},
-      runtime_id_{runtime_id} {
+      runtime_id_{runtime_id},
+      auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -1230,7 +1236,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 }
 
 // passing args by value because we will be modify this
-void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
+void FusionKernelRuntime::compileFusionParallel(
+    KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
@@ -1337,7 +1344,9 @@ void FusionKernelRuntime::compileKernel(
     fusion_to_run->printMath();
   }
   FusionGuard fg(fusion_to_run.get());
-  scheduler_entry->schedule(fusion_to_run.get());
+  if (auto_schedule_) {
+    scheduler_entry->schedule(fusion_to_run.get());
+  }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");

@@ -88,15 +88,14 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   if (fusion_copy->outputs().empty()) {
     return {};
   }
-  // TODO: Not working with FusionExecutorCache
-  FusionExecutor fe;
-  fe.compileFusion(fusion_copy.get(), global_inputs_IValues);
-  auto buffers = fe.allocOutputSpace(global_inputs_IValues);
+
+  FusionExecutorCache fec(std::move(fusion_copy), 0, false);
+  auto buffers = fec.allocOutputSpace(global_inputs_IValues);
 
   std::unordered_map<Val*, c10::IValue> allocations;
   for (auto i : c10::irange(buffers.size())) {
     allocations.emplace(
-        copy_to_original_map[fusion_copy->outputs().at(i)], buffers.at(i));
+        copy_to_original_map[fec.fusion()->outputs().at(i)], buffers.at(i));
   }
 
   return allocations;
@@ -104,8 +103,9 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
-    Communicator& comm)
-    : comm_(comm) {
+    Communicator& comm,
+    bool auto_schedule)
+    : comm_(comm), auto_schedule_(auto_schedule) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
@@ -157,20 +157,11 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  // if (fe_.find(group) == fe_.end()) {
-  //   fe_.emplace(group, std::make_unique<FusionExecutor>());
-  //   fusions_.emplace(group, staged_fusion_->makeFusion(group));
-  //   fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
-  // }
-  // outputs = fe_[group]->runFusion(group_input_IValues);
-  // auto fusion = staged_fusion_->makeFusion(group);
-  // bool matmul_cs = MatmulScheduler::canScheduleCompileTime(fusion.get());
-  // std::cout << "Can schedule matmul on this fusion? " << matmul_cs <<
-  // std::endl;
-  // FusionExecutorCache fec(std::move(fusion));
   if (fec_.find(group) == fec_.end()) {
-    auto fusion = staged_fusion_->makeFusion(group);
-    fec_.emplace(group, std::make_unique<FusionExecutorCache>(std::move(fusion)));
+    fec_.emplace(
+        group,
+        std::make_unique<FusionExecutorCache>(
+            staged_fusion_->makeFusion(group), 0, auto_schedule_));
   }
   outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
 
