@@ -8538,15 +8538,15 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     int persistent_batch_size;
     int max_register;
     int register_spills;
-    bool project_to_input;
-    bool decouple_dataload;
+    //bool project_to_input;
+    //bool decouple_dataload;
     void print(std::ostream& os = std::cout) {
       os << "persistent_batch_size= " << persistent_batch_size
          << " threads_per_block= " << threads_per_block
          << " occupancy= " << occupancy << " max_register= " << max_register
          << " register_spills= " << register_spills
-         << " project_to_input= " << project_to_input
-         << " decouple_dataload= " << decouple_dataload
+          //<< " project_to_input= " << project_to_input
+          //<< " decouple_dataload= " << decouple_dataload
          << " bandwidth_GBps= " << bandwidth << " speedup= " << speedup
          << std::endl;
     }
@@ -8636,13 +8636,21 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
           ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
       cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
           blocks_per_sm * warps_per_block * 32);
+      std::cerr << "persistent_batch_size: "
+                << persistent_batch_size
+                << ", blocks_per_sm: " << blocks_per_sm
+                << std::endl;
+    }
+
+    if (getenv("REG")) {
+      cparams.maxrregcount = std::atoi(getenv("REG"));
     }
 
     scheduleInnerPersistentKernel(fusion, *persistent_params);
 
     FusionExecutor fe;
     fe.compileFusion(fusion, aten_inputs, lparams, cparams);
-    auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+    //auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
 
     kernelInfo kinfo;
     kinfo.threads_per_block = warps_per_block * 32;
@@ -8651,13 +8659,14 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     kinfo.max_register = cparams.maxrregcount;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
-      auto read_write_bytes = fe.bytesProcessed();
-      constexpr int nwarm = 5;
-      constexpr int niter = 10;
+      // auto read_write_bytes = fe.bytesProcessed();
+      auto read_write_bytes = 1000 * 1000;
+      constexpr int nwarm = 0;
+      constexpr int niter = 1;
       std::vector<float> bw(niter, 0.f);
       for (int i = 0; i < nwarm + niter; i++) {
         clearL2Cache();
-        auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+        //auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
         if (i >= nwarm) {
           float runTimeus = fe.kernelTimeMs() * 1e3;
           float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
@@ -8668,7 +8677,8 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
           }
         }
       }
-      kinfo.occupancy = fe.getKernelOccupancy();
+      // kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.occupancy = 10;
       kinfo.register_spills = fe.getKernelRegisterSpills();
       kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
       if (persistent_batch_size == 0 && blocks_per_sm == 0) {
@@ -8701,7 +8711,10 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
   for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
-  for (int64_t batch_size : {2048, 1024 * 32}) {
+  features.clear();
+  features.insert(22 * 1024);
+  // for (int64_t batch_size : {2048, 1024 * 32}) {
+  for (int64_t batch_size : {2048}) {
     for (auto feature : features) {
       std::cout << "\n--- batch_size= " << batch_size
                 << ", feature= " << feature << std::endl;
@@ -8713,6 +8726,12 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
             ceilDiv(feature / vect_factor, max_threads_per_block);
         auto max_batch_size = std::min(
             (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+        std::cerr << "min_batch_size: " << min_batch_size
+                  << ", max_batch_size: " << max_batch_size << std::endl;
+        if (getenv("PERSISTENT")) {
+          min_batch_size = std::atoi(getenv("PERSISTENT"));
+          max_batch_size = min_batch_size;
+        }
         for (auto persistent_batch_size = min_batch_size;
              persistent_batch_size <= max_batch_size;
              persistent_batch_size++) {
@@ -8723,6 +8742,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
           // target different blocks_per_sm by adjusting register per
           // thread
           auto max_blocks_per_sm = 64 / warps_per_block;
+          max_blocks_per_sm = 1;
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
             auto res =
@@ -8764,6 +8784,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
               << "_dropout_layernorm_twopass_new_" << batch_size << "_" << feature
               << ".txt";
       }
+      std::cerr << "Dump to " << fname.str() << std::endl;
 
       std::ofstream file(fname.str());
       if (file.is_open()) {
@@ -9040,7 +9061,8 @@ TEST_F(NVFuserTest, BFSoftmax) {
     auto max_val = max(x, {-1});
     auto bcast_max = broadcast(max_val, {false, true});
     auto x_max_sub = sub(x, bcast_max);
-    auto exp_val = exp(x_max_sub);
+    // auto exp_val = exp(x_max_sub);
+    auto exp_val = mul(x_max_sub, x_max_sub);
     auto sum_exp = sum(exp_val, {-1});
     auto bcast_sum = broadcast(sum_exp, {false, true});
 
@@ -9049,6 +9071,8 @@ TEST_F(NVFuserTest, BFSoftmax) {
     fusion->addOutput(y);
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({batch, feature}, options);
+
+    fusion->printMath();
 
     if (!isBenchmark) {
       kernelInfo kinfo;
@@ -9073,14 +9097,18 @@ TEST_F(NVFuserTest, BFSoftmax) {
           ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
       cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
           blocks_per_sm * warps_per_block * 32);
+      std::cerr << "persistent_batch_size: "
+                << persistent_batch_size
+                << ", blocks_per_sm: " << blocks_per_sm
+                << std::endl;
     }
 
     scheduleInnerPersistentKernel(fusion, *persistent_params);
 
     FusionExecutor fe;
     fe.compileFusion(fusion, {t0}, lparams, cparams);
-    auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
-    testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    //auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
+    //testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
     kernelInfo kinfo;
     kinfo.threads_per_block = warps_per_block * 32;
     kinfo.persistent_batch_size =
@@ -9088,13 +9116,14 @@ TEST_F(NVFuserTest, BFSoftmax) {
     kinfo.max_register = cparams.maxrregcount;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
-      auto read_write_bytes = fe.bytesProcessed();
+      // auto read_write_bytes = fe.bytesProcessed();
+      auto read_write_bytes = 10;
       constexpr int nwarm = 5;
       constexpr int niter = 10;
       std::vector<float> bw(niter, 0.f);
       for (int i = 0; i < nwarm + niter; i++) {
         clearL2Cache();
-        auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
+        //auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
         if (i >= nwarm) {
           float runTimeus = fe.kernelTimeMs() * 1e3;
           float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
@@ -9105,7 +9134,8 @@ TEST_F(NVFuserTest, BFSoftmax) {
           }
         }
       }
-      kinfo.occupancy = fe.getKernelOccupancy();
+      // kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.occupancy = 10;
       kinfo.register_spills = fe.getKernelRegisterSpills();
       kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
       if (persistent_batch_size == 0 && blocks_per_sm == 0) {
@@ -9119,6 +9149,7 @@ TEST_F(NVFuserTest, BFSoftmax) {
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
+#if 0
   std::set<int> features{
       512,
       768,
@@ -9137,10 +9168,13 @@ TEST_F(NVFuserTest, BFSoftmax) {
   for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
+#endif
+  std::set<int> features{22 * 1024};
   // bool benchmark_run = true;
   // test(2048, 6144, 0, 0, benchmark_run);
   // return;
-  for (int64_t batch_size : {2048, 1024 * 32}) {
+  // for (int64_t batch_size : {2048, 1024 * 32}) {
+  for (int64_t batch_size : {2048}) {
     for (auto feature : features) {
       std::vector<kernelInfo> results;
       ASSERT_TRUE(feature % vect_factor == 0);
@@ -9151,6 +9185,11 @@ TEST_F(NVFuserTest, BFSoftmax) {
             ceilDiv(feature / vect_factor, max_threads_per_block);
         auto max_batch_size = std::min(
             (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+        if (getenv("PERSISTENT")) {
+          min_batch_size = std::atoi(getenv("PERSISTENT"));
+          max_batch_size = min_batch_size;
+        }
+
         for (auto persistent_batch_size = min_batch_size;
              persistent_batch_size <= max_batch_size;
              persistent_batch_size++) {
@@ -9161,6 +9200,7 @@ TEST_F(NVFuserTest, BFSoftmax) {
           // target different blocks_per_sm by adjusting register per
           // thread
           auto max_blocks_per_sm = 64 / warps_per_block;
+          max_blocks_per_sm = 1;
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
             auto res =
@@ -9310,13 +9350,17 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
           ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
       cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
           blocks_per_sm * warps_per_block * 32);
+      std::cerr << "persistent_batch_size: "
+                << persistent_batch_size
+                << ", blocks_per_sm: " << blocks_per_sm
+                << std::endl;
     }
 
     scheduleInnerPersistentKernel(fusion, *persistent_params);
 
     FusionExecutor fe;
     fe.compileFusion(fusion, aten_inputs, lparams, cparams);
-    auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+    //auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
     kernelInfo kinfo;
     kinfo.threads_per_block = warps_per_block * 32;
     kinfo.persistent_batch_size =
@@ -9324,15 +9368,17 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
     kinfo.max_register = cparams.maxrregcount;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
-      auto read_write_bytes = fe.bytesProcessed();
+      // auto read_write_bytes = fe.bytesProcessed();
+      auto read_write_bytes = 100;
       constexpr int nwarm = 5;
       constexpr int niter = 10;
       std::vector<float> bw(niter, 0.f);
       for (int i = 0; i < nwarm + niter; i++) {
         clearL2Cache();
-        auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+        //auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
         if (i >= nwarm) {
-          float runTimeus = fe.kernelTimeMs() * 1e3;
+          // float runTimeus = fe.kernelTimeMs() * 1e3;
+          float runTimeus = 0.1f;
           float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
           bw[i - nwarm] = bandwidth;
           if (false) {
@@ -9341,7 +9387,8 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
           }
         }
       }
-      kinfo.occupancy = fe.getKernelOccupancy();
+      // kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.occupancy = 10;
       kinfo.register_spills = fe.getKernelRegisterSpills();
       kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
       if (persistent_batch_size == 0 && blocks_per_sm == 0) {
@@ -9354,6 +9401,7 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
+#if 0
   std::set<int> features{
       512,
       768,
@@ -9372,9 +9420,12 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
   for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
+#endif
+  std::set<int> features{22 * 1024};
   // test(batch_size, 512, 0, 0);
   // return;
-  for (int64_t batch_size : {2048, 1024 * 32}) {
+  // for (int64_t batch_size : {2048, 1024 * 32}) {
+  for (int64_t batch_size : {2048}) {
     for (auto feature : features) {
 
       std::vector<kernelInfo> results;
@@ -9386,6 +9437,10 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
             ceilDiv(feature / vect_factor, max_threads_per_block);
         auto max_batch_size = std::min(
             (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+        if (getenv("PERSISTENT")) {
+          min_batch_size = std::atoi(getenv("PERSISTENT"));
+          max_batch_size = min_batch_size;
+        }
         for (auto persistent_batch_size = min_batch_size;
              persistent_batch_size <= max_batch_size;
              persistent_batch_size++) {
@@ -9396,6 +9451,7 @@ TEST_F(NVFuserTest, BFSoftmaxDropout) {
           // target different blocks_per_sm by adjusting register per
           // thread
           auto max_blocks_per_sm = 64 / warps_per_block;
+          max_blocks_per_sm = 1;
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
             auto res =

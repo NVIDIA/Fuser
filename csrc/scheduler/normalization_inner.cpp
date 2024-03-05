@@ -279,8 +279,8 @@ class HeuristicCalculator {
 
  private:
   // facts we can't change.
-  bool has_rng_ops_;
-  bool has_exp_ops_;
+  //bool has_rng_ops_;
+  //bool has_exp_ops_;
   int64_t n_waves_max_;
   int64_t total_reduction_numel_;
   int64_t max_persistent_buffer_size_;
@@ -355,8 +355,8 @@ HeuristicCalculator::HeuristicCalculator(
     const bool project_to_input,
     const bool has_rng_ops,
     const bool has_exp_ops)
-    : has_rng_ops_(has_rng_ops),
-      has_exp_ops_(has_exp_ops),
+    : 
+
       total_reduction_numel_(total_reduction_numel),
       max_persistent_buffer_size_(max_persistent_buffer_size),
       vectorization_unroll_val_(max_vectorize_factor) {
@@ -378,7 +378,7 @@ HeuristicCalculator::HeuristicCalculator(
 
   // allows to reduce estimated register usage for higher occupancy.
   // at 19K, persistent = 4, reduce from 56 to 48, 10% improvement.
-  max_adjust_count_ = [this]() { return 8l; }();
+  max_adjust_count_ = []() { return 8l; }();
 
   // simple fusion, e.g. rms norm and layer norm.
   // (1) used to calculateRegOccupancy() to determine if we should maximize
