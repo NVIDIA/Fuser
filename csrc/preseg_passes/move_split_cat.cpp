@@ -52,10 +52,9 @@ class CancelSplitCat {
       const std::vector<SliceOp*>& slices,
       const std::vector<PadOp*>& pads);
 
-  int64_t propagateCatAxis(
+  int64_t computeSplitAxis(
       const std::vector<IterDomain*>& source,
-      const std::vector<IterDomain*>& destination,
-      int64_t cat_axis);
+      IterDomain* cat_id);
 
   // Finds the canceling split of `cat` and returns the input TensorView of the
   // split. A split (implemented as multiple `slice`s) and a cat cancel when
@@ -226,16 +225,14 @@ TensorView* slicesFormSplit(
   return split_in;
 }
 
-int64_t CancelSplitCat::propagateCatAxis(
+int64_t CancelSplitCat::computeSplitAxis(
     const std::vector<IterDomain*>& source,
-    const std::vector<IterDomain*>& destination,
-    int64_t cat_axis) {
-  ValGroup cat_dim = exact_graph_->toGroup(destination[cat_axis]);
-  while (
-      std::none_of(source.begin(), source.end(), [&](IterDomain* source_dim) {
-        return exact_graph_->toGroup(source_dim) == cat_dim;
-      })) {
-    const ExprGroups& defining_groups = exact_graph_->getDefinitions(cat_dim);
+    IterDomain* cat_id) {
+  ValGroup cat_group = exact_graph_->toGroup(cat_id);
+  while (std::none_of(source.begin(), source.end(), [&](IterDomain* source_id) {
+    return exact_graph_->toGroup(source_id) == cat_group;
+  })) {
+    const ExprGroups& defining_groups = exact_graph_->getDefinitions(cat_group);
     if (defining_groups.size() != 1) {
       return -1;
     }
@@ -243,26 +240,25 @@ int64_t CancelSplitCat::propagateCatAxis(
     Expr* def = defining_group->front();
     // FIXME: make this a function so we can early return.
     if (Split* split = dynamic_cast<Split*>(def)) {
-      if (exact_graph_->toGroup(split->outer()) == cat_dim) {
-        cat_dim = exact_graph_->toGroup(split->in());
+      if (exact_graph_->toGroup(split->outer()) == cat_group) {
+        cat_group = exact_graph_->toGroup(split->in());
       } else {
         return -1;
       }
     } else if (Merge* merge = dynamic_cast<Merge*>(def)) {
-      cat_dim = exact_graph_->toGroup(merge->outer());
+      cat_group = exact_graph_->toGroup(merge->outer());
     } else {
       return -1;
     }
   }
 
-  cat_axis = std::find_if(
-                 source.begin(),
-                 source.end(),
-                 [&](IterDomain* source_dim) {
-                   return exact_graph_->toGroup(source_dim) == cat_dim;
-                 }) -
+  return std::find_if(
+             source.begin(),
+             source.end(),
+             [&](IterDomain* source_id) {
+               return exact_graph_->toGroup(source_id) == cat_group;
+             }) -
       source.begin();
-  return cat_axis;
 }
 
 TensorView* CancelSplitCat::findCancelingSplit(
@@ -333,11 +329,11 @@ TensorView* CancelSplitCat::findCancelingSplit(
     return nullptr;
   }
 
-  // Find the corresponding split_axis.
-  const int64_t split_axis = propagateCatAxis(
+  // Compute the corresponding split_axis.
+  const int64_t cat_axis = cat->concatenatedDim();
+  const int64_t split_axis = computeSplitAxis(
       slices[0]->out()->getMaybeRFactorDomain(),
-      pads[0]->out()->as<TensorView>()->getRootDomain(),
-      cat->concatenatedDim());
+      pads[0]->out()->as<TensorView>()->getRootDomain()[cat_axis]);
   if (split_axis == -1) {
     return nullptr;
   }
