@@ -211,9 +211,7 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
       getRegPerThreadGivenThreadsPerSM(threads_per_sm);
 
   if (register_per_thread_target >= register_per_thread_min) {
-    return {
-        register_per_thread_target,
-        target_blocks_per_sm * threads_per_block / threads_per_warp};
+    return {register_per_thread_target, threads_per_sm / threads_per_warp};
   }
 
   //(2) can't achieve target occupancy. Estimate occupancy from minimum register
@@ -562,7 +560,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   } else {
     // Prioritize occupancy for all fusions except softmax.
     // Not sure why softmax has regression (about 10%) if prioritize occupancy.
-    // So condition [!has_exp_op] is added to filter out softmax.
+    // So condition is added to filter out softmax.
+    // It also identifies any fusion with exp op and without rng_op, which are
+    // not tested.
     bool prioritize_occupancy = has_rng_op || (!has_exp_op);
     std::stable_sort(
         all_heuristics.begin(),
