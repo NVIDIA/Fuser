@@ -45,6 +45,22 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  inline int getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
+    int num_grouped_iterations = 1;
+    auto out_tv = ir_utils::getTvOutput(grouped_rop);
+    for (auto axis : out_tv->getLeafDomain()) {
+      if (axis->getParallelType() == ParallelType::Group) {
+        num_grouped_iterations *= (int)axis->extent()->value();
+      }
+    }
+    NVF_ERROR(
+        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
+            num_grouped_iterations == 8 || num_grouped_iterations == 16,
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        num_grouped_iterations);
+    return num_grouped_iterations;
+  }
+
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
@@ -128,21 +144,9 @@ class KernelIrScanner : private IrVisitor {
     }
     // process iteration grouped reduction
     summary_.has_iter_grouped_reductions = true;
-    int num_grouped_iterations = 1;
-    auto out_tv = ir_utils::getTvOutput(grouped_rop);
-    for (auto axis : out_tv->getLeafDomain()) {
-      if (axis->getParallelType() == ParallelType::Group) {
-        num_grouped_iterations *= (int)axis->extent()->value();
-      }
-    }
+    int num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
-
-    NVF_ERROR(
-        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
-            num_grouped_iterations == 8 || num_grouped_iterations == 16,
-        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
-        num_grouped_iterations);
   }
 
   void handle(GridWelford* grid_welford) final {
@@ -169,6 +173,12 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_grid_reductions = true;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
+    } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
+      // non-persistent iteration domain grouped reduction
+      summary_.has_iter_grouped_reductions = true;
+      summary_.num_grouped_iterations = std::max(
+          summary_.num_grouped_iterations,
+          getNumOfGroupedIterations(grid_reduction->as<GroupedReductionOp>()));
     }
   }
 
