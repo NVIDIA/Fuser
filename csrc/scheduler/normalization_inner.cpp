@@ -195,18 +195,20 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t threads_per_warp = dev_prop->warpSize;
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
+  // ensure higher than target by round up
   int64_t target_blocks_per_sm =
       ceilDiv(target_warps_per_sm * threads_per_warp, threads_per_block);
-
+  // ensure lower than hardware limit by round down
+  if (threads_per_block * target_blocks_per_sm > max_threads_per_sm) {
+    target_blocks_per_sm = max_threads_per_sm / threads_per_block;
+  }
   // minimum register each thread should use to avoid spills
   const int64_t register_per_thread_min =
       buffer_size_per_thread / scheduler_utils::bytes_per_register +
       register_overhead;
 
   // (1) use register calculated from target occupancy
-  int64_t threads_per_sm =
-      std::min(threads_per_block * target_blocks_per_sm, max_threads_per_sm);
-
+  int64_t threads_per_sm = threads_per_block * target_blocks_per_sm;
   int64_t register_per_thread_target =
       getRegPerThreadGivenThreadsPerSM(threads_per_sm);
 
@@ -487,12 +489,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       (int64_t)dev_prop->multiProcessorCount;
 
   // alwasy use [vectorize_factor]
-  NVF_CHECK(
-      inner_most_dimension_numel % vectorize_factor == 0,
-      "Element count should be divisible by vectorize factor! count= ",
-      inner_most_dimension_numel,
-      ", vectorize_factor= ",
-      vectorize_factor);
   const int64_t parallel_after_vectorize =
       inner_most_dimension_numel / (int64_t)vectorize_factor;
 
@@ -505,10 +501,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       ceilDiv(parallel_after_vectorize, max_threads_in_block);
 
   // set the max persistent batch size to avoid low occupancy
-  // don't increase persistent batch size until we have enough threads
+  // (1) limitation set by min_threads_per_block
   const int64_t pbs_max_1 =
       ceilDiv(parallel_after_vectorize, min_threads_per_block);
-  // derived the maximum persistent batch size from the target occupancy
+  // (2) derived the maximum persistent batch size from the target occupancy
   const int64_t buffer_bytes_per_batch = max_persistent_buffer_size /
       total_reduction_numel * (int64_t)vectorize_factor;
   const int64_t target_threads_per_sm =
