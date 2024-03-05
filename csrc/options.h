@@ -87,6 +87,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
                   //! matmul
+  IoToLowerPrecision,
   EndOfOption //! Placeholder for counting the number of elements
 };
 
