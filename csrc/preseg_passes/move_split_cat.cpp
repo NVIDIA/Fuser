@@ -35,10 +35,7 @@ class CancelSplitCat {
             /*build_graphs=*/false,
             /*allow_self_mapping=*/true) {
     id_model_.buildExactGraph();
-    exact_graph_ = &id_model_.idGraph(IdMappingMode::EXACT);
     id_model_for_merging_.buildExactGraph();
-    exact_graph_for_merging_ =
-        &id_model_for_merging_.idGraph(IdMappingMode::EXACT);
   }
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
@@ -139,16 +136,14 @@ class CancelSplitCat {
 
   Fusion* fusion_;
 
-  // `id_model_` and `exact_graph_` are supposed to be read-only and reflect the
+  // `id_model_` is supposed to be read-only and reflect the
   // original fusion.
-  IdModel id_model_; // Holds *exact_graph_.
-  ValGraph* exact_graph_;
+  IdModel id_model_;
 
-  // `id_model_for_merging_` and `exact_graph_for_merging_` are used for
-  // `horizontallyMergeable`, which unionizes IterDomains in slices and checks
-  // IterDomains in pads are unionized in the same way.
-  IdModel id_model_for_merging_; // Holds *exact_graph_for_merging.
-  ValGraph* exact_graph_for_merging_;
+  // `id_model_for_merging_` is used for
+  // `sameIterDomainTransforms`, which unionizes IterDomains in slices and
+  // checks IterDomains in pads are unionized in the same way.
+  IdModel id_model_for_merging_;
 };
 
 bool sameOp(const std::vector<Expr*>& frontier) {
@@ -164,6 +159,7 @@ bool CancelSplitCat::sameIterDomainTransforms(
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
 
+  ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
   {
     const std::vector<IterDomain*>& first_rfactor =
         slices[0]->out()->getMaybeRFactorDomain();
@@ -175,7 +171,7 @@ bool CancelSplitCat::sameIterDomainTransforms(
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
-        exact_graph_for_merging_->mapVals(first_rfactor[j], rfactor[j]);
+        exact_graph.mapVals(first_rfactor[j], rfactor[j]);
       }
     }
   }
@@ -198,7 +194,7 @@ bool CancelSplitCat::sameIterDomainTransforms(
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
-        if (!exact_graph_for_merging_->disjointValSets().strictAreMapped(
+        if (!exact_graph.disjointValSets().strictAreMapped(
                 first_root[j], root[j])) {
           return false;
         }
@@ -286,12 +282,13 @@ TensorView* slicesFormSplit(
 int64_t CancelSplitCat::computeCatAxisAfterZipping(
     const std::vector<IterDomain*>& slice_rfactor,
     IterDomain* cat_id) {
-  ValGroup cat_group = exact_graph_->toGroup(cat_id);
+  ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  ValGroup cat_group = exact_graph.toGroup(cat_id);
   while (cat_group != nullptr) {
     // If `cat_group` contains a slice rfactor ID, return the index of that ID.
     auto i = std::find_if(
         slice_rfactor.begin(), slice_rfactor.end(), [&](IterDomain* id) {
-          return exact_graph_->toGroup(id) == cat_group;
+          return exact_graph.toGroup(id) == cat_group;
         });
     if (i != slice_rfactor.end()) {
       return i - slice_rfactor.begin();
@@ -299,8 +296,7 @@ int64_t CancelSplitCat::computeCatAxisAfterZipping(
 
     // Conceptually zip `cat_group` over its definition.
     auto cat_group_after_zipping = [&](ValGroup cat_group) -> ValGroup {
-      const ExprGroups& defining_groups =
-          exact_graph_->getDefinitions(cat_group);
+      const ExprGroups& defining_groups = exact_graph.getDefinitions(cat_group);
       if (defining_groups.size() != 1) {
         return nullptr;
       }
@@ -309,14 +305,14 @@ int64_t CancelSplitCat::computeCatAxisAfterZipping(
       Expr* def = defining_group->front();
 
       if (Split* split = dynamic_cast<Split*>(def)) {
-        if (exact_graph_->toGroup(split->outer()) == cat_group) {
-          return exact_graph_->toGroup(split->in());
+        if (exact_graph.toGroup(split->outer()) == cat_group) {
+          return exact_graph.toGroup(split->in());
         }
         return nullptr;
       }
 
       if (Merge* merge = dynamic_cast<Merge*>(def)) {
-        return exact_graph_->toGroup(merge->outer());
+        return exact_graph.toGroup(merge->outer());
       }
 
       return nullptr;
