@@ -9224,6 +9224,7 @@ TEST_F(NVFuserTest, BFSoftmax) {
           results[i].print();
         }
       }
+#if 0
       // Open a file in write mode
       char hostname[HOST_NAME_MAX];
       if (gethostname(hostname, HOST_NAME_MAX) != 0) {
@@ -9248,6 +9249,7 @@ TEST_F(NVFuserTest, BFSoftmax) {
       } else {
         std::cerr << "Unable to open file." << std::endl;
       }
+#endif
     }
   }
 }
