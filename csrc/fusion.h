@@ -86,21 +86,25 @@ class FusionGuard {
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
 enum class AllocationType : int {
-  NoAlias,
-  // For example, the tensor storing BatchNorm's running mean. The output EMA is
-  // updated in place.
-  InplaceUpdate,
-  // For example, the output of a ViewOp is merely a pointer arithmetic of the
-  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
-  // cheaply compute the output tensor.
-  PointerArithmetic,
+  New, // Allocate a new buffer
+  // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
+  // BatchNorm's running mean. The output EMA is updated in place.
+  ReuseBuffer,
+  // This is used to cheaply compute the output tensor using
+  // `ExpressionEvaluator` (instead of a kernel) for:
+  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // pointer arithmetic of the input.  In this case, aliased_io is a non-null
+  // tensor.
+  // 2. To evaluate output tensors which are not aliases. For example, default
+  // scheduling in matmul when EnableOption::MatmulExprEval is set.
+  Evaluate,
 };
 
 struct AliasInfo {
   AllocationType type;
   Val* aliased_io;
   // Whether integration should hide the output from users. This is currently
-  // only used for InplaceUpdate.
+  // only used for ReuseBuffer.
   bool hide_output;
 };
 
@@ -189,9 +193,6 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to generate registered outputs.
-  std::vector<Expr*> exprs();
-  //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to generate registered outputs.
   std::vector<Expr*> exprs() const;
 
   //! Return a vector of fusion inputs that feed this Val
@@ -249,7 +250,7 @@ class NVF_API Fusion : public IrContainer {
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced. Currently,
   // aliases of type `PointerArithmetics` are marked after segmentation, but
-  // those of type `InplaceUpdate` are marked in fusion definitions.
+  // those of type `ReuseBuffer` are marked in fusion definitions.
   NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
   //! Returns the aliased input of a given output along with an `AliasInfo`

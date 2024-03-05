@@ -361,6 +361,13 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   (void)runtime_info;
   auto params = std::make_shared<MatmulParams>();
 
+  // Set kernel index mode
+  params->cparams.index_type = runtime_info.getIndexType();
+
+  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+    return params;
+  }
+
   // Check initial conditions
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   mma_utils::CombineMulSum combiner(fusion);
@@ -382,9 +389,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Populate heuristic details
   auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
   NVF_ERROR(status, "Initialization of core part of heuristics failed.");
-
-  // Set kernel index mode
-  params->cparams.index_type = runtime_info.getIndexType();
 
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
