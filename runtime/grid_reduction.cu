@@ -673,7 +673,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool Aligned,
-    int VECT_FACTOR,
+    int vec_size,
     typename T,
     typename Func>
 __device__ void iterGroupedGridReduceLastBlock(
@@ -717,9 +717,9 @@ __device__ void iterGroupedGridReduceLastBlock(
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
   // T inp = init_val;
-  T inp[VECT_FACTOR];
+  T inp[vec_size];
 #pragma unroll
-  for (int i = 0; i < VECT_FACTOR; i++) {
+  for (int i = 0; i < vec_size; i++) {
     inp[i] = init_val;
   }
   // Block stride across the reduction until we only have one value per thread
@@ -730,12 +730,12 @@ __device__ void iterGroupedGridReduceLastBlock(
     auto work_buf_offset =
         reduction_i * (block_reduction_segment_size * grid_segment_size) +
         block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    work_buf_offset *= VECT_FACTOR;
+    work_buf_offset *= vec_size;
 
     // vectorized load from global memory
-    constexpr int total_bytes = VECT_FACTOR * sizeof(T);
+    constexpr int total_bytes = vec_size * sizeof(T);
     constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-    constexpr int n_elements = total_bytes <= 16 ? VECT_FACTOR : 16 / sizeof(T);
+    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
 #pragma unroll
     for (int i = 0; i < n_loads; i++) {
       int i_offset = i * n_elements;
@@ -751,18 +751,18 @@ __device__ void iterGroupedGridReduceLastBlock(
 
   // Block reduce the per thread values into per "participating" thread values
   // T inp_tmp = init_val;
-  T inp_tmp[VECT_FACTOR];
+  T inp_tmp[vec_size];
 #pragma unroll
-  for (int i = 0; i < VECT_FACTOR; i++) {
+  for (int i = 0; i < vec_size; i++) {
     inp_tmp[i] = init_val;
   }
-  blockIterGroupedReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned, VECT_FACTOR>(
+  blockIterGroupedReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned, vec_size>(
       inp_tmp, inp, reduction_op, shared_buf, true, init_val);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
 #pragma unroll
-    for (int i = 0; i < VECT_FACTOR; i++) {
+    for (int i = 0; i < vec_size; i++) {
       reduction_op(out[i], inp_tmp[i]);
     }
   }
@@ -777,7 +777,7 @@ template <
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool Aligned,
-    int VECT_FACTOR,
+    int vec_size,
     typename T,
     typename Func>
 __device__ void iterGroupedGridReduce(
@@ -793,15 +793,15 @@ __device__ void iterGroupedGridReduce(
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances) {
   // inp or block reduction results
-  T block_reduction_val[VECT_FACTOR];
+  T block_reduction_val[vec_size];
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
 #pragma unroll
-    for (int i = 0; i < VECT_FACTOR; i++) {
+    for (int i = 0; i < vec_size; i++) {
       block_reduction_val[i] = init_val;
     }
-    blockIterGroupedReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned, VECT_FACTOR>(
+    blockIterGroupedReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned, vec_size>(
         block_reduction_val,
         inp_val,
         reduction_op,
@@ -811,7 +811,7 @@ __device__ void iterGroupedGridReduce(
         init_val);
   } else if (read_pred) {
 #pragma unroll
-    for (int i = 0; i < VECT_FACTOR; i++) {
+    for (int i = 0; i < vec_size; i++) {
       block_reduction_val[i] = inp_val[i];
     }
   }
@@ -850,11 +850,11 @@ __device__ void iterGroupedGridReduce(
     auto work_buf_offset =
         block_offset * (block_reduction_segment_size * grid_segment_size) +
         block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    work_buf_offset *= VECT_FACTOR;
+    work_buf_offset *= vec_size;
 
-    constexpr int total_bytes = VECT_FACTOR * sizeof(T);
+    constexpr int total_bytes = vec_size * sizeof(T);
     constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-    constexpr int n_elements = total_bytes <= 16 ? VECT_FACTOR : 16 / sizeof(T);
+    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
 #pragma unroll
     for (int i = 0; i < n_loads; i++) {
       loadLocalToGlobal<T, n_elements, true>(
@@ -885,7 +885,7 @@ __device__ void iterGroupedGridReduce(
         !Y_THREAD,
         !Z_THREAD,
         Aligned,
-        VECT_FACTOR>(
+        vec_size>(
         out,
         (T*)work_buf,
         grid_reduction_segment_size,
