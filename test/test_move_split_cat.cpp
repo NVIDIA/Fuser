@@ -23,7 +23,7 @@ using testing::Property;
 
 using MoveSplitCatTest = NVFuserTest;
 
-TEST_F(MoveSplitCatTest, Cancellable_Adjacent) {
+TEST_F(MoveSplitCatTest, Cancellable_SplitImmediatelyFollowedByCat) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -44,6 +44,28 @@ TEST_F(MoveSplitCatTest, Cancellable_Adjacent) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+}
+
+TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 6});
+  TensorView* s0 = slice(in, {0, 0}, {2, 3});
+  TensorView* s1 = slice(in, {0, 3}, {2, 6});
+  TensorView* out = cat({s1, s0}, /*dim=*/-1);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 6}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_SliceAmountAndPaddingAmountMismatch) {

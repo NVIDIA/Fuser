@@ -101,8 +101,14 @@ class CancelSplitCat {
   //   out = cat({t, ...}, 0}
   //
   // Returns 0 because `slice`'s dimension 0 is the outer dimension.
-  //
+
   // Example 4:
+  //   t = reshape(slice, {6}, {2, 3})
+  //   out = cat({t, ...}, 0}
+  //
+  // Returns 0 because `out`'s dimension 0 is the outer dimension.
+  //
+  // Example 5:
   //   t = reshape(slice, {6}, {2, 3})
   //   out = cat({t, ...}, 1}
   //
