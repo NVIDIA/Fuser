@@ -2114,16 +2114,19 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   auto output = in_a.matmul(in_b);
 
   // ATen preserves the input dtype whereas MmaOP generates float outputs.
-  // Cast to the dtype of the MmaOp output for consistency.
-  // NOTE: MmaOp returns the float output, whereas in the evaluate method,
-  //      we are casting from float -> input_dtype -> float. This will lead
-  //      to loss of precision.
-  //      MmaOp::evaluate should be modified to effectively handle cast(MmaOp(H,
-  //      H), H) This will avoid the above cast chain and precision issue.
-  if (tv_a->getDataType() != out()->getDataType().value()) {
-    output = output.to(data_type_to_aten(out()->getDataType().value()));
+  // If the MmaOp is followed by a cast, skip casting back the input to avoid
+  // roundtrip casts. For eg: MmaOp (H, H) + CastOp (F, H) will result in
+  // F->H->F->H impacting precision and performance. Note: This potentially
+  // binds the MmaOp output in the expression evaluator to a tensor
+  //        of different datatype.
+  auto uses = out()->uses();
+  if ((tv_a->getDataType() == out()->getDataType().value()) ||
+      (uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
+       uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast)) {
+    return {output};
+  } else {
+    return {output.to(data_type_to_aten(out()->getDataType().value()))};
   }
-  return {output};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
