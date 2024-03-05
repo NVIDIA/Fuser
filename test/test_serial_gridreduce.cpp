@@ -36,8 +36,8 @@ namespace nvfuser {
 using SerialGridReductionTest = NVFuserTest;
 
 TEST_F(SerialGridReductionTest, Scheduling) {
-  for (bool serial : {true}) {
-    for (int64_t num_warps : {4}) {
+  for (bool serial : {true, false}) {
+    for (int64_t num_warps : {4, 8}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
       // Here we set B to a small value of 8 instead of 32 (i.e. 128 elements
       // per thread), so that the non-serial compilation does not take too

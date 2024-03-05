@@ -2297,12 +2297,9 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
   };
 
-  test(2048, 32768);
-
   maybeClearAllocator(0);
   for (int dim0 = 1024; dim0 <= 32768; dim0 *= 2) {
     for (int dim1 = 1024; dim1 <= 32768; dim1 *= 2) {
-      printf("Testing dim0=%d, dim1=%d\n", dim0, dim1);
       test(dim0, dim1);
     }
   }
