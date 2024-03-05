@@ -178,20 +178,19 @@ void InnerPersistentKernelScheduler::computeHeuristics(
   NVF_ERROR(params_ != nullptr);
 }
 
-class HeuristicGenerator {
- public:
-  HeuristicGenerator(PersistentKernelProperties pk_prop) : prop(pk_prop) {
-    // Determine the type of heuristic to use
-    if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {
-      heuristic_type = HeuristicType::SharedMemory;
-    } else {
-      if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
-        heuristic_type = HeuristicType::Register2D;
-      } else {
-        heuristic_type = HeuristicType::Register3D;
-      }
-    }
+namespace {
 
+// 3 types of heuristic generators: shared memory, 2D reduction, 3D reduction
+enum class HeuristicType { SharedMemory, Register2D, Register3D, None };
+class HeuristicGeneratorBase {
+ public:
+  // actual implementation of the heuristic generation
+  virtual std::shared_ptr<ReductionParams> generateHeuristic() = 0;
+  virtual ~HeuristicGeneratorBase() = default;
+  HeuristicGeneratorBase(PersistentKernelProperties pk_prop)
+      : prop(pk_prop),
+        target_warps_per_sm_(28l),
+        register_overhead_(prop.has_exp_op ? 32l : 16l) {
     // convenience copy of device properties
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     threads_per_warp_ = (int64_t)dev_prop->warpSize;
@@ -206,19 +205,6 @@ class HeuristicGenerator {
     min_threads_per_block_ = 4l * dev_prop->warpSize;
     max_threads_per_block_ = (int64_t)dev_prop->maxThreadsPerBlock;
 
-    // register_overhead_ is all registers except those for the persistent
-    // buffers. The register in each thread = register_overhead_ +
-    // persistent_buffer_size / bytes_per_register
-    // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
-    // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
-    // to NVRTC and influences the occupancy.
-    register_overhead_ = prop.has_exp_op ? 32l : 16l;
-
-    // Target occupancy required to hide memory latency
-    // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
-    // dropout_layer_norm on A100 & H100.
-    target_warps_per_sm_ = 28l;
-
     // Compute maximum number of reductions we could do in the same kernel based
     // on persistent buffer size. Bounded by the wave count for utilization of
     // SMs.
@@ -229,220 +215,35 @@ class HeuristicGenerator {
         ceilDiv(prop.total_iteration_numel, sm_count_));
   }
 
-  // Dipatch to the right heuristic generator
-  std::shared_ptr<ReductionParams> generateHeuristic() {
-    std::shared_ptr<ReductionParams> rparams = nullptr;
-    switch (heuristic_type) {
-      case HeuristicType::SharedMemory:
-        rparams = innerPersistentHeuristicSharedMemory();
-        rparams->tag = "HeuristicType::SharedMemory\n";
-        break;
-      case HeuristicType::Register2D:
-        rparams = innerPersistentHeuristicSharedMemory();
-        rparams->tag = "HeuristicType::Register2D\n";
-        break;
-      case HeuristicType::Register3D:
-        rparams = innerPersistentHeuristicSharedMemory();
-        rparams->tag = "HeuristicType::Register3D\n";
-        break;
-      default:
-        NVF_ERROR("Invalid Heuristic Type");
-    }
+ protected:
+  PersistentKernelProperties prop;
 
-    rparams->persistent_kernel = true;
-    rparams->fastest_dim = true;
-    rparams->project_persistent_buffers = prop.project_persistent_buffers;
-    rparams->cparams.index_type = prop.index_type;
-    return rparams;
-  }
-
- private:
   // convenience copy of device properties
   int64_t threads_per_warp_;
   int64_t max_threads_per_sm_;
   int64_t sm_count_;
 
-  // 3 types of heuristic generators: shared memory, 2D reduction, 3D reduction
-  enum class HeuristicType { SharedMemory, Register2D, Register3D };
-  HeuristicType heuristic_type;
-
   // heuristic parameters
   int64_t min_threads_per_block_;
   int64_t max_threads_per_block_;
-  int64_t register_overhead_;
+
+  // Target occupancy required to hide memory latency
+  // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
+  // dropout_layer_norm on A100 & H100.
   int64_t target_warps_per_sm_;
+
+  // register_overhead_ is all registers except those for the persistent
+  // buffers. The register in each thread = register_overhead_ +
+  // persistent_buffer_size / bytes_per_register
+  // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
+  // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
+  // to NVRTC and influences the occupancy.
+  int64_t register_overhead_;
 
   // derived parameters
   int64_t max_multi_reduction_factor_;
 
-  PersistentKernelProperties prop;
-
-  // HeuristicType::SharedMemory
-  std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory() {
-    auto rparams = std::make_shared<ReductionParams>();
-    rparams->shared_mem_persistent_buffer = true;
-    // Inner reduction domain
-    // This heuristic is only used for cases with large total_reduction_numel.
-    // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for
-    // fp32. fully vectorized, use maxThreadsPerBlock to reduce workload per
-    // threads
-    int64_t bdimx = max_threads_per_block_;
-    NVF_ERROR(
-        prop.total_reduction_numel >= prop.vectorize_factor * bdimx,
-        "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
-        "total_reduction_numel= ",
-        prop.total_reduction_numel,
-        ", vectorize_factor= ",
-        prop.vectorize_factor,
-        ", bdimx= ",
-        bdimx);
-    int64_t persistent_batch =
-        ceilDiv(prop.total_reduction_numel, prop.vectorize_factor * bdimx);
-    rparams->cross_block_inner_reduction = true;
-    rparams->block_dim_inner_reduction = ParallelType::TIDx;
-    rparams->pad_inner_reduction_to_warp = true;
-    rparams->batches_per_block_inner_reduction = persistent_batch;
-    rparams->unroll_factor_inner_reduction = prop.vectorize_factor;
-    rparams->vectorize_inner_reduction = prop.vectorize_factor > 1;
-
-    // Iter
-    rparams->multiple_reds_per_blk = false;
-    rparams->grid_dim_iter_dom = ParallelType::BIDx;
-    rparams->unroll_factor_iter_dom = 1;
-    rparams->lparams = LaunchParams(
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL);
-    return rparams;
-  }
-
-  // HeuristicType::Register2D
-  // Generate a heuristic for each possible persistent batch size.
-  // (1) If the maximum occupancy is less than the target occupancy, use the
-  // batch
-  //     leads to the largest occupancy.
-  // (2) If prioritize occupancy, sort the heuristics based on:
-  //     (a) Prefer occupancy larger than target.
-  //     (b) Prefer divisible by persistent batch size.
-  //     (c) Prefer large register overhead.
-  //     (d) Prefer large occupancy.
-  //     (e) Tiebreaker, use large persistent batch size.
-  // (3) If prioritize block size, sort the heuristics based on:
-  //     (a) Prefer bdimx_val equals power of 2
-  //     (b) Prefer occupancy larger than target.
-  //     (c) Tiebreaker, use small bdimx
-  // Currently, prioritize occupancy is used for all fusions except softmax.
-  std::shared_ptr<ReductionParams> innerPersistentHeuristic2D() {
-    // alwasy use [prop.vectorize_factor]
-    const int64_t parallel_after_vectorize =
-        prop.inner_most_dimension_numel / (int64_t)prop.vectorize_factor;
-
-    // set the min persistent buffer size to avoid requesting
-    // a block size larger than device limit
-    const int64_t batches_per_block_inner_reduction_min =
-        ceilDiv(parallel_after_vectorize, max_threads_per_block_);
-
-    // set the max persistent batch size to avoid low occupancy
-    // (1) limitation set by min_threads_per_block_
-    const int64_t pbs_max_1 =
-        ceilDiv(parallel_after_vectorize, min_threads_per_block_);
-    // (2) derived the maximum persistent batch size from the target occupancy
-    const int64_t buffer_bytes_per_batch = prop.max_persistent_buffer_size /
-        prop.total_reduction_numel * (int64_t)prop.vectorize_factor;
-    const int64_t target_threads_per_sm =
-        std::min(target_warps_per_sm_ * threads_per_warp_, max_threads_per_sm_);
-    const int64_t pbs_max_2 =
-        getMaxPersistentBatch(buffer_bytes_per_batch, target_threads_per_sm);
-    const int64_t batches_per_block_inner_reduction_max = std::max(
-        batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
-
-    // Generate a heuristic for each possible persistent batch size.
-    // record which persistent batch size has the highest occupancy.
-    int64_t idx_max_occupancy = -1;
-    int64_t current_max_occupancy = -1;
-    std::vector<HeuristicParams> all_heuristics;
-    all_heuristics.reserve(
-        batches_per_block_inner_reduction_max -
-        batches_per_block_inner_reduction_min + 1);
-    for (int64_t pbs = batches_per_block_inner_reduction_min;
-         pbs <= batches_per_block_inner_reduction_max;
-         pbs++) {
-      all_heuristics.push_back(getHeuristicParamsGivenPerisisentBatchSize(
-          parallel_after_vectorize, buffer_bytes_per_batch, pbs));
-      if (all_heuristics.back().occupancy > current_max_occupancy) {
-        current_max_occupancy = all_heuristics.back().occupancy;
-        idx_max_occupancy = (int64_t)all_heuristics.size() - 1;
-      }
-    }
-
-    // Sort the heuristics and select the best one.
-    // If no persistent batch size can achieve the target occupancy, and
-    HeuristicParams best_heuristic;
-    if (current_max_occupancy < target_warps_per_sm_) {
-      best_heuristic = all_heuristics.at(idx_max_occupancy);
-    } else {
-      // Prioritize occupancy for all fusions except softmax.
-      // Not sure why softmax has regression (about 10%) if prioritize
-      // occupancy. So condition is added to filter out softmax. It also
-      // identifies any fusion with exp op and without rng_op, which are not
-      // tested.
-      bool prioritize_occupancy = prop.has_rng_op || (!prop.has_exp_op);
-      std::stable_sort(
-          all_heuristics.begin(),
-          all_heuristics.end(),
-          [this, &prioritize_occupancy](
-              const HeuristicParams& a, const HeuristicParams& b) {
-            return compareTwoHeuristics(a, b, prioritize_occupancy);
-          });
-      best_heuristic = all_heuristics.at(0);
-    }
-
-    // Fill in the reduction params
-    auto rparams = std::make_shared<ReductionParams>();
-    rparams->cparams.maxrregcount = (int)best_heuristic.register_per_thread;
-
-    // Inner reduction domain
-    rparams->cross_block_inner_reduction = true;
-    rparams->block_dim_inner_reduction = ParallelType::TIDx;
-    rparams->pad_inner_reduction_to_warp = best_heuristic.is_pad_bdimx;
-    rparams->batches_per_block_inner_reduction =
-        best_heuristic.persistent_batch_size;
-
-    // For persistent schedules always have to mark the reduction unrolled
-    // otherwise rfactor can fail
-    rparams->unroll_factor_inner_reduction = (int64_t)prop.vectorize_factor;
-    rparams->vectorize_inner_reduction = prop.vectorize_factor > 1;
-
-    // Iter domain
-    rparams->multiple_reds_per_blk = best_heuristic.bdimy > 1;
-    if (rparams->multiple_reds_per_blk) {
-      rparams->block_dim_iter_dom = ParallelType::TIDy;
-    }
-
-    int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
-    int64_t godim = ceilDiv(prop.total_iteration_numel, best_heuristic.bdimy);
-    if (godim > 1) {
-      rparams->grid_dim_iter_dom = ParallelType::BIDx;
-      if (godim > scheduler_utils::x_grid_limit) {
-        rparams->split_grid_dim_iter_dom_outer = true;
-        gdimx = scheduler_utils::x_grid_limit;
-      }
-    }
-
-    rparams->lparams = LaunchParams(
-        gdimx,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        best_heuristic.bdimy,
-        LaunchParams::UNINITIALIZED_VAL);
-
-    return rparams;
-  }
-
+  // Utility Functions
   // Return the maximum register count each thread can use and achieved
   // occupancy. We always guarantee the returned register count is at least as
   // large as the buffer+overhead estimate. We meet the desired occupancy but
@@ -672,9 +473,197 @@ class HeuristicGenerator {
       return ha.padded_bdimx < hb.padded_bdimx;
     }
   }
+};
 
-  // TODO: clean and revise the heuristic for 3D reduction
-  std::shared_ptr<ReductionParams> innerPersistentHeuristic3D() {
+class HeuristicGeneratorSMEM : public HeuristicGeneratorBase {
+ public:
+  HeuristicGeneratorSMEM(PersistentKernelProperties pk_prop)
+      : HeuristicGeneratorBase(pk_prop) {}
+
+ protected:
+  std::shared_ptr<ReductionParams> generateHeuristic() override {
+    auto rparams = std::make_shared<ReductionParams>();
+    rparams->tag = "HeuristicType::SharedMemory\n";
+    rparams->shared_mem_persistent_buffer = true;
+    // Inner reduction domain
+    // This heuristic is only used for cases with large total_reduction_numel.
+    // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for
+    // fp32. fully vectorized, use maxThreadsPerBlock to reduce workload per
+    // threads
+    int64_t bdimx = max_threads_per_block_;
+    NVF_ERROR(
+        prop.total_reduction_numel >= prop.vectorize_factor * bdimx,
+        "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
+        "total_reduction_numel= ",
+        prop.total_reduction_numel,
+        ", vectorize_factor= ",
+        prop.vectorize_factor,
+        ", bdimx= ",
+        bdimx);
+    int64_t persistent_batch =
+        ceilDiv(prop.total_reduction_numel, prop.vectorize_factor * bdimx);
+    rparams->cross_block_inner_reduction = true;
+    rparams->block_dim_inner_reduction = ParallelType::TIDx;
+    rparams->pad_inner_reduction_to_warp = true;
+    rparams->batches_per_block_inner_reduction = persistent_batch;
+    rparams->unroll_factor_inner_reduction = prop.vectorize_factor;
+    rparams->vectorize_inner_reduction = prop.vectorize_factor > 1;
+
+    // Iter
+    rparams->multiple_reds_per_blk = false;
+    rparams->grid_dim_iter_dom = ParallelType::BIDx;
+    rparams->unroll_factor_iter_dom = 1;
+    rparams->lparams = LaunchParams(
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL);
+    return rparams;
+  }
+};
+
+class HeuristicGeneratorReg2D : public HeuristicGeneratorBase {
+ public:
+  HeuristicGeneratorReg2D(PersistentKernelProperties pk_prop)
+      : HeuristicGeneratorBase(pk_prop) {}
+
+ protected:
+  // HeuristicType::Register2D
+  // Generate a heuristic for each possible persistent batch size.
+  // (1) If the maximum occupancy is less than the target occupancy, use the
+  // batch
+  //     leads to the largest occupancy.
+  // (2) If prioritize occupancy, sort the heuristics based on:
+  //     (a) Prefer occupancy larger than target.
+  //     (b) Prefer divisible by persistent batch size.
+  //     (c) Prefer large register overhead.
+  //     (d) Prefer large occupancy.
+  //     (e) Tiebreaker, use large persistent batch size.
+  // (3) If prioritize block size, sort the heuristics based on:
+  //     (a) Prefer bdimx_val equals power of 2
+  //     (b) Prefer occupancy larger than target.
+  //     (c) Tiebreaker, use small bdimx
+  // Currently, prioritize occupancy is used for all fusions except softmax.
+  std::shared_ptr<ReductionParams> generateHeuristic() override {
+    auto rparams = std::make_shared<ReductionParams>();
+    rparams->tag = "HeuristicType::Register2D\n";
+    // alwasy use [prop.vectorize_factor]
+    const int64_t parallel_after_vectorize =
+        prop.inner_most_dimension_numel / (int64_t)prop.vectorize_factor;
+
+    // set the min persistent buffer size to avoid requesting
+    // a block size larger than device limit
+    const int64_t batches_per_block_inner_reduction_min =
+        ceilDiv(parallel_after_vectorize, max_threads_per_block_);
+
+    // set the max persistent batch size to avoid low occupancy
+    // (1) limitation set by min_threads_per_block_
+    const int64_t pbs_max_1 =
+        ceilDiv(parallel_after_vectorize, min_threads_per_block_);
+    // (2) derived the maximum persistent batch size from the target occupancy
+    const int64_t buffer_bytes_per_batch = prop.max_persistent_buffer_size /
+        prop.total_reduction_numel * (int64_t)prop.vectorize_factor;
+    const int64_t target_threads_per_sm =
+        std::min(target_warps_per_sm_ * threads_per_warp_, max_threads_per_sm_);
+    const int64_t pbs_max_2 =
+        getMaxPersistentBatch(buffer_bytes_per_batch, target_threads_per_sm);
+    const int64_t batches_per_block_inner_reduction_max = std::max(
+        batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
+
+    // Generate a heuristic for each possible persistent batch size.
+    // record which persistent batch size has the highest occupancy.
+    int64_t idx_max_occupancy = -1;
+    int64_t current_max_occupancy = -1;
+    std::vector<HeuristicParams> all_heuristics;
+    all_heuristics.reserve(
+        batches_per_block_inner_reduction_max -
+        batches_per_block_inner_reduction_min + 1);
+    for (int64_t pbs = batches_per_block_inner_reduction_min;
+         pbs <= batches_per_block_inner_reduction_max;
+         pbs++) {
+      all_heuristics.push_back(getHeuristicParamsGivenPerisisentBatchSize(
+          parallel_after_vectorize, buffer_bytes_per_batch, pbs));
+      if (all_heuristics.back().occupancy > current_max_occupancy) {
+        current_max_occupancy = all_heuristics.back().occupancy;
+        idx_max_occupancy = (int64_t)all_heuristics.size() - 1;
+      }
+    }
+
+    // Sort the heuristics and select the best one.
+    // If no persistent batch size can achieve the target occupancy, and
+    HeuristicParams best_heuristic;
+    if (current_max_occupancy < target_warps_per_sm_) {
+      best_heuristic = all_heuristics.at(idx_max_occupancy);
+    } else {
+      // Prioritize occupancy for all fusions except softmax.
+      // Not sure why softmax has regression (about 10%) if prioritize
+      // occupancy. So condition is added to filter out softmax. It also
+      // identifies any fusion with exp op and without rng_op, which are not
+      // tested.
+      bool prioritize_occupancy = prop.has_rng_op || (!prop.has_exp_op);
+      std::stable_sort(
+          all_heuristics.begin(),
+          all_heuristics.end(),
+          [this, &prioritize_occupancy](
+              const HeuristicParams& a, const HeuristicParams& b) {
+            return compareTwoHeuristics(a, b, prioritize_occupancy);
+          });
+      best_heuristic = all_heuristics.at(0);
+    }
+
+    // Fill in the reduction params
+    rparams->cparams.maxrregcount = (int)best_heuristic.register_per_thread;
+
+    // Inner reduction domain
+    rparams->cross_block_inner_reduction = true;
+    rparams->block_dim_inner_reduction = ParallelType::TIDx;
+    rparams->pad_inner_reduction_to_warp = best_heuristic.is_pad_bdimx;
+    rparams->batches_per_block_inner_reduction =
+        best_heuristic.persistent_batch_size;
+
+    // For persistent schedules always have to mark the reduction unrolled
+    // otherwise rfactor can fail
+    rparams->unroll_factor_inner_reduction = (int64_t)prop.vectorize_factor;
+    rparams->vectorize_inner_reduction = prop.vectorize_factor > 1;
+
+    // Iter domain
+    rparams->multiple_reds_per_blk = best_heuristic.bdimy > 1;
+    if (rparams->multiple_reds_per_blk) {
+      rparams->block_dim_iter_dom = ParallelType::TIDy;
+    }
+
+    int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+    int64_t godim = ceilDiv(prop.total_iteration_numel, best_heuristic.bdimy);
+    if (godim > 1) {
+      rparams->grid_dim_iter_dom = ParallelType::BIDx;
+      if (godim > scheduler_utils::x_grid_limit) {
+        rparams->split_grid_dim_iter_dom_outer = true;
+        gdimx = scheduler_utils::x_grid_limit;
+      }
+    }
+
+    rparams->lparams = LaunchParams(
+        gdimx,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        best_heuristic.bdimy,
+        LaunchParams::UNINITIALIZED_VAL);
+    return rparams;
+  }
+};
+
+class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
+ public:
+  HeuristicGeneratorReg3D(PersistentKernelProperties pk_prop)
+      : HeuristicGeneratorBase(pk_prop) {}
+
+ protected:
+  std::shared_ptr<ReductionParams> generateHeuristic() override {
+    auto rparams = std::make_shared<ReductionParams>();
+    rparams->tag = "HeuristicType::Register3D\n";
     // Set some targets for parallelization
     const int64_t n_elems =
         prop.total_reduction_numel * prop.total_iteration_numel;
@@ -1076,7 +1065,6 @@ class HeuristicGenerator {
     int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
     int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
-    auto rparams = std::make_shared<ReductionParams>();
     rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
 
     // Inner reduction domain
@@ -1131,6 +1119,46 @@ class HeuristicGenerator {
   }
 };
 
+// Factory function to create and return the appropriate heuristic
+std::shared_ptr<ReductionParams> createAndGenerateHeuristic(
+    const PersistentKernelProperties& prop) {
+  // Determine the type of heuristic to use
+  HeuristicType heuristic_type = HeuristicType::None;
+  if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {
+    heuristic_type = HeuristicType::SharedMemory;
+  } else {
+    if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
+      heuristic_type = HeuristicType::Register2D;
+    } else {
+      heuristic_type = HeuristicType::Register3D;
+    }
+  }
+  // dispatch to the right heuristic generator
+  std::unique_ptr<HeuristicGeneratorBase> generator;
+  switch (heuristic_type) {
+    case HeuristicType::SharedMemory:
+      generator = std::make_unique<HeuristicGeneratorSMEM>(prop);
+      break;
+    case HeuristicType::Register2D:
+      generator = std::make_unique<HeuristicGeneratorReg2D>(prop);
+      break;
+    case HeuristicType::Register3D:
+      generator = std::make_unique<HeuristicGeneratorReg3D>(prop);
+      break;
+    default:
+      throw std::invalid_argument("Unsupported heuristic type");
+  }
+  // Generate the heuristic
+  std::shared_ptr<ReductionParams> rparams = generator->generateHeuristic();
+  rparams->persistent_kernel = true;
+  rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = prop.project_persistent_buffers;
+  rparams->cparams.index_type = prop.index_type;
+  return rparams;
+}
+
+} // namespace
+
 std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1145,8 +1173,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::heuristicType());
 
-  HeuristicGenerator hg(prop);
-  std::shared_ptr<ReductionParams> rparams = hg.generateHeuristic();
+  std::shared_ptr<ReductionParams> rparams = createAndGenerateHeuristic(prop);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Reduction Stats ========\n"
@@ -1157,8 +1184,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
             << "vectorize_factor: " << prop.vectorize_factor << "\n"
             << "n_tensor_inputs: " << prop.n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << prop.max_dtype_size << "\n"
-            << "max_persistent_buffer_size: "
-            << prop.max_persistent_buffer_size << "\n";
+            << "max_persistent_buffer_size: " << prop.max_persistent_buffer_size
+            << "\n";
     debug() << rparams->toString() << std::endl;
   }
   return rparams;
