@@ -142,7 +142,7 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
-  PrecomputedValues(PrecomputedValues&&) = default;
+  NVF_API PrecomputedValues(PrecomputedValues&&) = default;
 
   NVF_API explicit PrecomputedValues(Fusion* fusion);
 
