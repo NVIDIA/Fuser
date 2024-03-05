@@ -4,6 +4,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def layernorm_fwd_fusion(
@@ -51,13 +52,23 @@ def layernorm_fwd_fusion(
     fd.add_output(T14)
 
 
-def layernorm_fwd_fn(inputs: list): #[in_tensor, weights, bias]
+def layernorm_fwd_fn(inputs: list):  # [in_tensor, weights, bias]
     return torch.nn.functional.layer_norm(
         inputs[0],
-        normalized_shape=inputs[0].shape[1:], 
+        normalized_shape=inputs[0].shape[1:],
         weight=inputs[1],
-        bias=inputs[2] 
+        bias=inputs[2],
     )
+
+
+def layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = in_tensor (size, dtype) + weights (size[1], dtype) + bias (size[1], dtype) +
+    #       mean (size[0], float) + invstd (size[0], float) + outputs (size, dtype)
+    return int(
+        dtype.itemsize * 2 * (np.prod(size) + size[1])
+        + torch.float.itemsize * 2 * size[0]
+    )
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -91,6 +102,7 @@ def test_layernorm_fwd_nvf_benchmark(
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
+
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -109,5 +121,6 @@ def test_layernorm_fwd_baseline_benchmark(
     run_benchmark(
         benchmark,
         torch.compile(layernorm_fwd_fn) if compile else layernorm_fwd_fn,
-        inputs
+        inputs,
+        iobytes=layernorm_fwd_iobytes(size, dtype),
     )
