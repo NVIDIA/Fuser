@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
@@ -94,7 +94,7 @@ class ThreadPredicateMap {
   //! corresponding parallel type since it must join the broadcast
   //! operation although the valid input is only available at one of
   //! the threads/blocks.
-  PredicateInfo getPredicateInfo(const TensorView* tv) const;
+  NVF_API PredicateInfo getPredicateInfo(const TensorView* tv) const;
 
   //! Returns a flag set that indicates which parallel types should be
   //! predicated.

@@ -26,6 +26,7 @@ namespace tma {
 #if (CUDA_VERSION >= 12000)
 
 inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
+  // NOTE: future fp8 support?
   switch (std::get<PrimDataType>(dtype.type)) {
     case PrimDataType::Double:
       return CU_TENSOR_MAP_DATA_TYPE_FLOAT64;

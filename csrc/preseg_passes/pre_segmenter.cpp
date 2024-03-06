@@ -7,7 +7,9 @@
 // clang-format on
 #include <preseg_passes/pre_segmenter.h>
 
+#include <instrumentation.h>
 #include <preseg_passes/add_axioms.h>
+#include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -16,7 +18,9 @@
 
 namespace nvfuser::preseg_passes {
 
-void PreSegmenter::runPass(Fusion* fusion) {
+/*static*/ void PreSegmenter::runPass(Fusion* fusion) {
+  FUSER_PERF_SCOPE("PreSegmenter::runPass");
+
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
   // removes consecutive cast operations
@@ -25,6 +29,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

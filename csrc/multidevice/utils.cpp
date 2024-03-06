@@ -30,7 +30,11 @@ bool isSharded(TensorView* tv) {
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
         !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized");
+        "only the outmost dimension can be device-parallelized",
+        "but axis ",
+        i,
+        " is sharded in tv ",
+        tv->toString());
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
 }
@@ -111,9 +115,10 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+  if (!tvs.empty()) {
+    scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+  }
 }
-
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
@@ -143,6 +148,47 @@ void insertReshardings(Fusion* fusion) {
     }
     shardAllLike(output, new_inputs);
   }
+}
+
+int64_t requestedNumberOfDevices(Fusion* fusion) {
+  DeviceIdxType max_index = 0;
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (tv->hasDeviceMesh()) {
+      for (auto d_id : tv->getDeviceMesh().vector()) {
+        max_index = std::max(max_index, d_id);
+      }
+    }
+  }
+  return static_cast<int64_t>(max_index + 1);
+}
+
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh({});
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    unshard(tv);
+  }
+}
+
+std::set<DeviceIdxType> involvedDevices(Expr* expr) {
+  std::set<DeviceIdxType> ret;
+  for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
+    for (auto val : tvs) {
+      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
+      auto& mesh = tv->getDeviceMesh().vector();
+      std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+    }
+  }
+  return ret;
 }
 
 } // namespace nvfuser

@@ -399,6 +399,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Int32", DataType::Int32)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
+      .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
+      .value("Float8_e5m2", DataType::Float8_e5m2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
@@ -416,7 +418,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "get",
           &FusionCache::get,
           py::arg("max_fusions") = int(16384),
-          py::arg("selected_device") = int(-1),
+          py::arg("selected_device") = py::none(),
           py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
@@ -542,8 +544,9 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              // Allows for a Vector of Sizes to be inputed as a list
-              if (py::isinstance<py::list>(obj)) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
                   inputs.push_back(
                       torch::jit::toIValue(item, c10::AnyType::get()));
