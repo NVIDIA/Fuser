@@ -348,8 +348,10 @@ class PersistentBufferResolution : public IterVisitor {
  public:
   static std::vector<TensorView*> getResolutionPointsOf(
       Fusion* fusion,
-      TensorView* persistent_buffer) {
-    PersistentBufferResolution resolution(fusion, persistent_buffer);
+      TensorView* persistent_buffer,
+      const std::vector<TensorView*>& persistent_buffers) {
+    PersistentBufferResolution resolution(
+        fusion, persistent_buffer, persistent_buffers);
 
     NVF_ERROR(
         !resolution.resolution_points_.empty(),
@@ -362,8 +364,13 @@ class PersistentBufferResolution : public IterVisitor {
   PersistentBufferResolution() = delete;
 
  private:
-  PersistentBufferResolution(Fusion* fusion, TensorView* persistent_buffer)
-      : persistent_buffer_(persistent_buffer) {
+  PersistentBufferResolution(
+      Fusion* fusion,
+      TensorView* persistent_buffer,
+      const std::vector<TensorView*>& persistent_buffers)
+      : persistent_buffer_(persistent_buffer),
+        persistent_buffers_(
+            {persistent_buffers.begin(), persistent_buffers.end()}) {
     traverse(fusion);
   }
 
@@ -437,8 +444,14 @@ class PersistentBufferResolution : public IterVisitor {
       resolution_points_.insert(
           resolution_points_.end(), out_tvs.begin(), out_tvs.end());
 
-      // Outputs are still on a persistent path
+      // If the output is not a persistent buffer, still on reduction path and
+      // persistent buffer path
       for (auto out : expr->outputs()) {
+        if (out->isA<TensorView>() &&
+            persistent_buffers_.count(out->as<TensorView>())) {
+          continue;
+        }
+        on_reduction_path_.emplace(out);
         on_persitent_buffer_path_.emplace(out);
       }
     } else if (input_on_reduction_path) {
@@ -468,7 +481,11 @@ class PersistentBufferResolution : public IterVisitor {
   // Tracks where the persistent buffer (key) is resolved (values)
   std::vector<TensorView*> resolution_points_;
 
+  // the persistent buffer we're resolving
   const TensorView* persistent_buffer_;
+
+  // all persistent buffers in this fusion
+  const std::unordered_set<TensorView*> persistent_buffers_;
 };
 
 } // namespace
@@ -600,7 +617,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   persistent_buffer_info.persistent_buffer_resolution_points = {};
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
+        PersistentBufferResolution::getResolutionPointsOf(
+            fusion, buffer, persistent_buffer_info.persistent_buffers));
   }
 
   // Find projectable persistent buffers
