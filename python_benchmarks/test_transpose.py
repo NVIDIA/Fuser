@@ -34,10 +34,12 @@ def transpose_fusion(
 
     fd.add_output(T9)
 
-def transpose_fwd_fn(inputs: list): #[input1, input2, dim0, dim1]
+
+def transpose_fwd_fn(inputs: list):  # [input1, input2, dim0, dim1]
     return torch.nn.functional.relu(
-            torch.transpose(inputs[0] + inputs[1], inputs[3], inputs[4])
-        )
+        torch.transpose(inputs[0] + inputs[1], inputs[2], inputs[3])
+    )
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -52,8 +54,8 @@ def test_transpose_nvf_benchmark(
 ):
     clear_cuda_cache()
 
-    input1 = torch.randn(*size, device="cuda", dtype=dtype)
-    input2 = torch.randn(*size, device="cuda", dtype=dtype)
+    input1 = torch.randn(size, device="cuda", dtype=dtype)
+    input2 = torch.randn(size, device="cuda", dtype=dtype)
     permute_axes = list(range(len(size)))
     permute_axes[axes[0]], permute_axes[axes[1]] = (
         permute_axes[axes[1]],
@@ -71,7 +73,7 @@ def test_transpose_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [input1, input2])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=['eager', 'compile'])
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
@@ -84,8 +86,9 @@ def test_transpose_baseline_benchmark(
 ):
     clear_cuda_cache()
 
-    input1 = torch.randn(*size, device="cuda", dtype=dtype)
-    input2 = torch.randn(*size, device="cuda", dtype=dtype)
+    input1 = torch.randn(size, device="cuda", dtype=dtype)
+    input2 = torch.randn(size, device="cuda", dtype=dtype)
+    # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
         torch.compile(transpose_fwd_fn) if compile else transpose_fwd_fn,
