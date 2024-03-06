@@ -108,7 +108,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
   NVF_ERROR(buffers.size() == 1);
-  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 2);
   NVF_ERROR(projectable.size() == 1);
   NVF_ERROR(projectable_inputs.size() == 1);
 
@@ -257,10 +257,13 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
+  // T1 and T2 are persistent buffers.
+  // T1 has two resolution points: T6, T8, and T9.
+  // T2 has two resolution points: T8 and T9.
   NVF_ERROR(buffers.size() == 2);
   NVF_ERROR(
-      resolution.size() == 2 && resolution[0].size() == 1 &&
-      resolution[1].size() == 1);
+      resolution.size() == 2 && resolution[0].size() == 3 &&
+      resolution[1].size() == 2);
 
   NVF_ERROR(projectable.size() == 2);
   NVF_ERROR(projectable_inputs.size() == 1);
@@ -1114,6 +1117,133 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs3) {
   NVF_CHECK(
       persistent_params->project_persistent_buffers,
       "Should project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
+TEST_F(PersistentBufferTest, PersistentBufferResolutionPoints) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv1, tv3);
+  auto tv5 = mul(tv1, tv4);
+  fusion->addOutput(tv5);
+
+  // The persistent buffer in this fusion is tv1.
+  // The reduction patch is 2 -> 3 -> 4 -> 5.
+  // There are two persistent paths: 1 -> 4 and 1 -> 5.
+  // There are two resolution points: 4 and 5.
+  // Check: 1 buffer with 2 resolution points.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  auto& buffers = persistent_buffer_info.persistent_buffers;
+  auto& resolution = persistent_buffer_info.persistent_buffer_resolution_points;
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution.at(0).size() == 2);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+  // Following the projection onto inputs, tv0 becomes the updated persistent
+  // buffer. tv1, utilized by both tv4 and tv5, requires recomputation. If not
+  // recomputed, tv1 remains a persistent buffer as it cannot be inlined with
+  // either tv4 or tv5.
+  // There should be only 1 consumer of tv1 after the uses by tv4 and tv5 are
+  // recomputed.
+  auto all_consumer_tvs = ir_utils::consumerValsOf(tv1);
+  NVF_CHECK(
+      all_consumer_tvs.size() == 1,
+      "Expect 1 consumer, Got: ",
+      all_consumer_tvs.size());
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
+TEST_F(PersistentBufferTest, PersistentBufferResolutionPointsTwoBuffers) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = sum(tv1, {1});
+  auto tv4 = broadcast(tv2, {false, true});
+  auto tv5 = broadcast(tv3, {false, true});
+  auto tv6 = div(tv0, tv4);
+  auto tv7 = div(tv1, tv5);
+  auto tv8 = exp(tv6);
+  auto tv9 = mul(tv8, tv7);
+
+  fusion->addOutput(tv9);
+
+  // There are two persistent buffers: tv0 and tv1.
+  // For tv0, the reduction path is 2 -> 4 -> 6 -> 8 -> 9.
+  // For tv0, the persistent path is 0 -> 6 -> 8 -> 9.
+  // It has 3 resolution points: 6, 8, and 9.
+  // For tv1, the reduction path is 3 -> 5 -> 7 -> 9.
+  // For tv1, the persistent path is 1 -> 7 -> 9.
+  // It has 2 resolution points: 7 and 9.
+  // At resolution point 9, both tv0 and tv1 should be active.
+  // The persistent buffer should be tv0 + tv1.
+
+  // Check: 2 buffers with 3 and 2 resolution points.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  auto& buffers = persistent_buffer_info.persistent_buffers;
+  auto& resolution = persistent_buffer_info.persistent_buffer_resolution_points;
+  NVF_ERROR(buffers.size() == 2);
+  NVF_ERROR(
+      resolution.size() == 2 && resolution.at(0).size() == 3 &&
+      resolution.at(1).size() == 2);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  // buffer size
+  SchedulerRuntimeInfo runtime_info(fusion, {t0, t1});
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
+  auto expected_size =
+      static_cast<int64_t>(2 * hidden_size * dataTypeSize(DataType::Float));
+  NVF_CHECK(
+      persistent_buffer_size.persistent_buffer_size == expected_size,
+      "Buffer size calculation failure. Expected size: ",
+      expected_size,
+      ". Actual: ",
+      persistent_buffer_size.persistent_buffer_size);
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
   scheduleInnerPersistentKernel(fusion, *persistent_params);
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs, persistent_params->lparams);
