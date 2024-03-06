@@ -51,7 +51,8 @@ class CancelSplitCat {
   // chains contain the same sequence of op types and attributes.
   bool sameIterDomainTransforms(
       const std::vector<SliceOp*>& slices,
-      const std::vector<PadOp*>& pads);
+      const std::vector<PadOp*>& pads,
+      int64_t cat_axis);
 
   // Imagine we "zip" the cat upwards as following:
   //
@@ -161,54 +162,54 @@ bool sameOp(const std::vector<Expr*>& frontier) {
 
 bool CancelSplitCat::sameIterDomainTransforms(
     const std::vector<SliceOp*>& slices,
-    const std::vector<PadOp*>& pads) {
+    const std::vector<PadOp*>& pads,
+    const int64_t cat_axis) {
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
 
   ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
   {
-    const std::vector<IterDomain*>& first_rfactor =
-        slices[0]->out()->getMaybeRFactorDomain();
-    size_t num_dims = first_rfactor.size();
-    for (size_t i = 1; i < slices.size(); i++) {
-      const std::vector<IterDomain*>& rfactor =
-          slices[i]->out()->getMaybeRFactorDomain();
-      if (rfactor.size() != num_dims) {
-        return false;
-      }
-      for (size_t j = 0; j < num_dims; j++) {
-        exact_graph.mapVals(first_rfactor[j], rfactor[j]);
-      }
+    // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
+    // already mapped due to the `cat` when the IdModel was built.
+    const std::vector<IterDomain*>& first_root =
+        pads[0]->out()->as<TensorView>()->getRootDomain();
+    for (size_t i = 1; i < pads.size(); i++) {
+      const std::vector<IterDomain*>& other_root =
+          pads[i]->out()->as<TensorView>()->getRootDomain();
+      NVF_ERROR(first_root.size() == other_root.size());
+      exact_graph.mapVals(first_root[cat_axis], other_root[cat_axis]);
     }
   }
 
-  for (PadOp* pad : pads) {
-    auto* pad_out = pad->out()->as<TensorView>();
-    if (id_model_for_merging_.hasSelfMapping(pad_out)) {
+  // The above code block only maps IterDomains across chains. If a self mapping
+  // is detected at this point, it's likely due to some IterDomains are permuted
+  // diffrently between two chains. See
+  // MoveSplitCatTest.Noncancellable_PermutedDifferently for an example.
+  for (auto* slice : slices) {
+    if (id_model_for_merging_.hasSelfMapping(slice->out())) {
       return false;
     }
   }
 
   {
-    const std::vector<IterDomain*>& first_root =
-        pads[0]->out()->as<TensorView>()->getRootDomain();
-    size_t num_dims = first_root.size();
-    for (size_t i = 1; i < pads.size(); i++) {
-      const std::vector<IterDomain*>& root =
-          pads[i]->out()->as<TensorView>()->getRootDomain();
-      if (root.size() != num_dims) {
+    const std::vector<IterDomain*>& first_rfactor =
+        slices[0]->out()->getMaybeRFactorDomain();
+    size_t num_dims = first_rfactor.size();
+    for (size_t i = 1; i < slices.size(); i++) {
+      const std::vector<IterDomain*>& other_rfactor =
+          slices[i]->out()->getMaybeRFactorDomain();
+      if (other_rfactor.size() != num_dims) {
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
         if (!exact_graph.disjointValSets().strictAreMapped(
-                first_root[j], root[j])) {
+                first_rfactor[j], other_rfactor[j])) {
           return false;
         }
       }
     }
+    return true;
   }
-
-  return true;
 }
 
 // If `slices` form a split, returns the base tensor of the
@@ -416,11 +417,11 @@ TensorView* CancelSplitCat::findCancelingSplit(
   std::vector<PadOp*> pads;
   std::tie(slices, pads) = *heads_and_tails;
 
-  if (!sameIterDomainTransforms(slices, pads)) {
+  int64_t cat_axis = cat->concatenatedDim();
+  if (!sameIterDomainTransforms(slices, pads, cat_axis)) {
     return nullptr;
   }
 
-  int64_t cat_axis = cat->concatenatedDim();
   cat_axis = computeCatAxisAfterZipping(
       slices[0]->out()->getMaybeRFactorDomain(),
       pads[0]->out()->as<TensorView>()->getRootDomain()[cat_axis]);

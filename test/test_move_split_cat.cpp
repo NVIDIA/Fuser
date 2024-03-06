@@ -68,6 +68,30 @@ TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
   EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
 }
 
+TEST_F(MoveSplitCatTest, Cancellable_SetWithoutPermute) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 5});
+  TensorView* s0 = slice(in, {0, 0}, {2, 2});
+  TensorView* s1 = slice(in, {0, 2}, {2, 5});
+  s0 = set(s0);
+  s1 = set(s1);
+  TensorView* out = cat({s0, s1}, /*dim=*/-1);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 5}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+}
+
 TEST_F(MoveSplitCatTest, Noncancellable_SliceAmountAndPaddingAmountMismatch) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -274,20 +298,22 @@ TEST_F(MoveSplitCatTest, Noncancellable_PermutedDifferently) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({2, 2, 2, 10});
-  TensorView* s0 = slice(in, {0, 0, 0, 0}, {2, 2, 2, 2});
-  TensorView* s1 = slice(in, {0, 0, 0, 2}, {2, 2, 2, 5});
-  TensorView* s2 = slice(in, {0, 0, 0, 5}, {2, 2, 2, 10});
-  s0 = permute(s0, {2, 1, 0, 3});
-  s1 = permute(s1, {1, 0, 2, 3});
-  s2 = permute(s2, {2, 1, 0, 3});
-  TensorView* out = cat({s0, s1, s2}, /*dim=*/-1);
+  TensorView* in = makeContigConcreteTensor({4, 2});
+  TensorView* s0 = slice(in, {0, 0}, {2, 2});
+  s0 = set(s0);
+  s0 = reshape(s0, {2, 2}, {4});
+
+  TensorView* s1 = slice(in, {2, 0}, {4, 2});
+  s1 = permute(s1, {1, 0});
+  s1 = reshape(s1, {2, 2}, {4});
+
+  TensorView* out = cat({s0, s1}, /*dim=*/0);
 
   fusion->addInput(in);
   fusion->addOutput(out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({2, 2, 2, 10}, options);
+  at::Tensor in_tensor = at::randn({4, 2}, options);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
