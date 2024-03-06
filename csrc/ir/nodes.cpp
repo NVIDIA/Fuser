@@ -2111,7 +2111,7 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
 
   // After removing the broadcast dimensions, the format should be
   // [M, K] x [K, N] compatible with aten::matmul format.
-  auto output = in_a.matmul(in_b);
+  at::Tensor output = in_a.matmul(in_b);
 
   // ATen preserves the input dtype whereas MmaOP generates float outputs.
   // If the MmaOp is followed by a cast, skip casting back the input to avoid
@@ -2119,10 +2119,17 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // F->H->F->H impacting precision and performance. Note: This potentially
   // binds the MmaOp output in the expression evaluator to a tensor
   //        of different datatype.
-  auto uses = out()->uses();
+  const std::vector<Expr*> uses = out()->uses();
+
+  // Check if the only use of MmaOp is a single castOp.
+  bool is_use_single_cast = [&uses] {
+    return (
+        uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
+        uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
+  }();
+
   if ((tv_a->getDataType() == out()->getDataType().value()) ||
-      (uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
-       uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast)) {
+      is_use_single_cast) {
     return {output};
   } else {
     return {output.to(data_type_to_aten(out()->getDataType().value()))};
