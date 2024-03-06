@@ -513,4 +513,39 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
   EXPECT_THAT(exprs, Contains(Property(&Expr::isA<ViewOp>, IsTrue())).Times(3));
 }
 
+TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({4, 2});
+  TensorView* s0 = slice(in, {0, 0}, {2, 2});
+  TensorView* s1 = slice(in, {2, 0}, {4, 2});
+  TensorView* non_alias_out = [&]() {
+    TensorView* t0 = set(s0);
+    t0 = reshape(t0, {2, 2}, {4});
+    TensorView* t1 = permute(s1, {1, 0});
+    t1 = reshape(t1, {2, 2}, {4});
+    return cat({t0, t1}, /*dim=*/0);
+  }();
+  TensorView* alias_out = [&]() {
+    TensorView* t0 = set(s0);
+    TensorView* t1 = set(s1);
+    return cat({t0, t1}, /*dim=*/0);
+  }();
+
+  fusion->addInput(in);
+  fusion->addOutput(non_alias_out);
+  fusion->addOutput(alias_out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({4, 2}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+}
+
 } // namespace nvfuser

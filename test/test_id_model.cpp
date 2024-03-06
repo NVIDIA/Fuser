@@ -57,8 +57,9 @@ TEST_F(IdModelTest, PerTensorSelfMapping) {
   fusion.addOutput(y1);
 
   IdModel id_model(&fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
-  EXPECT_TRUE(id_model.hasSelfMapping(y0).has_value());
-  EXPECT_FALSE(id_model.hasSelfMapping(y1).has_value());
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  EXPECT_TRUE(hasSelfMapping(y0, exact_graph).has_value());
+  EXPECT_FALSE(hasSelfMapping(y1, exact_graph).has_value());
 }
 
 namespace {
