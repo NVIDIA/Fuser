@@ -226,7 +226,7 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
 
   return {
       getRegPerThreadGivenThreadsPerSM(threads_per_sm),
-      blocks_per_sm_max * threads_per_block / threads_per_warp};
+      threads_per_sm / threads_per_warp};
 }
 
 // Returns the maximum persistent batch size.
