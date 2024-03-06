@@ -1,7 +1,7 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
-from .core import DEVICE_PROPERTIES
+from core import DEVICE_PROPERTIES
 import numpy as np
 import itertools
 import os
@@ -72,7 +72,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
             step_size = 256
             # max_batch_range: set according to max size that fits in GPU memory
-            batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
+            batch_range = [2**i for i in range(13, 14)]  # {16, 8192}
 
             if BENCHMARK_MODE == "weekly":
                 step_size = 8
@@ -81,7 +81,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
             # NOTE: Numpy arrays are not JSON serializable so convert them to enable storing benchmark data.
             hidden_range = np.arange(
-                D_MODEL_MIN, 4 * D_MODEL_MAX + 1, step_size
+                 62976, 4 * D_MODEL_MAX + 1, step_size
             ).tolist()  # (768, 4*18432)
             input_ranges.append((batch_range, hidden_range))
 

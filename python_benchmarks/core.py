@@ -279,7 +279,7 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark: pytest_benchmark.fixture.BenchmarkFixture,
+    benchmark,
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,

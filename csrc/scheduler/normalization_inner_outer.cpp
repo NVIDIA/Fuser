@@ -28,6 +28,11 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule InnerOuterPersistent Fusion");
+  scheduler_debug_utils::log(
+      __FILE__,
+      ":",
+      __LINE__,
+      ", Using", __FUNCTION__, ".");
   scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
