@@ -62,8 +62,8 @@ def dropout_layernorm_fwd_fusion(
     fd.add_output(T10)
 
 
-@pytest.mark.parametrize("size", [(2048, 31744)]) # More size tuples can be added to the list
-@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_layernorm_fwd_benchmark(
     benchmark,
     size: tuple,
