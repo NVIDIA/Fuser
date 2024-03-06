@@ -853,6 +853,10 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     for (auto kernel_idx : c10::irange(device_runtimes.size())) {
       auto kernel_runtime_ptr = device_runtimes.at(kernel_idx).get();
+      // Skip serializing FusionKernelRuntime if it is not compiled.
+      if (!kernel_runtime_ptr->isCompiled()) {
+        continue;
+      }
       fb_device_runtimes.push_back(kernel_runtime_ptr->serialize(builder));
 
       // Assign each runtime pointer an integer index.
@@ -878,6 +882,10 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
   kernel_cache_values.reserve(id_to_kernel_runtime_.size());
 
   for (auto&& [cache_id, kernel_runtime_ptr] : id_to_kernel_runtime_) {
+    // Skip serializing FusionKernelRuntime if it is not compiled.
+    if (!kernel_runtime_ptr->isCompiled()) {
+      continue;
+    }
     kernel_cache_keys.push_back(cache_id);
     kernel_cache_values.push_back(kernel_cache_ordering.at(kernel_runtime_ptr));
   }
