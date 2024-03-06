@@ -938,6 +938,16 @@ TEST_F(IdModelTest, LoopPromotion8) {
   }
 }
 
+namespace {
+bool iterDomainsAreMapped(
+    const IdModel& id_model,
+    IterDomain* a,
+    IterDomain* b) {
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  return exact_graph.disjointValSets().strictAreMapped(a, b);
+}
+} // namespace
+
 TEST_F(IdModelTest, SomeButNotAllArePermuted) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -953,13 +963,9 @@ TEST_F(IdModelTest, SomeButNotAllArePermuted) {
 
   IdModel id_model(
       fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(0), t0->axis(1)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(1), t0->axis(0)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(2), t0->axis(2)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), t0->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), t0->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), t0->axis(2)));
 }
 
 TEST_F(IdModelTest, PermutedDifferently) {
@@ -978,23 +984,30 @@ TEST_F(IdModelTest, PermutedDifferently) {
 
   IdModel id_model(
       fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(2), t0->axis(0)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(1), t0->axis(1)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(0), t0->axis(2)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s0->axis(3), t0->axis(3)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s1->axis(1), t1->axis(0)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s1->axis(0), t1->axis(1)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s1->axis(2), t1->axis(2)));
-  EXPECT_TRUE(
-      exact_graph.disjointValSets().strictAreMapped(s1->axis(3), t1->axis(3)));
+
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), s1->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), s1->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), s1->axis(2)));
+  EXPECT_FALSE(iterDomainsAreMapped(id_model, s0->axis(3), s1->axis(3)));
+
+  // Due to `cat`, t0's non-catted dimensions (i.e. 0, 1, and 2) are
+  // respectively mapped to t1's, but the catted dimension isn't mapped.
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(0), t1->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(1), t1->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(2), t1->axis(2)));
+  EXPECT_FALSE(iterDomainsAreMapped(id_model, t0->axis(3), t1->axis(3)));
+
+  // Check the mapping introduced by `t0 = permute(s0, ...)`.
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), t0->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), t0->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), t0->axis(2)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(3), t0->axis(3)));
+
+  // Check the mapping introduced by `t1 = permute(s1, ...)`.
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(1), t1->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(0), t1->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(2), t1->axis(2)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(3), t1->axis(3)));
 }
 
 } // namespace nvfuser
