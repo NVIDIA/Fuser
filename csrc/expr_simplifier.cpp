@@ -255,22 +255,41 @@ class Context {
   void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
+      auto maybeNegate = [](Val* val) -> Val* {
+        // Strip neg op if possible
+        if (auto def = dynamic_cast<UnaryOp*>(val->definition());
+            def != nullptr && def->getUnaryOpType() == UnaryOpType::Neg) {
+          return def->input(0);
+        }
+        return SimplifyingIrBuilder::negExpr(val);
+      };
+      Val* neg_lhs = maybeNegate(bop->lhs());
+      Val* neg_rhs = maybeNegate(bop->rhs());
+
       switch (bop->getBinaryOpType()) {
         case BinaryOpType::LT:
           less_than_.emplace_back(
               assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
+          less_than_.emplace_back(
+              assoc_comm::flatten(neg_rhs), assoc_comm::flatten(neg_lhs));
           break;
         case BinaryOpType::LE:
           less_equal_.emplace_back(
               assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
+          less_equal_.emplace_back(
+              assoc_comm::flatten(neg_rhs), assoc_comm::flatten(neg_lhs));
           break;
         case BinaryOpType::GT:
           less_than_.emplace_back(
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
+          less_than_.emplace_back(
+              assoc_comm::flatten(neg_lhs), assoc_comm::flatten(neg_rhs));
           break;
         case BinaryOpType::GE:
           less_equal_.emplace_back(
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
+          less_equal_.emplace_back(
+              assoc_comm::flatten(neg_lhs), assoc_comm::flatten(neg_rhs));
           break;
         default:
           NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
@@ -1399,11 +1418,7 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(
-    Val* x,
-    Val* y,
-    const Context& context,
-    int depth = 0);
+bool lessThan(Val* x, Val* y, const Context& context, int depth = 0);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1531,11 +1546,7 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(
-    Val* x,
-    Val* y,
-    const Context& context,
-    int depth) {
+bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   // Max recursion depth of 2 levels was tested to be sufficient transitivity
   // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
   // that test, I observed the following test CPU runtimes (average of ten
