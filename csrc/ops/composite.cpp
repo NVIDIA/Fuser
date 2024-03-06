@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <transform_view.h>
 
 namespace nvfuser {
@@ -51,6 +52,22 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   auto dx = mul(grad_mask, scale);
 
   return dx;
+}
+
+TensorView* matmul(TensorView* a, TensorView* b) {
+  NVF_CHECK(a->nDims() == b->nDims());
+  NVF_CHECK(a->nDims() == 2);
+  NVF_CHECK(a->getDataType().value() == b->getDataType().value());
+
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  // A: [M, K, Bcast]
+  // B: [Bcast, K, N]
+  bcast_dims.at(bcast_dims.size() - 1) = true;
+  auto* tv0b = broadcast(a, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 1) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  auto* tv1b = broadcast(b, bcast_dims);
+  return fusedMultiplySum(tv0b, tv1b, {-2});
 }
 
 LstmResult lstm(

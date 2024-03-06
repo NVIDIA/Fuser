@@ -2367,6 +2367,23 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
+    def test_unified_matmul(self):
+        inputs = [
+            torch.randn(24, 8, device="cuda", dtype=torch.float16),
+            torch.randn(8, 16, device="cuda", dtype=torch.float16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = eval("fd.ops.matmul")(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.matmul(inputs[0], inputs[1])
+        fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
+        self.assertEqual(eager_out, fp16_nvf_out)
+
     def test_integer_division(self):
         inputs = [
             torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
