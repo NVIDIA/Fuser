@@ -60,6 +60,29 @@ inline bool isTernaryOpType(const FunctionSymbol symb) {
 //! be avoided at all cost here.
 size_t symbolId(FunctionSymbol symbol);
 
+//! Constant values must be bool, long int, or double
+using ConstantValue = dynamic_type::
+    DynamicType<dynamic_type::NoContainers, double, int64_t, bool>;
+
+inline ConstantValue polymorphicValueToConstant(const PolymorphicValue& pv) {
+  if (!pv.hasValue()) {
+    return std::monostate{};
+  }
+  if (pv.is<bool>()) {
+    return pv.as<bool>();
+  } else if (pv.is<int64_t>()) {
+    return pv.as<int64_t>();
+  } else if (pv.is<double>()) {
+    return pv.as<double>();
+  }
+  NVF_ERROR(
+      false,
+      "Cannot convert ",
+      pv,
+      " from PolymorphicValue to simplification::ConstantValue");
+  return std::monostate{};
+}
+
 //! A Function models a generic function symbol without describing its
 //! producers. This allows us to generalize functions across producer types,
 //! depending on whether we are modelling terms or implementing an e-graph.
@@ -69,14 +92,14 @@ struct Function {
   FunctionSymbol symbol;
 
   // [DataTypes in the AST]
-  // Notice that we do not represent datatypes here. We could place a DataType
-  // attribute in this class, but then we would need to shadow the type
-  // promotion rules here. This is not impossible, but it is complexity that
-  // might not be needed, so we will avoid doing so until it is needed.
+  // Notice that we do not represent datatypes here. We could place a
+  // PrimDataType attribute in this class, but then we would need to shadow the
+  // type promotion rules here. This is not impossible, but it is complexity
+  // that might not be needed, so we will avoid doing so until it is needed.
 
  public:
-  PolymorphicValue evaluate(
-      const std::vector<PolymorphicValue>& producer_values) const;
+  ConstantValue evaluate(
+      const std::vector<ConstantValue>& producer_values) const;
 };
 
 //! [AST model]
@@ -84,7 +107,7 @@ struct Function {
 struct Term : Function {
   //! This is std::monostate for free variables and whenever symbol !=
   //! std::monostate. Otherwise it indicates a constant value.
-  PolymorphicValue constant;
+  ConstantValue constant;
 
   std::vector<const Term*> producers;
 
@@ -134,7 +157,7 @@ class Program {
   // we create a new one.
   Term* makeTerm(
       FunctionSymbol symbol,
-      const PolymorphicValue& constant,
+      const ConstantValue& constant,
       const std::vector<const Term*>& producers) {
     TermMapKey key;
     // Look up term or create a new one
@@ -197,7 +220,8 @@ class Program {
         producer_terms.push_back(valToTermHelper(inp));
       }
     }
-    Term* term = makeTerm(symbol, val->value(), producer_terms);
+    Term* term = makeTerm(
+        symbol, polymorphicValueToConstant(val->value()), producer_terms);
     term->representing_val = val;
     return term;
   }
