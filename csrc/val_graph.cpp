@@ -628,4 +628,53 @@ void ValGraph::validateConsistency() const {
   }
 }
 
+std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
+    const std::vector<IterDomain*>& ids,
+    const ValGraph& id_graph) {
+  size_t n = ids.size();
+  for (size_t i1 = 0; i1 < n; i1++) {
+    IterDomain* id1 = ids[i1];
+    for (size_t i2 = i1 + 1; i2 < n; i2++) {
+      IterDomain* id2 = ids[i2];
+      if (id_graph.disjointValSets().permissiveAreMapped(id1, id2)) {
+        return std::make_pair(id1, id2);
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+std::optional<SelfMapping> hasSelfMapping(
+    const TensorView* tv,
+    const ValGraph& id_graph) {
+  std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
+      detectSelfMapping(tv->getRootDomain(), id_graph);
+  // Root domains.
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
+  }
+
+  // Rfactor domains
+  if (tv->hasRFactor()) {
+    mapped = detectSelfMapping(tv->getRFactorDomain(), id_graph);
+    if (mapped.has_value()) {
+      return SelfMapping{
+          .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
+    }
+  }
+
+  // Leaf domains
+  // TODO: Exact map isn't quite right here, it should be based on the index
+  // map. However, it should also be impossible for index map to generate a
+  // case like this.
+  mapped = detectSelfMapping(tv->getLeafDomain(), id_graph);
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
+  }
+  return std::nullopt;
+}
+
 } // namespace nvfuser

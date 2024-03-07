@@ -60,8 +60,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
 }
 
-// Currently fails due to #1857.
-TEST_F(ReplayTest, DISABLED_HorizontallyMergeReshapeAndNeg) {
+TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -93,7 +92,7 @@ TEST_F(ReplayTest, DISABLED_HorizontallyMergeReshapeAndNeg) {
 
   std::vector<at::Tensor> slices = at::split(in_tensor, {2, 3}, /*dim=*/-1);
   at::Tensor expected_out_tensor = at::cat(
-      {slices[0].view({2, 2, 2}), slices[1].view({2, 2, 3})},
+      {-slices[0].view({2, 2, 2}), -slices[1].view({2, 2, 3})},
       /*dim=*/-1);
 
   EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
