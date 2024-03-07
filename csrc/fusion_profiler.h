@@ -237,6 +237,10 @@ class FusionProfiler {
   static constexpr size_t cupti_activity_buffer_size{size_t(4 * 1024)};
 
  private:
+  // Because this method may resize `device_descriptors_`, a call to it may
+  // invalidate the references returned by previous calls.
+  const DeviceDescriptor& deviceDescriptor(int device_id);
+
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
