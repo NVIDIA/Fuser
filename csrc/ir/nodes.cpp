@@ -2733,7 +2733,7 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
   return cloned;
 }
 
-std::vector<IterDomain*> IterDomain::clone(
+/*static*/ std::vector<IterDomain*> IterDomain::clone(
     const std::vector<IterDomain*>& domains) {
   std::vector<IterDomain*> cloned_domains;
   std::transform(
