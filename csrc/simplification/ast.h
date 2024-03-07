@@ -94,18 +94,11 @@ struct Term : Function {
   Val* representing_val = nullptr;
 
  public:
-  operator bool() const {
-    if (constant.is<bool>()) {
-      return constant.as<bool>();
-    }
-    std::cerr
-        << "WARNING: TODO: Use ProgramGuard to find Program, implement Term::bool()"
-        << std::endl;
-    return false;
-  }
-
+  operator bool() const;
   const Term& operator==(const Term& other);
 };
+
+const Term& operator+(const Term& a, const Term& b);
 
 // [Uniqueness of Terms]
 // In the Fusion IR, we can have multiple Vals representing the exact same
@@ -136,9 +129,6 @@ class Program {
     return *valToTermHelper(val);
   }
 
- protected:
-  friend Term;
-
   // Terms are owned by Program. When we need to make a new Term, we first check
   // whether a Term with that form already exists. If so we return it and if not
   // we create a new one.
@@ -153,6 +143,8 @@ class Program {
     std::cout << "WARNING: not adding constant bytes to key" << std::endl;
     std::cout << "WARNING: sizeof(PolymorphicValue) = "
               << sizeof(PolymorphicValue) << std::endl;
+    std::cout << "WARNING: sizeof(optional<int64_t>) = "
+              << sizeof(std::optional<int64_t>) << std::endl;
 
     // key.push_back(constantId(constant));
     for (auto* producer : producers) {
@@ -169,6 +161,10 @@ class Program {
       return term;
     }
     return term_it->second;
+  }
+
+  bool isProvenTrue(const Term& term) {
+    return proven_true_terms_.find(&term) != proven_true_terms_.end();
   }
 
  private:
@@ -247,7 +243,7 @@ class Program {
   // Here we used Term::operator<() to find or create the new term a < b, then
   // we used the implicit conversion operator that casts Terms to true only if
   // they appear in this set.
-  std::unordered_set<Term*> proven_true_terms_;
+  std::unordered_set<const Term*> proven_true_terms_;
 };
 
 } // namespace simplification

@@ -55,20 +55,37 @@ size_t symbolId(FunctionSymbol symbol) {
   return id;
 }
 
-const Term& Term::operator==(const Term& other) {
-  Program* program = ProgramGuard::getCurProgram();
-  return *(program->makeTerm(BinaryOpType::Eq, std::monostate{}, {this, &other}));
-}
-/*#define TERM_BINARY_OP(cppname, optypename) \
-  const Term& cppname(const Term& b) { \
-    Program* = ProgramGuard::getCurProgram(); \
-    return *(program->makeTerm(BinaryOpType::optypename, std::monostate, {this, &b})); \
+Term::operator bool() const {
+  if (constant.is<bool>()) {
+    return constant.as<bool>();
   }
-  TERM_BINARY_OP(operator==, Eq)
-#undef TERM_BINARY_OP
-*/
+  Program* program = ProgramGuard::getCurProgram();
+  return program->isProvenTrue(*this);
+}
+
+// Convenience function for creating new terms using the current Program
+static const Term& term(
+    FunctionSymbol symbol,
+    PolymorphicValue constant,
+    const std::vector<const Term*>& producer_terms) {
+  Program* program = ProgramGuard::getCurProgram();
+  return *(program->makeTerm(symbol, constant, producer_terms));
+}
+
+const Term& Term::operator==(const Term& other) {
+  if (constant.hasValue() && other.constant.hasValue()) {
+    // Fold constants
+    return term(BinaryOpType::Eq, constant == other.constant, {});
+  }
+  return term(BinaryOpType::Eq, std::monostate{}, {this, &other});
+}
+
+const Term& operator+(const Term& a, const Term& b) {
+  return (a.constant.hasValue() && b.constant.hasValue())
+      ? term(std::monostate{}, a.constant + b.constant, {})
+      : term(BinaryOpType::Add, std::monostate{}, {&a, &b});
+}
 
 } // namespace simplification
 
 } // namespace nvfuser
-
