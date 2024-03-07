@@ -1214,6 +1214,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   // TODO: the var name is confusing, should rename
   // [cross_grid/block_inner_reduction] to [cross_grid/block_reduction], see
   // https://github.com/NVIDIA/Fuser/issues/1863
+  // grouped welford is only enabled for grid persistent.
+  // see validateAndConvertIterDomainGrouping
   const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
   const bool use_iter_grouped_reduction = !rparams.fastest_dim &&
       (has_welford

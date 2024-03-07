@@ -707,7 +707,10 @@ __device__ void iterGroupedGridReduceLastBlock(
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
           threadIdx, blockDim);
 
-  // index into iteration dim
+  // index into iteration dim.
+  // Its calculation is same to that in [iterGroupedGridReduce]. Becuase when
+  // [iterGroupedGridReduceLastBlock] is called from [iterGroupedGridReduce],
+  // X_THREAD, Y_THREAD, Z_THREAD are flipped.
   const auto thread_offset =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
           threadIdx, blockDim);
@@ -768,6 +771,16 @@ __device__ void iterGroupedGridReduceLastBlock(
   }
 }
 
+// Main algorithm is same to gridReduce: start with block reduce then write
+// results to gmem, the last block load from gmem and finalize with a block
+// reduction. Main differences:
+// (1) each thread in the iter dim does [vec_size] reductions instead of 1.
+// (2) using [blockIterGroupedReduce] instead of [blockReduce].
+// (3) ensures vectorized load/store to gmem.
+// Specifically, the new para [vec_size] is the vecotrization factor in the
+// iteration dimension. It is used in outer reduction to reduce calling this
+// grid reduction from [vec_size] times to only 1 time. Its value is limited
+// to 1, 2, 4, 8, 16 based on the hardware support and input data type.
 template <
     bool X_BLOCK,
     bool Y_BLOCK,
@@ -789,9 +802,7 @@ __device__ void iterGroupedGridReduce(
     T* shared_buf,
     bool read_pred,
     bool write_pred,
-    T init_val,
-    const nvfuser_index_t entrance_ind,
-    const nvfuser_index_t n_entrances) {
+    T init_val) {
   // inp or block reduction results
   T block_reduction_val[vec_size];
 
@@ -846,7 +857,13 @@ __device__ void iterGroupedGridReduce(
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
             threadIdx, blockDim);
 
-    // vectorized write to work_buf [global memory]
+    // index to the right position in [work_buf] to store block reduction
+    // results. Consider a typical outer reduction case where iteration dim is
+    // TIDx and BIDx and reduction dim is TIDy and BIDy. block_offset = BIDy
+    // block_reduction_segment_size = blockDim.x
+    // grid_segment_size = gridDim.x
+    // idx_in_grid_segment = BIDx
+    // thread_offset = TIDx
     auto work_buf_offset =
         block_offset * (block_reduction_segment_size * grid_segment_size) +
         block_reduction_segment_size * idx_in_grid_segment + thread_offset;
@@ -868,11 +885,9 @@ __device__ void iterGroupedGridReduce(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
 
   } else {
-    // there is only one vectorized call, sync flag is entrance_ind independent
-    constexpr int entrance_ind = 0;
+    // there is only one vectorized call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   }
 
   bool last_block =

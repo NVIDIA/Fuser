@@ -1869,8 +1869,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     // Init val
     func_args.arg(genCall(data_type, genInline(grop->initVal(0))));
-    func_args.arg("0"); // entrance index is always 0
-    func_args.arg(genInline(grop->entrances()));
 
     addProfileArguments(func_args, grop);
 
