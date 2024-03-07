@@ -157,6 +157,10 @@ bool CancelSplitCat::sameIterDomainTransforms(
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
 
+  // This clones the exact graph so that `mapVals` are done without affecting
+  // other split/cat pairs in consideration. See
+  // MoveSplitCatTest.MultipleCatsOnSameSplit for why this independence is
+  // important.
   ValGraph exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   {
     // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
@@ -182,6 +186,7 @@ bool CancelSplitCat::sameIterDomainTransforms(
   }
 
   {
+    // Check slices[i0][j] and slices[i1][j] are mapped.
     const std::vector<IterDomain*>& first_rfactor =
         slices[0]->out()->getMaybeRFactorDomain();
     size_t num_dims = first_rfactor.size();

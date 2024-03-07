@@ -525,11 +525,14 @@ TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {
     t0 = reshape(t0, {2, 2}, {4});
     TensorView* t1 = permute(s1, {1, 0});
     t1 = reshape(t1, {2, 2}, {4});
+    // This cat doesn't cancel the split because the above transforms introduce
+    // a self-mapping when the catted dimension is mapped.
     return cat({t0, t1}, /*dim=*/0);
   }();
   TensorView* alias_out = [&]() {
     TensorView* t0 = set(s0);
     TensorView* t1 = set(s1);
+    // This cat cancels the split.
     return cat({t0, t1}, /*dim=*/0);
   }();
 
