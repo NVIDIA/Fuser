@@ -139,7 +139,7 @@ TEST_F(ExprEvalTest, ConstReference) {
   checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
-// Evaluate known values with const expression evaluator reference
+// Verify intermediate values are added to the known_values_ map.
 TEST_F(ExprEvalTest, KnownValUpdate) {
   Fusion fusion;
   FusionGuard fg(&fusion);
