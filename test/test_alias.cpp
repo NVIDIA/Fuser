@@ -1049,7 +1049,7 @@ TEST_F(AliasTest, SegmentBoundary) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
-TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
+TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1069,7 +1069,7 @@ TEST_F(AliasTest, InPlaceUpdateAliasAcrossSegments) {
   TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
 
   // Note: test alias;
-  fusion->aliasOutputToInput(tv6, tv0, AllocationType::InplaceUpdate);
+  fusion->aliasOutputToInput(tv6, tv0, AllocationType::ReuseBuffer);
   // TODO: support output on aliased fusion #1488
   // remove tv7 after #1488
   // fusion->addOutput(tv6);

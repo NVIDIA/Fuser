@@ -23,7 +23,7 @@
 
 namespace nvfuser {
 
-class IdModelTest : public NVFuserTest {};
+using IdModelTest = NVFuserTest;
 
 TEST_F(IdModelTest, DetectSelfMapping) {
   Fusion fusion;
@@ -36,12 +36,30 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   fusion.addOutput(tv2);
 
   EXPECT_THAT(
-      [&]() {
-        IdModel id_model(&fusion);
-        id_model.buildAllGraphs();
-      },
+      [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("!hasSelfMapping")));
+}
+
+TEST_F(IdModelTest, PerTensorSelfMapping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x0 = makeConcreteTensor({2, 2});
+  fusion.addInput(x0);
+  TensorView* x1 = makeConcreteTensor({2, 2});
+  fusion.addInput(x1);
+
+  TensorView* y0 = transpose(x0, 0, 1);
+  y0 = add(x0, y0);
+  fusion.addOutput(y0);
+
+  TensorView* y1 = transpose(x1, 0, 1);
+  fusion.addOutput(y1);
+
+  IdModel id_model(&fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  EXPECT_TRUE(id_model.hasSelfMapping(y0).has_value());
+  EXPECT_FALSE(id_model.hasSelfMapping(y1).has_value());
 }
 
 namespace {
@@ -75,7 +93,7 @@ TensorView* getTensorByName(
 class IdModelTester : public IdModel {
  public:
   // Do not automatically build the graphs
-  IdModelTester(Fusion* fusion) : IdModel(fusion, /* build_graphs */ false) {}
+  IdModelTester(Fusion* fusion) : IdModel(fusion, /*build_graphs=*/false) {}
 
   // Returns the IEL graph and the results of Steps 1 and 2
   std::tuple<

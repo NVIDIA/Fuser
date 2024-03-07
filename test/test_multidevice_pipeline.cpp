@@ -123,11 +123,11 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  inputs = {
+  unsharded_inputs = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
@@ -147,7 +147,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction] = GetParam();
-  if (!communicator->isBackendAvailable(backend)) {
+  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator->setDefaultBackend(backend);
@@ -194,11 +194,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {
-      at::ones(unsharded_input_sizes, tensor_options) *
-      communicator->deviceId()};
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 namespace {

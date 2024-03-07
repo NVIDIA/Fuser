@@ -287,4 +287,12 @@ struct MostInlinedTransformPropagator
   void propagateSibling(TensorView* from, TensorView* to) override;
 };
 
+// Replays an `Expr` with the new input, `new_in`. This function currently has
+// the following limitations:
+// 1. It doesn't set isRFactorProduct correctly (#1857).
+// 2. It requires `e` to be a unary op, and therefore takes a single new input.
+// 3. It requires `e` to be a TensorView op, which takes and produces only
+// TensorViews.
+Expr* replayExprWithNewInput(Expr* e, Val* new_in);
+
 } // namespace nvfuser

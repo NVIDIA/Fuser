@@ -42,6 +42,14 @@ StatefulInliningInfo buildStatefulInliningInfo(
     const ValGraph& exact_graph,
     const ValGraph& permissive_graph);
 
+struct SelfMapping {
+  IterDomain* id1;
+  IterDomain* id2;
+  // For debugging, records which domain `id1` and `id2` belong to. This value
+  // is either "Root", "RFactor", or "Leaf". Consider making it an enum.
+  std::string where;
+};
+
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
@@ -121,11 +129,14 @@ class IdModel : public PolymorphicBase {
   // Returns if a self mapping was detected that would invalidate assumptions of
   // the overall lowering system.
   //
+  // It is assumed that for any tensor represented by a list of domains,
+  // those domains should never be mapped with each other. It may be
+  // possible to lift this assumption, but it's unclear if it could
+  // matter in practice.
+  //
   // TODO: Can we make this more of an alias analysis?
   // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  bool hasSelfMapping() const {
-    return self_mapping_info_.has_value();
-  }
+  std::optional<SelfMapping> hasSelfMapping(const TensorView* tv) const;
 
   std::string toString() const;
 
@@ -250,10 +261,6 @@ class IdModel : public PolymorphicBase {
   // transformations before a tensor view's root domain. There can be
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
-
-  // Debug information to hold if a self mapping in a TensorView is found.
-  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = std::nullopt;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 
