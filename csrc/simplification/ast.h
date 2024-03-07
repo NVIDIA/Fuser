@@ -118,10 +118,35 @@ struct Term : Function {
 
  public:
   operator bool() const;
-  const Term& operator==(const Term& other);
+  // This returns a new Term representing the condition a == b. Note that this
+  // does not directly return bool. However, since terms are implicitly
+  // convertible to bool, using if(a.equals(b)) will return true if it is proven
+  // that a == b.
+  const Term& equal(const Term& other) const;
+  const Term& notEqual(const Term& other) const;
 };
 
+const Term& abs(const Term& a);
+const Term& operator-(const Term& a);
+const Term& operator!(const Term& a);
+const Term& operator~(const Term& a);
+
 const Term& operator+(const Term& a, const Term& b);
+const Term& operator-(const Term& a, const Term& b);
+const Term& operator*(const Term& a, const Term& b);
+const Term& operator/(const Term& a, const Term& b);
+const Term& operator%(const Term& a, const Term& b);
+const Term& operator&&(const Term& a, const Term& b);
+const Term& operator||(const Term& a, const Term& b);
+const Term& operator&(const Term& a, const Term& b);
+const Term& operator|(const Term& a, const Term& b);
+const Term& operator^(const Term& a, const Term& b);
+const Term& operator<<(const Term& a, const Term& b);
+const Term& operator>>(const Term& a, const Term& b);
+const Term& ceilDiv(const Term& a, const Term& b);
+const Term& gcd(const Term& a, const Term& b);
+
+const Term& where(const Term& a, const Term& b, const Term& c);
 
 // [Uniqueness of Terms]
 // In the Fusion IR, we can have multiple Vals representing the exact same

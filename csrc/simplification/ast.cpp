@@ -140,19 +140,62 @@ static const Term& term(
   return *(program->makeTerm(symbol, constant, producer_terms));
 }
 
-const Term& Term::operator==(const Term& other) {
-  if (constant.hasValue() && other.constant.hasValue()) {
-    // Fold constants
-    return term(BinaryOpType::Eq, constant == other.constant, {});
-  }
+const Term& Term::equal(const Term& other) const {
   return term(BinaryOpType::Eq, std::monostate{}, {this, &other});
 }
-
-const Term& operator+(const Term& a, const Term& b) {
-  return (a.constant.hasValue() && b.constant.hasValue())
-      ? term(std::monostate{}, a.constant + b.constant, {})
-      : term(BinaryOpType::Add, std::monostate{}, {&a, &b});
+const Term& Term::notEqual(const Term& other) const {
+  return term(BinaryOpType::NE, std::monostate{}, {this, &other});
 }
+
+#define UNARY_TERM_OP(cppop, optype)                          \
+  const Term& cppop(const Term& a) {                          \
+    return term(UnaryOpType::optype, std::monostate{}, {&a}); \
+  }
+UNARY_TERM_OP(abs, Abs)
+UNARY_TERM_OP(operator-, Neg)
+UNARY_TERM_OP(operator!, LogicalNot)
+UNARY_TERM_OP(operator~, BitwiseNot)
+#undef UNARY_TERM_OP
+
+#define BINARY_TERM_OP_CONST_HELPER(cppop, optype, consttype)      \
+  const Term& cppop(const Term& a, const consttype b_const) {      \
+    const Term& b = term(std::monostate{}, b_const, {});           \
+    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
+  }                                                                \
+  const Term& cppop(const consttype a_const, const Term& b) {      \
+    const Term& a = term(std::monostate{}, a_const, {});           \
+    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
+  }
+#define BINARY_TERM_OP(cppop, optype)                              \
+  const Term& cppop(const Term& a, const Term& b) {                \
+    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
+  }                                                                \
+  BINARY_TERM_OP_CONST_HELPER(cppop, optype, bool);                \
+  BINARY_TERM_OP_CONST_HELPER(cppop, optype, int64_t);             \
+  BINARY_TERM_OP_CONST_HELPER(cppop, optype, double);
+BINARY_TERM_OP(operator+, Add)
+BINARY_TERM_OP(operator-, Sub)
+BINARY_TERM_OP(operator*, Mul)
+BINARY_TERM_OP(operator/, Div)
+BINARY_TERM_OP(operator%, Mod)
+BINARY_TERM_OP(operator&&, LogicalAnd)
+BINARY_TERM_OP(operator||, LogicalOr)
+BINARY_TERM_OP(operator&, BitwiseAnd)
+BINARY_TERM_OP(operator|, BitwiseOr)
+BINARY_TERM_OP(operator^, BitwiseXor)
+BINARY_TERM_OP(operator<<, Lshift)
+BINARY_TERM_OP(operator>>, Rshift)
+BINARY_TERM_OP(ceilDiv, CeilDiv)
+BINARY_TERM_OP(gcd, Gcd)
+#undef BINARY_TERM_OP
+#undef BINARY_TERM_OP_CONST_HELPER
+
+#define TERNARY_TERM_OP(cppop, optype)                                  \
+  const Term& cppop(const Term& a, const Term& b, const Term& c) {      \
+    return term(TernaryOpType::optype, std::monostate{}, {&a, &b, &c}); \
+  }
+TERNARY_TERM_OP(where, Where)
+#undef TERNARY_TERM_OP
 
 Val* Program::termToVal(const Term* term) {
   // TODO: Non-recursive version
@@ -201,6 +244,9 @@ Val* Program::termToVal(const Term* term) {
         NVF_ERROR(false, "Unhandled ternary op type ", op_type);
     }
   }
+  auto* mut_term = const_cast<Term*>(term);
+  mut_term->representing_val = val;
+  val_term_map_[val] = mut_term;
   return val;
 }
 
