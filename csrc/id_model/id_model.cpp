@@ -955,8 +955,8 @@ Expr* findMatchingExpr(
     if (!iel_graph.hasGroup(inp_id)) {
       continue;
     }
-    const auto& inp_exact_group = iel_graph.toGroup(inp_id);
-    maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_exact_group));
+    const auto& inp_iel_group = iel_graph.toGroup(inp_id);
+    maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_iel_group));
   }
 
   // Look for exprs that have inputs that are mapped in the IEL
@@ -964,8 +964,10 @@ Expr* findMatchingExpr(
   for (const ExprGroup& maybe_promoted_input_use_group :
        maybe_promoted_input_uses) {
     NVF_ERROR(!maybe_promoted_input_use_group->empty());
-    // TODO: why skip this? If iel_expr is also an use of the promoted
-    // inputs, shouldn't it be also a candidate?
+    // maybe_promoted_inputs may include non-promoted inputs as
+    // well, so maybe_promoted_input_uses may include the original
+    // iel_expr itself. Since there must at least be a promoted input,
+    // iel_expr itself should not be an expr group we are looking for.
     if (iel_expr == maybe_promoted_input_use_group) {
       continue;
     }
@@ -1150,34 +1152,33 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);
-    id_uses_[out_id];
+    // out_id is a new IterDomain with no use expr yet. Initialize its
+    // use mapping with an empty set
+    NVF_ERROR(id_uses_.emplace(out_id, VectorOfUniqueEntries<Expr*>{}).second);
   }
 
   // Add the expression to the uses of the inputs
   for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-    id_definitions_[inp_id];
+    // inp_id should not be a new domain, so just make sure it has a
+    // def mapping.
+    NVF_ERROR(id_definitions_.find(inp_id) != id_definitions_.end());
     id_uses_[inp_id].pushBack(replay);
   }
 
   // Initialize output iter domains in the graphs
   for (auto mode : initialized_modes) {
-    idGraph(mode).registerExpr(replay);
-    auto replay_group = idGraph(mode).toGroup(replay);
+    auto& graph = idGraph(mode);
 
-    // Initialize output ids in map
+    // Initialize output ids in map. The replay expr will be
+    // registered as a definition by registerExpr
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      idGraph(mode).initializeVal(out_id, {replay}, {});
+      idGraph(mode).initializeVal(out_id, {}, {});
     }
 
-    // Update uses of the inputs in the graphs
-    for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto inp_group = idGraph(mode).toGroup(inp_id);
-      idGraph(mode).addUniqueUses(inp_group, replay_group);
-    }
+    idGraph(mode).registerExpr(replay);
 
     // Propagate through all the uses of the iter domain groups of the inputs
     // with the new expression.
-    auto& graph = idGraph(mode);
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (IterDomain* inp : new_inputs) {

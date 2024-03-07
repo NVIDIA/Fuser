@@ -315,7 +315,20 @@ void ValGraph::registerExpr(Expr* expr) {
       !disjoint_exprs_.mappingExists(expr),
       "Already in the disjoint sets: ",
       expr->toString());
-  disjoint_exprs_.initializeSet(expr);
+  auto expr_group_it = disjoint_exprs_.initializeSet(expr).first;
+  const ExprGroup& expr_group = expr_group_it->second;
+
+  // Update definitions of the outputs
+  for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+    const auto& out_group = toGroup(out_id);
+    addUniqueDefinitions(out_group, expr_group);
+  }
+
+  // Update uses of the inputs in the graphs
+  for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+    const auto& inp_group = toGroup(inp_id);
+    addUniqueUses(inp_group, expr_group);
+  }
 }
 
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
