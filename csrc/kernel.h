@@ -70,6 +70,12 @@ struct KernelSummary {
   //! Do we have any welford op?
   bool has_grid_welford = false;
 
+  //! Do we have any iter grouped outer block reduction op?
+  bool has_iter_grouped_reductions = false;
+
+  //! number of grouped iters for grouped outer block reduction
+  int num_grouped_iterations = 1;
+
   //! Do we have any outer grouped grid welford op?
   bool has_outer_grouped_grid_welford = false;
 
