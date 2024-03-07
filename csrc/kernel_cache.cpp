@@ -1236,8 +1236,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 }
 
 // passing args by value because we will be modify this
-void FusionKernelRuntime::compileFusionParallel(
-    KernelArgumentHolder args) {
+void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(

@@ -133,8 +133,8 @@ TEST_F(PipelineTest, Pipeline) {
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
 // stage sharded?, do_reduction?, use_fusion_executor_cache?)
-using PipelineTestTwoStagesParams =
-    std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
+using PipelineTestTwoStagesParams = std::
+    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
       public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
@@ -147,7 +147,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction,
-       use_fusion_executor_cache]= GetParam();
+       use_fusion_executor_cache] = GetParam();
   if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }

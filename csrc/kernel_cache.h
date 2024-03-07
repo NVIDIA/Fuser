@@ -154,8 +154,7 @@ class FusionKernelRuntime {
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  NVF_API void compileFusionParallel(
-      KernelArgumentHolder args);
+  NVF_API void compileFusionParallel(KernelArgumentHolder args);
 
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
@@ -255,9 +254,7 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
