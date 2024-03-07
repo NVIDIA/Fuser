@@ -102,8 +102,8 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    bool auto_schedule)
-    : comm_(comm), auto_schedule_(auto_schedule) {
+    MultiDeviceExecutorParams params)
+    : comm_(comm), params_(params) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
@@ -155,13 +155,22 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  if (fec_.find(group) == fec_.end()) {
-    fec_.emplace(
-        group,
-        std::make_unique<FusionExecutorCache>(
-            staged_fusion_->makeFusion(group), 0, auto_schedule_));
+  if (params_.use_fusion_executor_cache) {
+    if (fec_.find(group) == fec_.end()) {
+      fec_.emplace(
+          group,
+          std::make_unique<FusionExecutorCache>(
+              staged_fusion_->makeFusion(group), 0, !params_.skip_auto_scheduling));
+    }
+    outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
+  } else {
+    if (!params_.cache_fusion_executor || fe_.find(group) == fe_.end()) {
+      fe_.emplace(group, std::make_unique<FusionExecutor>());
+      fe_[group]->compileFusion(staged_fusion_->makeFusion(group).get(), group_input_IValues);
+    }
+    outputs = fe_[group]->runFusion(group_input_IValues);
   }
-  outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
+
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
