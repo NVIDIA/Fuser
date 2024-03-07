@@ -869,8 +869,9 @@ bool projectBufferToInputs(
   }
 
   // check ops between persistent buffer and inputs.
-  // TODO: check more ops, e.g. RNGOp
+  // TODO: check more ops
   bool has_exp_op = false;
+  bool has_rng_op = false;
   const auto& projectable_buffers =
       persistent_buffer_info.projectable_persistent_buffers;
   auto all_inputs = ir_utils::inputTvsOf(projectable_buffers);
@@ -882,7 +883,16 @@ bool projectBufferToInputs(
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
     }
+    if (expr->isA<RNGOp>()) {
+      has_rng_op = true;
+    }
   }
+
+  // don't project if calculate persistent buffer requires very expensive rng op
+  if (has_rng_op) {
+    return false;
+  }
+
   if (!has_exp_op) {
     return true;
   }
