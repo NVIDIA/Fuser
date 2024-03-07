@@ -1,0 +1,252 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <exceptions.h>
+#include <ir/base_nodes.h>
+#include <ir/internal_nodes.h>
+#include <polymorphic_value.h>
+#include <type.h>
+#include <utils.h>
+
+#include <variant>
+#include <vector>
+
+namespace nvfuser {
+
+namespace simplification {
+
+using FunctionSymbol =
+    std::variant<std::monostate, UnaryOpType, BinaryOpType, TernaryOpType>;
+
+//! This returns std::nullopt for unsupported Exprs. Note that this is different
+//! from std::monostate, which indicates a constant or free variable.
+FunctionSymbol exprToFunctionSymbol(Expr* expr) {
+  if (expr == nullptr) {
+    return std::monostate{};
+  } else if (auto* uop = dynamic_cast<UnaryOp*>(expr)) {
+    return uop->getUnaryOpType();
+  } else if (auto bop = dynamic_cast<BinaryOp*>(expr)) {
+    return bop->getBinaryOpType();
+  } else if (auto top = dynamic_cast<TernaryOp*>(expr)) {
+    return top->getTernaryOpType();
+  }
+  NVF_ERROR(false, "Unsupported expression in AST: ", expr->toString());
+}
+
+inline bool isUnaryOpType(const FunctionSymbol symb) {
+  return std::holds_alternative<UnaryOpType>(symb);
+}
+inline bool isBinaryOpType(const FunctionSymbol symb) {
+  return std::holds_alternative<BinaryOpType>(symb);
+}
+inline bool isTernaryOpType(const FunctionSymbol symb) {
+  return std::holds_alternative<TernaryOpType>(symb);
+}
+
+//! Convert the function symbol to a unique 2-byte integer. Collisions should
+//! be avoided at all cost here.
+size_t symbolId(FunctionSymbol symbol) {
+  size_t id = 0;
+  if (isUnaryOpType(symbol)) {
+    id = (1LL << 32) + toUnderlying(std::get<UnaryOpType>(symbol));
+  } else if (isBinaryOpType(symbol)) {
+    id = (2LL << 32) + toUnderlying(std::get<BinaryOpType>(symbol));
+  } else if (isTernaryOpType(symbol)) {
+    id = (3LL << 32) + toUnderlying(std::get<TernaryOpType>(symbol));
+  }
+  return id;
+}
+
+//! A Function models a generic function symbol without describing its
+//! producers. This allows us to generalize functions across producer types,
+//! depending on whether we are modelling terms or implementing an e-graph.
+//!
+//! Note that root variables are Functions whose symbol is std::monostate.
+struct Function {
+  FunctionSymbol symbol;
+
+  // [DataTypes in the AST]
+  // Notice that we do not represent datatypes here. We could place a DataType
+  // attribute in this class, but then we would need to shadow the type
+  // promotion rules here. This is not impossible, but it is complexity that
+  // might not be needed, so we will avoid doing so until it is needed.
+
+ public:
+  PolymorphicValue evaluate(
+      const std::vector<PolymorphicValue>& producer_values) const;
+};
+
+//! [AST model]
+//! A Term is either a constant, a free variable, or a Function of other Terms.
+struct Term : Function {
+  //! This is std::monostate for free variables and whenever symbol !=
+  //! std::monostate. Otherwise it indicates a constant value.
+  PolymorphicValue constant;
+
+  std::vector<Term*> producers;
+
+  //! At most a single Val* can represent a Term. This will typically be the
+  //! latest "seen" Val of this form. In this way, we can re-use proofs even
+  //! when the visibility of terms changes.
+  Val* representing_val = nullptr;
+
+ public:
+  operator bool() const {
+    if (constant.is<bool>()) {
+      return constant.as<bool>();
+    }
+    std::cerr
+        << "WARNING: TODO: Use ProgramGuard to find Program, implement Term::bool()"
+        << std::endl;
+    return false;
+  }
+};
+
+// [Uniqueness of Terms]
+// In the Fusion IR, we can have multiple Vals representing the exact same
+// computation. For example,
+//   x = IrBuilder::create<Val>(3);
+//   y = IrBuilder::create<Val>(3);
+// This results in two separate Val*s (x != y) both representing a constant
+// value of 3. This is fine for Vals, but for simplification it is useful to
+// deduplicate Terms so that we don't need to reprove and resimplify
+// expressions.
+class Program {
+ public:
+  // Terms are owned by Program. When we need to make a new Term, we first check
+  // whether a Term with that form already exists. If so we return it and if not
+  // we create a new one.
+  Term* makeTerm(
+      FunctionSymbol symbol,
+      const PolymorphicValue& constant,
+      const std::vector<Term*>& producers) {
+    TermMapKey key;
+    // Look up term or create a new one
+    key.push_back(symbolId(symbol));
+
+    std::cout << "WARNING: not adding constant bytes to key" << std::endl;
+    std::cout << "WARNING: sizeof(PolymorphicValue) = "
+              << sizeof(PolymorphicValue) << std::endl;
+
+    // key.push_back(constantId(constant));
+    for (auto* producer : producers) {
+      // We cast the pointers directly to size_t since these pointer equality
+      // is equivalent to structural equality if all terms are deduplicated.
+      key.push_back((size_t)producer);
+    }
+
+    auto term_it = term_map_.find(key);
+    if (term_it == term_map_.end()) {
+      Term* term = new Term{symbol, constant, producers};
+      terms_up_.emplace_back(std::unique_ptr<Term>(term));
+      term_map_.emplace(key, term).first;
+      return term;
+    }
+    return term_it->second;
+  }
+  //! This is non-const since we register newly-created Vals in order to quickly
+  //! recognize them if they appear as producers in later seen Vals.
+  Val* termToVal(const Term* term) {
+    // TODO
+    return nullptr;
+  }
+
+  Val* termToVal(const Term& term) {
+    return termToVal(&term);
+  }
+
+  //! Map a Val into Program and return a const reference to the corresponding
+  //! Term. If we have previously seen this Val or any of its producers, we will
+  //! re-use their Terms.
+  const Term& valToTerm(Val* val) {
+    return *valToTermHelper(val);
+  }
+
+ private:
+  //! Find a given Val and return its Term*. If we haven't yet seen this Val*,
+  //! return nullptr.
+  Term* findTerm(Val* val) {
+    auto it = val_term_map_.find(val);
+    if (it == val_term_map_.end()) {
+      return nullptr;
+    }
+    return it->second;
+  };
+
+  //! This is like findTerm, but if we haven't seen Val, then recursively make
+  //! terms to represent val's producers and its definition.
+  Term* valToTermHelper(Val* val) {
+    // First check whether we've seen this Val before so we can return early
+    auto val_it = val_term_map_.find(val);
+    if (val_it != val_term_map_.end()) {
+      return val_it->second;
+    }
+    // Create a new Term
+    Expr* def = val->definition();
+    FunctionSymbol symbol = exprToFunctionSymbol(def);
+    std::vector<Term*> producer_terms;
+    if (def != nullptr) {
+      symbol = exprToFunctionSymbol(def);
+      producer_terms.reserve(def->inputs().size());
+      for (auto inp : def->inputs()) {
+        producer_terms.push_back(valToTermHelper(inp));
+      }
+    }
+    Term* term = makeTerm(symbol, val->value(), producer_terms);
+    term->representing_val = val;
+    return term;
+  }
+
+ private:
+  using TermMapKey = std::vector<size_t>;
+  class TermMapKeyHasher {
+   public:
+    size_t operator()(const TermMapKey& key) const {
+      size_t h = 0;
+      for (auto ki : key) {
+        nvfuser::hashCombine(h, ki);
+      }
+      return h;
+    }
+  };
+
+  // Owns all Terms in this Program
+  std::vector<std::unique_ptr<Term>> terms_up_;
+
+  // Maps keys to Term*. This is used as a check that no structurally identical
+  // Term already exists in terms_up_ before adding it. This guarantees that
+  // for any two terms in terms_up_, pointer equality implies structural
+  // equality.
+  std::unordered_map<TermMapKey, Term*, TermMapKeyHasher> term_map_;
+
+  // Map Vals to Terms. This allows us to quickly retrieve a Term, without
+  // needing to recursively inspect the structure of all the producers of that
+  // Val. This assumes that the structure of Vals does not change. If a Val* is
+  // redefined after it is seen, then the Term pointed to by this map will still
+  // refer to the previous definition.
+  std::unordered_map<Val*, Term*> val_term_map_;
+
+  // A collection of Terms that have been proven true
+  // This lets us easily test whether a term is true or not. For example,
+  //
+  //   const Term& a = program.valToTerm(val_a);
+  //   const Term& b = program.valToTerm(val_b);
+  //   if (a < b) {
+  //     foo();
+  //   }
+  //
+  // Here we used Term::operator<() to find or create the new term a < b, then
+  // we used the implicit conversion operator that casts Terms to true only if
+  // they appear in this set.
+  std::unordered_set<Term*> proven_true_terms_;
+};
+
+} // namespace simplification
+
+} // namespace nvfuser

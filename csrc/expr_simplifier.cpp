@@ -9,6 +9,7 @@
 
 #include <debug.h>
 #include <device_lower/pass/magic_zero.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>

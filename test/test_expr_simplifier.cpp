@@ -10,6 +10,7 @@
 
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
+#include <simplification/ast.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -1115,6 +1116,21 @@ TEST_F(ExprSimplifierTest, FactorizeGcd) {
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
   EXPECT_TRUE(
       simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
+}
+
+TEST_F(ExprSimplifierTest, AST) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  simplification::Program program;
+
+  Val* a = IrBuilder::create<Val>(DataType::Index);
+  Val* b = IrBuilder::create<Val>(DataType::Index);
+  Val* d = IrBuilder::divExpr(
+      IrBuilder::addExpr(a, fusion.oneVal(DataType::Index)), b);
+
+  const auto& t = program.valToTerm(d);
+  std::cout << (void*)&t << std::endl;
 }
 
 } // namespace nvfuser
