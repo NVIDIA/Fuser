@@ -118,15 +118,6 @@ class IdModel : public PolymorphicBase {
     return view_rfactor_ids_;
   }
 
-  // Returns if a self mapping was detected that would invalidate assumptions of
-  // the overall lowering system.
-  //
-  // TODO: Can we make this more of an alias analysis?
-  // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  bool hasSelfMapping() const {
-    return self_mapping_info_.has_value();
-  }
-
   std::string toString() const;
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
@@ -233,10 +224,6 @@ class IdModel : public PolymorphicBase {
   // transformations before a tensor view's root domain. There can be
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
-
-  // Debug information to hold if a self mapping in a TensorView is found.
-  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = std::nullopt;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 

@@ -49,6 +49,13 @@ def is_pre_ampere():
     return prop.major < 8
 
 
+def is_pre_hopper():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
+
 def setUpModule():
     from nvfuser import enable_automatic_serialization
 
@@ -225,6 +232,27 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
+
+    @unittest.skipIf(is_pre_hopper(), "Only supported on Hopper and newer devices.")
+    def test_cast_fp8(self):
+        def fn(in_type, out_type):
+            inputs = [
+                torch.randn([5, 5], device="cuda").to(in_type),
+            ]
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.ops.cast(T0, dtype=torch_dtype_to_nvfuser_dtype(out_type))
+                fd.add_output(T1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            eager_out = inputs[0].to(out_type)
+            self.assertEqual(eager_out, nvf_out[0])
+
+        for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
+            for type1 in [torch.float8_e4m3fn, torch.float8_e5m2]:
+                fn(type0, type1)
+                fn(type1, type0)
 
     def test_promote_to_double(self):
         inputs = [
@@ -537,6 +565,34 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.sum(inputs[0].reshape(new_shape), dim=3)
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_execute_with_tuple_and_list(self):
+        shape = [2, 3, 4]
+        new_shape = [6, 4]
+
+        tensor = torch.randn(shape, device="cuda")
+        inputs_with_list = [tensor, new_shape]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs_with_list[0])
+            n_shape = fd.define_vector(2)
+
+            t1 = fd.ops.reshape(t0, n_shape)
+            t2 = fd.ops.sum(t1, dims=[0])
+
+            fd.add_output(t2)
+
+        eager_out = torch.sum(inputs_with_list[0].reshape(new_shape), dim=0)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_list)
+        self.assertEqual(eager_out, nvf_out[0])
+
+        inputs_with_tuple = [tensor, tuple(new_shape)]
+        # expect to reuse fusion
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func, inputs_with_tuple, new_fusion_expected=False
+        )
         self.assertEqual(eager_out, nvf_out[0])
 
     # Testing a scenario where a broadcast requires a symbolic output shape
