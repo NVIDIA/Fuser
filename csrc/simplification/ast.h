@@ -21,23 +21,30 @@ namespace nvfuser {
 
 namespace simplification {
 
+class Program;
+
+class ProgramGuard {
+ public:
+  //! Set the active fusion so it can be manipulated.
+  NVF_API explicit ProgramGuard(Program* program);
+
+  NVF_API ~ProgramGuard();
+
+  NVF_API static Program* getCurProgram();
+  static void setCurProgram(Program* program);
+
+ private:
+  Program* prev_program_;
+
+  static thread_local Program* active_program_;
+};
+
 using FunctionSymbol =
     std::variant<std::monostate, UnaryOpType, BinaryOpType, TernaryOpType>;
 
 //! This returns std::nullopt for unsupported Exprs. Note that this is different
 //! from std::monostate, which indicates a constant or free variable.
-FunctionSymbol exprToFunctionSymbol(Expr* expr) {
-  if (expr == nullptr) {
-    return std::monostate{};
-  } else if (auto* uop = dynamic_cast<UnaryOp*>(expr)) {
-    return uop->getUnaryOpType();
-  } else if (auto bop = dynamic_cast<BinaryOp*>(expr)) {
-    return bop->getBinaryOpType();
-  } else if (auto top = dynamic_cast<TernaryOp*>(expr)) {
-    return top->getTernaryOpType();
-  }
-  NVF_ERROR(false, "Unsupported expression in AST: ", expr->toString());
-}
+FunctionSymbol exprToFunctionSymbol(Expr* expr);
 
 inline bool isUnaryOpType(const FunctionSymbol symb) {
   return std::holds_alternative<UnaryOpType>(symb);
@@ -51,17 +58,7 @@ inline bool isTernaryOpType(const FunctionSymbol symb) {
 
 //! Convert the function symbol to a unique 2-byte integer. Collisions should
 //! be avoided at all cost here.
-size_t symbolId(FunctionSymbol symbol) {
-  size_t id = 0;
-  if (isUnaryOpType(symbol)) {
-    id = (1LL << 32) + toUnderlying(std::get<UnaryOpType>(symbol));
-  } else if (isBinaryOpType(symbol)) {
-    id = (2LL << 32) + toUnderlying(std::get<BinaryOpType>(symbol));
-  } else if (isTernaryOpType(symbol)) {
-    id = (3LL << 32) + toUnderlying(std::get<TernaryOpType>(symbol));
-  }
-  return id;
-}
+size_t symbolId(FunctionSymbol symbol);
 
 //! A Function models a generic function symbol without describing its
 //! producers. This allows us to generalize functions across producer types,
@@ -89,7 +86,7 @@ struct Term : Function {
   //! std::monostate. Otherwise it indicates a constant value.
   PolymorphicValue constant;
 
-  std::vector<Term*> producers;
+  std::vector<const Term*> producers;
 
   //! At most a single Val* can represent a Term. This will typically be the
   //! latest "seen" Val of this form. In this way, we can re-use proofs even
@@ -106,6 +103,8 @@ struct Term : Function {
         << std::endl;
     return false;
   }
+
+  const Term& operator==(const Term& other);
 };
 
 // [Uniqueness of Terms]
@@ -119,13 +118,34 @@ struct Term : Function {
 // expressions.
 class Program {
  public:
+  //! This is non-const since we register newly-created Vals in order to quickly
+  //! recognize them if they appear as producers in later seen Vals.
+  Val* termToVal(const Term* term) {
+    // TODO
+    return nullptr;
+  }
+
+  Val* termToVal(const Term& term) {
+    return termToVal(&term);
+  }
+
+  //! Map a Val into Program and return a const reference to the corresponding
+  //! Term. If we have previously seen this Val or any of its producers, we will
+  //! re-use their Terms.
+  const Term& valToTerm(Val* val) {
+    return *valToTermHelper(val);
+  }
+
+ protected:
+  friend Term;
+
   // Terms are owned by Program. When we need to make a new Term, we first check
   // whether a Term with that form already exists. If so we return it and if not
   // we create a new one.
   Term* makeTerm(
       FunctionSymbol symbol,
       const PolymorphicValue& constant,
-      const std::vector<Term*>& producers) {
+      const std::vector<const Term*>& producers) {
     TermMapKey key;
     // Look up term or create a new one
     key.push_back(symbolId(symbol));
@@ -150,23 +170,6 @@ class Program {
     }
     return term_it->second;
   }
-  //! This is non-const since we register newly-created Vals in order to quickly
-  //! recognize them if they appear as producers in later seen Vals.
-  Val* termToVal(const Term* term) {
-    // TODO
-    return nullptr;
-  }
-
-  Val* termToVal(const Term& term) {
-    return termToVal(&term);
-  }
-
-  //! Map a Val into Program and return a const reference to the corresponding
-  //! Term. If we have previously seen this Val or any of its producers, we will
-  //! re-use their Terms.
-  const Term& valToTerm(Val* val) {
-    return *valToTermHelper(val);
-  }
 
  private:
   //! Find a given Val and return its Term*. If we haven't yet seen this Val*,
@@ -190,7 +193,7 @@ class Program {
     // Create a new Term
     Expr* def = val->definition();
     FunctionSymbol symbol = exprToFunctionSymbol(def);
-    std::vector<Term*> producer_terms;
+    std::vector<const Term*> producer_terms;
     if (def != nullptr) {
       symbol = exprToFunctionSymbol(def);
       producer_terms.reserve(def->inputs().size());

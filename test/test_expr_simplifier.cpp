@@ -1122,14 +1122,19 @@ TEST_F(ExprSimplifierTest, AST) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  simplification::Program program;
+  using namespace simplification;
+
+  Program program;
+  ProgramGuard pg(&program);
 
   Val* a = IrBuilder::create<Val>(DataType::Index);
   Val* b = IrBuilder::create<Val>(DataType::Index);
   Val* d = IrBuilder::divExpr(
       IrBuilder::addExpr(a, fusion.oneVal(DataType::Index)), b);
 
-  const auto& t = program.valToTerm(d);
+  const auto& ta = program.valToTerm(a);
+  const auto& td = program.valToTerm(d);
+  const auto& t = ta == td;
   std::cout << (void*)&t << std::endl;
 }
 
