@@ -857,23 +857,27 @@ Expr* findMatchingExpr(
     const ExprGroup& iel_expr,
     const ValGraph& iel_graph,
     const std::vector<IterDomain*>& maybe_promoted_inputs) {
-  // Grab all eligible uses of the promoted inputs
-  ExprGroups maybe_promoted_input_uses;
+  // If any of domains in maybe_promoted_inputs is not found in
+  // iel_graph, it means the domain is just replayed and by definition
+  // has no mapping with any existing domain, which means there's no
+  // matching expr.
+  if (std::any_of(
+          maybe_promoted_inputs.begin(),
+          maybe_promoted_inputs.end(),
+          [&](IterDomain* maybe_promoted_input) -> bool {
+            return !iel_graph.hasGroup(maybe_promoted_input);
+          })) {
+    return nullptr;
+  }
+
+  // Grab all eligible uses of the promoted inputs.
   // Note that any eligible matching expr should be a use of all
   // inputs in maybe_promoted_input_uses, no matter it's promoted or
   // not. So it isn't necessary to look at all of
   // maybe_promoted_input_uses but just need to grab one.
-  for (auto inp_id : maybe_promoted_inputs) {
-    // inp_id may have been just replayed, in which case it should
-    // not exist in the IEL graph. It should be just ignored as it
-    // should not have any use yet.
-    if (!iel_graph.hasGroup(inp_id)) {
-      continue;
-    }
-    const auto& inp_iel_group = iel_graph.toGroup(inp_id);
-    maybe_promoted_input_uses = iel_graph.getUses(inp_iel_group);
-    break;
-  }
+  NVF_ERROR(!maybe_promoted_inputs.empty());
+  ExprGroups maybe_promoted_input_uses =
+      iel_graph.getUses(iel_graph.toGroup(maybe_promoted_inputs.front()));
 
   if (maybe_promoted_input_uses.empty()) {
     return nullptr;
