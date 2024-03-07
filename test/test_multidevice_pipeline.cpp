@@ -331,7 +331,7 @@ TEST_P(DistributedMatmul, LayoutTN) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
 
-  int64_t M = 64, N = 32, K = 64;
+  int64_t M = 64, N = 64, K = 64;
   // TODO: until we support split, manually split axes
   int64_t Mo = num_devices;
   int64_t Mi = M / Mo;
