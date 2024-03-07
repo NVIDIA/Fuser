@@ -133,9 +133,8 @@ class MultiDeviceExecutor {
   // Stores the order in which the pipeline's stage should be executed
   RuntimeWorkSpace workspace;
   // Cache Fusions, FusionExecutors, and Communications
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutorCache>>
-      fec_;
+  std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
+  std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
