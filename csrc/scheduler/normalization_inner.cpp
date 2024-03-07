@@ -125,7 +125,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   const int64_t persistent_buffer_size = buffer_size.first;
   const int64_t available_persistent_buffer_size = buffer_size.second;
 
-  const int64_t device_multiprocessor_count =
+  const int64_t sm_count_ =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
@@ -144,8 +144,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.
-  if (required_sm_per_norm >
-      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
+  if (required_sm_per_norm > scheduler_utils::safeDiv(sm_count_, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(), "requires over half GPU persistence.");
     return false;
@@ -158,10 +157,10 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
           device_max_threads_per_multiprocessor * 4 &&
       properties.total_iteration_numel <
           (properties.fastest_dim_reduction
-               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
+               ? scheduler_utils::safeDiv(sm_count_, 8)
                // Make sure we at least use a quarter of the device * a
                // half warp
-               : (warp_size / 8) * device_multiprocessor_count)) {
+               : (warp_size / 8) * sm_count_)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(), "not enough blocks");
     return false;
@@ -325,154 +324,6 @@ class HeuristicGeneratorBase {
     constexpr int64_t max_batches_per_block = 10l;
     return std::min(max_batches_per_block, batch_from_register);
   }
-
-  // calculate bdimx, bdimy, occupancy, given a persistent batch size
-  struct HeuristicParams {
-    int64_t bdimx = -1;
-    int64_t bdimy = -1;
-    int64_t padded_bdimx = -1;
-    int64_t persistent_batch_size = -1;
-    int64_t register_per_thread = -1;
-    int64_t register_overhead = -1;
-    int64_t occupancy = -1;
-    int64_t n_persistent_tails = -1;
-    bool is_pad_bdimx = false;
-    void print() const {
-      std::cout << "bdimx: " << bdimx << ", bdimy: " << bdimy
-                << ", padded_bdimx: " << padded_bdimx
-                << ", persistent_batch_size: " << persistent_batch_size
-                << ", register_per_thread: " << register_per_thread
-                << ", register_overhead: " << register_overhead
-                << ", occupancy: " << occupancy
-                << ", n_persistent_tails: " << n_persistent_tails
-                << ", is_pad_bdimx: " << is_pad_bdimx << std::endl;
-    }
-  };
-
-  HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
-      const int64_t reduction_count_after_vectorize,
-      const int64_t buffer_bytes_per_batch,
-      const int64_t persistent_batch_size) {
-    HeuristicParams params;
-    params.persistent_batch_size = persistent_batch_size;
-
-    // set bdimx and bdimy
-    params.bdimx = scheduler_utils::safeDiv(
-        reduction_count_after_vectorize, persistent_batch_size);
-    NVF_ERROR(
-        params.bdimx <= max_threads_per_block_,
-        "persistent batch size too small! bdimx should be less than ",
-        max_threads_per_block_,
-        ", but got ",
-        params.bdimx);
-    params.bdimy = std::min(
-        scheduler_utils::safeDiv(min_threads_per_block_, params.bdimx),
-        max_multi_reduction_factor_);
-    params.padded_bdimx = params.bdimx % threads_per_warp_ == 0
-        ? params.bdimx
-        : params.bdimx + (threads_per_warp_ - params.bdimx % threads_per_warp_);
-    params.is_pad_bdimx = params.bdimx > 16 &&
-        params.padded_bdimx * params.bdimy <= max_threads_per_block_;
-
-    // calculate register per thread and achieved occupancy
-    int64_t threads_per_block = params.is_pad_bdimx
-        ? params.padded_bdimx * params.bdimy
-        : params.bdimx * params.bdimy;
-    int64_t persistent_buffer_size =
-        buffer_bytes_per_batch * persistent_batch_size;
-    auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
-        persistent_buffer_size, threads_per_block);
-    params.register_per_thread = reg_occ.first;
-    params.occupancy = reg_occ.second;
-    params.register_overhead = params.register_per_thread -
-        persistent_buffer_size / scheduler_utils::bytes_per_register;
-    // (4) Calculate other quantities reflecting the quality of the heuristic.
-    // Reduction elements after vectorization are split into multiple persistent
-    // batches. when [reduction_count_after_vectorize] is not divisible by
-    // [persistent_val], the last batch is not be fully utilized, the wasted
-    // threads in the last batch is quantified as [n_persistent_tails].
-    params.n_persistent_tails =
-        ceilDiv(reduction_count_after_vectorize, persistent_batch_size) *
-            persistent_batch_size -
-        reduction_count_after_vectorize;
-
-    return params;
-  }
-
-  // Return true if ha is better than hb
-
-  bool compareTwoHeuristics(
-      const HeuristicParams& ha,
-      const HeuristicParams& hb,
-      const bool prioritize_occupancy) {
-    auto compare = [](int64_t a, int64_t b) -> int {
-      return a > b ? 1 : (a < b ? -1 : 0);
-    };
-    int score = 0;
-
-    if (prioritize_occupancy) {
-      // prefer occupancy larger than target
-      score = compare(
-          ha.occupancy >= target_warps_per_sm_,
-          hb.occupancy >= target_warps_per_sm_);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // prefer reduction count after vectorization is divisible by persistent
-      // batch size
-      score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // Large register overhead leaves more registers for the compiler to
-      // optimize generated SASS code and avoids register spills. But don't want
-      // to use a very large block size which increaes inter-thread
-      // communication. This condition influence dropout_layer_norm at 7K and
-      // softmax_dropout at 6K and 16K.
-      constexpr int64_t opt_max_threads_per_block = 512l;
-      score = compare(
-          ha.register_overhead > register_overhead_ &&
-              ha.padded_bdimx <= opt_max_threads_per_block,
-          hb.register_overhead > register_overhead_ &&
-              hb.padded_bdimx <= opt_max_threads_per_block);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // Prefer large occupancy
-      score = compare(ha.occupancy, hb.occupancy);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // Tiebreaker, use large persistent batch size so more registers are used
-      // for the persistent buffer.
-      return ha.persistent_batch_size > hb.persistent_batch_size;
-
-    } else {
-      // optimize inter-thread communication
-      // prefer bdimx_val equals power of 2, efficient for tree reduction,
-      score = compare(
-          scheduler_utils::roundUpPow2(ha.padded_bdimx) - ha.padded_bdimx == 0,
-          scheduler_utils::roundUpPow2(hb.padded_bdimx) - hb.padded_bdimx == 0);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // prefer occupancy larger than target
-      score = compare(
-          ha.occupancy >= target_warps_per_sm_,
-          hb.occupancy >= target_warps_per_sm_);
-      if (score != 0) {
-        return score > 0;
-      }
-
-      // Tiebreaker, use small bdimx for lower inter-thread communication cost
-      return ha.padded_bdimx < hb.padded_bdimx;
-    }
-  }
 };
 
 class HeuristicGeneratorSMEM : public HeuristicGeneratorBase {
@@ -530,11 +381,9 @@ class HeuristicGeneratorReg2D : public HeuristicGeneratorBase {
       : HeuristicGeneratorBase(pk_prop) {}
 
  protected:
-  // HeuristicType::Register2D
   // Generate a heuristic for each possible persistent batch size.
   // (1) If the maximum occupancy is less than the target occupancy, use the
-  // batch
-  //     leads to the largest occupancy.
+  //      batch leads to the largest occupancy.
   // (2) If prioritize occupancy, sort the heuristics based on:
   //     (a) Prefer occupancy larger than target.
   //     (b) Prefer divisible by persistent batch size.
@@ -653,6 +502,156 @@ class HeuristicGeneratorReg2D : public HeuristicGeneratorBase {
         LaunchParams::UNINITIALIZED_VAL);
     return rparams;
   }
+
+ private:
+  // calculate bdimx, bdimy, occupancy, given a persistent batch size
+  struct HeuristicParams {
+    int64_t bdimx = -1;
+    int64_t bdimy = -1;
+    int64_t padded_bdimx = -1;
+    int64_t persistent_batch_size = -1;
+    int64_t register_per_thread = -1;
+    int64_t register_overhead = -1;
+    int64_t occupancy = -1;
+    int64_t n_persistent_tails = -1;
+    bool is_pad_bdimx = false;
+    void print() const {
+      std::cout << "bdimx: " << bdimx << ", bdimy: " << bdimy
+                << ", padded_bdimx: " << padded_bdimx
+                << ", persistent_batch_size: " << persistent_batch_size
+                << ", register_per_thread: " << register_per_thread
+                << ", register_overhead: " << register_overhead
+                << ", occupancy: " << occupancy
+                << ", n_persistent_tails: " << n_persistent_tails
+                << ", is_pad_bdimx: " << is_pad_bdimx << std::endl;
+    }
+  };
+
+  HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
+      const int64_t reduction_count_after_vectorize,
+      const int64_t buffer_bytes_per_batch,
+      const int64_t persistent_batch_size) {
+    HeuristicParams params;
+    params.persistent_batch_size = persistent_batch_size;
+
+    // set bdimx and bdimy
+    params.bdimx = scheduler_utils::safeDiv(
+        reduction_count_after_vectorize, persistent_batch_size);
+    NVF_ERROR(
+        params.bdimx <= max_threads_per_block_,
+        "persistent batch size too small! bdimx should be less than ",
+        max_threads_per_block_,
+        ", but got ",
+        params.bdimx);
+    params.bdimy = std::min(
+        scheduler_utils::safeDiv(min_threads_per_block_, params.bdimx),
+        max_multi_reduction_factor_);
+    params.padded_bdimx = params.bdimx % threads_per_warp_ == 0
+        ? params.bdimx
+        : params.bdimx + (threads_per_warp_ - params.bdimx % threads_per_warp_);
+    params.is_pad_bdimx = params.bdimx > 16 &&
+        params.padded_bdimx * params.bdimy <= max_threads_per_block_;
+
+    // calculate register per thread and achieved occupancy
+    int64_t threads_per_block = params.is_pad_bdimx
+        ? params.padded_bdimx * params.bdimy
+        : params.bdimx * params.bdimy;
+    int64_t persistent_buffer_size =
+        buffer_bytes_per_batch * persistent_batch_size;
+    auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
+        persistent_buffer_size, threads_per_block);
+    params.register_per_thread = reg_occ.first;
+    params.occupancy = reg_occ.second;
+    params.register_overhead = params.register_per_thread -
+        persistent_buffer_size / scheduler_utils::bytes_per_register;
+    // (4) Calculate other quantities reflecting the quality of the heuristic.
+    // Reduction elements after vectorization are split into multiple
+    // persistent batches. when [reduction_count_after_vectorize] is not
+    // divisible by [persistent_val], the last batch is not be fully utilized,
+    // the wasted threads in the last batch is quantified as
+    // [n_persistent_tails].
+    params.n_persistent_tails =
+        ceilDiv(reduction_count_after_vectorize, persistent_batch_size) *
+            persistent_batch_size -
+        reduction_count_after_vectorize;
+
+    return params;
+  }
+
+  // Return true if ha is better than hb
+
+  bool compareTwoHeuristics(
+      const HeuristicParams& ha,
+      const HeuristicParams& hb,
+      const bool prioritize_occupancy) {
+    auto compare = [](int64_t a, int64_t b) -> int {
+      return a > b ? 1 : (a < b ? -1 : 0);
+    };
+    int score = 0;
+
+    if (prioritize_occupancy) {
+      // prefer occupancy larger than target
+      score = compare(
+          ha.occupancy >= target_warps_per_sm_,
+          hb.occupancy >= target_warps_per_sm_);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // prefer reduction count after vectorization is divisible by persistent
+      // batch size
+      score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // Large register overhead leaves more registers for the compiler to
+      // optimize generated SASS code and avoids register spills. But don't
+      // want to use a very large block size which increaes inter-thread
+      // communication. This condition influence dropout_layer_norm at 7K and
+      // softmax_dropout at 6K and 16K.
+      constexpr int64_t opt_max_threads_per_block = 512l;
+      score = compare(
+          ha.register_overhead > register_overhead_ &&
+              ha.padded_bdimx <= opt_max_threads_per_block,
+          hb.register_overhead > register_overhead_ &&
+              hb.padded_bdimx <= opt_max_threads_per_block);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // Prefer large occupancy
+      score = compare(ha.occupancy, hb.occupancy);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // Tiebreaker, use large persistent batch size so more registers are
+      // used for the persistent buffer.
+      return ha.persistent_batch_size > hb.persistent_batch_size;
+
+    } else {
+      // optimize inter-thread communication
+      // prefer bdimx_val equals power of 2, efficient for tree reduction,
+      score = compare(
+          scheduler_utils::roundUpPow2(ha.padded_bdimx) - ha.padded_bdimx == 0,
+          scheduler_utils::roundUpPow2(hb.padded_bdimx) - hb.padded_bdimx == 0);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // prefer occupancy larger than target
+      score = compare(
+          ha.occupancy >= target_warps_per_sm_,
+          hb.occupancy >= target_warps_per_sm_);
+      if (score != 0) {
+        return score > 0;
+      }
+
+      // Tiebreaker, use small bdimx for lower inter-thread communication cost
+      return ha.padded_bdimx < hb.padded_bdimx;
+    }
+  }
 };
 
 class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
@@ -672,13 +671,6 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
         prop.total_reduction_numel / prop.inner_most_dimension_numel;
 
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    // WARNING: At some point we may want to generate heuristics for another
-    // device that is not the current device.
-    const int64_t device_max_threads_per_multiprocessor =
-        (int64_t)dev_prop->maxThreadsPerMultiProcessor;
-
-    const int64_t device_multiprocessor_count =
-        (int64_t)dev_prop->multiProcessorCount;
 
     auto const max_unroll = ceilDiv(
         // Available unrolling based on size of data type
@@ -744,9 +736,9 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
 
     // If we have more than a wave of blocks, put parallelism into unrolling and
     // target iterations
-    if (target_blocks > device_multiprocessor_count) {
-      auto available_unroll = scheduler_utils::safeDiv(
-          n_elems, warp_size * device_multiprocessor_count);
+    if (target_blocks > sm_count_) {
+      auto available_unroll =
+          scheduler_utils::safeDiv(n_elems, warp_size * sm_count_);
 
       // Spread across unrolling and iterations, want a balance of the two so
       // flip back and forth to alternate adding to them.
@@ -765,9 +757,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
         }
 
         available_unroll = scheduler_utils::safeDiv(
-            n_elems,
-            warp_size * device_multiprocessor_count * target_unroll *
-                target_iterations);
+            n_elems, warp_size * sm_count_ * target_unroll * target_iterations);
         flip = !flip;
       }
 
@@ -777,7 +767,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
     }
 
     // Cap target blocks to 4 waves
-    target_blocks = std::min(target_blocks, device_multiprocessor_count * 4);
+    target_blocks = std::min(target_blocks, sm_count_ * 4);
 
     if (target_blocks * target_unroll * target_iterations < n_elems) {
       if (outer_reduction_numel == 1) {
@@ -790,7 +780,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
         // targetting 4 waves, so try to use a quarter of available threads
         max_threads_per_block_ = std::min(
             ceilDiv(n_elems, target_blocks * target_unroll),
-            ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));
+            ceilDiv(max_threads_per_sm_, (int64_t)4));
       }
     }
 
@@ -807,7 +797,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
         scheduler_utils::safeDiv(
             scheduler_utils::register_file_size,
             prop.max_persistent_buffer_size),
-        ceilDiv(prop.total_iteration_numel, device_multiprocessor_count));
+        ceilDiv(prop.total_iteration_numel, sm_count_));
     // To get to target threads:
     // Prioritize
     // (1) x dim in reduction
@@ -1015,7 +1005,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
                 inner_reduction_unroll_factor * outer_reduction_unroll_factor *
                 4l >
             scheduler_utils::max_registers_per_thread * 3l &&
-        bdimx * bdimy * bdimz * 2l <= device_max_threads_per_multiprocessor &&
+        bdimx * bdimy * bdimz * 2l <= max_threads_per_sm_ &&
         batches_per_block_outer_reduction >= 2l) {
       batches_per_block_outer_reduction /= 2l;
     }
@@ -1041,7 +1031,7 @@ class HeuristicGeneratorReg3D : public HeuristicGeneratorBase {
     // TODO: support the non vectorized case. consider shmem.
     // only need to balance register and occupancy ratio if there are enough
     // blocks and buffers
-    if (vectorize && blocksPerKernel > device_multiprocessor_count &&
+    if (vectorize && blocksPerKernel > sm_count_ &&
         batches_per_block_inner_reduction > 1) {
       // Estimate register per thread based on buffer size, since inner
       // reduction dim is fully parallelized, the buffer size of each element
