@@ -33,13 +33,32 @@ class MultiDeviceEnvironment : public testing::Environment {
     return do_barrier_at_test_;
   }
 
+  bool disableSkip() const {
+    return disable_skip_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
+  bool disable_skip_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
+ public:
+  static at::Tensor shardTensor(
+      at::Tensor tensor,
+      const DeviceMesh& mesh,
+      DeviceIdxType deviceId) {
+    int i = 0;
+    auto devices = mesh.vector();
+    auto it = find(devices.begin(), devices.end(), deviceId);
+    if (it != devices.end()) {
+      i = std::distance(devices.begin(), it);
+    }
+    return tensor.index({at::indexing::Slice(i, i + 1), "..."});
+  }
+
  protected:
   void SetUp() override;
   void TearDown() override;
@@ -47,6 +66,7 @@ class MultiDeviceTest : public NVFuserTest {
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool do_barrier_at_test;
+  bool disable_skip;
 };
 
 class CommunicationTest
@@ -69,9 +89,16 @@ class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
   void validate();
+  void execute();
+  void executeAndValidate() {
+    execute();
+    validate();
+  }
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
+  std::vector<c10::IValue> unsharded_inputs;
+  std::vector<at::Tensor> outputs;
 };
 
 } // namespace nvfuser

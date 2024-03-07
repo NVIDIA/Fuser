@@ -307,6 +307,11 @@ NVF_API Val* u32IndexScalarSmemTv(TensorView* tv);
 //! each axis in bitmap.
 Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 
+//! Returns the fusion outputs that require codegen.
+//! The fusion outputs to be computed through expression evaluator are
+//! filtered out.
+std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

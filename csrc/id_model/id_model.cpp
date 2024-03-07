@@ -53,17 +53,21 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 } // namespace
 
 void IdModel::assertNoSelfMapping() {
-  NVF_ERROR(
-      !hasSelfMapping(),
-      "Unsupported domain mapping detected in ",
-      std::get<0>(*self_mapping_info_)->toString(),
-      ". ",
-      std::get<3>(*self_mapping_info_),
-      " domains, ",
-      std::get<1>(*self_mapping_info_)->toString(),
-      " and ",
-      std::get<2>(*self_mapping_info_)->toString(),
-      ", are mapped with each other.");
+  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+  for (TensorView* tv : tvs_) {
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    NVF_CHECK(
+        !self_mapping.has_value(),
+        "Unsupported domain mapping detected in ",
+        tv,
+        ". ",
+        self_mapping->where,
+        " domains, ",
+        self_mapping->id1,
+        " and ",
+        self_mapping->id2,
+        ", are mapped with each other.");
+  }
 }
 
 IdModel::IdModel(
@@ -149,120 +153,6 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
       " mode");
   return graph_it->second;
 }
-
-namespace {
-
-// Returns the first pair of id's in ids detected to match each other on the
-// exact ID graph. TODO: what this is really looking for is if
-// there's any overlapping between the iter domains in the provided set.
-//
-// i.e. if we have:
-// tv0 = arange(6).reshape({3, 2})
-// tv1 = tv0[3, 2].t()
-// tv2 = tv0[3, 2].reshape({2, 3})
-// tv3 = tv1 + tv2
-//
-// Then we can see this overlap in the tv3 expression as:
-//
-// tv0 = { {0, 1, 2},
-//         {3, 4, 5} }
-//
-// tv1 = { {0, 3},
-//         {1, 4},
-//         {2, 5} }
-//
-// tv2 = { {0, 1},
-//         {2, 3},
-//         {4, 5} }
-//
-// The elements in tv1 {3, 1, 4, 2}, map respectively to the elements in tv2
-// {1, 2, 3, 4}. The reason this is so important is it means that generating
-// tv3 is no longer a trivially parallelizable problem (if we include the dag
-// all the way to tv0). So tv0's axes cannot be inlined across both the tv0
-// and tv1 path. This breaks some assumptions we have today in schedulers that
-// will assume tv2 can be trivially inlined/parallelized. Instead we'd need to
-// take into consideration the effective communication going on here, so that
-// we pull multiple values of tv0 to compute tv3.
-//
-// Note, however, that the above example is not detectable at this
-// moment as the self mapping is partial through reshape. The analysis
-// below would need to be extended to consider producer and consumers
-// of domains as well rather than just root, rfactor and leaf domains.
-std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
-    const std::vector<IterDomain*>& ids,
-    const IdModel& id_graph,
-    IdMappingMode mode) {
-  for (auto id1 : ids) {
-    for (auto id2 : ids) {
-      if (id1 == id2) {
-        continue;
-      }
-      if (id_graph.idGraph(mode).disjointValSets().permissiveAreMapped(
-              id1, id2)) {
-        return std::make_pair(id1, id2);
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
-// It is assumed that for any tensor represented by a list of domains,
-// those domains should never be mapped with each other. It may be
-// possible to lift this assumption, but it's unclear if it could
-// matter in practice.
-std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-findFirstSelfMapping(
-    const std::vector<TensorView*>& all_tvs,
-    const IdModel& id_model) {
-  for (auto tv : all_tvs) {
-    // For each tensor, make sure root, rfactor and leaf domains
-    // should not include domains that are mapped with another domain
-    // in the same set of domains. This may be overly conservative,
-    // and it maybe enough to check the root domains.
-
-    // Root domains
-    auto self_mappped_root_pair =
-        detectMappablePair(tv->getRootDomain(), id_model, IdMappingMode::EXACT);
-    if (self_mappped_root_pair.has_value()) {
-      return std::make_tuple(
-          tv,
-          self_mappped_root_pair->first,
-          self_mappped_root_pair->second,
-          "Root");
-    }
-
-    // Rfactor domains
-    if (tv->hasRFactor()) {
-      auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRFactorDomain(), id_model, IdMappingMode::EXACT);
-      if (self_mappped_rf_pair.has_value()) {
-        return std::make_tuple(
-            tv,
-            self_mappped_rf_pair->first,
-            self_mappped_rf_pair->second,
-            "RFactor");
-      }
-    }
-
-    // Leaf domains
-    // TODO: Exact map isn't quite right here, it should be based on the index
-    // map. However, it should also be impossible for index map to generate a
-    // case like this.
-    auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->leaf(), id_model, IdMappingMode::EXACT);
-    if (self_mappped_leaf_pair.has_value()) {
-      return std::make_tuple(
-          tv,
-          self_mappped_leaf_pair->first,
-          self_mappped_leaf_pair->second,
-          "Leaf");
-    }
-  }
-  return std::nullopt;
-}
-
-} // namespace
 
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
@@ -897,7 +787,6 @@ void IdModel::buildAllGraphs() {
 
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
   }
@@ -979,17 +868,30 @@ Expr* findMatchingExpr(
     const ExprGroup& iel_expr,
     const ValGraph& iel_graph,
     const std::vector<IterDomain*>& maybe_promoted_inputs) {
-  // Grab all uses of the promoted inputs
-  ExprGroups maybe_promoted_input_uses;
-  for (auto inp_id : maybe_promoted_inputs) {
-    // inp_id may have been just replayed, in which case it should
-    // not exist in the IEL graph. It should be just ignored as it
-    // should not have any use yet.
-    if (!iel_graph.hasGroup(inp_id)) {
-      continue;
-    }
-    const auto& inp_exact_group = iel_graph.toGroup(inp_id);
-    maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_exact_group));
+  // If any of domains in maybe_promoted_inputs is not found in
+  // iel_graph, it means the domain is just replayed and by definition
+  // has no mapping with any existing domain, which means there's no
+  // matching expr.
+  if (std::any_of(
+          maybe_promoted_inputs.begin(),
+          maybe_promoted_inputs.end(),
+          [&](IterDomain* maybe_promoted_input) -> bool {
+            return !iel_graph.hasGroup(maybe_promoted_input);
+          })) {
+    return nullptr;
+  }
+
+  // Grab all eligible uses of the promoted inputs.
+  // Note that any eligible matching expr should be a use of all
+  // inputs in maybe_promoted_input_uses, no matter it's promoted or
+  // not. So it isn't necessary to look at all of
+  // maybe_promoted_input_uses but just need to grab one.
+  NVF_ERROR(!maybe_promoted_inputs.empty());
+  ExprGroups maybe_promoted_input_uses =
+      iel_graph.getUses(iel_graph.toGroup(maybe_promoted_inputs.front()));
+
+  if (maybe_promoted_input_uses.empty()) {
+    return nullptr;
   }
 
   // Look for exprs that have inputs that are mapped in the IEL
@@ -997,8 +899,10 @@ Expr* findMatchingExpr(
   for (const ExprGroup& maybe_promoted_input_use_group :
        maybe_promoted_input_uses) {
     NVF_ERROR(!maybe_promoted_input_use_group->empty());
-    // TODO: why skip this? If iel_expr is also an use of the promoted
-    // inputs, shouldn't it be also a candidate?
+    // maybe_promoted_inputs may include non-promoted inputs as
+    // well, so maybe_promoted_input_uses may include the original
+    // iel_expr itself. Since there must at least be a promoted input,
+    // iel_expr itself should not be an expr group we are looking for.
     if (iel_expr == maybe_promoted_input_use_group) {
       continue;
     }
@@ -1012,12 +916,8 @@ Expr* findMatchingExpr(
         maybe_promoted_input_use->inputs().size());
     bool all_inputs_match = true;
     for (const auto inp_i : c10::irange(maybe_promoted_inputs.size())) {
-      // Here, new promoted ids are not added to iel_graph, so
-      // once promoted, this should not return true anymore. Also,
-      // strictAreMapped doesn't work as promoted domains are not
-      // in the graph
       all_inputs_match = all_inputs_match &&
-          iel_graph.disjointValSets().permissiveAreMapped(
+          iel_graph.disjointValSets().strictAreMapped(
               maybe_promoted_inputs[inp_i],
               maybe_promoted_input_use->inputs().at(inp_i));
     }
@@ -1183,34 +1083,33 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);
-    id_uses_[out_id];
+    // out_id is a new IterDomain with no use expr yet. Initialize its
+    // use mapping with an empty set
+    NVF_ERROR(id_uses_.emplace(out_id, VectorOfUniqueEntries<Expr*>{}).second);
   }
 
   // Add the expression to the uses of the inputs
   for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-    id_definitions_[inp_id];
+    // inp_id should not be a new domain, so just make sure it has a
+    // def mapping.
+    NVF_ERROR(id_definitions_.find(inp_id) != id_definitions_.end());
     id_uses_[inp_id].pushBack(replay);
   }
 
   // Initialize output iter domains in the graphs
   for (auto mode : initialized_modes) {
-    idGraph(mode).registerExpr(replay);
-    auto replay_group = idGraph(mode).toGroup(replay);
+    auto& graph = idGraph(mode);
 
-    // Initialize output ids in map
+    // Initialize output ids in map. The replay expr will be
+    // registered as a definition by registerExpr
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      idGraph(mode).initializeVal(out_id, {replay}, {});
+      idGraph(mode).initializeVal(out_id, {}, {});
     }
 
-    // Update uses of the inputs in the graphs
-    for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto inp_group = idGraph(mode).toGroup(inp_id);
-      idGraph(mode).addUniqueUses(inp_group, replay_group);
-    }
+    idGraph(mode).registerExpr(replay);
 
     // Propagate through all the uses of the iter domain groups of the inputs
     // with the new expression.
-    auto& graph = idGraph(mode);
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (IterDomain* inp : new_inputs) {
