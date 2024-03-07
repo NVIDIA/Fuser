@@ -123,6 +123,10 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
+  std::vector<at::Tensor> runAtenFusion(
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs);
+
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),

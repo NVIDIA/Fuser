@@ -1379,7 +1379,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
-  NVF_ERROR(executors_.at(group_id).isCompiled());
+  // NVF_ERROR(executors_.at(group_id).isCompiled());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
