@@ -857,8 +857,12 @@ Expr* findMatchingExpr(
     const ExprGroup& iel_expr,
     const ValGraph& iel_graph,
     const std::vector<IterDomain*>& maybe_promoted_inputs) {
-  // Grab all uses of the promoted inputs
+  // Grab all eligible uses of the promoted inputs
   ExprGroups maybe_promoted_input_uses;
+  // Note that any eligible matching expr should be a use of all
+  // inputs in maybe_promoted_input_uses, no matter it's promoted or
+  // not. So it isn't necessary to look at all of
+  // maybe_promoted_input_uses but just need to grab one.
   for (auto inp_id : maybe_promoted_inputs) {
     // inp_id may have been just replayed, in which case it should
     // not exist in the IEL graph. It should be just ignored as it
@@ -867,7 +871,12 @@ Expr* findMatchingExpr(
       continue;
     }
     const auto& inp_iel_group = iel_graph.toGroup(inp_id);
-    maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_iel_group));
+    maybe_promoted_input_uses = iel_graph.getUses(inp_iel_group);
+    break;
+  }
+
+  if (maybe_promoted_input_uses.empty()) {
+    return nullptr;
   }
 
   // Look for exprs that have inputs that are mapped in the IEL
