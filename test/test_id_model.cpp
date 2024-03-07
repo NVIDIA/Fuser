@@ -972,11 +972,11 @@ TEST_F(IdModelTest, PermutedDifferently) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({2, 2, 2, 5});
-  TensorView* s0 = slice(in, {0, 0, 0, 0}, {2, 2, 2, 2});
-  TensorView* s1 = slice(in, {0, 0, 0, 2}, {2, 2, 2, 5});
-  TensorView* t0 = permute(s0, {2, 1, 0, 3});
-  TensorView* t1 = permute(s1, {1, 0, 2, 3});
+  TensorView* in = makeContigConcreteTensor({2, 2, 5});
+  TensorView* s0 = slice(in, {0, 0, 0}, {2, 2, 2});
+  TensorView* s1 = slice(in, {0, 0, 2}, {2, 2, 5});
+  TensorView* t0 = permute(s0, {1, 0, 2});
+  TensorView* t1 = set(s1);
   TensorView* out = cat({t0, t1}, /*dim=*/-1);
 
   fusion->addInput(in);
@@ -985,29 +985,27 @@ TEST_F(IdModelTest, PermutedDifferently) {
   IdModel id_model(
       fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
 
+  // Due to the `slice`s, `s0` and `s1`'s non-split dimensions (0 and 1) are
+  // mapped respectively. The split dimension (2) isn't.
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), s1->axis(0)));
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), s1->axis(1)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), s1->axis(2)));
-  EXPECT_FALSE(iterDomainsAreMapped(id_model, s0->axis(3), s1->axis(3)));
+  EXPECT_FALSE(iterDomainsAreMapped(id_model, s0->axis(2), s1->axis(2)));
 
-  // Due to `cat`, t0's non-catted dimensions (i.e. 0, 1, and 2) are
-  // respectively mapped to t1's, but the catted dimension isn't mapped.
+  // Due to the `cat`, t0' and `t1`'s non-catted dimensions (0 and 1) are
+  // respectively mapped. The catted dimension (2) isn't.
   EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(0), t1->axis(0)));
   EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(1), t1->axis(1)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, t0->axis(2), t1->axis(2)));
-  EXPECT_FALSE(iterDomainsAreMapped(id_model, t0->axis(3), t1->axis(3)));
+  EXPECT_FALSE(iterDomainsAreMapped(id_model, t0->axis(2), t1->axis(2)));
 
   // Check the mapping introduced by `t0 = permute(s0, ...)`.
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), t0->axis(0)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), t0->axis(1)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), t0->axis(2)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(3), t0->axis(3)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), t0->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), t0->axis(1)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), t0->axis(2)));
 
-  // Check the mapping introduced by `t1 = permute(s1, ...)`.
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(1), t1->axis(0)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(0), t1->axis(1)));
+  // Check the mapping introduced by `t1 = set(s1, ...)`.
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(0), t1->axis(0)));
+  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(1), t1->axis(1)));
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(2), t1->axis(2)));
-  EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(3), t1->axis(3)));
 }
 
 } // namespace nvfuser
