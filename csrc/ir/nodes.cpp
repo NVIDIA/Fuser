@@ -2128,12 +2128,19 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
         uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
   }();
 
-  if ((tv_a->getDataType() == out()->getDataType().value()) ||
-      is_use_single_cast) {
+  if (is_use_single_cast) {
+    // We currently don't support evaluating Cast (MmaOp (H, H), Bfloat16) since
+    // this loses precision due to ATen matmul converting Float to Half.
+    // CastOp should eventually convert to the MmaOp out() or ATen output dtype.
+    auto cast_out_dtype = uses.front()->as<UnaryOp>()->out()->getDataType();
+    NVF_CHECK(
+        cast_out_dtype == tv_a->getDataType() ||
+        cast_out_dtype == out()->getDataType());
     return {output};
-  } else {
-    return {output.to(data_type_to_aten(out()->getDataType().value()))};
   }
+
+  // Convert to float in other cases.
+  return {output.to(data_type_to_aten(out()->getDataType().value()))};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
