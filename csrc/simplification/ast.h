@@ -136,11 +136,7 @@ class Program {
  public:
   //! This is non-const since we register newly-created Vals in order to quickly
   //! recognize them if they appear as producers in later seen Vals.
-  Val* termToVal(const Term* term) {
-    // TODO
-    return nullptr;
-  }
-
+  Val* termToVal(const Term* term);
   Val* termToVal(const Term& term) {
     return termToVal(&term);
   }
@@ -152,39 +148,19 @@ class Program {
     return *valToTermHelper(val);
   }
 
-  // Terms are owned by Program. When we need to make a new Term, we first check
-  // whether a Term with that form already exists. If so we return it and if not
-  // we create a new one.
+  //! Terms are owned by Program. When we need to make a new Term, we first
+  //! check whether a Term with that form already exists. If so we return it and
+  //! if not we create a new one.
+  //!
+  //! If force_creation=true, then we will not try and re-use existing terms.
+  //! This is necessary for inserting distinct Terms related to multiple free
+  //! variables. Each free variable has no symbol, no constant, and no producers
+  //! so they will all have the same key. If we did not force creation of a new
+  //! Term, then all free variables would be represented by the same Term.
   Term* makeTerm(
       FunctionSymbol symbol,
       const ConstantValue& constant,
-      const std::vector<const Term*>& producers) {
-    TermMapKey key;
-    // Look up term or create a new one
-    key.push_back(symbolId(symbol));
-
-    std::cout << "WARNING: not adding constant bytes to key" << std::endl;
-    std::cout << "WARNING: sizeof(PolymorphicValue) = "
-              << sizeof(PolymorphicValue) << std::endl;
-    std::cout << "WARNING: sizeof(optional<int64_t>) = "
-              << sizeof(std::optional<int64_t>) << std::endl;
-
-    // key.push_back(constantId(constant));
-    for (auto* producer : producers) {
-      // We cast the pointers directly to size_t since these pointer equality
-      // is equivalent to structural equality if all terms are deduplicated.
-      key.push_back((size_t)producer);
-    }
-
-    auto term_it = term_map_.find(key);
-    if (term_it == term_map_.end()) {
-      Term* term = new Term{symbol, constant, producers};
-      terms_up_.emplace_back(std::unique_ptr<Term>(term));
-      term_map_.emplace(key, term).first;
-      return term;
-    }
-    return term_it->second;
-  }
+      const std::vector<const Term*>& producers);
 
   bool isProvenTrue(const Term& term) {
     return proven_true_terms_.find(&term) != proven_true_terms_.end();
@@ -204,9 +180,14 @@ class Program {
   //! This is like findTerm, but if we haven't seen Val, then recursively make
   //! terms to represent val's producers and its definition.
   Term* valToTermHelper(Val* val) {
+    std::cout << "BEGIN valToTermHelper(" << val->toInlineString() << ")"
+              << std::endl;
     // First check whether we've seen this Val before so we can return early
     auto val_it = val_term_map_.find(val);
     if (val_it != val_term_map_.end()) {
+      std::cout << "Reusing Term " << (void*)val_it->second << std::endl;
+      std::cout << "END   valToTermHelper(" << val->toInlineString() << ")"
+                << std::endl;
       return val_it->second;
     }
     // Create a new Term
@@ -223,6 +204,9 @@ class Program {
     Term* term = makeTerm(
         symbol, polymorphicValueToConstant(val->value()), producer_terms);
     term->representing_val = val;
+    val_term_map_.emplace(val, term);
+    std::cout << "END   valToTermHelper(" << val->toInlineString()
+              << ") = " << (void*)term << std::endl;
     return term;
   }
 
