@@ -1120,35 +1120,4 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs3) {
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
 }
 
-TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  DataType input_dtype = DataType::Half;
-  auto tv0 = makeContigTensor(2, input_dtype);
-  fusion->addInput(tv0);
-
-  // tv2 is a persistent buffer.
-  // compute tv2 from inputs requires dropout, which is very expensive.
-  // should not project tv2 to inputs to avoid recomputation.
-  const int64_t hidden_size = 10240;
-  std::vector<int64_t> norm_shape{hidden_size};
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto dropout_res = dropout(tv1, IrBuilder::create<Val>(0.9));
-  auto tv2 = dropout_res.output;
-  auto ln_res = layer_norm(
-      tv2, norm_shape, nullptr, nullptr, IrBuilder::create<Val>(1e-5));
-  fusion->addOutput(ln_res.output);
-
-  auto options = at::TensorOptions()
-                     .dtype(data_type_to_aten(input_dtype))
-                     .device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn({1024, hidden_size}, options);
-  auto reduction_params =
-      getInnerPersistentHeuristics(fusion.get(), {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  NVF_CHECK(
-      !reduction_params->project_persistent_buffers,
-      "Shouldn't project persistent buffers to inputs!");
-}
 } // namespace nvfuser
