@@ -905,12 +905,8 @@ Expr* findMatchingExpr(
         maybe_promoted_input_use->inputs().size());
     bool all_inputs_match = true;
     for (const auto inp_i : c10::irange(maybe_promoted_inputs.size())) {
-      // Here, new promoted ids are not added to iel_graph, so
-      // once promoted, this should not return true anymore. Also,
-      // strictAreMapped doesn't work as promoted domains are not
-      // in the graph
       all_inputs_match = all_inputs_match &&
-          iel_graph.disjointValSets().permissiveAreMapped(
+          iel_graph.disjointValSets().strictAreMapped(
               maybe_promoted_inputs[inp_i],
               maybe_promoted_input_use->inputs().at(inp_i));
     }
