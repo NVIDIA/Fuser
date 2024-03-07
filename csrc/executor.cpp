@@ -257,6 +257,18 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  bool skip_compilation = std::all_of(
+    fusion->outputs().begin(),
+    fusion->outputs().end(),
+    [&fusion](Val* out) {
+      return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+    });
+  
+  if (skip_compilation) {
+    // Set fusion_ here. What is the right way?
+    return;
+  }
+
   for (auto out : fusion->outputs()) {
     const auto maybe_rfactor_domain =
         out->as<TensorView>()->getMaybeRFactorDomain();
@@ -1713,12 +1725,51 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+std::vector<at::Tensor> FusionExecutor::runAtenFusion(
+  KernelArgumentHolder& args,
+  std::vector<at::Tensor> outputs) {
+  ExpressionEvaluator ee;
+  const auto& inputs = fusion_->inputs();
+
+  for (const auto i : c10::irange(inputs.size())) {
+    ee.bind(inputs[i], *args[i]);
+  }
+
+  if (outputs.empty()) {
+    for (const auto& out_val: fusion_->outputs()) {
+      auto out_tensor = ee.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      outputs.emplace_back(out_tensor);
+    }
+  } else {
+    // TODO: Use validateKernelOutputs
+    NVF_ERROR(
+        outputs.size() == fusion_->outputs().size(),
+        __func__,
+        " provided number of outputs does not match fusion output");
+  }
+  args.push(outputs);
+
+  return outputs;
+}
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+
+  FusionGuard fg(fusion_);
+  bool skip_compilation = std::all_of(
+    fusion_->outputs().begin(),
+    fusion_->outputs().end(),
+    [this](Val* out) {
+      return fusion_->getOutputAlias(out).type == AllocationType::Evaluate;
+    });
+  
+  if (skip_compilation) {
+    return runAtenFusion(args, outputs);
+  }
+
   NVF_ERROR(isCompiled());
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
