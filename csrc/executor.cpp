@@ -1342,8 +1342,13 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
+namespace {
+
+//! Return information necessay for allocating output tensors. Input
+//! and output tensors are allowed to alias each other, which is
+//! specified by the list of int pairs of input and output indices
 std::vector<FusionExecutor::GlobalBufferInfo>
-    getOutputBufferInfoBis(
+    getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
         DataType index_dtype,
@@ -1373,63 +1378,20 @@ std::vector<FusionExecutor::GlobalBufferInfo>
   return outputs;
 }
 
+} // namespace
 
-
-std::vector<at::Tensor> allocTvs(
+std::vector<at::Tensor> allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
+    kir::Kernel* kernel,
     const c10::Device& device) {
   auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  kir::Kernel kernel(fusion);
   auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, &kernel);
+      executor_utils::bindInputs(kernel_inputs, kernel);
 
   auto output_info =
-      getOutputBufferInfoBis(kernel_inputs, expr_eval, kernel.indexType(), &kernel);
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel->indexType(), kernel);
 
-  return allocateOutputs(&kernel, output_info, device, expr_eval); //change deviceId
-}
-
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
-
-  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
-}
-
-std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getOutputBufferInfo(
-        const KernelArgumentHolder& args,
-        ExpressionEvaluator& expr_eval,
-        DataType index_dtype) {
-  FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
-  const auto kernel = lowered_->kernel();
-  std::vector<GlobalBufferInfo> outputs;
-  NVF_ERROR(
-      args.size() == kernel->inputs().size(),
-      "kernel arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    auto out_val = kernel->outputs()[out_i];
-    auto output = out_val->as<TensorView>();
-
-    GlobalBufferInfo info;
-    info.tv = dynamic_cast<TensorView*>(out_val);
-    NVF_ERROR(
-        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
-
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
-    auto dtype =
-        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
-    info.type = data_type_to_aten(dtype);
-
-    outputs.emplace_back(info);
-  }
-  return outputs;
+  return allocateOutputs(kernel, output_info, device, expr_eval);
 }
 
 void FusionExecutor::setUsedTVs() {
@@ -1642,7 +1604,7 @@ void FusionExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(args, expr_eval, index_type);
+    output_info = getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with

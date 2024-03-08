@@ -25,10 +25,13 @@
 #include <functional>
 
 namespace nvfuser {
-  
-std::vector<at::Tensor> allocTvs(
+
+//! Used in distributed setting where we only want to
+//!  allocate output space and receive output data from
+//!  a different rank instead of computing them.
+std::vector<at::Tensor> allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
+    kir::Kernel* kernel,
     const c10::Device& device);
 
 bool shouldFillAllocationWithNan();
@@ -390,12 +393,6 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
-
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -413,14 +410,6 @@ class FusionExecutor : public NonCopyable {
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval,
-      DataType index_dtype);
-
-  //! Return information necessay for allocating output tensors. Input
-  //! and output tensors are allowed to alias each other, which is
-  //! specified by the list of int pairs of input and output indices
-  std::vector<GlobalBufferInfo> getOutputBufferInfo(
-      const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
 

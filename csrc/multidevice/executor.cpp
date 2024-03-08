@@ -71,9 +71,14 @@ void MultiDeviceExecutor::allocateBuffers(
   //   std::cout << "i=" << i <<":" << std::endl;
   //   std::cout << at::empty(buffers2[i]) << std::endl;
   // }
+// allocOutputSpace(
+//     const at::ArrayRef<c10::IValue>& inputs,
+//     kir::Kernel* kernel,
+//     const c10::Device& device)
 
   auto fusion_copy = copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
-  auto buffers = allocTvs(global_inputs_IValues, fusion_copy.get(), comm()->device());
+  kir::Kernel kernel(fusion_copy.get());
+  auto buffers = allocOutputSpace(global_inputs_IValues, &kernel, comm()->device());
 
 // at::native::empty_strided_cuda(
 //           out_info.sizes,
