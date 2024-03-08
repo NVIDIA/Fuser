@@ -126,8 +126,7 @@ Term::operator bool() const {
   if (constant.hasValue() && constant.is<bool>()) {
     return constant.as<bool>();
   }
-  Program* program = ProgramGuard::getCurProgram();
-  return program->isProvenTrue(*this);
+  return ProgramGuard::getCurProgram()->isProven(*this);
 }
 
 // Convenience function for creating new terms using the current Program

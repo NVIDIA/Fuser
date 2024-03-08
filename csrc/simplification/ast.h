@@ -147,20 +147,32 @@ const Term& operator-(const Term& a);
 const Term& operator!(const Term& a);
 const Term& operator~(const Term& a);
 
-const Term& operator+(const Term& a, const Term& b);
-const Term& operator-(const Term& a, const Term& b);
-const Term& operator*(const Term& a, const Term& b);
-const Term& operator/(const Term& a, const Term& b);
-const Term& operator%(const Term& a, const Term& b);
-const Term& operator&&(const Term& a, const Term& b);
-const Term& operator||(const Term& a, const Term& b);
-const Term& operator&(const Term& a, const Term& b);
-const Term& operator|(const Term& a, const Term& b);
-const Term& operator^(const Term& a, const Term& b);
-const Term& operator<<(const Term& a, const Term& b);
-const Term& operator>>(const Term& a, const Term& b);
-const Term& ceilDiv(const Term& a, const Term& b);
-const Term& gcd(const Term& a, const Term& b);
+// TODO: restrict these
+#define DECLARE_BINARY_TERM_OP_CONST_HELPER(cppop, consttype) \
+  const Term& cppop(const Term& a, const consttype b_const);  \
+  const Term& cppop(const consttype a_const, const Term& b);
+#define DECLARE_BINARY_TERM_OP(cppop)                  \
+  const Term& cppop(const Term& a, const Term& b);     \
+  DECLARE_BINARY_TERM_OP_CONST_HELPER(cppop, bool);    \
+  DECLARE_BINARY_TERM_OP_CONST_HELPER(cppop, int32_t); \
+  DECLARE_BINARY_TERM_OP_CONST_HELPER(cppop, int64_t); \
+  DECLARE_BINARY_TERM_OP_CONST_HELPER(cppop, double);
+DECLARE_BINARY_TERM_OP(operator+)
+DECLARE_BINARY_TERM_OP(operator-)
+DECLARE_BINARY_TERM_OP(operator*)
+DECLARE_BINARY_TERM_OP(operator/)
+DECLARE_BINARY_TERM_OP(operator%)
+DECLARE_BINARY_TERM_OP(operator&&)
+DECLARE_BINARY_TERM_OP(operator||)
+DECLARE_BINARY_TERM_OP(operator&)
+DECLARE_BINARY_TERM_OP(operator|)
+DECLARE_BINARY_TERM_OP(operator^)
+DECLARE_BINARY_TERM_OP(operator<<)
+DECLARE_BINARY_TERM_OP(operator>>)
+DECLARE_BINARY_TERM_OP(ceilDiv)
+DECLARE_BINARY_TERM_OP(gcd)
+#undef DECLARE_BINARY_TERM_OP
+#undef DECLARE_BINARY_TERM_OP_CONST_HELPER
 
 const Term& where(const Term& a, const Term& b, const Term& c);
 
