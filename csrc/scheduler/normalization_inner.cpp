@@ -272,9 +272,7 @@ struct HeuristicParams {
   int64_t register_per_thread = -1;
   int64_t register_overhead = -1;
   int64_t occupancy = -1;
-  int64_t n_threads_tails = -1;
   int64_t n_persistent_tails = -1;
-  int64_t n_waves = -1;
   bool is_pad_bdimx = false;
   void print() const {
     std::cout << "bdimx: " << bdimx << ", bdimy: " << bdimy
@@ -283,10 +281,8 @@ struct HeuristicParams {
               << ", register_per_thread: " << register_per_thread
               << ", register_overhead: " << register_overhead
               << ", occupancy: " << occupancy
-              << ", n_threads_tails: " << n_threads_tails
               << ", n_persistent_tails: " << n_persistent_tails
-              << ", n_waves: " << n_waves << ", is_pad_bdimx: " << is_pad_bdimx
-              << std::endl;
+              << ", is_pad_bdimx: " << is_pad_bdimx << std::endl;
   }
 };
 
@@ -339,24 +335,13 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
   params.register_overhead = params.register_per_thread -
       persistent_buffer_size / scheduler_utils::bytes_per_register;
   // (4) Calculate other quantities reflecting the quality of the heuristic.
-  // Reduction elements after vectorization are split into multiple persistent
-  // batches.
-  // (4.1) For each persistent batch, [bdimx] is usually padded to full
-  // warps. The number of padded threads are quantified as [n_threads_tails].
-  // Prefer 0 to avoid divergence of the last warp.
-  params.n_threads_tails = params.padded_bdimx - params.bdimx;
-
-  // (4.2) when [reduction_count_after_vectorize] is not divisible by
+  // when [reduction_count_after_vectorize] is not divisible by
   // [persistent_val], the last batch is not be fully utilized, the wasted
   // threads in the last batch is quantified as [n_persistent_tails].
   params.n_persistent_tails =
       ceilDiv(reduction_count_after_vectorize, persistent_batch_size) *
           persistent_batch_size -
       reduction_count_after_vectorize;
-
-  auto iters_per_wave = params.occupancy * device_warp_size /
-      threads_per_block * dev_prop->multiProcessorCount;
-  params.n_waves = ceilDiv(total_iteration_numel, iters_per_wave);
   return params;
 }
 
@@ -440,16 +425,32 @@ bool compareTwoHeuristics(
 // Generate a heuristic for each possible persistent batch size.
 // (1) If the maximum occupancy is less than the target occupancy, use the batch
 //     leads to the largest occupancy.
-// (2) If prioritize occupancy, sort the heuristics based on:
-//     (a) Prefer occupancy larger than target.
-//     (b) Prefer divisible by persistent batch size.
-//     (c) Prefer large register overhead.
-//     (d) Prefer large occupancy.
-//     (e) Tiebreaker, use large persistent batch size.
-// (3) If prioritize block size, sort the heuristics based on:
-//     (a) Prefer bdimx_val equals power of 2
+
+// (2) If prioritize occupancy, sort the heuristics as follows:
+//     (a) Prioritize occupancy exceeding target.
+//         Ensures minimum required occupancy is surpassed.
+//     (b) Favor divisibility by persistent batch size.
+//         Aims for even workload distribution.
+//     (c) Opt for high register overhead.
+//         Maximizes compiler optimization potential.
+//     (d) Seek larger occupancy.
+//         Exceeds the target minimum for better performance.
+//     (e) Use large persistent batch size as a tiebreaker.
+//         Use more registers for persistent buffers.
+// This sequence ensures meeting target occupancy, promotes even workload
+// distribution, enhances register optimization, and prefers higher occupancy.
+
+// (3) For block size prioritization, sort heuristics as follows:
+//     (a) Prefer bdimx_val equals power of 2.
+//         Efficient for tree reduction.
 //     (b) Prefer occupancy larger than target.
-//     (c) Tiebreaker, use small bdimx
+//         Ensures occupancy exceeds the minimum requirement.
+//     (c) Tiebreaker, use small bdimx.
+//         Reduces inter-thread communication cost.
+// This order favors efficient tree reduction, ensures occupancy surpasses the
+// target, and minimizes communication cost with smaller block dimensions as a
+// tiebreaker.
+
 // Currently, prioritize occupancy is used for all fusions except softmax.
 std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_reduction_numel,
