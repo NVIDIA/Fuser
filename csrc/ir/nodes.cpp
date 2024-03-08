@@ -2113,21 +2113,21 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) will not
   // occur.
 
-  const std::vector<Expr*>& uses = out()->uses();
-  // Check if the only use of MmaOp is a single castOp.
-  bool is_use_single_cast = [&uses] {
-    return (
-        uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
-        uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
-  }();
+  auto used_as_dtype = [](Val* out) -> DataType {
+    const std::vector<Expr*>& uses = out->uses();
+    if (uses.size() == 1) {
+      if (auto* unary = dynamic_cast<UnaryOp*>(uses.front())) {
+        if (unary->getUnaryOpType() == UnaryOpType::Cast) {
+          return unary->out()->getDataType().value();
+        }
+      }
+    }
+    return out->getDataType().value();
+  };
 
   // Check if we eventually convert to the ATen output dtype.
   // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
-  NVF_CHECK(
-      tv_a->getDataType() == out()->getDataType() ||
-      (is_use_single_cast &&
-       tv_a->getDataType() ==
-           uses.front()->as<UnaryOp>()->out()->getDataType()));
+  NVF_CHECK(used_as_dtype(out()) == tv_a->getDataType().value());
 
   // Squeeze the inputs to remove the broadcasted dimensions.
   const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
