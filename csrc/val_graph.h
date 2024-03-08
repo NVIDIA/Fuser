@@ -195,6 +195,11 @@ class ValGraph {
   // used
   void initializeVal(Val* val);
 
+  // Add expr to the disjoint sets as a sole group. Used for
+  // registering replayed domains and exprs. Error if the expr is
+  // already registered.
+  void registerExpr(Expr* expr);
+
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not
   // forward). Returning true means the expressions are "the same", in terms

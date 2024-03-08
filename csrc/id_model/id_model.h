@@ -185,8 +185,25 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
+  // Helper function for building loop promotion map.
+  //
+  // Propagate promotion mappings from root IEL groups to intermediate
+  // and leaf IEL groups by traversing IEL exprs. For each expr, if an
+  // input is promoted, the output needs to be promoted too. If
+  // there's already an equivalent expr that uses the promoted inputs,
+  // create a mapping from the outputs of the IEL expr to the outputs
+  // of the equivalent expr.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // Replay Expr but with the inputs provided. ValGraphs will be updated
+  // for all maps that have entries, adding the output iter domains of the
+  // replayed expression and adding potential mappings through the expression.
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
   // All tensor expressions that this model analyzes
