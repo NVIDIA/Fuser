@@ -275,6 +275,36 @@ void Program::assume(const Term& term) {
   }
 }
 
+bool Program::isProven(const Term& term) const {
+  if (proven_true_terms_.count(&term)) {
+    return true;
+  }
+  if (std::holds_alternative<BinaryOpType>(term.symbol)) {
+    auto op_type = std::get<BinaryOpType>(term.symbol);
+    switch (op_type) {
+      case BinaryOpType::Eq: {
+        NVF_ERROR(term.producers.size() >= 2);
+        bool allmatch = true;
+        const Term* ptr = term.producers[0];
+        for (auto producer : term.producers) {
+          if (producer != ptr) {
+            allmatch = false;
+            break;
+          }
+        }
+        if (allmatch) {
+          // All arguments are structurally identical
+          return true;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
 Val* Program::termToVal(const Term* term) {
   // TODO: Non-recursive version
   if (term->representing_val != nullptr) {

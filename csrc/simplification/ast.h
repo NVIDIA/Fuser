@@ -233,9 +233,7 @@ class Program {
   void assume(const Term& term);
 
   //! Test whether a Bool-valued term has been proven true
-  bool isProven(const Term& term) {
-    return proven_true_terms_.find(&term) != proven_true_terms_.end();
-  }
+  bool isProven(const Term& term) const;
 
  private:
   //! Find a given Val and return its Term*. If we haven't yet seen this Val*,

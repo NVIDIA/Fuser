@@ -1140,6 +1140,9 @@ TEST_F(ExprSimplifierTest, AST) {
   EXPECT_EQ((ta < td).dtype, DataType::Bool);
 
   std::cout << "a < d? " << program.isProven(ta < td) << std::endl;
+
+  std::cout << "a == a? " << program.isProven(ta == ta) << std::endl;
+  EXPECT_TRUE(program.isProven(ta == ta));
 }
 
 } // namespace nvfuser
