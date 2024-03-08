@@ -454,6 +454,14 @@ NVFUSER_DEFINE_UNARY_OP(trunc, Trunc)
 NVFUSER_DEFINE_UNARY_OP(print, Print)
 #undef NVFUSER_DEFINE_UNARY_OP
 
+Val* neg(Val* v) {
+  return unaryOp(UnaryOpType::Neg, v, TypePromotion::default_op_config);
+}
+
+TensorView* neg(TensorView* tv) {
+  return unaryOp(UnaryOpType::Neg, tv, TypePromotion::default_op_config);
+}
+
 Val* logical_not(Val* v) {
   v = maybeCastOp(DataType::Bool, v);
   return unaryOp(UnaryOpType::LogicalNot, v);
@@ -603,7 +611,6 @@ NVFUSER_DEFINE_UNARY_FLOAT_OP(log, Log)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(log10, Log10)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(log1p, Log1p)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(log2, Log2)
-NVFUSER_DEFINE_UNARY_FLOAT_OP(neg, Neg)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(reciprocal, Reciprocal)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(rsqrt, Rsqrt)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(sigmoid, Sigmoid)

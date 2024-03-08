@@ -7,6 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include <fusion.h>
 #include <kernel_cache.h>
 #include <ops/arith.h>
@@ -15,10 +17,10 @@
 
 namespace nvfuser {
 
-using UnaryTest = NVFuserFixtureParamTest<DataType>;
+using UnaryTest = NVFuserFixtureParamTest<PrimDataType>;
 
 TEST_P(UnaryTest, Neg) {
-  DataType dtype = GetParam();
+  PrimDataType dtype = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -32,7 +34,23 @@ TEST_P(UnaryTest, Neg) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn(shape, options);
+  at::Tensor in_tensor;
+  switch (dtype) {
+    case PrimDataType::Int32: {
+      constexpr int kIntMax = std::numeric_limits<int>::max();
+      in_tensor = at::randint(-kIntMax, kIntMax, shape, options);
+    } break;
+    case PrimDataType::Int: {
+      constexpr int64_t kInt64Max = std::numeric_limits<int64_t>::max();
+      in_tensor = at::randint(-kInt64Max, kInt64Max, shape, options);
+    } break;
+    default:
+      NVF_ERROR(
+          isFloatingPointType(dtype),
+          "Expect a floating point type, but found: ",
+          dtype);
+      in_tensor = at::randn(shape, options);
+  }
 
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
@@ -43,12 +61,13 @@ INSTANTIATE_TEST_SUITE_P(
     UnaryTests,
     UnaryTest,
     testing::Values(
-        DataType::Half,
-        DataType::BFloat16,
-        DataType::Float,
-        DataType::Double,
-        DataType::Int),
-    [](const testing::TestParamInfo<DataType>& info) {
+        PrimDataType::Half,
+        PrimDataType::BFloat16,
+        PrimDataType::Float,
+        PrimDataType::Double,
+        PrimDataType::Int32,
+        PrimDataType::Int),
+    [](const testing::TestParamInfo<PrimDataType>& info) {
       std::ostringstream os;
       os << info.param;
       return os.str();
