@@ -15,29 +15,38 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrder& alloc_order) {
+  AllocationOrder ret = alloc_order;
+
+  int64_t tv_rank = static_cast<int64_t>(tv->nDims());
+  auto& rf_dom = tv->getMaybeRFactorDomain();
+  for (auto idx : c10::irange(tv_rank)) {
+    if (rf_dom[idx]->isReduction()) {
+      auto erase_iter = ret.begin();
+      for (auto i = ret.begin(); i != ret.end(); i++) {
+        if (*i > idx) {
+	  --(*i);
+	} else if (*i == idx) {
+	  erase_iter = i;
+	}
+      }
+      ret.erase(erase_iter);
+    }
+  }
+  return ret;
+}
+
 void allocationDomainUpdate(
     TensorView* tv,
     const AllocationOrder& alloc_order) {
   auto rfactor_dom = tv->getMaybeRFactorDomain();
+  auto rank = rfactor_dom.size();
 
-  // Allocation order is only marked for non-reduction iterdomain
-  auto no_bc_rfactor_dom = TensorDomain::noReductions(rfactor_dom);
-  auto rank = no_bc_rfactor_dom.size();
   std::vector<IterDomain*> allocation_domain(rank, nullptr);
-  allocation_domain.reserve(rfactor_dom.size());
-  // specify allocation domain with non-reduction dimension per allocation
-  // order.
+  // specify allocation domain with dimension per allocation order.
   for (auto i : c10::irange(rank)) {
     allocation_domain[i] = no_bc_rfactor_dom.at(alloc_order.at(i));
   }
-
-  // reduction iter domain's position in allocation domain doesn't matter,
-  // insert them at the end
-  std::copy_if(
-      rfactor_dom.begin(),
-      rfactor_dom.end(),
-      std::back_inserter(allocation_domain),
-      [](const IterDomain* id) { return id->isReduction(); });
 
   tv->setAllocationDomain(allocation_domain, true);
 }
@@ -56,8 +65,8 @@ class AllocationOrderInferencer : public IterVisitor {
   void handle(BinaryOp*) override;
   void handle(TernaryOp*) override;
   void handle(PadOp*) override;
+  void handle(ReductionOp*) override;
   // TODO: Add more propagation rules
-  // void handle(Reduction*) override;
   // void handle(LoadStoreOp*) override;
   // void handle(SqueezeOp*) override;
   // void handle(ExpandOp*) override;
@@ -68,7 +77,7 @@ class AllocationOrderInferencer : public IterVisitor {
   bool propagateAllocationOrder(TensorView* src, TensorView* dst) {
     if (auto iter = alloc_order_map_.find(src);
         iter != alloc_order_map_.end()) {
-      alloc_order_map_[dst] = iter->second;
+      alloc_order_map_[dst] = adjustAllocationOrder(iter->first, iter->second);
       return true;
     }
     return false;
@@ -105,12 +114,12 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
-  // helper utils to count the number of non broadcast iterdomain
-  auto countNonBroadcastID = [](const TensorView* tv) -> size_t {
+  // helper utils to count the number of non broadcast / non reduction iterdomain
+  auto countLoopID = [](const TensorView* tv) -> size_t {
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
         tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
+        [&](auto ptr_id) { return !ptr_id->isBroadcast() && !ptr_id->isReduction; });
   };
 
   for (auto* val_ptr : candidates) {
@@ -125,9 +134,8 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
       continue;
     }
 
-    // check if current entry sets new record for num of non broadcast
-    // iterdomain
-    if (size_t non_bc_count = countNonBroadcastID(tv_ptr);
+    // check if current entry sets new record for num of non broadcast / non reduction iterdomain
+    if (size_t non_bc_count = countLoopID(tv_ptr);
         non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
       src = tv_ptr;
@@ -207,7 +215,7 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
       TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
   // step 2: push each mapped iterdomain
-  for (auto index : iter->second) {
+  for (auto index : adjustAllocationOrder(iter->first, iter->second)) {
     alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
   }
 
@@ -238,6 +246,12 @@ void AllocationOrderInferencer::handle(TernaryOp* op) {
 }
 
 void AllocationOrderInferencer::handle(PadOp* op) {
+  auto* out = dynamic_cast<TensorView*>(op->out());
+  auto* in = dynamic_cast<TensorView*>(op->in());
+  propagateAllocationOrder(in, out);
+}
+
+void AllocationOrderInferencer::handle(ReductionOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   auto* in = dynamic_cast<TensorView*>(op->in());
   propagateAllocationOrder(in, out);
