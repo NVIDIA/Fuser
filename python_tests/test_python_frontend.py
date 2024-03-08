@@ -3302,7 +3302,7 @@ class TestNvFuserFrontend(TestCase):
             V2 = fd.define_vector([S1], dtype=DataType.Int)
             T3 = fd.ops.full(shape=V2, fill_value=S0, dtype=DataType.Float)
             T4 = fd.ops.slice(T3, start_indices=[0], end_indices=[2], strides=[1])
-            T5 = fd.ops.cast(T4, dtype=DataType.BFloat16)
+            T5 = fd.ops.cast(T4, dtype=DataType.Half)
             T6 = fd.ops.slice(T3, start_indices=[2], end_indices=[5], strides=[1])
             T7 = fd.ops.cast(T6, dtype=DataType.Half)
             fd.add_output(T5)
