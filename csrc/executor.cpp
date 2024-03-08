@@ -1342,6 +1342,54 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
+std::vector<FusionExecutor::GlobalBufferInfo>
+    getOutputBufferInfoBis(
+        const KernelArgumentHolder& args,
+        ExpressionEvaluator& expr_eval,
+        DataType index_dtype,
+        const kir::Kernel* kernel) {
+  FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
+  // const auto kernel = lowered_->kernel();
+  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
+  NVF_ERROR(
+      args.size() == kernel->inputs().size(),
+      "kernel arguments length does not match runtime arguments.");
+  for (const auto out_i : c10::irange(kernel->outputs().size())) {
+    auto out_val = kernel->outputs()[out_i];
+    auto output = out_val->as<TensorView>();
+
+    FusionExecutor::GlobalBufferInfo info;
+    info.tv = dynamic_cast<TensorView*>(out_val);
+    NVF_ERROR(
+        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    auto dtype =
+        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+    info.type = data_type_to_aten(dtype);
+
+    outputs.emplace_back(info);
+  }
+  return outputs;
+}
+
+
+
+std::vector<at::Tensor> allocTvs(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  kir::Kernel kernel(fusion);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, &kernel);
+
+  auto output_info =
+      getOutputBufferInfoBis(kernel_inputs, expr_eval, kernel.indexType(), &kernel);
+
+  return allocateOutputs(&kernel, output_info, device, expr_eval); //change deviceId
+}
+
 std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs) {
   auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
@@ -1389,6 +1437,38 @@ void FusionExecutor::setUsedTVs() {
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
+}
+
+KernelArgumentHolder inferSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args,
+    std::vector<Val*> tvs) {
+  FUSER_PERF_SCOPE("inferSizes");
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+      std::make_unique<PrecomputedValues>(fusion);
+  evaluator_precomputed_values->bindInputs(args);
+  evaluator_precomputed_values->evaluate();
+
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
+
+  KernelArgumentHolder ret;
+  ret.setDeviceIndex(args.getDeviceIndex());
+
+  for (Val* val : tvs) {
+    NVF_ERROR(
+        val->isA<TensorView>(),
+        "Cannot infer shape of vals that are not tensors.");
+    auto tv = val->as<TensorView>();
+    const auto& [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
+    const auto dtype = (tv->dtype() == DataType::Index)
+        ? data_type_to_aten(arg_index_type)
+        : data_type_to_aten(tv->dtype());
+    ret.pushTensorProxy(sizes, strides, dtype);
+  }
+  return ret;
 }
 
 KernelArgumentHolder FusionExecutor::inferOutputSizes(

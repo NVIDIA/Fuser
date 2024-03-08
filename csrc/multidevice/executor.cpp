@@ -42,14 +42,6 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
     fusion_copy->addOutput(original_to_copy_cloner.clone(output));
   });
 
-  // for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
-  //   tv->setMemoryType(MemoryType::Global);
-  //   for (auto i : c10::irange(tv->domain()->nDims())) {
-  //     if (!tv->axis(static_cast<int>(i))->isDeviceDim()) {
-  //       tv->axis(static_cast<int>(i))->parallelize(ParallelType::Serial);
-  //     }
-  //   }
-  // }
   return fusion_copy;
 }
 
@@ -63,11 +55,50 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
 // be reimplemented
 void MultiDeviceExecutor::allocateBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
-  if (vals_to_allocate_.empty()) {
-    return;
-  }
+  // if (vals_to_allocate_.empty()) {
+  //   return;
+  // }
 
-  auto buffers = allocator_->allocOutputSpace(global_inputs_IValues);
+  // KernelArgumentHolder args;
+  // for (auto input: global_inputs_IValues) {
+  //   args.push(input);
+  // }
+
+  // KernelArgumentHolder buffers2 = inferSizes(completeFusion(), args, vals_to_allocate_);
+
+  // std::cout << "RANK :" << comm()->deviceId() << " has allocated " << buffers2.size() << " args:" << std::endl;
+  // for (auto i: c10::irange(buffers2.size())) {
+  //   std::cout << "i=" << i <<":" << std::endl;
+  //   std::cout << at::empty(buffers2[i]) << std::endl;
+  // }
+
+  auto fusion_copy = copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
+  auto buffers = allocTvs(global_inputs_IValues, fusion_copy.get(), comm()->device());
+
+// at::native::empty_strided_cuda(
+//           out_info.sizes,
+//           out_info.strides,
+//           out_info.type,
+//           c10::nullopt,
+//           device,
+//           c10::nullopt);
+
+//         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+
+
+// addOutputsToArgsAndTensorMap(std::vector<Val*>& group_outputs, const KernelArgumentHolder& group_runtime_outputs)
+
+  // auto buffers = allocator_->allocOutputSpace(global_inputs_IValues);
+
+  // NVF_ERROR(buffers.size() == bufs.size());
+
+  // std::cout << "RANK :" << comm()->deviceId() << " has allocated " << bufs.size() << " args:" << std::endl;
+  // for (auto i: c10::irange(bufs.size())) {
+  //   std::cout << "i=" << i <<":" << std::endl;
+  //   std::cout << bufs.at(i) << std::endl;
+  //   NVF_ERROR(buffers.at(i).sizes() == bufs.at(i).sizes(), buffers.at(i).sizes(), bufs.at(i).sizes()cccccbjhcbicbvhveerfjkddrblfuljnehrijfrbetct
+  //   );
+  // }
 
   NVF_ERROR(
       buffers.size() == vals_to_allocate_.size(),

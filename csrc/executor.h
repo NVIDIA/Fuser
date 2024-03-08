@@ -25,6 +25,11 @@
 #include <functional>
 
 namespace nvfuser {
+  
+std::vector<at::Tensor> allocTvs(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device);
 
 bool shouldFillAllocationWithNan();
 NVF_API void setFillAllocationWithNan(bool value);
@@ -34,6 +39,10 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
+KernelArgumentHolder inferSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args,
+    std::vector<Val*> tvs);
 class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
