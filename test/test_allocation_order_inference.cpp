@@ -229,7 +229,7 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
 
   auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor({-1, -1});
+  auto tv1 = makeSymbolicTensor({-1, 1});
   fusion.addInput(tv1);
   auto tv2 = sum(tv0, {1});
   auto tv3 = sum(tv2, {1});
@@ -240,15 +240,15 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
       broadcast(tv3, {true, false, false, true});
   fusion.addOutput(tv5);
 
-  std::vector<IterDomain*> tv0_nhwc = {
-      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-  tv0->setAllocationDomain(tv0_nhwc, true);
+  std::vector<IterDomain*> tv0_order = {
+      tv0->axis(1), tv0->axis(2), tv0->axis(3), tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_order, true);
 
   const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 1));
-  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(0, 1));
-  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 2, 0));
+  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
+  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(1, 2, 3, 0));
 }
 
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
