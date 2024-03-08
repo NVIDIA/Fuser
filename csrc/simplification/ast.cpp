@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
 #include <simplification/ast.h>
@@ -39,6 +40,9 @@ FunctionSymbol exprToFunctionSymbol(Expr* expr) {
     return uop->getUnaryOpType();
   } else if (auto bop = dynamic_cast<BinaryOp*>(expr)) {
     return bop->getBinaryOpType();
+  } else if (
+      auto facop = dynamic_cast<assoc_comm::FlattenedAssocCommOp*>(expr)) {
+    return facop->getOpType();
   } else if (auto top = dynamic_cast<TernaryOp*>(expr)) {
     return top->getTernaryOpType();
   }
@@ -446,6 +450,9 @@ void Program::proveOrderings(int max_steps) {
 
     less_than_.clamp_(c10::nullopt, 1);
     less_equal_.clamp_(c10::nullopt, 1);
+
+    // TODO: Test consistency of less_than_ here, i.e. optionally test for
+    // cycles
 
     int lt_nnz_n = less_than_.count_nonzero().item<int>();
     int le_nnz_n = less_equal_.count_nonzero().item<int>();

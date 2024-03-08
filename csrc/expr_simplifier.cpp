@@ -16,6 +16,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <simplification/ast.h>
 #include <utils.h>
 
 #include <cmath>
@@ -162,8 +163,8 @@ class Context {
       : preserve_error_(preserve_error) {
     var_order_.reserve(variables.size());
     var_set_.reserve(variables.size());
-    less_than_.reserve(assumptions.size());
-    less_equal_.reserve(assumptions.size());
+    // less_than_.reserve(assumptions.size());
+    // less_equal_.reserve(assumptions.size());
     for (const auto& info : variables) {
       auto var = info.variable;
       if (info.is_unrolled_loop_index) {
@@ -172,6 +173,11 @@ class Context {
       var_order_.emplace_back(var);
       var_set_.emplace(var);
     }
+
+    // TODO: can we associate a Program with a Fusion and hold onto it forever?
+    // If so, it would need to survive Fusion cloning, and we would need to
+    // ensure that we never invalidate any of our assumptions or implied proofs.
+    program_ = simplification::ProgramGuard::getCurProgram();
     // decompose a && b in assumptions as a and b
     const auto& axioms = FusionGuard::getCurFusion()->axioms();
     assumptions.insert(assumptions.end(), axioms.begin(), axioms.end());
@@ -189,6 +195,10 @@ class Context {
     }
 
     validateConsistency();
+  }
+
+  simplification::Program* program() const {
+    return program_;
   }
 
   void validateConsistency() const {
@@ -256,26 +266,36 @@ class Context {
   void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
-      std::cout << "assume inequality involving "
-                << bop->lhs()->toInlineString() << std::endl;
-      std::cout << "assume inequality involving "
-                << bop->rhs()->toInlineString() << std::endl;
       switch (bop->getBinaryOpType()) {
         case BinaryOpType::LT:
-          less_than_.emplace_back(
-              assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
+          // less_than_.emplace_back(
+          //    assoc_comm::flatten(bop->lhs()),
+          //    assoc_comm::flatten(bop->rhs()));
+          program()->assume(
+              program()->valToTerm(assoc_comm::flatten(bop->lhs())) <
+              program()->valToTerm(assoc_comm::flatten(bop->rhs())));
           break;
         case BinaryOpType::LE:
-          less_equal_.emplace_back(
-              assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
+          // less_equal_.emplace_back(
+          // assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
+          program()->assume(
+              program()->valToTerm(assoc_comm::flatten(bop->lhs())) <=
+              program()->valToTerm(assoc_comm::flatten(bop->rhs())));
           break;
         case BinaryOpType::GT:
-          less_than_.emplace_back(
-              assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
+          // less_than_.emplace_back(
+          //    assoc_comm::flatten(bop->rhs()),
+          //    assoc_comm::flatten(bop->lhs()));
+          program()->assume(
+              program()->valToTerm(assoc_comm::flatten(bop->lhs())) >
+              program()->valToTerm(assoc_comm::flatten(bop->rhs())));
           break;
         case BinaryOpType::GE:
-          less_equal_.emplace_back(
-              assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
+          // less_equal_.emplace_back(
+          // assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
+          program()->assume(
+              program()->valToTerm(assoc_comm::flatten(bop->lhs())) >=
+              program()->valToTerm(assoc_comm::flatten(bop->rhs())));
           break;
         default:
           NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
@@ -290,6 +310,7 @@ class Context {
   std::unordered_set<Val*> unrolled_loop_index_;
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
+  simplification::Program* program_;
 };
 
 namespace {
@@ -1533,8 +1554,8 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
 }
 
 bool lessThan(Val* x, Val* y, const Context& context) {
-  std::cout << "Comparison involving " << x->toInlineString() << std::endl;
-  std::cout << "Comparison involving " << y->toInlineString() << std::endl;
+  return context.program()->prove(
+      context.program()->valToTerm(x) < context.program()->valToTerm(y));
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1564,8 +1585,8 @@ bool lessThan(Val* x, Val* y, const Context& context) {
 }
 
 bool lessEqual(Val* x, Val* y, const Context& context) {
-  std::cout << "Comparison involving " << x->toInlineString() << std::endl;
-  std::cout << "Comparison involving " << y->toInlineString() << std::endl;
+  return context.program()->prove(
+      context.program()->valToTerm(x) <= context.program()->valToTerm(y));
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
