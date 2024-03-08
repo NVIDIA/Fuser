@@ -45,7 +45,7 @@ void allocationDomainUpdate(
   std::vector<IterDomain*> allocation_domain(rank, nullptr);
   // specify allocation domain with dimension per allocation order.
   for (auto i : c10::irange(rank)) {
-    allocation_domain[i] = no_bc_rfactor_dom.at(alloc_order.at(i));
+    allocation_domain[i] = rfactor_dom.at(alloc_order.at(i));
   }
 
   tv->setAllocationDomain(allocation_domain, true);
@@ -119,7 +119,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
         tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) { return !ptr_id->isBroadcast() && !ptr_id->isReduction; });
+        [&](auto ptr_id) { return !ptr_id->isBroadcast() && !ptr_id->isReduction(); });
   };
 
   for (auto* val_ptr : candidates) {
