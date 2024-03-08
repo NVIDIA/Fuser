@@ -54,13 +54,20 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
+  bool can_project =
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0 &&
+      normalization_scheduler_utils::canProjectBufferToInputs(
+          fusion,
+          runtime_info,
+          persistent_buffer_info,
+          persistent_buffer_size_info,
+          true);
   // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
-      persistent_buffer_size_info.projected_persistent_buffer_size == 0
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
+  auto persistent_buffer_size = can_project
+      ? std::min(
             persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
+            persistent_buffer_size_info.projected_persistent_buffer_size)
+      : persistent_buffer_size_info.persistent_buffer_size;
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
           runtime_info, persistent_buffer_info.persistent_buffers);

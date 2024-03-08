@@ -847,7 +847,7 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 
 // Returns true if the gains of reducing buffer size is larger than the pains of
 // recalculations. We don't know the real answer until we run it.
-bool projectBufferToInputs(
+bool canProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
@@ -860,13 +860,13 @@ bool projectBufferToInputs(
     return false;
   }
 
-  // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers
-  int64_t max_avilable_space = getMaxRegOrSharedMemorySizeForPersistentBuffer(
-      runtime_info, persistent_buffer_info.persistent_buffers);
-  if (max_avilable_space < persistent_buffer_size_info.persistent_buffer_size) {
-    return true;
-  }
+  // // must project to inputs otherwise don't have enough register or shared
+  // // memory to store the buffers
+  // int64_t max_avilable_space = getMaxRegOrSharedMemorySizeForPersistentBuffer(
+  //     runtime_info, persistent_buffer_info.persistent_buffers);
+  // if (max_avilable_space < persistent_buffer_size_info.persistent_buffer_size) {
+  //   return true;
+  // }
 
   // check ops between persistent buffer and inputs.
   // TODO: check more ops
@@ -1003,7 +1003,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   // reducing buffer size is larger than the pains of recalculations.
   bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
   bool project_persistent_buffers = can_project &&
-      projectBufferToInputs(fusion,
+      canProjectBufferToInputs(fusion,
                             runtime_info,
                             persistent_buffer_info,
                             persistent_buffer_size_info,

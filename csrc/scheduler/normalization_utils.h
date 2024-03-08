@@ -292,5 +292,14 @@ void schedulePersistentKernel(
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& persistent_buffers);
+
+// Return true if project buffer to inputs is beneficial
+bool canProjectBufferToInputs(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const scheduler_utils::PersistentBufferSizeReturn&
+        persistent_buffer_size_info,
+    const bool is_inner_reduction);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
