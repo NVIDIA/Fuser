@@ -200,6 +200,10 @@ const Term& where(const Term& a, const Term& b, const Term& c);
 // expressions.
 class Program {
  public:
+  Program()
+      : less_than_(at::zeros({0, 0}, at::kInt)),
+        less_equal_(at::ones({0, 0}, at::kInt)) {}
+
   //! This is non-const since we register newly-created Vals in order to quickly
   //! recognize them if they appear as producers in later seen Vals.
   Val* termToVal(const Term* term);
@@ -232,8 +236,8 @@ class Program {
   //! Assume a Bool-valued Term is true
   void assume(const Term& term);
 
-  //! Test whether a Bool-valued term has been proven true
-  bool isProven(const Term& term) const;
+  //! Test whether a Bool-valued term can be proven true
+  bool prove(const Term& term);
 
  private:
   //! Find a given Val and return its Term*. If we haven't yet seen this Val*,
@@ -249,14 +253,9 @@ class Program {
   //! This is like findTerm, but if we haven't seen Val, then recursively make
   //! terms to represent val's producers and its definition.
   Term* valToTermHelper(Val* val) {
-    std::cout << "BEGIN valToTermHelper(" << val->toInlineString() << ")"
-              << std::endl;
     // First check whether we've seen this Val before so we can return early
     auto val_it = val_term_map_.find(val);
     if (val_it != val_term_map_.end()) {
-      std::cout << "Reusing Term " << (void*)val_it->second << std::endl;
-      std::cout << "END   valToTermHelper(" << val->toInlineString() << ")"
-                << std::endl;
       return val_it->second;
     }
     // Create a new Term
@@ -277,8 +276,6 @@ class Program {
         producer_terms);
     term->representing_val = val;
     val_term_map_.emplace(val, term);
-    std::cout << "END   valToTermHelper(" << val->toInlineString()
-              << ") = " << (void*)term << std::endl;
     return term;
   }
 
@@ -383,6 +380,9 @@ class Program {
   std::unordered_map<const Term*, int> terms_in_orderings_;
   at::Tensor less_than_;
   at::Tensor less_equal_;
+  // This is set to true when we insert a new relation or grow the size of
+  // terms_in_orderings_, less_than_,  and less_equal_
+  bool proofs_saturated_ = false;
 };
 
 } // namespace simplification

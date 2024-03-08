@@ -1127,22 +1127,60 @@ TEST_F(ExprSimplifierTest, AST) {
   Program program;
   ProgramGuard pg(&program);
 
-  Val* a = IrBuilder::create<Val>(DataType::Index);
-  Val* b = IrBuilder::create<Val>(DataType::Index);
-  Val* d = IrBuilder::divExpr(
-      IrBuilder::addExpr(a, fusion.oneVal(DataType::Index)), b);
+  Val* va = IrBuilder::create<Val>(DataType::Index);
+  Val* vb = IrBuilder::create<Val>(DataType::Index);
+  Val* vc = IrBuilder::create<Val>(DataType::Index);
+  Val* vd = IrBuilder::divExpr(
+      IrBuilder::addExpr(va, fusion.oneVal(DataType::Index)), vb);
 
-  const auto& ta = program.valToTerm(a);
-  const auto& td = program.valToTerm(d);
-  const auto& t = ta.equal(td);
-  std::cout << (void*)&t << std::endl;
+  const auto& a = program.valToTerm(va);
+  const auto& b = program.valToTerm(vb);
+  const auto& c = program.valToTerm(vc);
+  const auto& d = program.valToTerm(vd);
 
-  EXPECT_EQ((ta < td).dtype, DataType::Bool);
+  // Do we generate the proper dtypes for comparison ops?
+  EXPECT_EQ((a < d).dtype, DataType::Bool);
+  EXPECT_EQ((a <= d).dtype, DataType::Bool);
+  EXPECT_EQ((a > d).dtype, DataType::Bool);
+  EXPECT_EQ((a >= d).dtype, DataType::Bool);
+  EXPECT_EQ((a == d).dtype, DataType::Bool);
+  EXPECT_EQ((a != d).dtype, DataType::Bool);
 
-  std::cout << "a < d? " << program.isProven(ta < td) << std::endl;
+  EXPECT_FALSE(program.prove(a < d));
 
-  std::cout << "a == a? " << program.isProven(ta == ta) << std::endl;
-  EXPECT_TRUE(program.isProven(ta == ta));
+  // This is provable without any assumptions
+  EXPECT_TRUE(program.prove(a == a));
+
+  // Set a few assumptions
+  program.assume(a < b);
+  program.assume(b <= c);
+  program.assume(d > c);
+
+  // Test implications of the above assumptions
+  EXPECT_TRUE(program.prove(a < b));
+  EXPECT_TRUE(program.prove(a < c));
+  EXPECT_TRUE(program.prove(a < d));
+
+  EXPECT_TRUE(program.prove(b <= c));
+  EXPECT_TRUE(program.prove(b < d));
+
+  EXPECT_TRUE(program.prove(c < d));
+
+  EXPECT_FALSE(program.prove(b < a));
+  EXPECT_FALSE(program.prove(b < c));
+  EXPECT_FALSE(program.prove(c < a));
+  EXPECT_FALSE(program.prove(c < b));
+  EXPECT_FALSE(program.prove(d < c));
+  EXPECT_FALSE(program.prove(d <= c));
+
+  EXPECT_FALSE(program.prove(a < a));
+  EXPECT_FALSE(program.prove(b < b));
+  EXPECT_FALSE(program.prove(c < c));
+  EXPECT_FALSE(program.prove(d < d));
+  EXPECT_TRUE(program.prove(a <= a));
+  EXPECT_TRUE(program.prove(b <= b));
+  EXPECT_TRUE(program.prove(c <= c));
+  EXPECT_TRUE(program.prove(d <= d));
 }
 
 } // namespace nvfuser

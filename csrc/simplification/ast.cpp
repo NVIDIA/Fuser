@@ -102,9 +102,7 @@ Term* Program::makeTerm(
   }
 
   if (is_free_var) {
-    std::cout << "Creating unique Term for free variable" << std::endl;
     Term* term = new Term{symbol, dtype, constant, producers};
-    std::cout << "term = " << (void*)term << std::endl;
     terms_up_.emplace_back(std::unique_ptr<Term>(term));
     return term;
   }
@@ -117,7 +115,6 @@ Term* Program::makeTerm(
 
   auto term_it = term_map_.find(key);
   if (term_it == term_map_.end()) {
-    std::cout << "Creating term with key " << key << std::endl;
     // Try to fold constants
     std::vector<ConstantValue> producer_values;
     producer_values.reserve(producers.size());
@@ -128,7 +125,6 @@ Term* Program::makeTerm(
     if (c.hasValue()) {
       // Successful evaluation means constant folding is possible. Create a new
       // constant term with the evaluated value and the given dtype.
-      std::cout << "Folded constant" << std::endl;
       Term* term = makeTerm(std::monostate{}, dtype, c, {});
       // makeTerm will record an entry in term_map_ using the key corresponding
       // to the constant c. We additionally map the original key from the
@@ -138,13 +134,10 @@ Term* Program::makeTerm(
       return term;
     }
     Term* term = new Term{symbol, dtype, constant, producers};
-    std::cout << "term = " << (void*)term << std::endl;
     terms_up_.emplace_back(std::unique_ptr<Term>(term));
     term_map_.emplace(key, term);
     return term;
   }
-  std::cout << "Reusing existing Term " << (void*)(term_it->second)
-            << " with key " << key << std::endl;
   return term_it->second;
 }
 
@@ -256,31 +249,108 @@ void Program::assume(const Term& term) {
     BinaryOpType op_type = std::get<BinaryOpType>(term.symbol);
     const Term& a = *term.producers[0];
     const Term& b = *term.producers[1];
-    if (op_type == BinaryOpType::Eq) {
-      NVF_ERROR(term.producers.size() == 2);
-      proven_true_terms_.insert(&(b.equal(a)));
-      /*
-      proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
-      proven_true_terms_.insert(*term.producers[0] >= *term.producers[1]);
-      proven_true_terms_.insert(*term.producers[1] <= *term.producers[0]);
-      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-    } else if (term.symbol == BinaryOpType::LT) {
-      proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
-      proven_true_terms_.insert(*term.producers[1] > *term.producers[0]);
-      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-    } else if (term.symbol == BinaryOpType::LE) {
-      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-      */
+    switch (op_type) {
+      case BinaryOpType::Eq: {
+        NVF_ERROR(term.producers.size() == 2);
+        proven_true_terms_.insert(&(b.equal(a)));
+      }
+      case BinaryOpType::LT:
+      case BinaryOpType::LE:
+      case BinaryOpType::GT:
+      case BinaryOpType::GE: {
+        NVF_ERROR(term.producers.size() == 2);
+        const Term* a = term.producers[0];
+        const Term* b = term.producers[1];
+        bool inclusive =
+            op_type == BinaryOpType::LE || op_type == BinaryOpType::GE;
+        if (op_type == BinaryOpType::GT || op_type == BinaryOpType::GE) {
+          std::swap(a, b);
+        }
+        // Test whether a and b are already involved in inequalities. If not,
+        // then grow the matrices.
+        auto pos_a_it = terms_in_orderings_.find(a);
+        auto pos_b_it = terms_in_orderings_.find(b);
+        int num_inserted = 0;
+        int pos_a, pos_b;
+        if (pos_a_it == terms_in_orderings_.end()) {
+          pos_a = terms_in_orderings_.size();
+          terms_in_orderings_.emplace(a, pos_a);
+          num_inserted++;
+        } else {
+          pos_a = pos_a_it->second;
+        }
+        if (pos_b_it == terms_in_orderings_.end()) {
+          pos_b = terms_in_orderings_.size();
+          terms_in_orderings_.emplace(b, pos_b);
+          num_inserted++;
+        } else {
+          pos_b = pos_b_it->second;
+        }
+        if (num_inserted > 0) {
+          less_than_ = at::pad(less_than_, {0, num_inserted, 0, num_inserted});
+          less_equal_ =
+              at::pad(less_equal_, {0, num_inserted, 0, num_inserted});
+          // Initialize diagonal
+          less_equal_[pos_a][pos_a] = 1;
+          less_equal_[pos_b][pos_b] = 1;
+        }
+
+        // Check the relevant entry for this comparison. If it needs to be
+        // updated, then mark proofs as unsaturated.
+        proofs_saturated_ &=
+            (inclusive ? less_equal_[pos_a][pos_b] : less_than_[pos_a][pos_b])
+                .item<int>() == 0;
+        if (inclusive) {
+          less_equal_[pos_a][pos_b] = 1;
+        } else {
+          less_than_[pos_a][pos_b] = 1;
+        }
+      }
+      default:
+        break;
     }
   }
 }
 
-bool Program::isProven(const Term& term) const {
+bool Program::prove(const Term& term) {
   if (proven_true_terms_.count(&term)) {
     return true;
   }
   if (std::holds_alternative<BinaryOpType>(term.symbol)) {
     auto op_type = std::get<BinaryOpType>(term.symbol);
+
+    auto proveComparison =
+        [&](BinaryOpType op_type, const Term* a, const Term* b) -> bool {
+      if (a == b) {
+        // No need to consult the tables for trivial comparisons
+        if (op_type == BinaryOpType::LE || op_type == BinaryOpType::GE) {
+          return true;
+        } else if (op_type == BinaryOpType::LT || op_type == BinaryOpType::GT) {
+          return false;
+        }
+      }
+      auto pos_a_it = terms_in_orderings_.find(a);
+      if (pos_a_it == terms_in_orderings_.end()) {
+        return false;
+      }
+      auto pos_b_it = terms_in_orderings_.find(b);
+      if (pos_b_it == terms_in_orderings_.end()) {
+        return false;
+      }
+      // Positions of a and b in adjacency matrices
+      int pos_a = pos_a_it->second;
+      int pos_b = pos_b_it->second;
+      auto lt_acc = less_than_.accessor<int, 2>();
+      // Check position without saturating so that we avoid saturating unless
+      // necessary.
+      if (lt_acc[pos_a][pos_b] > 0) {
+        return true;
+      }
+      if (!proofs_saturated_) {
+        proveOrderings();
+      }
+      return lt_acc[pos_a][pos_b] > 0;
+    };
     switch (op_type) {
       case BinaryOpType::Eq: {
         NVF_ERROR(term.producers.size() >= 2);
@@ -298,11 +368,92 @@ bool Program::isProven(const Term& term) const {
         }
         break;
       }
+      case BinaryOpType::LT: {
+        NVF_ERROR(term.producers.size() == 2);
+        const Term* a = term.producers[0];
+        const Term* b = term.producers[1];
+        return proveComparison(BinaryOpType::LT, a, b);
+      }
+      case BinaryOpType::GT: {
+        NVF_ERROR(term.producers.size() == 2);
+        const Term* a = term.producers[0];
+        const Term* b = term.producers[1];
+        return proveComparison(BinaryOpType::LT, b, a);
+      }
+      case BinaryOpType::LE: {
+        NVF_ERROR(term.producers.size() == 2);
+        const Term* a = term.producers[0];
+        const Term* b = term.producers[1];
+        return proveComparison(BinaryOpType::LE, a, b);
+      }
+      case BinaryOpType::GE: {
+        NVF_ERROR(term.producers.size() == 2);
+        const Term* a = term.producers[0];
+        const Term* b = term.producers[1];
+        return proveComparison(BinaryOpType::LE, b, a);
+      }
       default:
         break;
     }
   }
   return false;
+}
+
+void Program::proveOrderings(int max_steps) {
+  // The CPU matrices less_than_ and less_equal_ represent the < and <= ordering
+  // relations. A given Term* is mapped to a row/column position in these
+  // matrices by the map terms_in_orderings_. Given two Terms a and b with
+  // integer positions na and nb, less_than_[na][nb] gives the number of ways
+  // we have found to prove that a < b using the transitivity of < and <=, as
+  // well as the implication "x < y implies x <= y".
+  //
+  // Matrix multiplication allows us to efficiently expand the transitivity
+  // closure. Specifically, the (i, k) entry of less_than_ @ less_than_ sums
+  // over all Terms j, the number of ways to prove i < j times the number of
+  // ways to prove j < k, encoding the transitivity implication "x < y && y < z
+  // implies x < z". Likewise we can compute less_than_ @ less_equal_ to
+  // propagate "x < y && y <= z implies x < z" and we can multiply them in the
+  // other order to prove a similar result. Note however that less_equal_ @
+  // less_equal_ encodes the weaker implication "x <= y && y <= z implies x <=
+  // z".
+  //
+  // We compute at each iteration:
+  //   A = (less_than_ + less_equal_) @ (less_than_ + less_equal_)
+  //   B = less_equal_ @  less_equal_
+  // A - B then propagates the "x < z" implications above, so we increment
+  // less_than_ by A. Meanwhile, B itself encodes the "x <= z" implication so we
+  // increment less_equal_ by B. We then count the non-zero entries in both
+  // less_than_ and less_equal_ to determine if any new proofs were generated;
+  // if not, or if we exceed the iteration limit, then we stop.
+
+  // Count nonzero entries
+  int lt_nnz = less_than_.count_nonzero().item<int>();
+  int le_nnz = less_equal_.count_nonzero().item<int>();
+
+  for ([[maybe_unused]] int step : c10::irange(max_steps)) {
+    at::Tensor ltplusle = less_than_ + less_equal_;
+    at::Tensor A = at::matmul(ltplusle, ltplusle);
+    at::Tensor B = at::matmul(less_equal_, less_equal_);
+
+    less_than_ += A - B;
+    less_equal_ += B;
+
+    // x < y implies x <= y
+    // TODO: This could potentially be combined with the incremental updates,
+    // assuming we start in a canonical state. It's left this way for clarity
+    // for now.
+    less_equal_ += less_than_;
+
+    less_than_.clamp_(c10::nullopt, 1);
+    less_equal_.clamp_(c10::nullopt, 1);
+
+    int lt_nnz_n = less_than_.count_nonzero().item<int>();
+    int le_nnz_n = less_equal_.count_nonzero().item<int>();
+    if (lt_nnz_n == lt_nnz && le_nnz_n == le_nnz) {
+      proofs_saturated_ = true;
+      return;
+    }
+  }
 }
 
 Val* Program::termToVal(const Term* term) {
