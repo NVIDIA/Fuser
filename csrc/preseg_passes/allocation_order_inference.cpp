@@ -81,8 +81,13 @@ class AllocationOrderInferencer : public IterVisitor {
   //   2. has an entry in alloc_order_map_
   //   3. has the highest number of non_broadcast IterDomain
   //
-  // The function is used to resolve allocation order propagation for operator with multiple operands. The one operand with the most number of non-broadcast IterDomain will be dominating the output allocation order. The motivation behind it to avoid breaking allocation order propagation from operands produced by broadcast.
-  // e.g. When a binary operator could take in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to propagate the channels_last allocation order to output.
+  // The function is used to resolve allocation order propagation for operator
+  // with multiple operands. The one operand with the most number of
+  // non-broadcast IterDomain will be dominating the output allocation order.
+  // The motivation behind it to avoid breaking allocation order propagation
+  // from operands produced by broadcast. e.g. When a binary operator could take
+  // in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
+  // propagate the channels_last allocation order to output.
   TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
 
   // alloc_order_map_ records the allocation order of each TensorView.
@@ -95,7 +100,8 @@ class AllocationOrderInferencer : public IterVisitor {
   std::unordered_map<const TensorView*, AllocationOrder>& alloc_order_map_;
 };
 
-TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<Val*>& candidates) {
+TensorView* AllocationOrderInferencer::resolveAllocationOrder(
+    const std::vector<Val*>& candidates) {
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
@@ -119,8 +125,10 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(const std::vector<
       continue;
     }
 
-    // check if current entry sets new record for num of non broadcast iterdomain
-    if (size_t non_bc_count = countNonBroadcastID(tv_ptr); non_bc_count > non_bc_high_water_mark) {
+    // check if current entry sets new record for num of non broadcast
+    // iterdomain
+    if (size_t non_bc_count = countNonBroadcastID(tv_ptr);
+        non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
       src = tv_ptr;
     }

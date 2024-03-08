@@ -217,8 +217,7 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
       tv2->axis(0), tv2->axis(2), tv2->axis(3), tv2->axis(1)};
   tv2->setAllocationDomain(tv2_nhwc, true);
 
-  const auto inferred_layout =
-      preseg_passes::inferenceAllocationOrder(&fusion);
+  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
   EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(0, 2, 3, 1));
   EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(0, 2, 3, 1));
 }
