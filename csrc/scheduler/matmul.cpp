@@ -30,18 +30,6 @@ MatmulScheduler::MatmulScheduler(
 
 void MatmulScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  // Skip scheduling if Matmul will be expression evaluated.
-  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
-    NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-    scheduler_debug_utils::log(
-        __FILE__,
-        ":",
-        __LINE__,
-        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
-    return;
-  }
   scheduleMatmul(fusion, matmulParams());
 }
 
@@ -704,16 +692,6 @@ void scheduleFusionInputsForEpilogue(
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
 
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion, true);
-
-  // Cache and fork outputs
-  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
-
   mma_utils::CombineMulSum combiner(fusion);
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (combiner.isValid() && mma_ops.empty()) {
@@ -725,6 +703,30 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
+
+  // Skip scheduling if Matmul will be expression evaluated.
+  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+    NVF_CHECK(fusion->outputs().size() == 1)
+    fusion->aliasOutputToInput(
+        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+    scheduler_debug_utils::log(
+        __FILE__,
+        ":",
+        __LINE__,
+        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
+    return;
+  }
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
+  // Cache inputs
+  scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
