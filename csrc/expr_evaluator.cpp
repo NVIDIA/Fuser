@@ -216,7 +216,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
+        const auto& eval_i = evaluateHelper(i, known_values);
         if (!eval_i.hasValue()) {
           return null_;
         }
