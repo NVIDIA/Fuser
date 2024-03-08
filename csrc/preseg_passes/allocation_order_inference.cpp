@@ -20,10 +20,10 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
 
   int64_t tv_rank = static_cast<int64_t>(tv->nDims());
   auto& rf_dom = tv->getMaybeRFactorDomain();
-  std::stack<int64_t> removed_stack;
+  std::stack<int64_t> idx_stack;
   for (auto idx : c10::irange(tv_rank)) {
     if (rf_dom[idx]->isReduction()) {
-      removed_stack.push(idx);
+      idx_stack.push(idx);
       auto erase_iter = ret.begin();
       for (auto i = ret.begin(); i != ret.end(); i++) {
 	if (*i == idx) {
@@ -34,9 +34,9 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
       ret.erase(erase_iter);
     }
   }
-  while (!stack.empty()) {
-    idx = stack.top();
-    stack.pop();
+  while (!idx_stack.empty()) {
+    idx = idx_stack.top();
+    idx_stack.pop();
     for (auto i = ret.begin(); i != ret.end(); i++) {
       if (*i > idx) {
         --(*i);
