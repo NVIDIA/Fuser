@@ -46,7 +46,8 @@ INSTANTIATE_TEST_SUITE_P(
         DataType::Half,
         DataType::BFloat16,
         DataType::Float,
-        DataType::Double),
+        DataType::Double,
+        DataType::Int),
     [](const testing::TestParamInfo<DataType>& info) {
       std::ostringstream os;
       os << info.param;
