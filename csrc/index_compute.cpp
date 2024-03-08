@@ -1222,6 +1222,8 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
         SimplifyingIrBuilder::create<Val>(
             (int64_t)halo.width(), DataType::Index));
     return halo_extent;
+  } else if (id->isDeviceDim()) {
+    return GpuLower::current()->kernel()->oneVal();
   } else {
     return normal_extent;
   }
@@ -1599,7 +1601,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   {
     int stride_i = 0;
     for (const auto i : c10::irange(alloc_dom.size())) {
-      if (alloc_dom[i]->isReduction()) {
+      if (alloc_dom[i]->isReduction() || alloc_dom[i]->isDeviceDim()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
@@ -2052,6 +2054,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
         alloc_ind, getGlobalConsumerOffsetWithPartialSplit(alloc_dom[i]));
     alloc_inds[i] = alloc_ind;
   }
+  // std::cout << "getConsumerAllocationIndices" << tv->toString() << " " << alloc_inds << std::endl;
   return alloc_inds;
 }
 
@@ -2181,6 +2184,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     alloc_inds.at(i) = alloc_ind;
   }
 
+  // std::cout << "getProducerAllocIndices " << producer_tv->toString() << " " << alloc_inds << std::endl;
   return alloc_inds;
 }
 

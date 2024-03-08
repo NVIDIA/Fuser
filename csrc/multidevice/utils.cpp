@@ -18,32 +18,7 @@
 #include <c10/util/irange.h>
 
 namespace nvfuser {
-
-bool isSharded(TensorView* tv) {
-  std::vector<bool> is_sharded;
-  for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
-    is_sharded.push_back(id->isDeviceDim());
-  }
-
-  for (auto i : c10::irange(1, is_sharded.size())) {
-    NVF_ERROR(
-        !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized",
-        "but axis ",
-        i,
-        " is sharded in tv ",
-        tv->toString());
-  }
-  // Currently, only the most external dim is allowed to be sharded and we don't
-  // allow split/merge if tv is sharded.
-  auto tensor_sharded = !is_sharded.empty() && is_sharded.at(0);
-  NVF_ERROR(
-      !tensor_sharded || tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  return tensor_sharded;
-}
-
 namespace {
-
 std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
   std::vector<IterDomain*> sharded_ids;
   std::copy_if(
@@ -53,8 +28,48 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
-
 } // namespace
+
+// Tracks axis that change sharding between producer and consumer.
+// TODO: Update when we support more parallel types. 
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+   shardMap(TensorView* producer, TensorView* consumer) {
+  std::vector<int64_t> shard_additions;
+  std::vector<int64_t> shard_deletions;
+  auto producer_leaf = TensorDomain::noReductions(producer->getLeafDomain());
+  auto consumer_leaf = consumer->getLeafDomain();
+  if (producer_leaf.size() != consumer_leaf.size()) {
+    std::cout << "Producer: ";
+    for (auto i : producer_leaf) {
+      std::cout << i->toString() << std::endl;
+    }
+    std::cout << "Consumer: ";
+    for (auto i : consumer_leaf) {
+      std::cout << i->toString() << std::endl;
+    }
+  }
+  for (size_t i : c10::irange(producer_leaf.size())) {
+    auto producer_id = producer_leaf[i];
+    auto consumer_id = consumer_leaf[i];
+    if (producer_id->isDeviceDim() && !consumer_id->isDeviceDim() && !consumer_id->isReduction()) {
+      shard_deletions.push_back(i);
+    }
+    if (!producer_id->isDeviceDim() && consumer_id->isDeviceDim() && !consumer_id->isReduction()) {
+      shard_additions.push_back(i);
+    }
+  }
+  return std::make_pair(shard_additions, shard_deletions);
+}
+
+bool isSharded(TensorView* tv) {
+  // Currently, we don't allow split/merge
+  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
+  auto sharded_domains = getShardedIterDomains(tv);
+  NVF_ERROR(
+      sharded_domains.size() <= 1,
+      "Cannot shard multiple axis on the same device dimension");
+  return sharded_domains.size() > 0;
+}
 
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -153,6 +168,142 @@ void insertReshardings(Fusion* fusion) {
   }
 }
 
+// Returns permutation order to undo permuteOrder.
+std::vector<int64_t> permuteOrder(TensorView* tv, int axis) {
+  auto num_axis = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  std::vector<int64_t> permute_order(num_axis);
+  permute_order[0] = axis;
+  int64_t idx_offset = 0;
+  for (size_t i = 0; i < num_axis; i++) {
+    if (i == static_cast<size_t>(axis)) {
+      idx_offset++;
+    }
+    permute_order[i+1] = static_cast<int64_t>(i+idx_offset);
+  }
+  std::cout << "Permute order " << tv->toString() << " " << permute_order << std::endl;
+  return permute_order;
+}
+
+// Returns permutation order to undo permuteOrder.
+std::vector<int64_t> unpermuteOrder(TensorView* tv, int axis) {
+  auto num_axis = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  std::vector<int64_t> unpermute_order(num_axis);
+  unpermute_order[axis] = 0;
+  int64_t idx_offset = 1;
+  for (size_t i = 0; i < num_axis; i++) {
+    if (i == static_cast<size_t>(axis)) {
+      idx_offset--;
+    } else {
+      unpermute_order[i] = static_cast<int64_t>(i+idx_offset);
+    }
+  }
+  std::cout << "Unpermute order " << tv->toString() << " " << unpermute_order << std::endl;
+  return unpermute_order;
+}
+
+void insertPermutes(Fusion *fusion) {
+  auto exprs = fusion->exprs();
+  std::vector<Expr*> reshard_exprs;
+  std::vector<Expr*> remove_expr;
+  for (auto expr : exprs) {
+    if(isResharding(expr)) {
+      reshard_exprs.push_back(expr);
+    }
+  }
+  for (auto expr : reshard_exprs) {
+      std::cout << "Resharding op " << expr->toString() << std::endl;
+      NVF_ERROR(
+        ir_utils::isTvOp(expr),
+        "Non-tv op is not supported yet: ",
+        expr->toString());
+      NVF_ERROR(
+        expr->outputs().size() == 1,
+        "Resharding operations can only have one output");
+      NVF_ERROR(
+        expr->inputs().size() == 1,
+        "Resharding operations can have only one input");
+      auto output = expr->outputs().at(0)->as<TensorView>();
+      auto input = expr->inputs().at(0)->as<TensorView>();
+      auto shard_map = shardMap(input, output);
+      auto shard_additions = shard_map.first;
+      auto shard_deletions = shard_map.second;
+      NVF_ERROR(shard_additions.size() + shard_deletions.size() <= 1, 
+        "Resharding expr can only support one axis")
+
+      // For gather operations i.e. unsharding a sharding an axis
+      // we can only gather shards/tensors contiguously
+      // write to a intermediate tensors then permute into the correct order.
+      // i.e.  in -(set)-> out will become in -(set)-> intermediate -(permute)-> out
+      // Note: there are no reduction based collectives that combine gather+reduction.
+      if (!shard_deletions.empty() && !isContiguousShard(input, output)) {
+        std::cout << "Triggered by gather ops" << std::endl;
+        // Note this first permute is a no-op. Moving a device parallel axis has no 
+        // affect on the underlying memory.
+        int axis = shard_deletions[0];
+        TensorView* input_permute = permute(input, permuteOrder(input, axis)); 
+        input_permute->setDeviceMesh(input->getDeviceMesh());
+        input_permute->axis(0)->parallelize(ParallelType::DIDx);
+
+        TensorView* output_permute = set(input_permute);
+        auto unpermute_order = unpermuteOrder(output, axis);
+        TensorView* new_output = permute(output_permute, unpermute_order);
+        output_permute->setDeviceMesh(output->getDeviceMesh());
+        new_output->setDeviceMesh(output->getDeviceMesh());
+
+        std::cout << "Inpute permute expr " << input_permute->definition()->toString() << std::endl;
+        std::cout << "Output permute expr" << output_permute->definition()->toString() << std::endl;
+        std::cout << "New output expr " << new_output->definition()->toString() << std::endl;
+
+
+        // Update the output of the set to permuted output
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+        // Remove the original set since we replaced it.
+        remove_expr.push_back(expr);
+      }
+      // Triggered for scatter like operations (scatter, reduce scatter)
+      else if (!shard_additions.empty() && !isContiguousShard(output, input)) {
+        std::cout << "Triggered by scatter" << std::endl;
+        // Note this first permute is a no-op. and puts the input into canonical form.
+        auto axis = shard_additions[0];
+        auto perm_order = permuteOrder(input, axis);
+        TensorView* input_permute = permute(input, perm_order); 
+        input_permute->setDeviceMesh(input->getDeviceMesh());
+        TensorView* output_permute;// = set(input_permute);
+        auto red_axis = output->getReductionAxis();
+        int offset = 0;
+        if (red_axis.has_value()) {
+          std::cout << "Reduction axis! " << red_axis.value() << " " << axis << std::endl;
+        }
+        if (red_axis.has_value() && axis > red_axis.value()) {
+          offset = 1;
+        }
+        if (expr->isA<ReductionOp>()) {
+          output_permute = sum(input_permute, {static_cast<int>(output->getReductionAxis().value()+offset)}); 
+        } else {
+          output_permute = set(input_permute);
+        }
+        output_permute->setDeviceMesh(output->getDeviceMesh());
+        output_permute->axis(0)->parallelize(ParallelType::DIDx);
+        TensorView* new_output = permute(output_permute, unpermuteOrder(output_permute, axis-offset));
+        new_output->setDeviceMesh(output->getDeviceMesh());
+        new_output->axis(dimWithParallelType(output, ParallelType::DIDx))->parallelize(ParallelType::DIDx);
+
+        std::cout << "Inpute permute expr " << input_permute->definition()->toString() << std::endl;
+        std::cout << "Output permute expr" << output_permute->definition()->toString() << std::endl;
+        std::cout << "New output expr " << new_output->definition()->toString() << std::endl;
+
+        // Update the output of the set to permuted output
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+        // Remove the original set since we replaced it.
+        remove_expr.push_back(expr);
+      }
+    
+  }
+  for (auto expr : remove_expr) {
+    fusion->removeExpr(expr);
+  }
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
@@ -210,6 +361,46 @@ std::vector<int64_t> unshardedSize(
     unsharded_sizes[0] = static_cast<int64_t>(num_devices);
   }
   return unsharded_sizes;
+}
+
+// TODO: do we need the with reductions?
+int64_t dimWithParallelType(
+    TensorView* tv,
+    ParallelType pt,
+    bool withReductions) {
+  auto ids = withReductions
+      ? tv->getMaybeRFactorDomain()
+      : TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (ids[i]->getParallelType() == pt) {
+      return static_cast<int64_t>(i);
+    }
+  }
+  return -1;
+}
+
+bool isContiguousShard(TensorView* shard, TensorView* tv) {
+  // A shard can be written/read contiguously from its unsharded tv
+  // A shard cannot be written/read contiguously if it is operating
+  // over an axis that is right of an allocated axis in tv.
+
+  // Assumes there are no splits/merges 
+  // TODO: this should be correct for multi-dimensional sharding,
+  // but is untested. 
+  auto shard_allocation = shard->getMaybeAllocationDomain();
+  auto tv_allocation = tv->getMaybeAllocationDomain();
+  auto tv_allocation_started = false;
+  for (size_t i = 0; i < tv_allocation.size(); i++) {
+    auto shard_id = shard_allocation[i];
+    auto tv_id = tv_allocation[i];
+    auto tv_id_allocated = !tv_id->isDeviceDim() && !tv_id->isReduction();
+    auto shard_id_allocated = !shard_id->isDeviceDim() && !shard_id->isReduction();
+    if (tv_allocation_started && tv_id_allocated && !shard_id_allocated) {
+      return false;
+    }
+    tv_allocation_started = tv_allocation_started || tv_id_allocated;
+  }
+  return true;
 }
 
 } // namespace nvfuser

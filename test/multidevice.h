@@ -11,6 +11,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/executor.h>
+#include <multidevice/utils.h>
 #include <test/utils.h>
 
 namespace nvfuser {
@@ -48,15 +49,24 @@ class MultiDeviceTest : public NVFuserTest {
  public:
   static at::Tensor shardTensor(
       at::Tensor tensor,
-      const DeviceMesh& mesh,
+      TensorView* tv,
       DeviceIdxType deviceId) {
-    int i = 0;
-    auto devices = mesh.vector();
-    auto it = find(devices.begin(), devices.end(), deviceId);
-    if (it != devices.end()) {
-      i = std::distance(devices.begin(), it);
+  if (isSharded(tv)) {
+      auto sharded_dim = dimWithParallelType(tv, ParallelType::DIDx);
+      int i = 0;
+      auto devices = tv->getDeviceMesh().vector();
+      auto it = std::find(devices.begin(), devices.end(), deviceId);
+      if (it != devices.end()) {
+        i = std::distance(devices.begin(), it);
+      }
+      std::vector<at::indexing::TensorIndex> indices(
+          tensor.dim(), at::indexing::Slice());
+      indices[sharded_dim] = at::indexing::Slice(i, i + 1);
+      auto x =  tensor.index(indices).contiguous();
+      return x;
+    } else {
+      return tensor;
     }
-    return tensor.index({at::indexing::Slice(i, i + 1), "..."});
   }
 
  protected:

@@ -18,48 +18,149 @@
 
 namespace nvfuser {
 
+// Test memory allocation of multidevice fusion with unsharded inputs
+// and sharded intermediates, outputs.
+TEST_P(ShardingTest, UnshardedGlobalInput) {
+  auto concreteTv = GetParam();
+TEST(NVFuserTest, TestContiguousShardSet) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1, 2, 3, 4});
+  TensorView* a = makeContigConcreteTensor({4, 4, 4});
+  TensorView* b = set(a);
+  TensorView* c = set(a);
+
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+  b->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  ASSERT_TRUE(isContiguousShard(b, a));
+  ASSERT_FALSE(isContiguousShard(c, a));
+}
+
+TEST(NVFuserTest, TestContiguousShardReduce) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1, 2, 3, 4});
+  TensorView* a = makeContigConcreteTensor({4, 4, 4});
+  TensorView* b = sum(a, {0});
+  TensorView* c = sum(a, {0});
+
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  ASSERT_TRUE(isContiguousShard(b, a));
+  ASSERT_TRUE(isContiguousShard(c, a));
+}
+
+TEST_F(MultiDeviceTest, TestShardedCompute) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0});
+  if (communicator->deviceId() != 0) {
+    return ;
+  }
+  TensorView* a = makeContigConcreteTensor({4, 1, 2, 5});
+  // TensorView* b = sum(a, {0});
+  // TensorView* c = add(a, a);
+  TensorView* d = permute(a, {1, 0, 2, 3});
+
+  fusion->addInput(a);
+  // fusion->addOutput(b);
+  // fusion->addOutput(c);
+  fusion->addOutput(d);
+  
+  a->setDeviceMesh(mesh);
+  // b->setDeviceMesh(mesh);
+  // c->setDeviceMesh(mesh);
+  d->setDeviceMesh(mesh);
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  // b->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  // c->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  d->axis(0)->parallelize(ParallelType::DIDx);
+
+  fusion->printKernel();
+  
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a_ = at::randn({4, 1, 2, 5}, options);
+  std::cout << "Input a_" << a_ << std::endl;
+  auto b_ = at::sum(a_, {0});
+  auto c_ = a_ + a_;
+  auto d_ = at::permute(a_, {1, 0, 2, 3});
+  std::vector<at::Tensor> outputs_ = {d_}; //{b_, c_, d_};
+  // inputs = {a_};
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput({a_});
+  for (auto i : outputs) {
+    std::cout << "Output " << i << std::endl;
+  }
+
+  // FusionExecutor fe;
+  // fe.compileFusion(fusion.get(), {a_});
+  // auto outputs = fe.runFusion({a_});
+  // for (auto i : c10::irange(outputs_.size())) {
+  //   std::cout << "Expected: " << outputs_[i] << std::endl;
+  //   std::cout << "Got: " << outputs[i] << std::endl;
+  // }
+  // testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
+}
+
 class ShardingTest : public MultiDeviceTest,
                      public ::testing::WithParamInterface<bool> {};
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
-TEST_P(ShardingTest, UnshardedGlobalInput) {
-  auto concreteTv = GetParam();
+TEST_F(ShardingTest, UnshardedGlobalInput) {
+  int sharded_axis = 1;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
   std::vector<int64_t> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
-  std::vector<int64_t> input_size = {num_devices, 3};
+  std::vector<int64_t> input_size = {2, 3, 4, 3};
+  input_size[sharded_axis] = num_devices;
+  input_size[sharded_axis+1] = num_devices;
 
   TensorView* tv0 =
       concreteTv ? makeConcreteTensor(input_size) : makeContigTensor(2);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv3 = sum(tv2, {sharded_axis}); // allreduce or reduce/scatter
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
 
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-  tv2->axis(0)->parallelize(ParallelType::DIDx);
-  tv3->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+  tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+  tv3->axis(2)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
   for (auto tv : tvs) {
     tv->setDeviceMesh(mesh);
   }
 
+  fusion->printKernel();
+
   auto x0 = at::randn(input_size, tensor_options);
   std::vector<c10::IValue> inputs = {x0};
-  auto x1 = shardTensor(x0, mesh, communicator->deviceId());
+  auto x1 = shardTensor(x0, tv1, communicator->deviceId());
   auto x2 = x1 + x1;
-  auto x3 = at::sum(x2, {1});
+  auto x3 = shardTensor(at::sum(x0+x0, {sharded_axis}), tv3, communicator->deviceId());
+  std::cout << "Expected " << x1 << std::endl;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
+  for (auto i : outputs) {
+    std::cout << i << std::endl;
+  }
 
   testValidate(
       runtime.completeFusion(),
@@ -74,14 +175,15 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 // and replicated intermediates and output.
 TEST_P(ShardingTest, ShardGlobalInput) {
   auto concreteTv = GetParam();
-  int sharded_dim = 0;
+  int sharded_dim = 1;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
   std::vector<int64_t> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
-  std::vector<int64_t> unsharded_input_size = {num_devices, 3, 2};
+  std::vector<int64_t> unsharded_input_size = {3,4,2,5};
+  unsharded_input_size[sharded_dim] = num_devices;
 
   TensorView* tv0 = concreteTv ? makeConcreteTensor(unsharded_input_size)
                                : makeContigTensor(3);
@@ -98,13 +200,20 @@ TEST_P(ShardingTest, ShardGlobalInput) {
     tv->setDeviceMesh(mesh);
   }
 
+  fusion->printKernel();
+
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardTensor(x1, mesh, communicator->deviceId())};
+      shardTensor(x1, tv0, communicator->deviceId())};
   auto x2 = x1 * 2;
+  // std::cout << "Expected " << x1 << std::endl;
+  // std::cout << "Expected " << x2 << std::endl;
 
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
+  for (auto i : outputs) {
+    std::cout << "Output " << i << std::endl;
+  }
   testValidate(
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }

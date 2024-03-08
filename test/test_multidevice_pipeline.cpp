@@ -157,25 +157,24 @@ TEST_P(PipelineTestTwoStages, Communication) {
     mesh1 = mesh0;
   }
 
-  int first_axis_extent = 3;
+  int sharded_dim = 1;
+  std::vector<int64_t> unsharded_input_sizes = {4, 3, 2, 5};
   if (is_stage0_sharded) {
-    first_axis_extent = mesh0.vector().size();
-  } else if (is_stage1_sharded) {
-    first_axis_extent = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
   }
-  int second_axis_extent = 2;
-  if (is_stage1_sharded && do_reduction) {
-    GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-    second_axis_extent = mesh1.vector().size();
+  if (is_stage1_sharded) {
+    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    if(do_reduction) {
+      GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
+      unsharded_input_sizes[sharded_dim+1] = mesh1.vector().size();
+    }
   }
-  std::vector<int64_t> unsharded_input_sizes = {
-      first_axis_extent, second_axis_extent, 3, 5};
 
   FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
+  TensorView* tv0 = makeContigConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
+  TensorView* tv3 = add(tv2, tv2);
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
@@ -184,16 +183,17 @@ TEST_P(PipelineTestTwoStages, Communication) {
   tv2->setDeviceMesh(mesh1);
   tv3->setDeviceMesh(mesh1);
   if (is_stage0_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
+    tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+    tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
+    // in case of reduction, tv2's sharded_dim is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0;
-    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
+    int axis = (do_reduction) ? sharded_dim+1 : sharded_dim;
+    tv2->axis(axis)->parallelize(ParallelType::DIDx);
+    tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
+  // fusion->printKernel();
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 

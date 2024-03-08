@@ -361,6 +361,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
     metadata->alloc_stride = input.strides();
     // TODO: validateAllocationSizesAndStrides
   }
+  // std::cout << "Tv " << tv->toString() << metadata->alloc_stride << " " << metadata->alloc_size << std::endl;
   return {PolymorphicValue(std::move(struct_))};
 }
 
