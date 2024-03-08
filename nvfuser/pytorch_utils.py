@@ -15,6 +15,8 @@ _torch_dtype_to_nvfuser_dtype_map = {
     torch.float: DataType.Float,
     torch.half: DataType.Half,
     torch.bfloat16: DataType.BFloat16,
+    torch.float8_e4m3fn: DataType.Float8_e4m3fn,
+    torch.float8_e5m2: DataType.Float8_e5m2,
     torch.long: DataType.Int,
     torch.int: DataType.Int32,
     torch.bool: DataType.Bool,
