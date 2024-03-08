@@ -2105,6 +2105,30 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
       tv_b->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
 
+  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
+  // outputs. To preserve numerical equivalence and precision, the output of
+  // ATen matmul should be the same as MmaOp out `eventually`. Supported cases:
+  //  1. MmaOp->out() and MmaOp->input() are the same dtype.
+  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
+  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) will not
+  // occur.
+
+  const std::vector<Expr*>& uses = out()->uses();
+  // Check if the only use of MmaOp is a single castOp.
+  bool is_use_single_cast = [&uses] {
+    return (
+        uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
+        uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
+  }();
+
+  // Check if we eventually convert to the ATen output dtype.
+  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
+  NVF_CHECK(
+      tv_a->getDataType() == out()->getDataType() ||
+      (is_use_single_cast &&
+       tv_a->getDataType() ==
+           uses.front()->as<UnaryOp>()->out()->getDataType()));
+
   // Squeeze the inputs to remove the broadcasted dimensions.
   const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
   const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
@@ -2113,34 +2137,7 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
   // [M, K] x [K, N] compatible with aten::matmul format.
   at::Tensor output = in_a.matmul(in_b);
 
-  // ATen preserves the input dtype whereas MmaOP generates float outputs.
-  // If the MmaOp is followed by a cast, skip casting back the input to avoid
-  // roundtrip casts. For eg: MmaOp (H, H) + CastOp (F, H) will result in
-  // F->H->F->H impacting precision and performance. Note: This potentially
-  // binds the MmaOp output in the expression evaluator to a tensor
-  //        of different datatype.
-  const std::vector<Expr*> uses = out()->uses();
-
-  // Check if the only use of MmaOp is a single castOp.
-  bool is_use_single_cast = [&uses] {
-    return (
-        uses.size() == 1 && uses.front()->isA<UnaryOp>() &&
-        uses.front()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
-  }();
-
-  if (is_use_single_cast) {
-    // We currently don't support evaluating Cast (MmaOp (H, H), Bfloat16) since
-    // this loses precision due to ATen matmul converting Float to Half.
-    // CastOp should eventually convert to the MmaOp out() or ATen output dtype.
-    auto cast_out_dtype = uses.front()->as<UnaryOp>()->out()->getDataType();
-    NVF_CHECK(
-        cast_out_dtype == tv_a->getDataType() ||
-        cast_out_dtype == out()->getDataType());
-    return {output};
-  }
-
-  // Convert to float in other cases.
-  return {output.to(data_type_to_aten(out()->getDataType().value()))};
+  return {output};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
