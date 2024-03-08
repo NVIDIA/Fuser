@@ -248,7 +248,7 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 2, 3, 0));
   EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 2, 0));
   EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
-  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(0, 3, 2, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
