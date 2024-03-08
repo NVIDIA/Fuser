@@ -216,7 +216,37 @@ class Program {
       const ConstantValue& constant,
       const std::vector<const Term*>& producers);
 
-  bool isProvenTrue(const Term& term) {
+  //! Assume a Bool-valued Term is true
+  void assume(const Term& term) {
+    NVF_ERROR(
+        term.dtype == PrimDataType::Bool,
+        "Program::assume accepts Bool-valued Terms only")
+    proven_true_terms_.insert(&term).second;
+    if (isBinaryOpType(term.symbol)) {
+      BinaryOpType op_type = std::get<BinaryOpType>(term.symbol);
+      const Term& a = *term.producers[0];
+      const Term& b = *term.producers[1];
+      if (op_type == BinaryOpType::Eq) {
+        NVF_ERROR(term.producers.size() == 2);
+        proven_true_terms_.insert(&(b.equal(a)));
+        /*
+        proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
+        proven_true_terms_.insert(*term.producers[0] >= *term.producers[1]);
+        proven_true_terms_.insert(*term.producers[1] <= *term.producers[0]);
+        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+      } else if (term.symbol == BinaryOpType::LT) {
+        proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
+        proven_true_terms_.insert(*term.producers[1] > *term.producers[0]);
+        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+      } else if (term.symbol == BinaryOpType::LE) {
+        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+        */
+      }
+    }
+  }
+
+  //! Test whether a Bool-valued term has been proven true
+  bool isProven(const Term& term) {
     return proven_true_terms_.find(&term) != proven_true_terms_.end();
   }
 
@@ -295,6 +325,10 @@ class Program {
   // redefined after it is seen, then the Term pointed to by this map will still
   // refer to the previous definition.
   std::unordered_map<Val*, Term*> val_term_map_;
+
+  // Named scalars are treated as ordinary Terms. We map their name to the Term
+  // that represents them to avoid reproving relations when possible.
+  std::unordered_map<std::string, Term*> named_scalar_term_map_;
 
   // A collection of Terms that have been proven true
   // This lets us easily test whether a term is true or not. For example,
