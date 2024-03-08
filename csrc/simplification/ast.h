@@ -83,12 +83,26 @@ inline ConstantValue polymorphicValueToConstant(const PolymorphicValue& pv) {
   return std::monostate{};
 }
 
-//! A Function models a generic function symbol without describing its
+//! We use PrimDataType to represent scalar types. DataType is a much larger
+//! type that also includes structs, arrays, pointers, and opaque types. The
+//! difference in size is dramatic. On gcc 11.4.0, sizeof(PrimDataType) == 4,
+//! while sizeof(DataType) == 96. This function strips a DataType object to
+//! obtain the underlying PrimDataType.
+// TODO: This belongs in type.h
+inline PrimDataType dataTypeToPrim(const DataType& dtype) {
+  NVF_ERROR(
+      std::holds_alternative<PrimDataType>(dtype.type),
+      "Expected DataType holding PrimDataType but found ",
+      dtype);
+  return std::get<PrimDataType>(dtype.type);
+}
+
+//! An AbstractTerm models a generic function symbol without describing its
 //! producers. This allows us to generalize functions across producer types,
 //! depending on whether we are modelling terms or implementing an e-graph.
 //!
-//! Note that root variables are Functions whose symbol is std::monostate.
-struct Function {
+//! Note that root variables are AbstractTerms whose symbol is std::monostate.
+struct AbstractTerm {
   FunctionSymbol symbol;
 
   // [DataTypes in the AST]
@@ -96,6 +110,7 @@ struct Function {
   // PrimDataType attribute in this class, but then we would need to shadow the
   // type promotion rules here. This is not impossible, but it is complexity
   // that might not be needed, so we will avoid doing so until it is needed.
+  PrimDataType dtype;
 
  public:
   ConstantValue evaluate(
@@ -103,8 +118,9 @@ struct Function {
 };
 
 //! [AST model]
-//! A Term is either a constant, a free variable, or a Function of other Terms.
-struct Term : Function {
+//! A Term is either a constant, a free variable, or an AbstractTerm of other
+//! Terms.
+struct Term : AbstractTerm {
   //! This is std::monostate for free variables and whenever symbol !=
   //! std::monostate. Otherwise it indicates a constant value.
   ConstantValue constant;
@@ -184,6 +200,7 @@ class Program {
   //! Term, then all free variables would be represented by the same Term.
   Term* makeTerm(
       FunctionSymbol symbol,
+      PrimDataType dtype,
       const ConstantValue& constant,
       const std::vector<const Term*>& producers);
 
@@ -227,7 +244,10 @@ class Program {
       }
     }
     Term* term = makeTerm(
-        symbol, polymorphicValueToConstant(val->value()), producer_terms);
+        symbol,
+        dataTypeToPrim(val->dtype()),
+        polymorphicValueToConstant(val->value()),
+        producer_terms);
     term->representing_val = val;
     val_term_map_.emplace(val, term);
     std::cout << "END   valToTermHelper(" << val->toInlineString()

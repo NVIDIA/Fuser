@@ -59,6 +59,7 @@ size_t symbolId(FunctionSymbol symbol) {
 
 Term* Program::makeTerm(
     FunctionSymbol symbol,
+    PrimDataType dtype,
     const ConstantValue& constant,
     const std::vector<const Term*>& producers) {
   // If this is a free variable, we will not re-use any existing Term
@@ -77,14 +78,12 @@ Term* Program::makeTerm(
         key.size() == 1 && key.back() == 0,
         "Constant terms should have key [0]. ",
         "This could indicate a non-constant Val with non-null definition.");
+    key.back() = (size_t)toUnderlying(dtype);
     if (constant.is<bool>()) {
-      key.back() = 1;
       key.push_back((size_t)constant.as<bool>());
     } else if (constant.is<int64_t>()) {
-      key.back() = 2;
       key.push_back(*reinterpret_cast<const size_t*>(&constant.as<int64_t>()));
     } else if (constant.is<double>()) {
-      key.back() = 3;
       key.push_back(*reinterpret_cast<const size_t*>(&constant.as<double>()));
     } else {
       NVF_ERROR(
@@ -97,7 +96,7 @@ Term* Program::makeTerm(
 
   if (is_free_var) {
     std::cout << "Creating unique Term for free variable" << std::endl;
-    Term* term = new Term{symbol, constant, producers};
+    Term* term = new Term{symbol, dtype, constant, producers};
     std::cout << "term = " << (void*)term << std::endl;
     terms_up_.emplace_back(std::unique_ptr<Term>(term));
     return term;
@@ -112,7 +111,7 @@ Term* Program::makeTerm(
   auto term_it = term_map_.find(key);
   if (term_it == term_map_.end()) {
     std::cout << "Creating term with key " << key << std::endl;
-    Term* term = new Term{symbol, constant, producers};
+    Term* term = new Term{symbol, dtype, constant, producers};
     std::cout << "term = " << (void*)term << std::endl;
     terms_up_.emplace_back(std::unique_ptr<Term>(term));
     term_map_.emplace(key, term);
@@ -134,22 +133,25 @@ Term::operator bool() const {
 // Convenience function for creating new terms using the current Program
 static const Term& term(
     FunctionSymbol symbol,
+    PrimDataType dtype,
     PolymorphicValue constant,
     const std::vector<const Term*>& producer_terms) {
   Program* program = ProgramGuard::getCurProgram();
-  return *(program->makeTerm(symbol, constant, producer_terms));
+  return *(program->makeTerm(symbol, dtype, constant, producer_terms));
 }
 
 const Term& Term::equal(const Term& other) const {
-  return term(BinaryOpType::Eq, std::monostate{}, {this, &other});
+  return term(
+      BinaryOpType::Eq, PrimDataType::Bool, std::monostate{}, {this, &other});
 }
 const Term& Term::notEqual(const Term& other) const {
-  return term(BinaryOpType::NE, std::monostate{}, {this, &other});
+  return term(
+      BinaryOpType::NE, PrimDataType::Bool, std::monostate{}, {this, &other});
 }
 
-#define UNARY_TERM_OP(cppop, optype)                          \
-  const Term& cppop(const Term& a) {                          \
-    return term(UnaryOpType::optype, std::monostate{}, {&a}); \
+#define UNARY_TERM_OP(cppop, optype)                                   \
+  const Term& cppop(const Term& a) {                                   \
+    return term(UnaryOpType::optype, a.dtype, std::monostate{}, {&a}); \
   }
 UNARY_TERM_OP(abs, Abs)
 UNARY_TERM_OP(operator-, Neg)
@@ -157,21 +159,22 @@ UNARY_TERM_OP(operator!, LogicalNot)
 UNARY_TERM_OP(operator~, BitwiseNot)
 #undef UNARY_TERM_OP
 
-#define BINARY_TERM_OP_CONST_HELPER(cppop, optype, consttype)      \
-  const Term& cppop(const Term& a, const consttype b_const) {      \
-    const Term& b = term(std::monostate{}, b_const, {});           \
-    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
-  }                                                                \
-  const Term& cppop(const consttype a_const, const Term& b) {      \
-    const Term& a = term(std::monostate{}, a_const, {});           \
-    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
+// TODO: Use real promotion rules from type_promotion.h here
+#define BINARY_TERM_OP_CONST_HELPER(cppop, optype, consttype)               \
+  const Term& cppop(const Term& a, const consttype b_const) {               \
+    const Term& b = term(std::monostate{}, a.dtype, b_const, {});           \
+    return term(BinaryOpType::optype, a.dtype, std::monostate{}, {&a, &b}); \
+  }                                                                         \
+  const Term& cppop(const consttype a_const, const Term& b) {               \
+    const Term& a = term(std::monostate{}, b.dtype, a_const, {});           \
+    return term(BinaryOpType::optype, b.dtype, std::monostate{}, {&a, &b}); \
   }
-#define BINARY_TERM_OP(cppop, optype)                              \
-  const Term& cppop(const Term& a, const Term& b) {                \
-    return term(BinaryOpType::optype, std::monostate{}, {&a, &b}); \
-  }                                                                \
-  BINARY_TERM_OP_CONST_HELPER(cppop, optype, bool);                \
-  BINARY_TERM_OP_CONST_HELPER(cppop, optype, int64_t);             \
+#define BINARY_TERM_OP(cppop, optype)                                       \
+  const Term& cppop(const Term& a, const Term& b) {                         \
+    return term(BinaryOpType::optype, a.dtype, std::monostate{}, {&a, &b}); \
+  }                                                                         \
+  BINARY_TERM_OP_CONST_HELPER(cppop, optype, bool);                         \
+  BINARY_TERM_OP_CONST_HELPER(cppop, optype, int64_t);                      \
   BINARY_TERM_OP_CONST_HELPER(cppop, optype, double);
 BINARY_TERM_OP(operator+, Add)
 BINARY_TERM_OP(operator-, Sub)
@@ -190,9 +193,10 @@ BINARY_TERM_OP(gcd, Gcd)
 #undef BINARY_TERM_OP
 #undef BINARY_TERM_OP_CONST_HELPER
 
-#define TERNARY_TERM_OP(cppop, optype)                                  \
-  const Term& cppop(const Term& a, const Term& b, const Term& c) {      \
-    return term(TernaryOpType::optype, std::monostate{}, {&a, &b, &c}); \
+#define TERNARY_TERM_OP(cppop, optype)                                   \
+  const Term& cppop(const Term& a, const Term& b, const Term& c) {       \
+    return term(                                                         \
+        TernaryOpType::optype, b.dtype, std::monostate{}, {&a, &b, &c}); \
   }
 TERNARY_TERM_OP(where, Where)
 #undef TERNARY_TERM_OP
@@ -206,19 +210,19 @@ Val* Program::termToVal(const Term* term) {
   Val* val = nullptr;
   if (std::holds_alternative<std::monostate>(term->symbol)) {
     // Constant or free variable
-    // TODO: this is where we might want to track PrimDataType. We currently
-    // just need to guess at the types we create for constants. That is
-    // likely not a problem as we can just assume Bool, Double, or Int.
     NVF_ERROR(
         !(term->constant.hasValue()), "Refusing to create free variable Val");
+    PolymorphicValue pv;
     if (term->constant.is<bool>()) {
-      val = IrBuilder::create<Val>(term->constant.as<bool>(), DataType::Bool);
+      pv = term->constant.as<bool>();
     } else if (term->constant.is<int64_t>()) {
-      val = IrBuilder::create<Val>(term->constant.as<int64_t>(), DataType::Int);
+      pv = term->constant.as<int64_t>();
     } else if (term->constant.is<double>()) {
-      val =
-          IrBuilder::create<Val>(term->constant.as<double>(), DataType::Double);
+      pv = term->constant.as<double>();
+    } else {
+      NVF_ERROR(false, "Unrecognized constant value: ", term->constant);
     }
+    val = IrBuilder::create<Val>(pv, term->dtype);
   } else if (isUnaryOpType(term->symbol)) {
     NVF_ERROR(term->producers.size() == 1);
     val = unaryOp(
