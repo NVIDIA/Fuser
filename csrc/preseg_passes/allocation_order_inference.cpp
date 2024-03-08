@@ -35,7 +35,7 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
     }
   }
   while (!idx_stack.empty()) {
-    idx = idx_stack.top();
+    auto idx = idx_stack.top();
     idx_stack.pop();
     for (auto i = ret.begin(); i != ret.end(); i++) {
       if (*i > idx) {
