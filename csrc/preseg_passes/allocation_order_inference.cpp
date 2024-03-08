@@ -33,6 +33,13 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
       ret.erase(erase_iter);
     }
   }
+#ifndef NDEBUG
+  std::set<int> unique_check;
+  for (auto idx : ret) {
+    NVF_ERROR(unique_check.count(idx) == 0 && idx >= 0 && idx < ret.size());
+    unique_check.insert(idx);
+  }
+#endif
   return ret;
 }
 
