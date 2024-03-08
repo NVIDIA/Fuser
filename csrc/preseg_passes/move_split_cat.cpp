@@ -26,18 +26,92 @@ class CancelSplitCat {
  public:
   CancelSplitCat(Fusion* fusion)
       : fusion_(fusion),
-        id_model_(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true) {}
+        id_model_(
+            fusion,
+            /*build_graphs=*/false,
+            /*allow_self_mapping=*/true) {
+    id_model_.buildExactGraph();
+  }
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
   // merges ops in between.
   void run();
 
  private:
-  // Returns true when Exprs in the frontier can be horizontally merged and
-  // applied on the unsplit tensor.
-  bool horizontallyMergeable(
-      const std::vector<Expr*>& frontier,
-      int64_t& split_axis);
+  // Returns true when the def-use chain from slices[i] to pads[i] apply the
+  // same IterDomain transforms as the one from slices[j] to pads[j]. This is a
+  // necessary condition for horizontally merging the chains.
+  //
+  // Pre-condition: this is called after findPairingSplit so we know these
+  // chains contain the same sequence of op types and attributes.
+  bool sameIterDomainTransforms(
+      const std::vector<SliceOp*>& slices,
+      const std::vector<PadOp*>& pads,
+      int64_t cat_axis);
+
+  // Imagine we "zip" the cat upwards as following:
+  //
+  //   s0, s1 = split(in)
+  //   s0 = unary_0(s0)
+  //   s1 = unary_0(s1)
+  //   ...
+  //   s0 = unary_k(s0)
+  //   s1 = unary_k(s1)
+  //   s = cat({s0, s1})
+  //
+  //   ==>
+  //
+  //   s0, s1 = split(in)
+  //   s = cat({s0, s1})
+  //   s = unary_0(s)
+  //   ...
+  //   s = unary_k(s)
+  //
+  // This function returns the concatenated axis of the new cat so the above
+  // transform preserves the semantics. This axis will then be compared with the
+  // split axis to determine whether the split and the cat cancel out.
+  //
+  // If we can't zip the cat up to the split outputs (see one of the following
+  // examples), this function returns -1.
+  //
+  // Before calling this function, we already checked the chains contain the
+  // same sequence of op type and attributes and transform IterDomains in the
+  // same way. So this function takes the rfactor domain of any one of the
+  // slices and the catted IterDomain at the end of that chain.
+  //
+  // Example 1:
+  //   t = permute(slice, {1, 2, 0})
+  //   out = cat({t, ...}, 1)
+  //
+  // Returns 2 because the catted dimension (dimension 1 of `t1`) is permuted
+  // from dimension 2 of `slice`.
+  //
+  // Example 2:
+  //   t = reshape(slice, {2, 3, 5}, {6, 5})
+  //   out = cat({t, ...}, 1}
+  //
+  // Returns 2 because the catted dimension comes from dimension 2 of `slice`.
+  //
+  // Example 3:
+  //   t = reshape(slice, {2, 3}, {6})
+  //   out = cat({t, ...}, 0}
+  //
+  // Returns 0 because `slice`'s dimension 0 is the outer dimension.
+
+  // Example 4:
+  //   t = reshape(slice, {6}, {2, 3})
+  //   out = cat({t, ...}, 0}
+  //
+  // Returns 0 because `out`'s dimension 0 is the outer dimension.
+  //
+  // Example 5:
+  //   t = reshape(slice, {6}, {2, 3})
+  //   out = cat({t, ...}, 1}
+  //
+  // Returns -1 because `out`'s dimension 1 is the inner dimension.
+  int64_t computeCatAxisAfterZipping(
+      const std::vector<IterDomain*>& slice_rfactor,
+      IterDomain* cat_id);
 
   // Finds the canceling split of `cat` and returns the input TensorView of the
   // split. A split (implemented as multiple `slice`s) and a cat cancel when
@@ -58,79 +132,90 @@ class CancelSplitCat {
   //   out = cat([t0, t1], dim=0)
   //
   // In addition to returning `in`, findCancelingSplit(out) puts `t0`'s defining
-  // `permute` into `use_def_chain` so the caller can reconstruct `out` by
-  // replaying `use_def_chain` (in reverse order) on `in`.
-  TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& use_def_chain);
+  // `permute` into `def_use_chain` so the caller can reconstruct `out` by
+  // replaying `def_use_chain` on `in`.
+  TensorView* findCancelingSplit(CatOp* cat, std::vector<Expr*>& def_use_chain);
 
   Fusion* fusion_;
 
+  // `id_model_` is supposed to be read-only and reflect the
+  // original fusion.
   IdModel id_model_;
 };
 
-bool CancelSplitCat::horizontallyMergeable(
-    const std::vector<Expr*>& frontier,
-    int64_t& split_axis) {
-  NVF_ERROR(!frontier.empty());
+bool sameOp(const std::vector<Expr*>& frontier) {
+  return std::adjacent_find(
+             frontier.begin(), frontier.end(), [](Expr* lhs, Expr* rhs) {
+               return !lhs->sameOp(rhs);
+             }) == frontier.end();
+}
 
-  // Check all Exprs in `frontier`
-  // 1. have the same op type and attributes,
-  // 2. transform IDs in the same way, and
-  // 3. don't resize the split axis.
+bool CancelSplitCat::sameIterDomainTransforms(
+    const std::vector<SliceOp*>& slices,
+    const std::vector<PadOp*>& pads,
+    const int64_t cat_axis) {
+  NVF_ERROR(slices.size() == pads.size());
+  NVF_ERROR(!slices.empty());
 
-  if (std::adjacent_find(
-          frontier.begin(), frontier.end(), [](Expr* lhs, Expr* rhs) {
-            return !lhs->sameOp(rhs);
-          }) != frontier.end()) {
-    return false;
-  }
-
-  if (auto* set = dynamic_cast<LoadStoreOp*>(frontier[0])) {
-    if (set->opType() == LoadStoreOpType::Set) {
-      auto* set_out = set->out()->as<TensorView>();
-      std::optional<std::vector<int64_t>> permutation =
-          ir_utils::computePermutation(
-              set_out->getRootDomain(), set_out->getMaybeRFactorDomain());
-      if (!permutation.has_value()) {
-        return false;
-      }
-
-      for (size_t i = 1; i < frontier.size(); i++) {
-        auto* other_set_out =
-            frontier[i]->as<LoadStoreOp>()->out()->as<TensorView>();
-        std::optional<std::vector<int64_t>> other_permutation =
-            ir_utils::computePermutation(
-                other_set_out->getRootDomain(),
-                other_set_out->getMaybeRFactorDomain());
-        if (!other_permutation.has_value()) {
-          return false;
-        }
-        if (*permutation != *other_permutation) {
-          return false;
-        }
-      }
-
-      split_axis = (*permutation)[split_axis];
-      return true;
+  // This clones the exact graph so that `mapVals` are done without affecting
+  // other split/cat pairs in consideration. See
+  // MoveSplitCatTest.MultipleCatsOnSameSplit for why this independence is
+  // important.
+  ValGraph exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  {
+    // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
+    // already mapped due to the `cat` when the IdModel was built.
+    const std::vector<IterDomain*>& first_root =
+        pads[0]->out()->as<TensorView>()->getRootDomain();
+    for (size_t i = 1; i < pads.size(); i++) {
+      const std::vector<IterDomain*>& other_root =
+          pads[i]->out()->as<TensorView>()->getRootDomain();
+      NVF_ERROR(first_root.size() == other_root.size());
+      exact_graph.mapVals(first_root[cat_axis], other_root[cat_axis]);
     }
   }
 
-  return false;
+  // The above code block only maps IterDomains across chains. If a self mapping
+  // is detected at this point, it's likely due to some IterDomains are permuted
+  // diffrently between two chains. See
+  // MoveSplitCatTest.Noncancellable_PermutedDifferently for an example.
+  for (auto* slice : slices) {
+    if (hasSelfMapping(slice->out(), exact_graph)) {
+      return false;
+    }
+  }
+
+  {
+    // Check slices[i0][j] and slices[i1][j] are mapped.
+    const std::vector<IterDomain*>& first_rfactor =
+        slices[0]->out()->getMaybeRFactorDomain();
+    size_t num_dims = first_rfactor.size();
+    for (size_t i = 1; i < slices.size(); i++) {
+      const std::vector<IterDomain*>& other_rfactor =
+          slices[i]->out()->getMaybeRFactorDomain();
+      if (other_rfactor.size() != num_dims) {
+        return false;
+      }
+      for (size_t j = 0; j < num_dims; j++) {
+        if (!exact_graph.disjointValSets().strictAreMapped(
+                first_rfactor[j], other_rfactor[j])) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
 }
 
-// If `exprs` are `SliceOp`s that form a split, returns the base tensor of the
+// If `slices` form a split, returns the base tensor of the
 // split. Returns null otherwise.
-TensorView* exprsFormSplit(
-    const std::vector<Expr*>& exprs,
+TensorView* slicesFormSplit(
+    const std::vector<SliceOp*>& slices,
     const int64_t split_axis) {
   // Checks that all exprs are slices and are based on the
   // same tensor. Otherwise, they don't form a split.
   TensorView* split_in = nullptr;
-  for (Expr* e : exprs) {
-    auto* slice = dynamic_cast<SliceOp*>(e);
-    if (slice == nullptr) {
-      return nullptr;
-    }
-
+  for (auto* slice : slices) {
     if (split_in == nullptr) {
       split_in = slice->in();
     } else if (split_in != slice->in()) {
@@ -144,9 +229,8 @@ TensorView* exprsFormSplit(
   //
   // `split_ranges[i]` is the slice range of `exprs[i]` for the split axis.
   std::vector<Slice> split_ranges;
-  split_ranges.reserve(exprs.size());
-  for (auto i : c10::irange(exprs.size())) {
-    auto* slice = exprs[i]->as<SliceOp>();
+  split_ranges.reserve(slices.size());
+  for (auto* slice : slices) {
     const std::vector<Slice>& slice_ranges = slice->getRanges();
     // Check the steps are all one.
     if (std::any_of(
@@ -179,8 +263,7 @@ TensorView* exprsFormSplit(
   // Due to the limitation of `sameAs` mentioned in #1859, I can't check
   // split_ranges.back().stop is the same as the dimension size. Below is a
   // slightly lengthy workaround.
-  if (!exprs.back()
-           ->as<SliceOp>()
+  if (!slices.back()
            ->out()
            ->getMaybeRFactorDomain()[split_axis]
            ->definition()
@@ -189,7 +272,7 @@ TensorView* exprsFormSplit(
            ->isZero()) {
     return nullptr;
   }
-  for (size_t i = 0; i + 1 < exprs.size(); i++) {
+  for (size_t i = 0; i + 1 < slices.size(); i++) {
     if (!split_ranges[i].stop->sameAs(split_ranges[i + 1].start)) {
       return nullptr;
     }
@@ -198,30 +281,102 @@ TensorView* exprsFormSplit(
   return split_in;
 }
 
-TensorView* CancelSplitCat::findCancelingSplit(
-    CatOp* cat,
-    std::vector<Expr*>& use_def_chain) {
+int64_t CancelSplitCat::computeCatAxisAfterZipping(
+    const std::vector<IterDomain*>& slice_rfactor,
+    IterDomain* cat_id) {
+  const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  ValGroup cat_group = exact_graph.toGroup(cat_id);
+  while (cat_group != nullptr) {
+    // If `cat_group` contains a slice rfactor ID, return the index of that ID.
+    auto i = std::find_if(
+        slice_rfactor.begin(), slice_rfactor.end(), [&](IterDomain* id) {
+          return exact_graph.toGroup(id) == cat_group;
+        });
+    if (i != slice_rfactor.end()) {
+      return i - slice_rfactor.begin();
+    }
+
+    // Conceptually zip `cat_group` over its definition.
+    auto cat_group_after_zipping = [&](ValGroup cat_group) -> ValGroup {
+      const ExprGroups& defining_groups = exact_graph.getDefinitions(cat_group);
+      if (defining_groups.size() != 1) {
+        return nullptr;
+      }
+      ExprGroup defining_group = defining_groups.front();
+      // Pick an arbitrary Expr from defining_group as the representative.
+      Expr* def = defining_group->front();
+
+      if (Split* split = dynamic_cast<Split*>(def)) {
+        if (exact_graph.toGroup(split->outer()) == cat_group) {
+          return exact_graph.toGroup(split->in());
+        }
+        return nullptr;
+      }
+
+      if (Merge* merge = dynamic_cast<Merge*>(def)) {
+        return exact_graph.toGroup(merge->outer());
+      }
+
+      return nullptr;
+    };
+    cat_group = cat_group_after_zipping(cat_group);
+  }
+
+  return -1;
+}
+
+// Finds the pairing split of `cat` by traversing the use-def chains. If found,
+// returns the slices of the pairing split and `cat`'s preceding `PadOp`s. This
+// function does some basic checks like:
+// 1. Ops between the chains must have the same op type and attributes.
+// 2. Chains must end with slices.
+// However, these checks are necessary but not sufficient to guarantee the
+// pairing split is canceling. To make that decision, the caller has to further
+// inspect the ops in between.
+std::optional<std::pair<std::vector<SliceOp*>, std::vector<PadOp*>>>
+findPairingSplit(CatOp* cat) {
   NVF_CHECK(!cat->inputs().empty(), "`cat` has zero inputs: ", cat);
 
-  // `frontier` initially contains the preceding Exprs of the `PadOp`s. Then, we
+  // `PadOp`s that produce `cat`'s inputs.
+  std::vector<PadOp*> pads;
+  pads.reserve(cat->inputs().size());
+
+  // `frontier` initially contains the `Expr`s that precede `pads`. Then, we
   // repeatedly try to move the frontier up in lockstep as long as Exprs in the
   // frontier can be horizontally merged and applied on the unsplit tensor.
   std::vector<Expr*> frontier;
   frontier.reserve(cat->inputs().size());
   for (Val* in : cat->inputs()) {
     auto* pad = in->definition()->as<PadOp>();
+    pads.push_back(pad);
     frontier.push_back(pad->in()->definition());
   }
 
   // Exit the loop when any Expr in `frontier` is a slice or a null.
-  int64_t split_axis = cat->concatenatedDim();
   while (std::none_of(frontier.begin(), frontier.end(), [](Expr* e) {
     return e == nullptr || e->isA<SliceOp>();
   })) {
-    if (!horizontallyMergeable(frontier, std::ref(split_axis))) {
-      return nullptr;
+    if (!sameOp(frontier)) {
+      return std::nullopt;
     }
-    use_def_chain.push_back(frontier[0]);
+
+    // We can probably extend this list to include many other unary ops.
+    // Currently, I limit this to only reshapes and permutes to reduce blast
+    // radius.
+    auto supported = [](Expr* e) -> bool {
+      if (e->isA<ViewOp>()) {
+        return true;
+      }
+      if (auto* set = dynamic_cast<LoadStoreOp*>(e)) {
+        if (set->opType() == LoadStoreOpType::Set) {
+          return true;
+        }
+      }
+      return false;
+    };
+    if (!supported(frontier[0])) {
+      return std::nullopt;
+    }
 
     // Advance the frontier in lockstep.
     for (Expr*& e : frontier) {
@@ -233,23 +388,65 @@ TensorView* CancelSplitCat::findCancelingSplit(
     }
   }
 
-  TensorView* split_in = exprsFormSplit(frontier, split_axis);
+  std::vector<SliceOp*> slices;
+  slices.reserve(frontier.size());
+  for (Expr* e : frontier) {
+    auto* slice = dynamic_cast<SliceOp*>(e);
+    if (slice == nullptr) {
+      return std::nullopt;
+    }
+    slices.push_back(slice);
+  }
+
+  return std::make_pair(slices, pads);
+}
+
+TensorView* CancelSplitCat::findCancelingSplit(
+    CatOp* cat,
+    std::vector<Expr*>& def_use_chain) {
+  auto heads_and_tails = findPairingSplit(cat);
+  if (!heads_and_tails.has_value()) {
+    return nullptr;
+  }
+  std::vector<SliceOp*> slices;
+  std::vector<PadOp*> pads;
+  std::tie(slices, pads) = *heads_and_tails;
+
+  int64_t cat_axis = cat->concatenatedDim();
+  if (!sameIterDomainTransforms(slices, pads, cat_axis)) {
+    return nullptr;
+  }
+
+  cat_axis = computeCatAxisAfterZipping(
+      slices[0]->out()->getMaybeRFactorDomain(),
+      pads[0]->out()->as<TensorView>()->getRootDomain()[cat_axis]);
+  if (cat_axis == -1) {
+    return nullptr;
+  }
+
+  TensorView* split_in = slicesFormSplit(slices, cat_axis);
+  if (split_in == nullptr) {
+    return nullptr;
+  }
+
+  std::vector<Expr*> first_chain =
+      StmtSort::getExprsBetween({slices[0]->out()}, {pads[0]->in()});
+  def_use_chain.swap(first_chain);
   return split_in;
 }
 
 void CancelSplitCat::run() {
   std::vector<Expr*> exprs = fusion_->exprs();
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
-    std::vector<Expr*> use_def_chain;
-    TensorView* split_in = findCancelingSplit(cat, std::ref(use_def_chain));
+    std::vector<Expr*> def_use_chain;
+    TensorView* split_in = findCancelingSplit(cat, std::ref(def_use_chain));
     if (split_in == nullptr) {
       continue;
     }
 
     Val* merged_out = split_in;
-    for (auto i = use_def_chain.rbegin(), end = use_def_chain.rend(); i != end;
-         i++) {
-      Expr* merged = replayExprWithNewInput(*i, merged_out);
+    for (Expr* e : def_use_chain) {
+      Expr* merged = replayExprWithNewInput(e, merged_out);
       NVF_ERROR(
           merged->outputs().size() == 1,
           "Currently, we merge only unary ops, so it would be a programming "
