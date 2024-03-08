@@ -57,6 +57,13 @@ size_t symbolId(FunctionSymbol symbol) {
   return id;
 }
 
+ConstantValue AbstractTerm::evaluate(
+    FunctionSymbol symbol,
+    PrimDataType dtype,
+    const std::vector<ConstantValue>& producer_values) {
+  return std::monostate{};
+}
+
 Term* Program::makeTerm(
     FunctionSymbol symbol,
     PrimDataType dtype,
@@ -111,6 +118,25 @@ Term* Program::makeTerm(
   auto term_it = term_map_.find(key);
   if (term_it == term_map_.end()) {
     std::cout << "Creating term with key " << key << std::endl;
+    // Try to fold constants
+    std::vector<ConstantValue> producer_values;
+    producer_values.reserve(producers.size());
+    for (const Term* producer : producers) {
+      producer_values.push_back(producer->constant);
+    }
+    ConstantValue c = AbstractTerm::evaluate(symbol, dtype, producer_values);
+    if (c.hasValue()) {
+      // Successful evaluation means constant folding is possible. Create a new
+      // constant term with the evaluated value and the given dtype.
+      std::cout << "Folded constant" << std::endl;
+      Term* term = makeTerm(std::monostate{}, dtype, c, {});
+      // makeTerm will record an entry in term_map_ using the key corresponding
+      // to the constant c. We additionally map the original key from the
+      // unfolded expression here, so that we short-cut to the same value if we
+      // recognize a constant subexpression later.
+      term_map_.emplace(key, term);
+      return term;
+    }
     Term* term = new Term{symbol, dtype, constant, producers};
     std::cout << "term = " << (void*)term << std::endl;
     terms_up_.emplace_back(std::unique_ptr<Term>(term));
@@ -120,13 +146,6 @@ Term* Program::makeTerm(
   std::cout << "Reusing existing Term " << (void*)(term_it->second)
             << " with key " << key << std::endl;
   return term_it->second;
-}
-
-Term::operator bool() const {
-  if (constant.hasValue() && constant.is<bool>()) {
-    return constant.as<bool>();
-  }
-  return ProgramGuard::getCurProgram()->isProven(*this);
 }
 
 // Convenience function for creating new terms using the current Program
@@ -187,6 +206,12 @@ BINARY_TERM_OP(operator|, BitwiseOr)
 BINARY_TERM_OP(operator^, BitwiseXor)
 BINARY_TERM_OP(operator<<, Lshift)
 BINARY_TERM_OP(operator>>, Rshift)
+BINARY_TERM_OP(operator<, LT)
+BINARY_TERM_OP(operator<=, LE)
+BINARY_TERM_OP(operator>, GT)
+BINARY_TERM_OP(operator>=, GE)
+BINARY_TERM_OP(operator==, Eq)
+BINARY_TERM_OP(operator!=, NE)
 BINARY_TERM_OP(ceilDiv, CeilDiv)
 BINARY_TERM_OP(gcd, Gcd)
 #undef BINARY_TERM_OP

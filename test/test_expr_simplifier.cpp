@@ -1134,8 +1134,10 @@ TEST_F(ExprSimplifierTest, AST) {
 
   const auto& ta = program.valToTerm(a);
   const auto& td = program.valToTerm(d);
-  const auto& t = ta == td;
+  const auto& t = ta.equal(td);
   std::cout << (void*)&t << std::endl;
+
+  std::cout << "a < d? " << program.isProven(ta < td) << std::endl;
 }
 
 } // namespace nvfuser

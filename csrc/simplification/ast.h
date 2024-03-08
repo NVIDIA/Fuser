@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <ir/internal_nodes.h>
@@ -113,8 +114,15 @@ struct AbstractTerm {
   PrimDataType dtype;
 
  public:
+  static ConstantValue evaluate(
+      FunctionSymbol symbol,
+      PrimDataType dtype,
+      const std::vector<ConstantValue>& producer_values);
+
   ConstantValue evaluate(
-      const std::vector<ConstantValue>& producer_values) const;
+      const std::vector<ConstantValue>& producer_values) const {
+    return evaluate(symbol, dtype, producer_values);
+  }
 };
 
 //! [AST model]
@@ -133,7 +141,6 @@ struct Term : AbstractTerm {
   Val* representing_val = nullptr;
 
  public:
-  operator bool() const;
   // This returns a new Term representing the condition a == b. Note that this
   // does not directly return bool. However, since terms are implicitly
   // convertible to bool, using if(a.equals(b)) will return true if it is proven
@@ -169,6 +176,12 @@ DECLARE_BINARY_TERM_OP(operator|)
 DECLARE_BINARY_TERM_OP(operator^)
 DECLARE_BINARY_TERM_OP(operator<<)
 DECLARE_BINARY_TERM_OP(operator>>)
+DECLARE_BINARY_TERM_OP(operator<)
+DECLARE_BINARY_TERM_OP(operator<=)
+DECLARE_BINARY_TERM_OP(operator>)
+DECLARE_BINARY_TERM_OP(operator>=)
+DECLARE_BINARY_TERM_OP(operator==)
+DECLARE_BINARY_TERM_OP(operator!=)
 DECLARE_BINARY_TERM_OP(ceilDiv)
 DECLARE_BINARY_TERM_OP(gcd)
 #undef DECLARE_BINARY_TERM_OP
@@ -297,6 +310,11 @@ class Program {
     return term;
   }
 
+  //! Try to prove new orderings implied by current assumptions and proofs. This
+  //! computes the transitive closure of the ordering assumptions by matrix
+  //! multiplication of the adjacency graphs less_than_ and less_equal_.
+  void proveOrderings(int max_steps = 10);
+
  private:
   using TermMapKey = std::vector<size_t>;
   class TermMapKeyHasher {
@@ -343,6 +361,56 @@ class Program {
   // we used the implicit conversion operator that casts Terms to true only if
   // they appear in this set.
   std::unordered_set<const Term*> proven_true_terms_;
+
+  // This holds a mapping from each ConstantValue to a vector of Terms with that
+  // value. Note that there might be multiple Terms with a single constant since
+  // those terms can have distinct dtypes. When we detect that an element was
+  // inserted, we iterate through this collection, adding relations to
+  // less_than_ and less_equal_, then we rerun proveOrderings(). In this way we
+  // automatically prove implications like  a < 3 && 5 <= b => a < b.
+  // Also note that double is able to represent ints and int arithmetic exactly
+  // on the interval [-2^52, 2^52].
+  std::unordered_map<double, std::vector<const Term*>> real_constants_;
+
+  // These aten tensors contain int-valued matrices that encode proven ordering
+  // relations. These get completed via proveOrderings(). Whenever a
+  // new relation is proven involving two terms, that method is called.
+  //
+  // For example, suppose we have made the following assumptions:
+  //
+  //    c < d
+  //    b <= a
+  //    c < b
+  //    f < e
+  //    e <= c
+  //
+  // Then originally we have the following:
+  //
+  //   terms_in_orderings_ = {a:0, b:1, c:2, d:3, e:4, f:5}
+  //
+  //   less_than_ =        less_equal_ =
+  //     0 0 0 0 0           0 0 0 0 0
+  //     0 0 0 0 0           1 0 0 0 0
+  //     0 1 0 1 0           0 0 0 0 0
+  //     0 0 0 0 0           0 0 0 0 0
+  //     0 0 0 0 0           0 0 1 0 0
+  //     0 0 0 1 0           0 0 0 0 0
+  //
+  // proveOrderings() will develop this like so
+  //
+  //   less_than_ =        less_equal_ =
+  //     0 0 0 0 0           0 0 0 0 0
+  //     0 0 0 0 0           1 0 0 0 0
+  //     1 1 0 1 0           1 1 0 1 0
+  //     0 0 0 0 0           0 0 0 0 0
+  //     1 1 0 0 0           1 1 1 0 0
+  //     1 1 1 1 0           1 1 1 1 0
+  //
+  // NOTE: constant terms are ordered so that we can manually prove relations
+  // between constants whenever they appear in queries.
+  std::unordered_map<const Term*, int> terms_in_orderings_;
+  at::Tensor less_than_;
+  at::Tensor less_equal_;
 };
 
 } // namespace simplification

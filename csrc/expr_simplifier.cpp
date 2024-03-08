@@ -256,6 +256,10 @@ class Context {
   void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
+      std::cout << "assume inequality involving "
+                << bop->lhs()->toInlineString() << std::endl;
+      std::cout << "assume inequality involving "
+                << bop->rhs()->toInlineString() << std::endl;
       switch (bop->getBinaryOpType()) {
         case BinaryOpType::LT:
           less_than_.emplace_back(
@@ -1529,6 +1533,8 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
 }
 
 bool lessThan(Val* x, Val* y, const Context& context) {
+  std::cout << "Comparison involving " << x->toInlineString() << std::endl;
+  std::cout << "Comparison involving " << y->toInlineString() << std::endl;
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1558,6 +1564,8 @@ bool lessThan(Val* x, Val* y, const Context& context) {
 }
 
 bool lessEqual(Val* x, Val* y, const Context& context) {
+  std::cout << "Comparison involving " << x->toInlineString() << std::endl;
+  std::cout << "Comparison involving " << y->toInlineString() << std::endl;
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
