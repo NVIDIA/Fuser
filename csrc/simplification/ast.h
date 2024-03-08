@@ -230,33 +230,7 @@ class Program {
       const std::vector<const Term*>& producers);
 
   //! Assume a Bool-valued Term is true
-  void assume(const Term& term) {
-    NVF_ERROR(
-        term.dtype == PrimDataType::Bool,
-        "Program::assume accepts Bool-valued Terms only")
-    proven_true_terms_.insert(&term).second;
-    if (isBinaryOpType(term.symbol)) {
-      BinaryOpType op_type = std::get<BinaryOpType>(term.symbol);
-      const Term& a = *term.producers[0];
-      const Term& b = *term.producers[1];
-      if (op_type == BinaryOpType::Eq) {
-        NVF_ERROR(term.producers.size() == 2);
-        proven_true_terms_.insert(&(b.equal(a)));
-        /*
-        proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
-        proven_true_terms_.insert(*term.producers[0] >= *term.producers[1]);
-        proven_true_terms_.insert(*term.producers[1] <= *term.producers[0]);
-        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-      } else if (term.symbol == BinaryOpType::LT) {
-        proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
-        proven_true_terms_.insert(*term.producers[1] > *term.producers[0]);
-        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-      } else if (term.symbol == BinaryOpType::LE) {
-        proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
-        */
-      }
-    }
-  }
+  void assume(const Term& term);
 
   //! Test whether a Bool-valued term has been proven true
   bool isProven(const Term& term) {

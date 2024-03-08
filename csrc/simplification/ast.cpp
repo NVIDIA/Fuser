@@ -206,16 +206,38 @@ BINARY_TERM_OP(operator|, BitwiseOr)
 BINARY_TERM_OP(operator^, BitwiseXor)
 BINARY_TERM_OP(operator<<, Lshift)
 BINARY_TERM_OP(operator>>, Rshift)
-BINARY_TERM_OP(operator<, LT)
-BINARY_TERM_OP(operator<=, LE)
-BINARY_TERM_OP(operator>, GT)
-BINARY_TERM_OP(operator>=, GE)
-BINARY_TERM_OP(operator==, Eq)
-BINARY_TERM_OP(operator!=, NE)
 BINARY_TERM_OP(ceilDiv, CeilDiv)
 BINARY_TERM_OP(gcd, Gcd)
 #undef BINARY_TERM_OP
 #undef BINARY_TERM_OP_CONST_HELPER
+
+#define BINARY_LOGIC_TERM_OP_CONST_HELPER(cppop, optype, consttype)        \
+  const Term& cppop(const Term& a, const consttype b_const) {              \
+    const Term& b = term(std::monostate{}, a.dtype, b_const, {});          \
+    return term(                                                           \
+        BinaryOpType::optype, DataType::Bool, std::monostate{}, {&a, &b}); \
+  }                                                                        \
+  const Term& cppop(const consttype a_const, const Term& b) {              \
+    const Term& a = term(std::monostate{}, b.dtype, a_const, {});          \
+    return term(                                                           \
+        BinaryOpType::optype, DataType::Bool, std::monostate{}, {&a, &b}); \
+  }
+#define BINARY_LOGIC_TERM_OP(cppop, optype)                                \
+  const Term& cppop(const Term& a, const Term& b) {                        \
+    return term(                                                           \
+        BinaryOpType::optype, DataType::Bool, std::monostate{}, {&a, &b}); \
+  }                                                                        \
+  BINARY_LOGIC_TERM_OP_CONST_HELPER(cppop, optype, bool);                  \
+  BINARY_LOGIC_TERM_OP_CONST_HELPER(cppop, optype, int64_t);               \
+  BINARY_LOGIC_TERM_OP_CONST_HELPER(cppop, optype, double);
+BINARY_LOGIC_TERM_OP(operator<, LT)
+BINARY_LOGIC_TERM_OP(operator<=, LE)
+BINARY_LOGIC_TERM_OP(operator>, GT)
+BINARY_LOGIC_TERM_OP(operator>=, GE)
+BINARY_LOGIC_TERM_OP(operator==, Eq)
+BINARY_LOGIC_TERM_OP(operator!=, NE)
+#undef BINARY_LOGIC_TERM_OP
+#undef BINARY_LOGIC_TERM_OP_CONST_HELPER
 
 #define TERNARY_TERM_OP(cppop, optype)                                   \
   const Term& cppop(const Term& a, const Term& b, const Term& c) {       \
@@ -224,6 +246,34 @@ BINARY_TERM_OP(gcd, Gcd)
   }
 TERNARY_TERM_OP(where, Where)
 #undef TERNARY_TERM_OP
+
+void Program::assume(const Term& term) {
+  NVF_ERROR(
+      term.dtype == PrimDataType::Bool,
+      "Program::assume accepts Bool-valued Terms only")
+  proven_true_terms_.insert(&term).second;
+  if (isBinaryOpType(term.symbol)) {
+    BinaryOpType op_type = std::get<BinaryOpType>(term.symbol);
+    const Term& a = *term.producers[0];
+    const Term& b = *term.producers[1];
+    if (op_type == BinaryOpType::Eq) {
+      NVF_ERROR(term.producers.size() == 2);
+      proven_true_terms_.insert(&(b.equal(a)));
+      /*
+      proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
+      proven_true_terms_.insert(*term.producers[0] >= *term.producers[1]);
+      proven_true_terms_.insert(*term.producers[1] <= *term.producers[0]);
+      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+    } else if (term.symbol == BinaryOpType::LT) {
+      proven_true_terms_.insert(*term.producers[0] <= *term.producers[1]);
+      proven_true_terms_.insert(*term.producers[1] > *term.producers[0]);
+      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+    } else if (term.symbol == BinaryOpType::LE) {
+      proven_true_terms_.insert(*term.producers[1] >= *term.producers[0]);
+      */
+    }
+  }
+}
 
 Val* Program::termToVal(const Term* term) {
   // TODO: Non-recursive version

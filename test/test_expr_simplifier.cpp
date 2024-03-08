@@ -1137,6 +1137,8 @@ TEST_F(ExprSimplifierTest, AST) {
   const auto& t = ta.equal(td);
   std::cout << (void*)&t << std::endl;
 
+  EXPECT_EQ((ta < td).dtype, DataType::Bool);
+
   std::cout << "a < d? " << program.isProven(ta < td) << std::endl;
 }
 
