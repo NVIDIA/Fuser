@@ -24,13 +24,21 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
     if (rf_dom[idx]->isReduction()) {
       auto erase_iter = ret.begin();
       for (auto i = ret.begin(); i != ret.end(); i++) {
-        if (*i > idx) {
-	  --(*i);
-	} else if (*i == idx) {
+	if (*i == idx) {
 	  erase_iter = i;
+	  break;
 	}
       }
       ret.erase(erase_iter);
+    }
+  }
+  for (auto idx : c10::irange(tv_rank)) {
+    if (rf_dom[idx]->isReduction()) {
+      for (auto i = ret.begin(); i != ret.end(); i++) {
+        if (*i > idx) {
+	  --(*i);
+	}
+      }
     }
   }
 #ifndef NDEBUG
