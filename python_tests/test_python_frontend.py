@@ -3294,7 +3294,7 @@ class TestNvFuserFrontend(TestCase):
             V25 = fd.define_vector([S22, S23, S24], dtype=DataType.Int)
             T26 = fd.ops.reshape(T21, new_shape=V25)
             T27 = fd.ops.cat([T20, T26, T11], dim=2)
-            T28 = fd.ops.sum(T27, axes=[0, 1], keepdim=False, dtype=DataType.Null)
+            T28 = fd.ops.sum(T27, [0, 1], keepdim=False, dtype=DataType.Null)
             fd.add_output(T27)
             fd.add_output(T28)
 
