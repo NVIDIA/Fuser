@@ -15,7 +15,9 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrder& alloc_order) {
+AllocationOrder adjustAllocationOrder(
+    const TensorView* tv,
+    const AllocationOrder& alloc_order) {
   AllocationOrder ret = alloc_order;
 
   int64_t tv_rank = static_cast<int64_t>(tv->nDims());
@@ -26,10 +28,10 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
       idx_stack.push(idx);
       auto erase_iter = ret.begin();
       for (auto i = ret.begin(); i != ret.end(); i++) {
-	if (*i == idx) {
-	  erase_iter = i;
-	  break;
-	}
+        if (*i == idx) {
+          erase_iter = i;
+          break;
+        }
       }
       ret.erase(erase_iter);
     }
@@ -46,7 +48,8 @@ AllocationOrder adjustAllocationOrder(const TensorView* tv, const AllocationOrde
 #ifndef NDEBUG
   std::set<int> unique_check;
   for (auto idx : ret) {
-    NVF_ERROR(unique_check.count(idx) == 0 && idx >= 0 && idx < (int64_t)ret.size());
+    NVF_ERROR(
+        unique_check.count(idx) == 0 && idx >= 0 && idx < (int64_t)ret.size());
     unique_check.insert(idx);
   }
 #endif
@@ -131,12 +134,15 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
-  // helper utils to count the number of non broadcast / non reduction iterdomain
+  // helper utils to count the number of non broadcast / non reduction
+  // iterdomain
   auto countLoopID = [](const TensorView* tv) -> size_t {
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
         tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) { return !ptr_id->isBroadcast() && !ptr_id->isReduction(); });
+        [&](auto ptr_id) {
+          return !ptr_id->isBroadcast() && !ptr_id->isReduction();
+        });
   };
 
   for (auto* val_ptr : candidates) {
@@ -151,7 +157,8 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
       continue;
     }
 
-    // check if current entry sets new record for num of non broadcast / non reduction iterdomain
+    // check if current entry sets new record for num of non broadcast / non
+    // reduction iterdomain
     if (size_t non_bc_count = countLoopID(tv_ptr);
         non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
