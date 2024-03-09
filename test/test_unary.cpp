@@ -51,8 +51,8 @@ TEST_P(UnaryTest, Neg) {
     } break;
     default:
       NVF_ERROR(
-          isFloatingPointType(dtype),
-          "Expect a floating point type, but found: ",
+          isFloatingPointType(dtype) || isComplexType(dtype),
+          "Expect a floating point type or a complex type, but found: ",
           dtype);
       in_tensor = at::randn(shape, options);
   }
@@ -66,6 +66,18 @@ TEST_P(UnaryTest, Neg) {
       fec.fusion(), out_tensors, {in_tensor}, {-in_tensor}, __LINE__, __FILE__);
 }
 
+namespace {
+
+std::string sanitizeTestName(std::string&& name) {
+  std::string test_name(name);
+  for (char forbidden_char : {':', '<', '>'}) {
+    std::replace(test_name.begin(), test_name.end(), forbidden_char, '_');
+  }
+  return test_name;
+}
+
+} // namespace
+
 INSTANTIATE_TEST_SUITE_P(
     UnaryTests,
     UnaryTest,
@@ -78,11 +90,13 @@ INSTANTIATE_TEST_SUITE_P(
         PrimDataType::Float,
         PrimDataType::Double,
         PrimDataType::Int32,
-        PrimDataType::Int),
+        PrimDataType::Int,
+        PrimDataType::ComplexFloat,
+        PrimDataType::ComplexDouble),
     [](const testing::TestParamInfo<PrimDataType>& info) {
       std::ostringstream os;
       os << info.param;
-      return os.str();
+      return sanitizeTestName(os.str());
     });
 
 } // namespace nvfuser
