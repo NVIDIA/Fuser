@@ -692,6 +692,16 @@ void scheduleFusionInputsForEpilogue(
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
 
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
+  // Cache inputs
+  scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
   mma_utils::CombineMulSum combiner(fusion);
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (combiner.isValid() && mma_ops.empty()) {
@@ -716,16 +726,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         ", Matmul output to be computed through expression evaluator. Skipping codegen.");
     return;
   }
-
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion, true);
-
-  // Cache and fork outputs
-  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 

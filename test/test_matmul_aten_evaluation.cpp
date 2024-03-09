@@ -40,7 +40,7 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
-  int64_t m = 2, k = 3, n = 4;
+  int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
@@ -54,17 +54,18 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  at::Tensor t0 = at::ones(a_shape, at::kHalf).cuda();
-  at::Tensor t1 = at::ones(b_shape, at::kHalf).cuda();
-  at::Tensor out_ref = at::full(out_shape, k, at::kHalf).cuda();
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1});
 
-  EXPECT_EQ(fec.getMostRecentKernelRuntime()->executors().size(), 1);
-
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   // Verify that the io_alias_ set has the correct entry
-  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  kir::Kernel* kernel = executors.front().kernel();
   EXPECT_EQ(
       kernel->getOutputAlias(kernel->outputs()[0]).type,
       AllocationType::Evaluate);
@@ -79,7 +80,7 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
-  int64_t m = 2, k = 3, n = 4;
+  int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
@@ -95,15 +96,16 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
 
   at::Tensor t0 = at::ones(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::ones(b_shape, at::kHalf).cuda();
-  at::Tensor out_ref = at::full(out_shape, k, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1});
 
-  EXPECT_EQ(fec.getMostRecentKernelRuntime()->executors().size(), 1);
-
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   // Verify that the io_alias_ set has the correct entry
-  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  kir::Kernel* kernel = executors.front().kernel();
   EXPECT_EQ(
       kernel->getOutputAlias(kernel->outputs()[0]).type,
       AllocationType::Evaluate);
@@ -120,7 +122,7 @@ TEST_F(MatmulATenEvaluationTest, DISABLED_MatmulWithBias) {
   EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
-  int64_t m = 2, k = 3, n = 4;
+  int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
@@ -138,19 +140,19 @@ TEST_F(MatmulATenEvaluationTest, DISABLED_MatmulWithBias) {
   fusion->addInput(tv3);
   fusion->addOutput(tv6);
 
-  at::Tensor t0 = at::ones(a_shape, at::kHalf).cuda();
-  at::Tensor t1 = at::ones(b_shape, at::kHalf).cuda();
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
-  at::Tensor out_ref =
-      at::full(out_shape, k, at::kHalf).cuda() + t2.unsqueeze(-1);
+  at::Tensor out_ref = at::matmul(t0, t1) + t2.unsqueeze(-1);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2});
 
-  EXPECT_EQ(fec.getMostRecentKernelRuntime()->executors().size(), 1);
-
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   // Verify that the io_alias_ set has the correct entry
-  auto kernel = fec.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  kir::Kernel* kernel = executors.front().kernel();
   EXPECT_EQ(
       kernel->getOutputAlias(kernel->outputs()[0]).type,
       AllocationType::Evaluate);
