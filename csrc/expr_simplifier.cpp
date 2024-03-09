@@ -1611,31 +1611,6 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
     context.program()->assume(txley);
     return true;
   }
-  /*
-  for (const auto& [a, b] : context.getKnownLessThan()) {
-    // x < y  -->  x <= y
-    if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
-    }
-  }
-  for (const auto& [a, b] : context.getKnownLessEqual()) {
-    if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
-    }
-  }
-  for (const auto& [a, b] : context.getKnownLessThan()) {
-    // x < b & b <= y  -->  x <= y
-    if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
-    }
-  }
-  for (const auto& [a, b] : context.getKnownLessEqual()) {
-    // x <= b & b <= y  -->  x <= y
-    if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
-    }
-  }
-  */
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {

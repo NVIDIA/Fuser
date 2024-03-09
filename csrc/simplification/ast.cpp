@@ -464,16 +464,29 @@ Term* Program::valToTermHelper(Val* val) {
   if (val_it != val_term_map_.end()) {
     return val_it->second;
   }
+  std::string name;
   if (auto* ns = dynamic_cast<NamedScalar*>(val)) {
     // We may encounter multiple NamedScalars with the same name. They should
     // all map to the same Term.
-    auto ns_it = named_scalar_term_map_.find(ns->name());
+    name = ns->name();
+  }
+  // Create a new Term
+  Expr* def = val->definition();
+  if (def && !def->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
+    // Handle GetItem and GetAttr separately by treating them as if they are
+    // namedScalars with a derived string. This will allow us to avoid mapping
+    // complicated DataTypes like Struct.
+    name = val->toInlineString();
+    // Erase the definition so that we don't try to create a FunctionSymbol and
+    // dtype for it
+    def = nullptr;
+  }
+  if (!name.empty()) {
+    auto ns_it = named_scalar_term_map_.find(name);
     if (ns_it != named_scalar_term_map_.end()) {
       return ns_it->second;
     }
   }
-  // Create a new Term
-  Expr* def = val->definition();
   FunctionSymbol symbol = exprToFunctionSymbol(def);
   std::vector<const Term*> producer_terms;
   if (def != nullptr) {
@@ -490,8 +503,8 @@ Term* Program::valToTermHelper(Val* val) {
       producer_terms);
   term->representing_val = val;
   val_term_map_.emplace(val, term);
-  if (auto* ns = dynamic_cast<NamedScalar*>(val)) {
-    named_scalar_term_map_.emplace(ns->name(), term);
+  if (!name.empty()) {
+    named_scalar_term_map_.emplace(name, term);
   }
   return term;
 }
