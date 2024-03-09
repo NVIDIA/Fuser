@@ -1109,8 +1109,12 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Float8_e5m2;
     case at::ScalarType::Long:
       return DataType::Int;
+    case at::ScalarType::UInt64:
+      return DataType::UInt;
     case at::ScalarType::Int:
       return DataType::Int32;
+    case at::ScalarType::UInt32:
+      return DataType::UInt32;
     case at::ScalarType::ComplexFloat:
       return DataType::ComplexFloat;
     case at::ScalarType::ComplexDouble:
@@ -1138,6 +1142,8 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
       return at::ScalarType::Float8_e5m2;
     case DataType::Int:
       return at::ScalarType::Long;
+    case DataType::UInt:
+      return at::ScalarType::UInt64;
     case DataType::Index:
       NVF_ERROR(
           false,
@@ -1147,6 +1153,8 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
           "There's also this information in FusionExecutorCache and the Registry system.");
     case DataType::Int32:
       return at::ScalarType::Int;
+    case DataType::UInt32:
+      return at::ScalarType::UInt32;
     case DataType::ComplexFloat:
       return at::ScalarType::ComplexFloat;
     case DataType::ComplexDouble:

@@ -21,6 +21,9 @@ using UnaryTest = NVFuserFixtureParamTest<PrimDataType>;
 
 TEST_P(UnaryTest, Neg) {
   PrimDataType dtype = GetParam();
+  if (dtype == DataType::BFloat16 && !deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "Skip bfloat tests on pre-AMPERE GPUs.";
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -37,8 +40,10 @@ TEST_P(UnaryTest, Neg) {
   at::Tensor in_tensor;
   switch (dtype) {
     case PrimDataType::Int32: {
-      constexpr int kIntMax = std::numeric_limits<int>::max();
-      in_tensor = at::randint(-kIntMax, kIntMax, shape, options);
+      constexpr int32_t kInt32Max = std::numeric_limits<int32_t>::max();
+      // Set `low` to -INT_MAX instead of INT_MIN, because -INT_MIN is
+      // undefined.
+      in_tensor = at::randint(-kInt32Max, kInt32Max, shape, options);
     } break;
     case PrimDataType::Int: {
       constexpr int64_t kInt64Max = std::numeric_limits<int64_t>::max();
@@ -54,12 +59,19 @@ TEST_P(UnaryTest, Neg) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  // Calculate the reference output explicitly. Type promotion happens when
+  // building the fusion, e.g., inside `neg`. Relying ExpresionEvaluator to
+  // verify the result would hide type promotion errors.
+  testValidate(
+      fec.fusion(), out_tensors, {in_tensor}, {-in_tensor}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     UnaryTests,
     UnaryTest,
+    // Skip unsigned types because they are uncommon and not supported in many
+    // places, e.g.,
+    // https://github.com/NVIDIA/Fuser/blob/329c3b194e7de5bccd3122468893c1fa83cd2a2e/csrc/executor.cpp#L478.
     testing::Values(
         PrimDataType::Half,
         PrimDataType::BFloat16,
