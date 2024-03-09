@@ -236,8 +236,7 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   fusion.addOutput(tv3);
   auto tv4 = add(tv1, tv3);
   fusion.addOutput(tv4);
-  auto tv5 =
-      broadcast(tv3, {true, false, false, true});
+  auto tv5 = broadcast(tv3, {true, false, false, true});
   fusion.addOutput(tv5);
 
   std::vector<IterDomain*> tv0_order = {
