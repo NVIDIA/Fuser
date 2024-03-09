@@ -148,7 +148,6 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
         " for handling group ",
         toString(group));
     NVF_ERROR(val_to_IValue_.at(input).isTensor());
-    // std::cout << "Fusion Inputs " << val_to_IValue_.at(input).toTensor() << std::endl;
     group_input_IValues.push_back(val_to_IValue_.at(input));
   }
 
@@ -179,7 +178,6 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    // std::cout << "Outputs " << output_idx  << outputs[output_idx] << std::endl;
     val_to_IValue_[group->outputs().at(output_idx)] = outputs.at(output_idx);
   }
 }
@@ -215,7 +213,6 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       work->wait();
     }
   }
-  // std::cout << "comms " << output_tensor << " " << output_tensor.is_contiguous() << std::endl;
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(

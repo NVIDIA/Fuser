@@ -1601,14 +1601,17 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   {
     int stride_i = 0;
     for (const auto i : c10::irange(alloc_dom.size())) {
-      if (alloc_dom[i]->isReduction() || alloc_dom[i]->isDeviceDim()) {
+      if (alloc_dom[i]->isReduction()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
-        continue;
+      } else if (alloc_dom[i]->isDeviceDim()) {
+        strides[i] = GpuLower::current()->kernel()->oneVal();
+        stride_i++;
+      } else {
+        strides[i] = IrBuilder::getItemExpr(
+            IrBuilder::getAttrExpr(
+                IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
+            (int64_t)stride_i++);
       }
-      strides[i] = IrBuilder::getItemExpr(
-          IrBuilder::getAttrExpr(
-              IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
-          (int64_t)stride_i++);
     }
   }
 
@@ -1981,11 +1984,14 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
     for (const auto i : c10::irange(alloc_dom.size())) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isStride()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
-        continue;
-      }
+      } else if (alloc_dom[i]->isDeviceDim()) {
+        strides[i] = GpuLower::current()->kernel()->oneVal();
+        stride_i++;
+      } else {
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
           (int64_t)stride_i++);
+      }
     }
   }
 
@@ -2054,7 +2060,6 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
         alloc_ind, getGlobalConsumerOffsetWithPartialSplit(alloc_dom[i]));
     alloc_inds[i] = alloc_ind;
   }
-  // std::cout << "getConsumerAllocationIndices" << tv->toString() << " " << alloc_inds << std::endl;
   return alloc_inds;
 }
 
@@ -2183,8 +2188,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
     alloc_inds.at(i) = alloc_ind;
   }
-
-  // std::cout << "getProducerAllocIndices " << producer_tv->toString() << " " << alloc_inds << std::endl;
+  
   return alloc_inds;
 }
 

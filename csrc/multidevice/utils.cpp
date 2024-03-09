@@ -38,16 +38,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>>
   std::vector<int64_t> shard_deletions;
   auto producer_leaf = TensorDomain::noReductions(producer->getLeafDomain());
   auto consumer_leaf = consumer->getLeafDomain();
-  if (producer_leaf.size() != consumer_leaf.size()) {
-    std::cout << "Producer: ";
-    for (auto i : producer_leaf) {
-      std::cout << i->toString() << std::endl;
-    }
-    std::cout << "Consumer: ";
-    for (auto i : consumer_leaf) {
-      std::cout << i->toString() << std::endl;
-    }
-  }
   for (size_t i : c10::irange(producer_leaf.size())) {
     auto producer_id = producer_leaf[i];
     auto consumer_id = consumer_leaf[i];
@@ -168,7 +158,7 @@ void insertReshardings(Fusion* fusion) {
   }
 }
 
-// Returns permutation order to undo permuteOrder.
+// Returns permutation so that axis is pushed to front.
 std::vector<int64_t> permuteOrder(TensorView* tv, int axis) {
   auto num_axis = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
   std::vector<int64_t> permute_order(num_axis);
@@ -180,11 +170,10 @@ std::vector<int64_t> permuteOrder(TensorView* tv, int axis) {
     }
     permute_order[i+1] = static_cast<int64_t>(i+idx_offset);
   }
-  std::cout << "Permute order " << tv->toString() << " " << permute_order << std::endl;
   return permute_order;
 }
 
-// Returns permutation order to undo permuteOrder.
+// Returns permutation to undo permuteOrder, where index 0 is moved to axis.
 std::vector<int64_t> unpermuteOrder(TensorView* tv, int axis) {
   auto num_axis = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
   std::vector<int64_t> unpermute_order(num_axis);
@@ -197,21 +186,18 @@ std::vector<int64_t> unpermuteOrder(TensorView* tv, int axis) {
       unpermute_order[i] = static_cast<int64_t>(i+idx_offset);
     }
   }
-  std::cout << "Unpermute order " << tv->toString() << " " << unpermute_order << std::endl;
   return unpermute_order;
 }
 
 void insertPermutes(Fusion *fusion) {
   auto exprs = fusion->exprs();
   std::vector<Expr*> reshard_exprs;
-  std::vector<Expr*> remove_expr;
   for (auto expr : exprs) {
     if(isResharding(expr)) {
       reshard_exprs.push_back(expr);
     }
   }
   for (auto expr : reshard_exprs) {
-      std::cout << "Resharding op " << expr->toString() << std::endl;
       NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported yet: ",
@@ -230,19 +216,23 @@ void insertPermutes(Fusion *fusion) {
       NVF_ERROR(shard_additions.size() + shard_deletions.size() <= 1, 
         "Resharding expr can only support one axis")
 
-      // For gather operations i.e. unsharding a sharding an axis
-      // we can only gather shards/tensors contiguously
-      // write to a intermediate tensors then permute into the correct order.
-      // i.e.  in -(set)-> out will become in -(set)-> intermediate -(permute)-> out
-      // Note: there are no reduction based collectives that combine gather+reduction.
+      // For gather operations i.e. rematerializing an axis
+      // communication libraries can only read/write contiguous tensors.
+      // Update expr's input to push the rematerialized axis to the front
+      // execute the expr then permute the rematerizlied axis to the proper location.
+      // Originally: [input] -> expr -> [output]
+      // Replace with [input] -> permute -> [inpute_permute] -> expr -> [output_permute] -> [output]
+      // Note: there are no reduction based collectives that materialize an axis
+      // so expr is guaranteed to be a set.
       if (!shard_deletions.empty() && !isContiguousShard(input, output)) {
-        std::cout << "Triggered by gather ops" << std::endl;
         // Note this first permute is a no-op. Moving a device parallel axis has no 
         // affect on the underlying memory.
         int axis = shard_deletions[0];
+        auto ptype = input->getLeafDomain()[axis]->getParallelType();
+
         TensorView* input_permute = permute(input, permuteOrder(input, axis)); 
         input_permute->setDeviceMesh(input->getDeviceMesh());
-        input_permute->axis(0)->parallelize(ParallelType::DIDx);
+        input_permute->axis(0)->parallelize(ptype);
 
         TensorView* output_permute = set(input_permute);
         auto unpermute_order = unpermuteOrder(output, axis);
@@ -250,57 +240,44 @@ void insertPermutes(Fusion *fusion) {
         output_permute->setDeviceMesh(output->getDeviceMesh());
         new_output->setDeviceMesh(output->getDeviceMesh());
 
-        std::cout << "Inpute permute expr " << input_permute->definition()->toString() << std::endl;
-        std::cout << "Output permute expr" << output_permute->definition()->toString() << std::endl;
-        std::cout << "New output expr " << new_output->definition()->toString() << std::endl;
-
-
-        // Update the output of the set to permuted output
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-        // Remove the original set since we replaced it.
-        remove_expr.push_back(expr);
+        fusion->removeExpr(expr);
       }
-      // Triggered for scatter like operations (scatter, reduce scatter)
+      // For scatter operations i.e. sharding an axis
+      // communication libraries can only read/write contiguous tensors.
+      // Update expr's input to push the rematerialized axis to the front
+      // execute the expr then permute the rematerizlied axis to the proper location.
+      // Originally: [input] -> expr -> [output]
+      // Replace with [input] -> permute -> [inpute_permute] -> expr -> [output_permute] -> [output]
       else if (!shard_additions.empty() && !isContiguousShard(output, input)) {
-        std::cout << "Triggered by scatter" << std::endl;
         // Note this first permute is a no-op. and puts the input into canonical form.
         auto axis = shard_additions[0];
-        auto perm_order = permuteOrder(input, axis);
-        TensorView* input_permute = permute(input, perm_order); 
+        auto ptype = output->getLeafDomain()[axis]->getParallelType();
+
+        TensorView* input_permute = permute(input, permuteOrder(input, axis)); 
         input_permute->setDeviceMesh(input->getDeviceMesh());
-        TensorView* output_permute;// = set(input_permute);
+
+        TensorView* output_permute;
+        // adjust axis if expr is a reduction.
         auto red_axis = output->getReductionAxis();
-        int offset = 0;
-        if (red_axis.has_value()) {
-          std::cout << "Reduction axis! " << red_axis.value() << " " << axis << std::endl;
-        }
-        if (red_axis.has_value() && axis > red_axis.value()) {
-          offset = 1;
-        }
+        int offset = (red_axis.has_value() && axis > red_axis.value()) ? 1 : 0;
         if (expr->isA<ReductionOp>()) {
-          output_permute = sum(input_permute, {static_cast<int>(output->getReductionAxis().value()+offset)}); 
+          auto red_expr = dynamic_cast<ReductionOp*>(expr);
+          output_permute = reductionOp(red_expr->getReductionOpType(), 
+            {static_cast<int>(red_axis.value()) + offset}, red_expr->init(), input_permute);
         } else {
           output_permute = set(input_permute);
         }
         output_permute->setDeviceMesh(output->getDeviceMesh());
-        output_permute->axis(0)->parallelize(ParallelType::DIDx);
+        output_permute->axis(0)->parallelize(ptype);
+
         TensorView* new_output = permute(output_permute, unpermuteOrder(output_permute, axis-offset));
         new_output->setDeviceMesh(output->getDeviceMesh());
-        new_output->axis(dimWithParallelType(output, ParallelType::DIDx))->parallelize(ParallelType::DIDx);
+        new_output->axis(axis-offset)->parallelize(ptype);
 
-        std::cout << "Inpute permute expr " << input_permute->definition()->toString() << std::endl;
-        std::cout << "Output permute expr" << output_permute->definition()->toString() << std::endl;
-        std::cout << "New output expr " << new_output->definition()->toString() << std::endl;
-
-        // Update the output of the set to permuted output
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-        // Remove the original set since we replaced it.
-        remove_expr.push_back(expr);
+        fusion->removeExpr(expr);
       }
-    
-  }
-  for (auto expr : remove_expr) {
-    fusion->removeExpr(expr);
   }
 }
 

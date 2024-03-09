@@ -120,16 +120,12 @@ CommParams createParamsForGatherScatter(
   }
 
 
-  auto sharded_dim = dimWithParallelType(root_tv, ParallelType::DIDx);
-  // std::cout << "Gather/Scatter sharded dim " << sharded_dim << std::endl;
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
       std::vector<at::indexing::TensorIndex> indices(
           root_buf.dim(), at::indexing::Slice());
-      indices[sharded_dim] = at::indexing::Slice(i, i + 1);
+      indices[0] = at::indexing::Slice(i, i + 1);
       auto slice = root_buf.index(indices);
-      // std::cout << "SCATTER//GATHER " << slice.is_contiguous() << std::endl;
-      // std::cout << "SCATTER " << i << " " << slice << std::endl;
       ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(slice);
     }
 
@@ -139,7 +135,7 @@ CommParams createParamsForGatherScatter(
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
       std::vector<at::indexing::TensorIndex> slice0_indices(root_buf.dim(), at::indexing::Slice());
-      slice0_indices[sharded_dim] = at::indexing::Slice(0, 1);
+      slice0_indices[0] = at::indexing::Slice(0, 1);
       at::Tensor dummy = createDummyTensor(root_buf.index(slice0_indices));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
@@ -210,16 +206,13 @@ void lowerToAllgather(
   CommParams params;
   params.team = mesh.vector();
   auto sharded_dim = dimWithParallelType(input_tv, ParallelType::DIDx);
-  // std::cout << "AG dimWithParallelType " << sharded_dim << std::endl;
   for (auto i : c10::irange(mesh.vector().size())) {
       std::vector<at::indexing::TensorIndex> indices(
           output_tensor.dim(), at::indexing::Slice());
       indices[sharded_dim] = at::indexing::Slice(i, i + 1);
       auto slice = output_tensor.index(indices);
-      // std::cout << "AG dst slice " << slice.is_contiguous() << std::endl;
       params.dst_bufs.push_back(slice);
     }
-  // std::cout << "Allgather!" << input_tensor << " " << input_tensor.is_contiguous() << std::endl;
   params.src_bufs = {input_tensor};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
@@ -264,7 +257,6 @@ void lowerToBroadcastOrP2P(
       my_device_index, root, mesh, input_tensor, output_tensor);
   std::shared_ptr<Communication> comm;
   if (mesh.vector().size() == 1) {
-    // std::cout << "Send recv!" << input_tensor << std::endl;
     comm = std::make_shared<SendRecv>(std::move(params));
   } else {
     comm = std::make_shared<Broadcast>(std::move(params));
@@ -284,7 +276,6 @@ void lowerToBroadcastOrP2P(
     at::Tensor output_tensor,
     bool is_sharded,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  std::cout << "Lower to broadcast or p2p" << std::endl;
   if (is_sharded) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
@@ -293,8 +284,6 @@ void lowerToBroadcastOrP2P(
           sender_mesh.vector().size() == receiver_mesh.vector().size(),
           "the receiver and sender meshes have different sizes");
       at::Tensor input, output;
-      // std::cout << "BCAST " << input_tensor << " " << output_tensor.sizes() << std::endl;
-      // TODO: what is the numel for?
       if (input_tensor.numel()) {
         input = input_tensor.index({static_cast<int>(0), "..."});
       }
@@ -325,6 +314,7 @@ CommParams createParamsForReduce(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
     TensorView* input_tv,
+    TensorView* output_tv,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     BinaryOpType op_type) {
@@ -338,22 +328,18 @@ CommParams createParamsForReduce(
     params.team.push_back(root);
   }
 
-  auto sharded_dim = dimWithParallelType(input_tv, ParallelType::DIDx);
+  auto sharded_dim =output_tv->getReductionAxis().value();
   if (mesh.has(my_device_index)) {
-    // std::cout << "Src buf of reduce " << input_tensor << std::endl;
     auto x = input_tensor.squeeze(sharded_dim);
-    // std::cout << "Reduce buffer is contig " << x.is_contiguous() << std::endl;
     params.src_bufs = {x};
   }
 
   if (my_device_index == root) {
-    // std::cout << "Reduce destination " << output_tensor.sizes() << std::endl;
     params.dst_bufs = {output_tensor};
     // The reduce semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
     // have to artificially make it send and receive a dummy buffer
     if (!is_root_in_mesh) {
-      // std::cout << "Root not in mesh creating " << output_tensor.sizes() << std::endl;
       at::Tensor dummy = createDummyTensor(output_tensor, op_type);
       params.src_bufs.push_back(dummy);
     }
@@ -380,6 +366,7 @@ void lowerToReduce(
         my_device_index,
         root,
         input_tv,
+        output_tv,
         input_tensor,
         output_tensor,
         op_type);
@@ -424,16 +411,12 @@ void lowerToReduceScatter(
   // TODO: detect whether it is DIDx or DIDy.
   auto out_shard_dim = dimWithParallelType(output_tv, ParallelType::DIDx, true);
   auto input_red_dim = dimWithParallelType(input_tv, ParallelType::DIDx, true);
-  auto mesh_size = mesh.vector().size();
-  // NVF_ERROR (mesh_size == input_tensor.size(out_shard_dim)
-  //   "Device mesh size must equal device axis size");
-  for (auto i : c10::irange(mesh_size)) {
+  for (auto i : c10::irange(mesh.vector().size())) {
     std::vector<at::indexing::TensorIndex> indices(
         input_tensor.dim(), at::indexing::Slice());
     indices[out_shard_dim] = at::indexing::Slice(i, i + 1);
     indices[input_red_dim] = at::indexing::Slice(0, 1);
     auto slice = input_tensor.index(indices).squeeze(input_red_dim);
-    // std::cout << "RS Slice contig " << slice.is_contiguous() << std::endl;
     params.src_bufs.push_back(slice);
   }
 

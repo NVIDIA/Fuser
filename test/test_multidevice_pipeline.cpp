@@ -171,7 +171,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
 
   FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeContigConcreteTensor(unsharded_input_sizes);
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
   TensorView* tv3 = add(tv2, tv2);
