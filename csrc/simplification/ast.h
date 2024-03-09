@@ -15,6 +15,7 @@
 #include <type.h>
 #include <utils.h>
 
+#include <iostream>
 #include <variant>
 #include <vector>
 
@@ -42,6 +43,9 @@ class ProgramGuard {
 
 using FunctionSymbol =
     std::variant<std::monostate, UnaryOpType, BinaryOpType, TernaryOpType>;
+
+std::string toString(const FunctionSymbol& symbol);
+std::ostream& operator<<(std::ostream& os, const FunctionSymbol& symbol);
 
 //! This returns std::nullopt for unsupported Exprs. Note that this is different
 //! from std::monostate, which indicates a constant or free variable.
@@ -147,6 +151,11 @@ struct Term : AbstractTerm {
   // that a == b.
   const Term& equal(const Term& other) const;
   const Term& notEqual(const Term& other) const;
+
+  std::string toInlineString() const;
+  std::string toString() const {
+    return toInlineString();
+  }
 };
 
 const Term& abs(const Term& a);

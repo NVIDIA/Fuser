@@ -11,9 +11,33 @@
 #include <ops/arith.h>
 #include <simplification/ast.h>
 
+#include <iostream>
+#include <sstream>
+
 namespace nvfuser {
 
 namespace simplification {
+
+std::string toString(const FunctionSymbol& symbol) {
+  std::stringstream ss;
+  if (std::holds_alternative<std::monostate>(symbol)) {
+    ss << "null";
+  } else if (std::holds_alternative<UnaryOpType>(symbol)) {
+    ss << std::get<UnaryOpType>(symbol);
+  } else if (std::holds_alternative<BinaryOpType>(symbol)) {
+    ss << std::get<BinaryOpType>(symbol);
+  } else if (std::holds_alternative<TernaryOpType>(symbol)) {
+    ss << std::get<TernaryOpType>(symbol);
+  } else {
+    NVF_ERROR(false, "Cannot print symbol");
+  }
+  return ss.str();
+}
+
+std::ostream& operator<<(std::ostream& os, const FunctionSymbol& symbol) {
+  os << toString(symbol);
+  return os;
+}
 
 /*static*/ thread_local Program* ProgramGuard::active_program_ = nullptr;
 
@@ -162,6 +186,67 @@ const Term& Term::equal(const Term& other) const {
 const Term& Term::notEqual(const Term& other) const {
   return term(
       BinaryOpType::NE, PrimDataType::Bool, std::monostate{}, {this, &other});
+}
+
+std::string Term::toInlineString() const {
+  std::stringstream ss;
+  if (std::holds_alternative<std::monostate>(symbol)) {
+    // Constant or free variable
+    if (constant.hasValue()) {
+      ss << constant;
+    } else {
+      NVF_ERROR(
+          representing_val != nullptr,
+          "Cannot convert Term describing free scalar with no representing Val");
+      ss << representing_val->toString();
+    }
+  } else {
+    // Function of other Terms
+    if (isUnaryOpType(symbol)) {
+      UnaryOpType uop_type = std::get<UnaryOpType>(symbol);
+      NVF_ERROR(producers.size() == 1);
+      ss << uop_type << "( " << producers[0]->toInlineString() << " )";
+    } else if (isBinaryOpType(symbol)) {
+      BinaryOpType bop_type = std::get<BinaryOpType>(symbol);
+      NVF_ERROR(!producers.empty());
+      // Note we might have more than two producers, if this is flattened
+      std::optional<std::string> infix_op_str = inline_op_str(bop_type);
+      if (infix_op_str.has_value()) {
+        // Ops that print with infixes: x + y + z
+        ss << "( " << producers[0]->toInlineString();
+        for (auto i : c10::irange(1, producers.size())) {
+          ss << " " << infix_op_str.value() << " "
+             << producers[i]->toInlineString();
+        }
+        ss << " )";
+      } else {
+        // Ops that print with prefixes: atan2(x, y)
+        ss << bop_type << "(" << producers[0]->toInlineString();
+        for (auto i : c10::irange(1, producers.size())) {
+          ss << ", " << producers[i]->toInlineString();
+        }
+        ss << ")";
+      }
+    } else if (isTernaryOpType(symbol)) {
+      TernaryOpType top_type = std::get<TernaryOpType>(symbol);
+      NVF_ERROR(producers.size() == 3);
+      switch (top_type) {
+        case TernaryOpType::Where:
+          ss << "( " << producers[0]->toInlineString();
+          ss << " ? " << producers[1]->toInlineString();
+          ss << " : " << producers[2]->toInlineString() << " )";
+          break;
+        default:
+          ss << top_type << "(" << producers[0]->toInlineString();
+          ss << ", " << producers[1]->toInlineString();
+          ss << ", " << producers[2]->toInlineString() << ")";
+          break;
+      }
+    } else {
+      NVF_ERROR(false, "Unable to convert function symbol to inline string");
+    }
+  }
+  return ss.str();
 }
 
 #define UNARY_TERM_OP(cppop, optype)                                   \
