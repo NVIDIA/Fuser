@@ -87,6 +87,8 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
                   //! matmul
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
 };
 
