@@ -94,8 +94,8 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  at::Tensor t0 = at::ones(a_shape, at::kHalf).cuda();
-  at::Tensor t1 = at::ones(b_shape, at::kHalf).cuda();
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
   FusionExecutorCache fec(std::move(fusion));
