@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <ir/all_nodes.h>
@@ -79,5 +78,8 @@ void validateLookupTV(Fusion* fusion);
 
 //! Validate resize usage
 void validateResize(Fusion* fusion);
+
+//! Check that there are no reductions over unexpanded broadcasts
+void validateReductions(Fusion* fusion);
 
 } // namespace nvfuser

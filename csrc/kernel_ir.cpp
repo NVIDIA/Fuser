@@ -149,7 +149,7 @@ Allocate::Allocate(
     NVF_ERROR(buffer->isA<TensorView>());
     NVF_ERROR(buffer->as<TensorView>()->getMemoryType() == memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : domain->noReductions()) {
+    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
       shape.push_back(axis->extent());
     }
   }
@@ -1089,7 +1089,9 @@ bool ForLoop::isGroup() const {
 
   return ExprFinder::exists(
       this,
-      {typeid(kir::GroupedGridReduction), typeid(kir::GroupedGridWelford)});
+      {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)

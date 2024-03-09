@@ -139,6 +139,28 @@ TEST_F(ExprEvalTest, ConstReference) {
   checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
+// Verify intermediate values are added to the known_values_ map.
+TEST_F(ExprEvalTest, KnownValUpdate) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = cat({tv2, tv1}, 0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  evaluator.evaluate(tv3);
+  NVF_CHECK(evaluator.isKnown(tv2));
+}
+
 // Evaluate expressions in a simple IR
 TEST_F(ExprEvalTest, Basic) {
   Fusion fusion;
@@ -656,4 +678,53 @@ TEST_F(ExprEvalTest, Reshape_MergeBroadcast) {
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1));
 }
 
+TEST_F(ExprEvalTest, SumDiv) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* s = sum(in, {0});
+  TensorView* out = div(in, s);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  evaluator.evaluate(out);
+}
+
+// TODO(Priya2698): re-enable this test with the cast added.
+TEST_F(ExprEvalTest, DISABLED_MmaOp) {
+  int64_t m = 2, k = 3, n = 4;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // The matmul API will expect inputs in the shape [M,K] x [K,N].
+  // This is compatible with PyTorch,
+  std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
+  auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion.addOutput(tv2);
+
+  at::Tensor in_a = at::ones(a_shape, at::kHalf).cuda();
+  at::Tensor in_b = at::ones(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::full(out_shape, k, at::kFloat).cuda();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, in_a);
+  evaluator.bind(tv1, in_b);
+  at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(out, out_ref));
+}
 } // namespace nvfuser

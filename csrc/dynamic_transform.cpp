@@ -12,6 +12,8 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -26,34 +28,28 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
-  for (const auto op : dynamic_reshaped_tvs_) {
-    if (op) {
-      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
-    }
+  for (const auto tv : dynamic_reshaped_tvs_) {
+    cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
   }
   cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
-  for (const auto op : dynamic_resized_ids_) {
-    if (op) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
-    }
+  for (const auto id : dynamic_resized_ids_) {
+    cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(id));
+  }
+  cloned_info.dynamic_expanded_tvs_.reserve(dynamic_expanded_tvs_.size());
+  for (const auto tv : dynamic_expanded_tvs_) {
+    cloned_info.dynamic_expanded_tvs_.push_back(ir_cloner.clone(tv));
   }
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   for (const auto v : maybe_zero_extents_set_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
   }
   cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
   for (const auto v : maybe_zero_extents_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
-    if (v) {
-      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
   }
   return cloned_info;
 }
@@ -63,12 +59,16 @@ std::string DynamicTransformInitialInfo::toString() const {
   ss << "DynamicTransformInitialInfo\n";
   std::string indent = "  ";
   ss << indent << "Dynamic reshaped TensorViews:\n";
-  for (const auto& op : dynamic_reshaped_tvs_) {
-    ss << indent << indent << op->toString() << "\n";
+  for (const auto& tv : dynamic_reshaped_tvs_) {
+    ss << indent << indent << tv->toString() << "\n";
   }
   ss << indent << "Dynamic resized IterDomains:\n";
-  for (const auto& op : dynamic_resized_ids_) {
-    ss << indent << indent << op->toString() << "\n";
+  for (const auto& id : dynamic_resized_ids_) {
+    ss << indent << indent << id->toString() << "\n";
+  }
+  ss << indent << "Dynamic expanded TensorViews:\n";
+  for (const auto& tv : dynamic_expanded_tvs_) {
+    ss << indent << indent << tv->toString() << "\n";
   }
   ss << indent << "Dynamic extent Vals:\n";
   for (const auto& v : maybe_zero_extents_) {
@@ -120,6 +120,38 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       for (const auto& id : out_tv->getMaybeRFactorDomain()) {
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
+    }
+  }
+
+  //! Find expands that have symbolic outputs. Of those, check whether the
+  //! extents match between input and output axes. If not, mark as dynamic.
+  void handle(ExpandOp* op) override {
+    auto inp_tv = op->in()->as<TensorView>();
+    auto out_tv = op->out()->as<TensorView>();
+    // If there's no symbolic axis, this is a static expand op
+    bool is_dynamic = false;
+    // Loop over all axes, check whether any expansions are undetermined
+    const std::vector<IterDomain*> inp_rfactor =
+        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+    const std::vector<IterDomain*>& out_root = out_tv->getRootDomain();
+    NVF_ERROR(inp_rfactor.size() == out_root.size());
+    for (auto i : c10::irange(out_root.size())) {
+      IterDomain* out_id = out_root[i];
+      if (!out_id->isSymbolic()) {
+        continue;
+      }
+      Val* in_extent = inp_rfactor[i]->extent();
+      Val* out_extent = out_id->extent();
+      if (out_extent->sameAs(in_extent)) {
+        // Not expanding this axis
+        continue;
+      }
+      leaf_dynamic_vals_.push_back(in_extent);
+      leaf_dynamic_vals_.push_back(out_extent);
+      is_dynamic = true;
+    }
+    if (is_dynamic) {
+      info_.dynamic_expanded_tvs_.push_back(out_tv);
     }
   }
 
@@ -201,6 +233,8 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   analyzeResizes(expr_eval);
 
+  analyzeExpands(expr_eval);
+
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
   for (auto i : c10::irange(maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
@@ -246,7 +280,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
-      auto extent_val = expr_eval->evaluate(inp_id->extent());
+      auto extent_val = expr_eval->evaluate(inp_id->getMaybeExpandedExtent());
       NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
@@ -330,6 +364,53 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeExpands(
+    ExpressionEvaluator* expr_eval) {
+  const std::vector<TensorView*>& expanded_tvs =
+      initial_info_->getDynamicExpandedTensorViews();
+  for (const auto tv_index : c10::irange(expanded_tvs.size())) {
+    const TensorView* out_tv = expanded_tvs.at(tv_index);
+    const TensorView* inp_tv = out_tv->definition()->as<ExpandOp>()->in();
+
+    const std::vector<IterDomain*>& out_root = out_tv->getRootDomain();
+    const std::vector<IterDomain*> inp_rfactor =
+        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+
+    NVF_ERROR(out_root.size() == inp_rfactor.size());
+    std::vector<bool> expand_axes;
+    expand_axes.reserve(out_root.size());
+    for (size_t i : c10::irange(out_root.size())) {
+      const IterDomain* inp_id = inp_rfactor[i];
+      const IterDomain* out_id = out_root[i];
+      if (out_id->isIteration()) {
+        expand_axes.push_back(false);
+        continue;
+      }
+      // For Broadcast or Symbolic axes, check the sizes of the input and output
+      int64_t out_size = expr_eval->evaluate(out_id->extent()).as<int64_t>();
+      // Use getMaybeExpandedExtent() here so we can mark "false" if we are just
+      // preserving a pre-existing expansion.
+      int64_t in_size =
+          expr_eval->evaluate(inp_id->getMaybeExpandedExtent()).as<int64_t>();
+      if (in_size == 1) {
+        expand_axes.push_back(out_size != in_size);
+      } else {
+        NVF_CHECK(
+            out_size == in_size,
+            "Mismatch in sizes when concretizing expand. Expanded or Iteration domain ",
+            inp_id->toString(),
+            " has possibly expanded extent ",
+            in_size,
+            " which is incompatible with expansion to size ",
+            out_size,
+            ". Note that already-expanded axes may not themselves be expanded.");
+        expand_axes.push_back(false);
+      }
+    }
+    expand_axes_.emplace_back(tv_index, expand_axes);
+  }
+}
+
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
@@ -354,6 +435,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     const auto& itertype = resize_itertypes_.at(i);
     const auto& other_itertype = other.resize_itertypes_.at(i);
     if (itertype != other_itertype) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(expand_axes_.size())) {
+    const auto& expand_axes = expand_axes_.at(i);
+    const auto& other_expand_axes = other.expand_axes_.at(i);
+    if (expand_axes != other_expand_axes) {
       return false;
     }
   }
@@ -390,6 +479,21 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
        << iter_type << "\n";
   }
+  ss << indent << "Expand:\n";
+  for (const auto& [tv_index, expand_axes] : expand_axes_) {
+    auto tv = initial_info_->getDynamicExpandedTensorViews().at(tv_index);
+    ss << indent << indent << tv->toString() << " (index=" << tv_index
+       << "), {";
+    bool first = true;
+    for (bool e : expand_axes) {
+      if (!first) {
+        ss << ", ";
+      }
+      first = false;
+      ss << (e ? "true" : "false");
+    }
+    ss << "}\n";
+  }
   return ss.str();
 }
 
@@ -414,6 +518,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  void concretizeExpand();
+
   void concretizeEmptyExtents();
 
   //! Use this instead of calling registerMutation directly, since it will also
@@ -434,6 +540,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(Expr* expr) final;
+
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -448,6 +556,9 @@ void DynamicTransformConcretizer::concretize() {
 
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
+
+  // Overwrite expanded IterDomains for dynamic expand ops
+  concretizeExpand();
 
   // Registers replacement of all empty extents with zeroVal()
   concretizeEmptyExtents();
@@ -489,6 +600,13 @@ void DynamicTransformConcretizer::concretize() {
     }
     OptOutMutator::dispatchMutate(stmt);
   }
+
+  for (Val* outp : info_->fusion()->outputs()) {
+    Val* new_outp = maybeMutated(outp);
+    if (new_outp != outp) {
+      info_->fusion()->replaceOutput(outp, new_outp);
+    }
+  }
 }
 
 void DynamicTransformConcretizer::concretizeEmptyExtents() {
@@ -529,8 +647,35 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
     // like it would have if we had used a static reshape instead.
+    //
+    // Note that Reduction IterDomains might be present in the concretized
+    // reshape. For example, suppose we are given the following dynamic Fusion
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T2[ ?S4{i2} ] = view(T1[ iS2{i0} rS3{i1} ])
+    //   T3[ ?S4{i2} ] = -T2[ ?S4{i2} ]
+    //
+    // Then we will concretize this as
+    //
+    //   Inputs:
+    //     T0
+    //   Outputs:
+    //     T3
+    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+    //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
+    //
+    // Notice here that the ViewOp is gone since we recognized that there is no
+    // transformation to perform. Instead, T1 is used directly in place of T2.
+    // We also replace the extent i2 from the dynamic reshape output T2 with i0,
+    // which is what the code below implements. Since T1 includes a Reduction
+    // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+    auto new_rfactor = TensorDomain::noReductions(
+        concrete_reshape_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
@@ -540,22 +685,18 @@ void DynamicTransformConcretizer::concretizeReshape() {
       // If the old extent did not have a definition, we don't need to replace
       // it, since it will get bound whenever this tensor is a segmentation
       // edge.
-      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
+      //
+      // Also, if the old extent is already a constant, don't replace it with a
+      // non-constant, since this could cause downstream extents to become
+      // non-constant. See https://github.com/NVIDIA/Fuser/issues/1572
+      if (old_extent->definition() && !new_extent->sameAs(old_extent) &&
+          (!old_extent->isConstScalar() || new_extent->isConstScalar())) {
         registerConcretization(old_extent, new_extent);
       }
     }
 
-    // Replace the old tensor with the new concretized tensor
-    auto uses = incomplete_out_tv->uses();
-    for (auto use_of_old_tv : uses) {
-      ir_utils::replaceValInExprInputs(
-          use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->replaceOutput(
-          incomplete_out_tv, concrete_reshape_out_tv);
-    }
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+        incomplete_out_tv, concrete_reshape_out_tv);
 
     info_->fusion()->removeVal(incomplete_out_tv);
   }
@@ -577,6 +718,50 @@ void DynamicTransformConcretizer::concretizeResize() {
         iter_type);
 
     registerConcretization(id, new_id);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeExpand() {
+  // Concretize each expand op.
+  for (const auto& [tv_index, axis_is_expanded] : info_->getExpandAxes()) {
+    TensorView* symbolic_out_tv =
+        info_->initialInfo()->getDynamicExpandedTensorViews().at(tv_index);
+
+    // If no axis is expanded, replace this op with a set()
+    if (std::none_of(
+            axis_is_expanded.begin(), axis_is_expanded.end(), [](bool b) {
+              return b;
+            })) {
+      TensorView* inp_tv =
+          symbolic_out_tv->definition()->input(0)->as<TensorView>();
+      TensorView* concretized_tv = set(inp_tv);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          symbolic_out_tv, concretized_tv);
+    }
+
+    // We do not need to replace the ExpandOp, but we do need to mutate all of
+    // the IterDomains in the output based on whether each was expanded
+    std::vector<IterDomain*> out_rfactor =
+        TensorDomain::noReductions(symbolic_out_tv->getMaybeRFactorDomain());
+    NVF_ERROR(axis_is_expanded.size() == out_rfactor.size());
+    for (size_t i : c10::irange(out_rfactor.size())) {
+      if (!axis_is_expanded[i]) {
+        // Propagate as usual for non-expanded IterDomains
+        continue;
+      }
+      // An expanded IterDomain needs to have an extent of oneVal() and a
+      // non-null expandedExtent. However, a Symbolic IterDomain will only have
+      // an extent. Here we set the IterType to Broadcast and swap the extent to
+      // expandedExtent.
+      IterDomain* symbolic_id = out_rfactor[i];
+      Val* one = FusionGuard::getCurFusion()->oneVal(DataType::Index);
+      IterDomain* concretized_id = IterDomainBuilder(symbolic_id)
+                                       .iter_type(IterType::Broadcast)
+                                       .extent(one)
+                                       .expanded_extent(symbolic_id->extent())
+                                       .build();
+      registerConcretization(symbolic_id, concretized_id);
+    }
   }
 }
 
@@ -795,6 +980,86 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   registerConcretization(td, mutated_val);
 }
 
+//! Returns whether a reduction has any trivial partial reductions. Modifies
+//! reduction_axes in place to insert indices of non-trivial reduction axes,
+//! relative to squeezed input.
+static bool hasTrivialReduction(
+    TensorView* in,
+    TensorView* out,
+    std::vector<int>& reduction_axes) {
+  bool has_trivial_reduction = false;
+  PairwiseRootDomainMap p2c_map(in, out);
+  // We need to map broadcasts in order to detect reductions of broadcasts
+  p2c_map.mapBroadcast(true);
+  auto p2c = p2c_map.mapProducerToConsumer();
+  int pos = -1;
+  for (IterDomain* in_id :
+       TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
+    ++pos;
+    auto out_it = p2c.find(in_id);
+    if (out_it == p2c.end()) {
+      continue;
+    }
+    IterDomain* out_id = out_it->second;
+    if (out_id->isReduction()) {
+      reduction_axes.push_back(pos);
+      if (in_id->isBroadcast() && !in_id->hasExpandedExtent()) {
+        has_trivial_reduction = true;
+      }
+    }
+  }
+  return has_trivial_reduction;
+}
+
+// Maybe insert SqueezeOps on inputs of ReductionOp, to simplify trivial
+// reductions.
+void DynamicTransformConcretizer::mutate(Expr* expr) {
+  if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
+    auto* in = rop->in()->as<TensorView>();
+    auto* orig_out = rop->out()->as<TensorView>();
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_out, reduction_axes)) {
+      // There is at least one trivial reduction that should be squeezed. Use
+      // binaryOp to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      //
+      // Note that keepdim=false always here, since that results in downstream
+      // broadcasts which will already have been inserted.
+      TensorView* new_out = reductionOp(
+          rop->getReductionOpType(),
+          reduction_axes,
+          rop->init(),
+          in,
+          /*keep_dim=*/false,
+          orig_out->dtype());
+      registerConcretization(orig_out, new_out);
+    }
+  } else if (WelfordOp* wop = dynamic_cast<WelfordOp*>(expr); wop) {
+    auto in = wop->in()->as<TensorView>();
+    auto orig_avg = wop->outAvg()->as<TensorView>();
+
+    std::vector<int> reduction_axes;
+    if (hasTrivialReduction(in, orig_avg, reduction_axes)) {
+      // Use Welford to ensure this is done exactly as it is in a non-dynamic
+      // fusion
+      WelfordResult new_result = Welford(
+          in,
+          reduction_axes,
+          // For avg and variance to be default initialized, they should be
+          // given as nullptr. In that case, this constructor actually sets them
+          // as a scalar 0. Here we use that to detect whether they are
+          // initialized or not.
+          dynamic_cast<TensorView*>(wop->initAvg()),
+          dynamic_cast<TensorView*>(wop->initVar()),
+          wop->initN());
+      registerConcretization(orig_avg, new_result.avg);
+      registerConcretization(wop->outVar(), new_result.var_sum);
+      registerConcretization(wop->outN(), new_result.n);
+    }
+  }
+  OptOutMutator::mutate(expr);
+}
+
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     TensorView* consumer) {
   if (consumer->definition() == nullptr ||
@@ -835,6 +1100,11 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
+    // If a producer ID is an expanded broadcast then the consumer ID is an
+    // expanded broadcast unless we encounter a mapped Iteration producer ID,
+    // in which case the output IterType will be Iteration.
+    bool has_expanded_producer = false;
+
     bool found = false;
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
@@ -864,6 +1134,8 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           "Producer ID not concretized: ",
           input_id->toString());
 
+      has_expanded_producer |= input_id->hasExpandedExtent();
+
       if (id_type.has_value()) {
         id_type = ops::promoteIterType(*id_type, input_id->getIterType());
       } else {
@@ -889,10 +1161,23 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         " of ",
         consumer->toString());
 
-    auto concretized_id =
-        IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
-            .iter_type(*id_type)
-            .build();
+    IterDomain* concretized_id = nullptr;
+    if (*id_type == IterType::Broadcast && has_expanded_producer) {
+      // Propagate expanded IterDomains by swapping the extent into the expanded
+      // extent
+      concretized_id =
+          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+              .iter_type(*id_type)
+              .extent(FusionGuard::getCurFusion()->oneVal(DataType::Index))
+              .expanded_extent(
+                  maybeMutated(root_id)->as<IterDomain>()->extent())
+              .build();
+    } else {
+      concretized_id =
+          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+              .iter_type(*id_type)
+              .build();
+    }
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;
@@ -922,6 +1207,12 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
+  }
+  for (const auto& [id, expand_axes] : getExpandAxes()) {
+    hashCombine(hash, (size_t)id);
+    for (bool e : expand_axes) {
+      hashCombine(hash, (size_t)e);
+    }
   }
   return hash;
 }

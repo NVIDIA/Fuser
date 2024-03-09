@@ -65,7 +65,7 @@ class PointwiseParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Pointwise Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << " Pointwise Characteristics:\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << " Pointwise Characteristics:\n"
        << " Gridx: " << lparams.gdimx() << " BlckY: " << lparams.bdimy()
        << " BlckX: " << lparams.bdimx() << "\n";
     if (break_point) {

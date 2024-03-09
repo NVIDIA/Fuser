@@ -9,11 +9,9 @@
 
 #include <exceptions.h>
 #include <macros.h>
+#include <visibility.h>
 
 #include <c10/core/ScalarType.h>
-#include <c10/util/Exception.h>
-
-#include <c10/macros/Export.h>
 
 #include <polymorphic_value.h>
 
@@ -24,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <unordered_set>
 #include <variant>
 
@@ -37,7 +36,6 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
-  PipelineVal,
   Others
 };
 
@@ -72,6 +70,8 @@ enum class PrimDataType {
   Float,
   Half,
   BFloat16,
+  Float8_e4m3fn,
+  Float8_e5m2,
   // Integral types
   Int,
   Int32,
@@ -177,6 +177,8 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
+  static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
+  static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
@@ -235,7 +237,7 @@ inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
 
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
-DataType metaDataTypeOf(const Val* tv);
+NVF_API DataType metaDataTypeOf(const Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
@@ -249,7 +251,8 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 // Returns if the datatype is a floating point type
 inline bool isFloatingPointType(DataType dtype) {
   return dtype == DataType::Double || dtype == DataType::Float ||
-      dtype == DataType::Half || dtype == DataType::BFloat16;
+      dtype == DataType::Half || dtype == DataType::BFloat16 ||
+      dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
 }
 
 // Returns if the datatype is an integer type
@@ -310,9 +313,9 @@ DataType getTypeFromComplexType(DataType dtype);
 // Return the corresponding complex type of a scalar
 DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
-bool isSupportedTypeByDevice(DataType dtype);
+NVF_API bool isSupportedTypeByDevice(DataType dtype);
 
-int64_t dataTypeSize(DataType type);
+NVF_API int64_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here
 int64_t dataTypeSize(DataType type, DataType index_type);
@@ -375,6 +378,14 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
     at::BFloat16);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float8_e4m3fn,
+    at::ScalarType::Float8_e4m3fn,
+    at::Float8_e4m3fn);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float8_e5m2,
+    at::ScalarType::Float8_e5m2,
+    at::Float8_e5m2);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int,
     at::ScalarType::Long,
@@ -878,28 +889,28 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 
 // If type cannot be found (i.e. codegen does not support provided type) returns
 // DataType::Null
-DataType aten_to_data_type(const at::ScalarType& scalar_type);
-at::ScalarType data_type_to_aten(const DataType& data_type);
+NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
+NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
 
-std::ostream& operator<<(std::ostream&, const ValType);
+NVF_API std::ostream& operator<<(std::ostream&, const ValType);
 std::ostream& operator<<(std::ostream&, const PredicateType);
-std::ostream& operator<<(std::ostream&, const DataType);
+NVF_API std::ostream& operator<<(std::ostream&, const DataType);
 std::ostream& operator<<(std::ostream&, const UnaryOpType);
-std::ostream& operator<<(std::ostream&, const BinaryOpType);
+NVF_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
 std::ostream& operator<<(std::ostream&, const TernaryOpType);
 std::ostream& operator<<(std::ostream&, const ScatterOpType);
 std::ostream& operator<<(std::ostream&, const RNGOpType);
-std::ostream& operator<<(std::ostream&, const ParallelType);
-std::ostream& operator<<(std::ostream&, const MemoryType);
-std::ostream& operator<<(std::ostream&, const IterType);
+NVF_API std::ostream& operator<<(std::ostream&, const ParallelType);
+NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
+NVF_API std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
-std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
+NVF_API std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
 std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
 std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
-std::ostream& operator<<(std::ostream&, const CacheOp&);
+NVF_API std::ostream& operator<<(std::ostream&, const CacheOp&);
 std::ostream& operator<<(std::ostream& os, const std::optional<bool>&);
 
 std::string stringifyThreadSize(const ParallelType);
@@ -908,15 +919,15 @@ std::string typePrefix(const DataType);
 
 // TODO: ThreadDim should be BlockDim and BlockDim should be GridDim
 // Returns if parallel type is TID[x, y, z]
-bool isParallelTypeThreadDim(ParallelType);
+NVF_API bool isParallelTypeThreadDim(ParallelType);
 // Returns if parallel type is BID[x, y, z]
-bool isParallelTypeBlockDim(ParallelType);
+NVF_API bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
-bool isParallelTypeThread(ParallelType);
+NVF_API bool isParallelTypeThread(ParallelType);
 // Returns if parallel type is DIDx
-bool isParallelTypeDeviceDim(ParallelType);
+NVF_API bool isParallelTypeDeviceDim(ParallelType);
 
-bool isParallelTypeVectorize(ParallelType);
+NVF_API bool isParallelTypeVectorize(ParallelType);
 
 std::optional<std::string> inline_op_str(const UnaryOpType);
 std::optional<std::string> inline_op_str(const BinaryOpType);
@@ -944,6 +955,10 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       return sizeof(at::Half);
     case DataType::BFloat16:
       return sizeof(at::BFloat16);
+    case DataType::Float8_e4m3fn:
+      return sizeof(at::Float8_e4m3fn);
+    case DataType::Float8_e5m2:
+      return sizeof(at::Float8_e5m2);
     case DataType::Index:
       NVF_ERROR(
           false, "The actual type of Index is only known at compile time.");

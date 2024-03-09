@@ -477,7 +477,12 @@ class VectorizeValidator : public OptInDispatch {
           tv, (int)vector_word_size);
     }
 
-    auto producer_tv = tv->definition()->inputs().at(0)->as<TensorView>();
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+    auto producer_tv = tv_def->inputs().at(0)->as<TensorView>();
     auto producer_word_size_it =
         GpuLower::current()->vectorizedAccesses().find(producer_tv);
     if (producer_word_size_it !=
@@ -579,9 +584,11 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       }
     }
     if (has_vectorize_dim) {
+      Expr* def = tv->definition();
       NVF_ERROR(
-          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>() ||
-              tv->definition()->isA<SliceOp>(),
+          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              (def->isA<ReductionOp>() &&
+               def->as<ReductionOp>()->serialGridReductionRequested()),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
@@ -958,16 +965,6 @@ void validateMmaTensors(MmaOp* mma) {
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
   validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
-
-  // Additionally validate that mma is not directly taking a double buffered
-  //  register input as the double buffer indexing is currently not compatible
-  //  with fragment iteration. Would need to require a cache stage in this case.
-  NVF_ERROR(
-      !mma->inA()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
-  NVF_ERROR(
-      !mma->inB()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
@@ -1009,7 +1006,12 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
+  // To avoid errors in analysis when using ATen evaluation for matmul, only
+  // validate expressions that require codegen. See PR # 1775 and Issue #1812
+  std::vector<Val*> outs_requiring_codegen =
+      lower_utils::getFusionOutputsRequiringCodegen(fusion);
+  auto exprs = StmtSort::getExprsBetween(
+      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -1177,18 +1179,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
 
-      NVF_CHECK(
-          is_allreduce,
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for allreduce reductions: ",
-          rop->toString());
-
-      NVF_CHECK(
-          tv->domain()->hasGridReduction(),
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for grid reductions: ",
-          rop->toString());
-
       std::vector<BinaryOpType> op_types({rop->getReductionOpType()});
       std::vector<Val*> init_vals({rop->init()});
       std::vector<Val*> outputs({rop->out()});
@@ -1287,6 +1277,30 @@ void validateResize(Fusion* fusion) {
         "Invalid use of resize detected with ",
         tv->toString(),
         ". Resize may only be used as part of rfactor transformations.");
+  }
+}
+
+void validateReductions(Fusion* fusion) {
+  for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
+    auto in = rop->in()->as<TensorView>();
+    auto out = rop->out()->as<TensorView>();
+    PairwiseRootDomainMap c2p_map(in, out);
+    c2p_map.mapBroadcast(true);
+    auto c2p = c2p_map.mapConsumerToProducer();
+    for (auto out_id : out->getRootDomain()) {
+      if (out_id->isReduction()) {
+        auto in_it = c2p.find(out_id);
+        NVF_ERROR(
+            in_it != c2p.end(),
+            "Could not find producer IterDomain mapped to ",
+            out_id->toString());
+        IterDomain* in_id = in_it->second;
+        NVF_ERROR(
+            !in_id->isBroadcast() || in_id->hasExpandedExtent(),
+            "Reductions of unexpanded broadcast domains should be ",
+            "converted to squeeze before lowering.");
+      }
+    }
   }
 }
 

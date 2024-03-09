@@ -8,7 +8,6 @@
 #include <index_compute.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
 #include <contiguity.h>
@@ -1077,10 +1076,13 @@ class UpdateLeafIndices : public IterVisitor {
     if (!index_map_.count(in_id)) {
       // Reduction axes on producer side could be visited on forward
       //  propagation pass and current implementation does not yet
-      //  support reduciton on swizzled iterdomains, so un-indexed
-      //  reduction iterdomains are just ignored for now.
+      //  support reduction on swizzled iterdomains, so un-indexed
+      //  reduction iterdomains are just ignored for now. It is the same
+      //  for broadcast iterdomains.
       NVF_ERROR(
-          in_id->isReduction(), "Undefined index for ", in_id->toString());
+          in_id->isReduction() || in_id->isBroadcast(),
+          "Undefined index for ",
+          in_id->toString());
       return;
     }
 
@@ -1099,23 +1101,65 @@ class UpdateLeafIndices : public IterVisitor {
     auto outer_id = merge->outer();
     auto inner_id = merge->inner();
 
+    // Nothing need to be done when mappings for the output axes
+    // already exist.
+    if (index_map_.find(out_id) != index_map_.end()) {
+      return;
+    }
+
+    if (outer_id->isBroadcast()) {
+      if (!index_map_.count(inner_id)) {
+        // Reduction axes on producer side could be visited on forward
+        //  propagation pass and current implementation does not yet
+        //  support reduciton on swizzled iterdomains, so un-indexed
+        //  reduction iterdomains are just ignored for now. The same applies to
+        //  BroadcastOp.
+        NVF_ERROR(
+            inner_id->isReduction() || inner_id->isBroadcast(),
+            "Undefined index for ",
+            inner_id->toString());
+        return;
+      }
+
+      NVF_ERROR(
+          index_map_.find(inner_id) != index_map_.end(), "Inner ID not found");
+
+      index_map_[out_id] = index_map_[inner_id];
+      extent_map_[out_id] = getExtent(inner_id);
+      return;
+    } else if (inner_id->isBroadcast()) {
+      if (!index_map_.count(outer_id)) {
+        // Reduction axes on producer side could be visited on forward
+        //  propagation pass and current implementation does not yet
+        //  support reduciton on swizzled iterdomains, so un-indexed
+        //  reduction iterdomains are just ignored for now.
+        NVF_ERROR(
+            outer_id->isReduction() || outer_id->isBroadcast(),
+            "Undefined index for ",
+            outer_id->toString());
+        return;
+      }
+
+      NVF_ERROR(
+          index_map_.find(outer_id) != index_map_.end(), "Outer ID not found");
+
+      index_map_[out_id] = index_map_[outer_id];
+      extent_map_[out_id] = getExtent(outer_id);
+      return;
+    }
+
     if (!index_map_.count(outer_id) || !index_map_.count(inner_id)) {
       // Reduction axes on producer side could be visited on forward
       //  propagation pass and current implementation does not yet
       //  support reduciton on swizzled iterdomains, so un-indexed
       //  reduction iterdomains are just ignored for now.
       NVF_ERROR(
-          outer_id->isReduction() && inner_id->isReduction(),
+          (outer_id->isReduction() || outer_id->isBroadcast()) &&
+              (inner_id->isReduction() || inner_id->isBroadcast()),
           "Undefined index for ",
           outer_id->toString(),
           " and ",
           inner_id->toString());
-      return;
-    }
-
-    // Nothing need to be done when mappings for the output axes
-    // already exist.
-    if (index_map_.find(out_id) != index_map_.end()) {
       return;
     }
 
@@ -1768,7 +1812,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   for (auto alloc_id : alloc_dom) {
     // Already taken care of because we can detect no indexing required
     if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride() ||
+        alloc_id->isStride() || alloc_id->isDeviceDim() ||
         (alloc_id->isThread() &&
          producer_tv->getMemoryType() == MemoryType::Local)) {
       skip_indexing.insert(alloc_id);
@@ -2227,7 +2271,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride() ||
+        alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim() ||
         (alloc_dom[i]->isThread() &&
          consumer_tv->getMemoryType() == MemoryType::Local)) {
       continue;
@@ -2260,7 +2304,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     Val* stride = nullptr;
     for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
-          alloc_dom[j]->isStride()) {
+          alloc_dom[j]->isDeviceDim() || alloc_dom[j]->isStride()) {
         continue;
       }
 
@@ -3246,6 +3290,7 @@ Val* Index::eye(
 
 Val* Index::cpAsyncBulkIndex(
     TensorView* gmem_tv,
+    TensorView* smem_tv,
     TensorView* consumer,
     Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
@@ -3256,21 +3301,23 @@ Val* Index::cpAsyncBulkIndex(
   NVF_ERROR(
       gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
-  NVF_ERROR(
-      gmem_tv->getMaybeRFactorDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  NVF_ERROR(
-      gmem_tv->getMaybeAllocationDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  for (auto id : consumer->getMaybeRFactorDomain()) {
-    NVF_ERROR(
-        id->isBulk(),
-        "cpAsyncBulkIndex only support whole tensor copy for now.");
-  }
 
-  int64_t dim = (int64_t)gmem_tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->getMaybeAllocationDomain().size();
   NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
+
+  int64_t swizzle_size = 1;
+  auto exprs = DependencyCheck::getAllExprsBetween(
+      {smem_tv->getMaybeRFactorDomain().begin(),
+       smem_tv->getMaybeRFactorDomain().end()},
+      {smem_tv->getMaybeAllocationDomain().begin(),
+       smem_tv->getMaybeAllocationDomain().end()});
+  for (auto expr : exprs) {
+    if (auto s = dynamic_cast<Swizzle*>(expr)) {
+      swizzle_size = s->inX()->extent()->evaluate().as<int64_t>();
+      break;
+    }
+  }
 
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
@@ -3310,7 +3357,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      MmaInputSmemSwizzle::None,
+      getSwizzleFromBytes(swizzle_size * core_matrix_width_bytes),
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 

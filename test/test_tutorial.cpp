@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
@@ -627,6 +628,72 @@ TEST_F(Tutorial, Reshape) {
     // Note that all the transformations of squeeze_output are scheduling
     // transformations, thus it should not have a rfactor domain
     ASSERT_FALSE(squeeze_output->hasRFactor());
+  }
+}
+
+// Demonstration of using IdModel for analyzing equivalence of reshape ops
+TEST_F(Tutorial, IdModelReshapeAnalysis) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  // Use the static reshape to avoid reshape concretization.
+  //
+  // While the reshape operations are equivalent, we don't know if the
+  // two inputs are the same as there's no op allowing inference of
+  // equivalence (e.g., tv0 + tv1)
+  auto tv2 = reshape(tv0, {10, 20}, {20, 10});
+  auto tv3 = reshape(tv1, {10, 20}, {20, 10});
+
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  IdModel id_model(&fusion);
+  ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // As mentioned above, we don't know any relationship between tv0
+  // and tv1, so they should not be mapped.
+  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
+    ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
+        tv0->getRootDomain().at(i), tv1->getRootDomain().at(i)));
+  }
+
+  // Thus, the outputs of the reshape ops are not mapped either
+  for (const auto i : c10::irange(tv2->nDims())) {
+    ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
+        tv2->axis(i), tv3->axis(i)));
+  }
+
+  // Now, suppose we can say the inputs are exactly mapped. We
+  // can manually add mappings:
+  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
+    exact_graph.mapVals(tv0->getRootDomain().at(i), tv1->getRootDomain().at(i));
+  }
+
+  // Now, tv2 and tv3 should be fully mapped, including their root,
+  // intermediate and leaf domains.
+
+  // Check the root domains.
+  for (const auto i : c10::irange(tv2->getRootDomain().size())) {
+    ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv2->getRootDomain().at(i), tv3->getRootDomain().at(i)));
+  }
+
+  // The reshape consists of a merge and split. The output of the
+  // merge should be mapped as well
+  ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+      tv2->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out(),
+      tv3->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out()));
+
+  // The next operation is split. Its outputs, which are the leaf
+  // domains, should be mapped too.
+  for (const auto i : c10::irange(tv2->nDims())) {
+    ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv2->axis(i), tv3->axis(i)));
   }
 }
 

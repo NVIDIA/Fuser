@@ -45,6 +45,22 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  inline int getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
+    int num_grouped_iterations = 1;
+    auto out_tv = ir_utils::getTvOutput(grouped_rop);
+    for (auto axis : out_tv->getLeafDomain()) {
+      if (axis->getParallelType() == ParallelType::Group) {
+        num_grouped_iterations *= (int)axis->extent()->value();
+      }
+    }
+    NVF_ERROR(
+        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
+            num_grouped_iterations == 8 || num_grouped_iterations == 16,
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        num_grouped_iterations);
+    return num_grouped_iterations;
+  }
+
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
@@ -118,6 +134,21 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_block_welford || out_dom->hasBlockReduction();
   }
 
+  // TODO: need to split into IterGroupedReductionOp and ExprGroupedReductionOp?
+  // May extend to support both iteration and expr grouped block reductions.
+  // Grouped grid reductions are handled by GroupedGridReduction.
+  void handle(GroupedReductionOp* grouped_rop) final {
+    // skip expr grouped reduction
+    if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
+      return;
+    }
+    // process iteration grouped reduction
+    summary_.has_iter_grouped_reductions = true;
+    int num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
+    summary_.num_grouped_iterations =
+        std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+  }
+
   void handle(GridWelford* grid_welford) final {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
@@ -128,7 +159,11 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(GridReduction* grid_reduction) final {
-    summary_.has_grid_reductions = true;
+    // summary.has_grid_reductions is used to determine whether we need a
+    // reduction workspace. Serial grid reductions do not require this
+    // workspace.
+    summary_.has_grid_reductions =
+        grid_reduction->serialReductionTensor() == nullptr;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -138,6 +173,12 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_grid_reductions = true;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
+    } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
+      // non-persistent iteration domain grouped reduction
+      summary_.has_iter_grouped_reductions = true;
+      summary_.num_grouped_iterations = std::max(
+          summary_.num_grouped_iterations,
+          getNumOfGroupedIterations(grid_reduction->as<GroupedReductionOp>()));
     }
   }
 
@@ -319,6 +360,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
+  summary_.min_device_version = GpuLower::current()->minDeviceVersion();
+  summary_.min_device_version_reason =
+      GpuLower::current()->minDeviceVersionReason();
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {

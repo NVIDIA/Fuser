@@ -228,6 +228,8 @@ inline std::string toString(const PolymorphicValue& v) {
     ss << "Tensor(sizes=" << t.sizes() << ", "
        << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
        << ")";
+  } else if (v.is<std::monostate>()) {
+    ss << "std::monostate";
   } else {
     ss << v;
   }

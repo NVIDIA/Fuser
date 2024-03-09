@@ -138,20 +138,19 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
       for (const auto j : c10::irange(inp_dom.size())) {
-        numel = mul(numel, inp_dom.at(j)->extent());
+        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
       }
       for (const auto j : c10::irange(new_sizes.size())) {
         if (i == j) {
           continue;
         }
-        other_new_numel = mul(other_new_numel, new_sizes.at(j));
+        other_new_numel =
+            SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
       }
-      new_size = div(numel, other_new_numel);
+      new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
-    if (new_size->dtype() != DataType::Index) {
-      new_size = castOp(DataType::Index, new_size);
-    }
+    new_size = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_size);
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
@@ -205,7 +204,41 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   return out;
 }
 
-TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  auto x_dom = x->domain()->noReductions();
+  const auto ndims = static_cast<int>(x_dom.size());
+
+  NVF_ERROR(
+      (int)dims.size() <= ndims,
+      "The dims to squeeze must be <= the number of dims of the input tensor. ",
+      "Squeeze dims: ",
+      dims.size(),
+      " Input Tensor dims: ",
+      ndims);
+
+  std::vector<bool> to_squeeze(ndims, false);
+  for (auto dim : dims) {
+    // Handle negative relative to the end dimensions specifications
+    if (dim < 0) {
+      dim = static_cast<int64_t>(to_squeeze.size()) + dim;
+    }
+    NVF_CHECK(
+        (dim >= 0) && (static_cast<size_t>(dim) < to_squeeze.size()),
+        "Squeeze dim is outside of Tensor size! Tensor Size: ",
+        to_squeeze.size(),
+        " Dim: ",
+        dim);
+    to_squeeze[dim] = true;
+  }
+
+  return squeeze(x, to_squeeze);
+}
+
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze,
+    bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int>(x_dom.size());
@@ -226,7 +259,10 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
             id->isBroadcast(),
             "Can not squeeze non-broadcasting dimension(s).");
         NVF_CHECK(
-            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+            squeeze_expanded || !id->hasExpandedExtent(),
+            "Refusing to squeeze expanded IterDomain ",
+            id->toString(),
+            ". To force removal of this axis, use squeeze_expanded=true.");
         NVF_CHECK(
             id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
@@ -241,99 +277,15 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
 
-  IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  if (std::none_of(
+          to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
+    // If we did not squeeze any axes, this is just set()
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
+  } else {
+    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  }
 
   return out;
-}
-
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes) {
-  NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
-
-  NVF_ERROR(
-      ndims == int(sizes.size()),
-      "Invalid sizes for squeeze: ",
-      sizes,
-      ". Input tensor: ",
-      x->toString());
-
-  std::vector<bool> to_squeeze(ndims);
-  for (const auto idx : c10::irange(sizes.size())) {
-    to_squeeze[idx] = (sizes[idx] == 1);
-  }
-  return squeeze(x, to_squeeze);
-}
-
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim) {
-  NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
-
-  NVF_ERROR(
-      ndims == int(sizes.size()),
-      "Invalid sizes for squeeze: ",
-      sizes,
-      ". Input tensor: ",
-      x->toString());
-
-  if (dim < 0) {
-    dim = ndims + dim;
-  }
-
-  NVF_ERROR(
-      dim >= 0 && dim < ndims,
-      "Invalid position to squeeze: ",
-      dim,
-      ". Input tensor: ",
-      x->toString());
-
-  if (sizes[dim] == 1) {
-    std::vector<bool> to_squeeze(ndims, false);
-    to_squeeze[dim] = true;
-    return squeeze(x, to_squeeze);
-  } else {
-    return set(x);
-  }
-}
-
-TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& dims) {
-  NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
-
-  NVF_ERROR(
-      ndims == int(sizes.size()),
-      "Invalid sizes for squeeze: ",
-      sizes,
-      ". Input tensor: ",
-      x->toString());
-
-  bool is_all_singleton_dimensions = true;
-
-  std::vector<bool> to_squeeze(ndims);
-  for (auto dim : dims) {
-    if (dim < 0) {
-      dim = ndims + dim;
-    }
-
-    NVF_ERROR(
-        dim >= 0 && dim < ndims,
-        "Invalid position to squeeze: ",
-        dim,
-        ". Input tensor: ",
-        x->toString());
-
-    bool is_singleton_dim = (sizes[dim] == 1);
-    to_squeeze.at(dim) = is_singleton_dim;
-    is_all_singleton_dimensions &= is_singleton_dim;
-  }
-
-  if (is_all_singleton_dimensions) {
-    return squeeze(x, to_squeeze);
-  } else {
-    return set(x);
-  }
 }
 
 TensorView* unsqueeze(TensorView* x, int dim) {
@@ -354,6 +306,12 @@ TensorView* unsqueeze(TensorView* x, int dim) {
   std::vector<bool> broadcast_axes(ndims + 1, false);
   broadcast_axes[dim] = true;
   return broadcast(x, broadcast_axes);
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<int64_t>& new2old) {
+  return permute(x, std::vector<int64_t>(new2old));
 }
 
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
@@ -400,6 +358,21 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       x->getDataType().value());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<std::pair<const int, int>>& new2old) {
+  return permute(x, std::unordered_map<int, int>(new2old));
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::unordered_map<int, int>& old2new) {
+  auto y = set(x);
+  y->reorder(old2new);
+  y->commitLeafToRFactor();
+  return y;
 }
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
@@ -667,7 +640,8 @@ TensorView* cat(
             inp_root_id->toString());
         // The right pad of the last tensor is just zero
         right_pad = input_idx < inputs.size() - 1
-            ? sub(right_pad, inp_root_id->getMaybeExpandedExtent())
+            ? SimplifyingIrBuilder::subExpr(
+                  right_pad, inp_root_id->getMaybeExpandedExtent())
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;

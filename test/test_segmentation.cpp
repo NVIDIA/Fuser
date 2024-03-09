@@ -154,4 +154,383 @@ TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
+TEST_F(SegmentationTest, EnforceSegmentationByCachingBeforeAndAfter) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = sum(tv0, {0});
+  TensorView* tv2 = div(tv0, tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  // A fake proxy for the real isSharding check.
+  auto is_sharding = [](Expr* expr) -> bool {
+    return expr->isA<ReductionOp>();
+  };
+
+  // I'd put this in a pre-segmenter pass.
+  std::vector<Expr*> sharding_exprs;
+  for (Expr* expr : fusion->exprs()) {
+    if (is_sharding(expr)) {
+      sharding_exprs.push_back(expr);
+    }
+  }
+  for (Expr* sharding_expr : sharding_exprs) {
+    for (TensorView* in_tv :
+         ir_utils::filterByType<TensorView>(sharding_expr->inputs())) {
+      if (!in_tv->isFusionInput()) {
+        in_tv->cacheBefore(LoadStoreOpType::SegmenterSet);
+      }
+    }
+    for (TensorView* out_tv :
+         ir_utils::filterByType<TensorView>(sharding_expr->outputs())) {
+      if (!out_tv->isFusionOutput()) {
+        out_tv->cacheAfter(LoadStoreOpType::SegmenterSet);
+      }
+    }
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      {in_tensor / in_tensor.sum({0})},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+}
+
+TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  add_out = segment_set(add_out);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+
+  add_out->setAllocationDomain(
+      {add_out->axis(0), add_out->axis(1), add_out->axis(2)}, false);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, InputForwardingUntilBinary) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({2, 3}, DataType::Half);
+  TensorView* y = makeContigConcreteTensor({2, 3}, DataType::Half);
+  fusion->addInput(x);
+  fusion->addInput(y);
+
+  x = castOp(DataType::Float, x);
+  x = neg(x);
+  x = sin(x);
+
+  y = castOp(DataType::Float, y);
+  y = sin(y);
+  y = neg(y);
+
+  TensorView* z = add(x, y);
+  // This `segment_set` is needed to trigger input forwarding. Otherwise, the
+  // whole fusion will be accepted by pointwise.
+  z = segment_set(z);
+  fusion->addOutput(z);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({in_tensor, in_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
+}
+
+TEST_F(SegmentationTest, InputForwardingUntilOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create two chains of ops so the test triggers input forwarding. With one
+  // chain, the whole fusion will be accepted by pointwise.
+  TensorView* in0 = makeContigTensor(2);
+  TensorView* in1 = makeContigTensor(2);
+  TensorView* out0 = tanh(in0);
+  out0 = sin(out0);
+  TensorView* out1 = sin(in1);
+  out1 = tanh(out1);
+
+  fusion->addInput(in0);
+  fusion->addInput(in1);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({in_tensor, in_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = slice(tv1, {0}, {5});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = sum(tv1, {1});
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({10, 20}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, ForceFp16Simple) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+
+  // Group 2
+  auto tv4 = add(tv3, tv1); // Edge: tv3: expect cast
+  auto tv5 = castOp(DataType::Half, tv4);
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{15, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  // Check the segmented edge is fp16
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    EXPECT_EQ(edge_tv->getDataType(), DataType::Half);
+  }
+}
+
+TEST_F(SegmentationTest, ForceBf16Simple) {
+#if !defined(CUDA_VERSION) || CUDA_VERSION < 11000
+  GTEST_SKIP() << "requires cuda 11.0 or newer toolkit";
+#endif
+
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+
+  // Group 2
+  auto tv4 = add(tv3, tv1); // Edge: tv3: expect cast
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{15, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  // Check the segmented edge is bf16
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    EXPECT_EQ(edge_tv->getDataType(), DataType::BFloat16);
+  }
+}
+
+TEST_F(SegmentationTest, ForceFp16NotAllCast) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(3);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv3 = sum(tv0, {1});
+  auto tv4 = broadcast(tv3, {false, true, false});
+  auto tv5 = sum(tv0, {1});
+
+  // Group 2
+  auto tv6 = add(tv4, tv1); // edge tv4, expect cast
+  auto tv7 = castOp(DataType::Half, tv6);
+
+  // Group 3
+  auto tv8 = sum(tv5, {1}); // edge tv5, don't expect cast
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{16, 16, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  Fusion* complete_fusion = segmented_fusion->completeFusion();
+
+  // Check that the edge that wasn't fp16 is the producer of the
+  //  reduction op, i.e. tv8 = sum(tv5,{1});.
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    if (edge_tv->getDataType() == DataType::Float) {
+      Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
+      EXPECT_TRUE(consumer->isA<ReductionOp>());
+    }
+  }
+}
+
+TEST_F(SegmentationTest, ForceBf16NotAllCast) {
+#if !defined(CUDA_VERSION) || CUDA_VERSION < 11000
+  GTEST_SKIP() << "requires cuda 11.0 or newer toolkit";
+#endif
+
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(3);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv3 = sum(tv0, {1});
+  auto tv4 = broadcast(tv3, {false, true, false});
+  auto tv5 = sum(tv0, {1});
+
+  // Group 2
+  auto tv6 = add(tv4, tv1); // edge tv4, expect cast
+  auto tv7 = castOp(DataType::BFloat16, tv6);
+
+  // Group 3
+  auto tv8 = sum(tv5, {1}); // edge tv5, don't expect cast
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{16, 16, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  Fusion* complete_fusion = segmented_fusion->completeFusion();
+
+  // Check that the edge that wasn't fp16 is the producer of the
+  //  reduction op, i.e. tv8 = sum(tv5,{1});.
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    if (edge_tv->getDataType() == DataType::Float) {
+      Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
+      EXPECT_TRUE(consumer->isA<ReductionOp>());
+    }
+  }
+}
+
 } // namespace nvfuser

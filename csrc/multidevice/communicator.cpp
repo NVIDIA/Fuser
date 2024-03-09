@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #include <netdb.h>
 
 #include <multidevice/communicator.h>
@@ -21,6 +21,15 @@
 #endif
 
 namespace nvfuser {
+
+std::map<CommunicatorBackend, std::string> communicator_backend_to_string = {
+    {CommunicatorBackend::nccl, "NCCL"},
+    {CommunicatorBackend::ucc, "UCC"},
+    {CommunicatorBackend::gloo, "GLOO"}};
+
+std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
+  return out << communicator_backend_to_string.at(cb);
+}
 
 // Parse the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
@@ -142,7 +151,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
         store, rank, size, timeout);
   }
 #endif
-  NVF_CHECK(false, "no distributed backend available");
+  NVF_ERROR(false, "no distributed backend available");
 }
 
 Communicator::Communicator(

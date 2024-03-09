@@ -424,7 +424,7 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
-#define DEFINE_BINARY_OP(opname, op)                                       \
+#define DEFINE_BINARY_OP(opname, op, func_name)                            \
   /*TODO: we should inline the definition of lambdas into enable_if,*/     \
   /*but I can only do this in C++20 */                                     \
   template <typename DTVariantType>                                        \
@@ -446,7 +446,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               DT::type_identities_as_tuple,                                \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT& x, const std::type_identity_t<DT>& y) {            \
+  func_name(const DT& x, const std::type_identity_t<DT>& y) {              \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -494,7 +494,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               opname##_rdefined_checker<RHS, typename DT::VariantType>,    \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT& x, const RHS& y) {                                 \
+  func_name(const DT& x, const RHS& y) {                                   \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -540,7 +540,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
                opname##_ldefined_checker<LHS, typename DT::VariantType>,   \
                DT::type_identities_as_tuple)),                             \
       DT>                                                                  \
-  operator op(const LHS& x, const DT& y) {                                 \
+  func_name(const LHS& x, const DT& y) {                                   \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
       using RHS = typename decltype(rhs)::type;                            \
@@ -573,18 +573,31 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     return ret;                                                            \
   }
 
-DEFINE_BINARY_OP(add, +);
-DEFINE_BINARY_OP(minus, -);
-DEFINE_BINARY_OP(mul, *);
-DEFINE_BINARY_OP(div, /);
-DEFINE_BINARY_OP(mod, %);
-DEFINE_BINARY_OP(band, &);
-DEFINE_BINARY_OP(bor, |);
-DEFINE_BINARY_OP(xor, ^);
-DEFINE_BINARY_OP(land, &&);
-DEFINE_BINARY_OP(lor, ||);
-DEFINE_BINARY_OP(lshift, <<);
-DEFINE_BINARY_OP(rshift, >>);
+DEFINE_BINARY_OP(add, +, operator+);
+DEFINE_BINARY_OP(minus, -, operator-);
+DEFINE_BINARY_OP(mul, *, operator*);
+DEFINE_BINARY_OP(div, /, operator/);
+DEFINE_BINARY_OP(mod, %, operator%);
+DEFINE_BINARY_OP(band, &, operator&);
+DEFINE_BINARY_OP(bor, |, operator|);
+DEFINE_BINARY_OP(xor, ^, operator^);
+DEFINE_BINARY_OP(land, &&, operator&&);
+DEFINE_BINARY_OP(lor, ||, operator||);
+DEFINE_BINARY_OP(lshift, <<, operator<<);
+DEFINE_BINARY_OP(rshift, >>, operator>>);
+
+// Not defining comparison operators that returns DynamicType as operator
+// overloading, because we want to leave the operator overloading for comparison
+// operators that returns bool. Instead, we give each operator a function name,
+// so that users can use the function name to call the operator. That is:
+//   dt1 < dt2 --> returns a bool (defined below by DEFINE_COMPARE_OP)
+//   lt(dt1, dt2) --> returns a DynamicType
+DEFINE_BINARY_OP(eq, ==, eq);
+DEFINE_BINARY_OP(neq, !=, ne);
+DEFINE_BINARY_OP(lt, <, lt);
+DEFINE_BINARY_OP(gt, >, gt);
+DEFINE_BINARY_OP(le, <=, le);
+DEFINE_BINARY_OP(ge, >=, ge);
 
 #undef DEFINE_BINARY_OP
 
