@@ -454,13 +454,16 @@ NVFUSER_DEFINE_UNARY_OP(trunc, Trunc)
 NVFUSER_DEFINE_UNARY_OP(print, Print)
 #undef NVFUSER_DEFINE_UNARY_OP
 
-// Promote half to single for neg. Eventually, `neg` should probably be defined
-// using NVFUSER_DEFINE_UNARY_OP. However, currently, nvFuser codegen misses
-// certain header files for half types and therefore has no access to data types
-// like `__nv_bfloat16`  and intrinsics like `__hneg`. So, as a workaround to
-// #1541, we promote half types to single.
+// As a workaround to #1541, we promote half types to single for neg.
+// Eventually, `neg` should probably be defined using NVFUSER_DEFINE_UNARY_OP.
+// However, currently, nvFuser codegen misses certain header files for half
+// types and therefore has no access to data types like `__nv_bfloat16`  and
+// intrinsics like `__hneg`.
 //
-// Caveat: for `neg`, don't promote integer types to single.
+// Note: TypePromotion::float_op_config is a wrong config to use here, because
+// it "promotes" integers to float and loses precision (see
+// UnaryTests/UnaryTest.Neg/int64_t). TypePromotion::float_only_op_config is
+// also wrong, because it doesn't allow integers at all.
 Val* neg(Val* v) {
   return unaryOp(UnaryOpType::Neg, v, TypePromotion::default_op_config);
 }
