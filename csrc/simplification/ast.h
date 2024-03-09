@@ -252,32 +252,7 @@ class Program {
 
   //! This is like findTerm, but if we haven't seen Val, then recursively make
   //! terms to represent val's producers and its definition.
-  Term* valToTermHelper(Val* val) {
-    // First check whether we've seen this Val before so we can return early
-    auto val_it = val_term_map_.find(val);
-    if (val_it != val_term_map_.end()) {
-      return val_it->second;
-    }
-    // Create a new Term
-    Expr* def = val->definition();
-    FunctionSymbol symbol = exprToFunctionSymbol(def);
-    std::vector<const Term*> producer_terms;
-    if (def != nullptr) {
-      symbol = exprToFunctionSymbol(def);
-      producer_terms.reserve(def->inputs().size());
-      for (auto inp : def->inputs()) {
-        producer_terms.push_back(valToTermHelper(inp));
-      }
-    }
-    Term* term = makeTerm(
-        symbol,
-        dataTypeToPrim(val->dtype()),
-        polymorphicValueToConstant(val->value()),
-        producer_terms);
-    term->representing_val = val;
-    val_term_map_.emplace(val, term);
-    return term;
-  }
+  Term* valToTermHelper(Val* val);
 
   //! Try to prove new orderings implied by current assumptions and proofs. This
   //! computes the transitive closure of the ordering assumptions by matrix

@@ -273,7 +273,6 @@ void Program::assume(const Term& term) {
         // Test whether a and b are already involved in inequalities. If not,
         // then grow the matrices.
         auto pos_a_it = terms_in_orderings_.find(a);
-        auto pos_b_it = terms_in_orderings_.find(b);
         int num_inserted = 0;
         int pos_a, pos_b;
         if (pos_a_it == terms_in_orderings_.end()) {
@@ -283,6 +282,7 @@ void Program::assume(const Term& term) {
         } else {
           pos_a = pos_a_it->second;
         }
+        auto pos_b_it = terms_in_orderings_.find(b);
         if (pos_b_it == terms_in_orderings_.end()) {
           pos_b = terms_in_orderings_.size();
           terms_in_orderings_.emplace(b, pos_b);
@@ -301,14 +301,9 @@ void Program::assume(const Term& term) {
 
         // Check the relevant entry for this comparison. If it needs to be
         // updated, then mark proofs as unsaturated.
-        proofs_saturated_ &=
-            (inclusive ? less_equal_[pos_a][pos_b] : less_than_[pos_a][pos_b])
-                .item<int>() == 0;
-        if (inclusive) {
-          less_equal_[pos_a][pos_b] = 1;
-        } else {
-          less_than_[pos_a][pos_b] = 1;
-        }
+        auto& matrix = inclusive ? less_equal_ : less_than_;
+        proofs_saturated_ &= matrix[pos_a][pos_b].item<int>() > 0;
+        matrix[pos_a][pos_b] = 1;
       }
       default:
         break;
@@ -347,13 +342,13 @@ bool Program::prove(const Term& term) {
       auto lt_acc = less_than_.accessor<int, 2>();
       // Check position without saturating so that we avoid saturating unless
       // necessary.
-      if (lt_acc[pos_a][pos_b] > 0) {
+      if (lt_acc[pos_a][pos_b]) {
         return true;
       }
       if (!proofs_saturated_) {
         proveOrderings();
       }
-      return lt_acc[pos_a][pos_b] > 0;
+      return lt_acc[pos_a][pos_b];
     };
     switch (op_type) {
       case BinaryOpType::Eq: {
@@ -461,6 +456,44 @@ void Program::proveOrderings(int max_steps) {
       return;
     }
   }
+}
+
+Term* Program::valToTermHelper(Val* val) {
+  // First check whether we've seen this Val before so we can return early
+  auto val_it = val_term_map_.find(val);
+  if (val_it != val_term_map_.end()) {
+    return val_it->second;
+  }
+  if (auto* ns = dynamic_cast<NamedScalar*>(val)) {
+    // We may encounter multiple NamedScalars with the same name. They should
+    // all map to the same Term.
+    auto ns_it = named_scalar_term_map_.find(ns->name());
+    if (ns_it != named_scalar_term_map_.end()) {
+      return ns_it->second;
+    }
+  }
+  // Create a new Term
+  Expr* def = val->definition();
+  FunctionSymbol symbol = exprToFunctionSymbol(def);
+  std::vector<const Term*> producer_terms;
+  if (def != nullptr) {
+    symbol = exprToFunctionSymbol(def);
+    producer_terms.reserve(def->inputs().size());
+    for (auto inp : def->inputs()) {
+      producer_terms.push_back(valToTermHelper(inp));
+    }
+  }
+  Term* term = makeTerm(
+      symbol,
+      dataTypeToPrim(val->dtype()),
+      polymorphicValueToConstant(val->value()),
+      producer_terms);
+  term->representing_val = val;
+  val_term_map_.emplace(val, term);
+  if (auto* ns = dynamic_cast<NamedScalar*>(val)) {
+    named_scalar_term_map_.emplace(ns->name(), term);
+  }
+  return term;
 }
 
 Val* Program::termToVal(const Term* term) {

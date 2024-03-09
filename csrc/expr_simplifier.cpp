@@ -1554,8 +1554,6 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
 }
 
 bool lessThan(Val* x, Val* y, const Context& context) {
-  return context.program()->prove(
-      context.program()->valToTerm(x) < context.program()->valToTerm(y));
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1563,6 +1561,12 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
+  const simplification::Term& tx = context.program()->valToTerm(x);
+  const simplification::Term& ty = context.program()->valToTerm(y);
+  const simplification::Term& txlty = tx < ty;
+  if (context.program()->prove(txlty)) {
+    return true;
+  }
   if (x->isZero() && isPositiveHelper(y, context)) {
     return true;
   }
@@ -1585,8 +1589,6 @@ bool lessThan(Val* x, Val* y, const Context& context) {
 }
 
 bool lessEqual(Val* x, Val* y, const Context& context) {
-  return context.program()->prove(
-      context.program()->valToTerm(x) <= context.program()->valToTerm(y));
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1594,13 +1596,22 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
+  const simplification::Term& tx = context.program()->valToTerm(x);
+  const simplification::Term& ty = context.program()->valToTerm(y);
+  const simplification::Term& txley = tx <= ty;
+  if (context.program()->prove(txley)) {
+    return true;
+  }
   // x == y -> x <= y
   if (x->sameAs(y)) {
+    context.program()->assume(txley);
     return true;
   }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
+    context.program()->assume(txley);
     return true;
   }
+  /*
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
@@ -1624,9 +1635,11 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
       return true;
     }
   }
+  */
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {
+      context.program()->assume(txley);
       return true;
     }
   }
@@ -1649,6 +1662,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
+          context.program()->assume(txley);
           return true;
         }
       }
@@ -1673,6 +1687,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
+          context.program()->assume(txley);
           return true;
         }
       }
