@@ -147,6 +147,7 @@ Term* Program::makeTerm(
     std::vector<ConstantValue> producer_values;
     producer_values.reserve(producers.size());
     for (const Term* producer : producers) {
+      NVF_ERROR(producer != nullptr);
       producer_values.push_back(producer->constant);
     }
     ConstantValue c = AbstractTerm::evaluate(symbol, dtype, producer_values);
@@ -358,10 +359,13 @@ void Program::assume(const Term& term) {
         auto pos_a_it = terms_in_orderings_.find(a);
         int num_inserted = 0;
         int pos_a, pos_b;
+        bool init_a = false;
+        bool init_b = false;
         if (pos_a_it == terms_in_orderings_.end()) {
           pos_a = terms_in_orderings_.size();
           terms_in_orderings_.emplace(a, pos_a);
           num_inserted++;
+          init_a = true;
         } else {
           pos_a = pos_a_it->second;
         }
@@ -370,6 +374,7 @@ void Program::assume(const Term& term) {
           pos_b = terms_in_orderings_.size();
           terms_in_orderings_.emplace(b, pos_b);
           num_inserted++;
+          init_b = true;
         } else {
           pos_b = pos_b_it->second;
         }
@@ -377,19 +382,53 @@ void Program::assume(const Term& term) {
           less_than_ = at::pad(less_than_, {0, num_inserted, 0, num_inserted});
           less_equal_ =
               at::pad(less_equal_, {0, num_inserted, 0, num_inserted});
-          // Initialize diagonal
-          less_equal_[pos_a][pos_a] = 1;
-          less_equal_[pos_b][pos_b] = 1;
+          auto lt_acc = less_than_.accessor<int, 2>();
+          auto le_acc = less_equal_.accessor<int, 2>();
+          auto initOrderingTerm = [&](const Term* t, int pos) {
+            // Initialize diagonal
+            le_acc[pos][pos] = 1;
+            if (t->constant.hasValue()) {
+              // Check all existing constants and add relations where
+              // appropriate
+              for (const auto* c : constants_in_orderings_) {
+                NVF_ERROR(c->constant.hasValue());
+                auto p_it = terms_in_orderings_.find(c);
+                NVF_ERROR(
+                    p_it != terms_in_orderings_.end(),
+                    "Constant in orderings does not have recorded position");
+                int p = p_it->second;
+                if (c->constant < t->constant) {
+                  lt_acc[p][pos] = 1;
+                  le_acc[p][pos] = 1;
+                } else if (c->constant == t->constant) {
+                  le_acc[p][pos] = 1;
+                  le_acc[pos][p] = 1;
+                } else {
+                  lt_acc[pos][p] = 1;
+                  le_acc[pos][p] = 1;
+                }
+              }
+              constants_in_orderings_.push_back(t);
+            }
+          };
+          if (init_a) {
+            initOrderingTerm(a, pos_a);
+          }
+          if (init_b) {
+            initOrderingTerm(b, pos_b);
+          }
         }
 
         // Check the relevant entry for this comparison. If it needs to be
         // updated, then mark proofs as unsaturated.
+        auto lt_acc = less_than_.accessor<int, 2>();
+        auto le_acc = less_equal_.accessor<int, 2>();
         if (op_type == BinaryOpType::LE || op_type == BinaryOpType::GE) {
-          proofs_saturated_ &= less_equal_[pos_a][pos_b].item<int>() > 0;
-          less_equal_[pos_a][pos_b] = 1;
+          proofs_saturated_ &= le_acc[pos_a][pos_b] > 0;
+          le_acc[pos_a][pos_b] = 1;
         } else {
-          proofs_saturated_ &= less_than_[pos_a][pos_b].item<int>() > 0;
-          less_than_[pos_a][pos_b] = 1;
+          proofs_saturated_ &= lt_acc[pos_a][pos_b] > 0;
+          lt_acc[pos_a][pos_b] = 1;
         }
       }
       default:
@@ -398,12 +437,12 @@ void Program::assume(const Term& term) {
   }
 }
 
-bool Program::prove(const Term& term) {
-  if (proven_true_terms_.count(&term)) {
+bool Program::prove(const Term& term_to_prove) {
+  if (proven_true_terms_.count(&term_to_prove)) {
     return true;
   }
-  if (std::holds_alternative<BinaryOpType>(term.symbol)) {
-    auto op_type = std::get<BinaryOpType>(term.symbol);
+  if (std::holds_alternative<BinaryOpType>(term_to_prove.symbol)) {
+    auto op_type = std::get<BinaryOpType>(term_to_prove.symbol);
 
     auto proveInequality =
         [&](BinaryOpType op_type, const Term* a, const Term* b) -> bool {
@@ -414,15 +453,108 @@ bool Program::prove(const Term& term) {
         } else if (op_type == BinaryOpType::LT) {
           return false;
         } else {
-          NVF_ERROR(false, "Params should be swapped such that prove ");
+          NVF_ERROR(
+              false,
+              "Params should be swapped such that proveInequality only sees LE or LT");
         }
       }
+      // TODO: If a or b is constant and not found in any orderings, replace it
+      // with an existing constant term if possible, or fail and return false.
+      // NOTE: in these cases we will want to add an assume() in such cases so
+      // that we propagate this relation.
       auto pos_a_it = terms_in_orderings_.find(a);
       if (pos_a_it == terms_in_orderings_.end()) {
+        if (a->constant.hasValue()) {
+          const Term* surrogate = nullptr;
+          BinaryOpType surrogate_op_type = op_type;
+          if (op_type == BinaryOpType::LE) {
+            for (const auto* c : constants_in_orderings_) {
+              // a <= c && c <= y  =>  a <= y
+              if (a->constant <= c->constant) {
+                // Try and get the tightest bound we can
+                if (surrogate == nullptr || c->constant < surrogate->constant) {
+                  surrogate = c;
+                }
+              }
+            }
+          } else {
+            for (const auto* c : constants_in_orderings_) {
+              // LT (see NVF_ERROR above)
+              // a <= c && c < y  =>  a < y
+              if (a->constant <= c->constant) {
+                if (surrogate == nullptr || c->constant < surrogate->constant) {
+                  surrogate = c;
+                }
+              }
+            }
+            // If we could not get a tight bound, then it suffices to prove LE
+            // using the surrogate: a < c && c <= y  =>  a < y
+            if (a->constant < surrogate->constant) {
+              surrogate_op_type = BinaryOpType::LE;
+            }
+          }
+          if (surrogate == nullptr) {
+            return false;
+          }
+          bool result = prove(term(
+              surrogate_op_type,
+              DataType::Bool,
+              std::monostate{},
+              {surrogate, b}));
+          if (result) {
+            // Record the result so that this constant and
+            assume(term_to_prove);
+          }
+          return result;
+        }
         return false;
       }
       auto pos_b_it = terms_in_orderings_.find(b);
       if (pos_b_it == terms_in_orderings_.end()) {
+        // TODO: refactor this to re-use code from above if possible
+        if (b->constant.hasValue()) {
+          const Term* surrogate = nullptr;
+          BinaryOpType surrogate_op_type = op_type;
+          if (op_type == BinaryOpType::LE) {
+            for (const auto* c : constants_in_orderings_) {
+              // x <= c && c <= b  =>  x <= b
+              if (c->constant <= b->constant) {
+                // Try and get the tightest bound we can
+                if (surrogate == nullptr || c->constant > surrogate->constant) {
+                  surrogate = c;
+                }
+              }
+            }
+          } else {
+            for (const auto* c : constants_in_orderings_) {
+              // LT (see NVF_ERROR above)
+              // x <= c && c < b  =>  x < b
+              if (c->constant <= b->constant) {
+                if (surrogate == nullptr || c->constant > surrogate->constant) {
+                  surrogate = c;
+                }
+              }
+            }
+            // If we could not get a tight bound, then it suffices to prove LE
+            // using the surrogate: x <= c && c < b  =>  x < b
+            if (b->constant > surrogate->constant) {
+              surrogate_op_type = BinaryOpType::LE;
+            }
+          }
+          if (surrogate == nullptr) {
+            return false;
+          }
+          bool result = prove(term(
+              surrogate_op_type,
+              DataType::Bool,
+              std::monostate{},
+              {a, surrogate}));
+          if (result) {
+            // Record the result so that this constant and
+            assume(term_to_prove);
+          }
+          return result;
+        }
         return false;
       }
       // Positions of a and b in adjacency matrices
@@ -446,10 +578,10 @@ bool Program::prove(const Term& term) {
     };
     switch (op_type) {
       case BinaryOpType::Eq: {
-        NVF_ERROR(term.producers.size() >= 2);
+        NVF_ERROR(term_to_prove.producers.size() >= 2);
         bool allmatch = true;
-        const Term* ptr = term.producers[0];
-        for (auto producer : term.producers) {
+        const Term* ptr = term_to_prove.producers[0];
+        for (auto producer : term_to_prove.producers) {
           if (producer != ptr) {
             allmatch = false;
             break;
@@ -462,27 +594,27 @@ bool Program::prove(const Term& term) {
         break;
       }
       case BinaryOpType::LT: {
-        NVF_ERROR(term.producers.size() == 2);
-        const Term* a = term.producers[0];
-        const Term* b = term.producers[1];
+        NVF_ERROR(term_to_prove.producers.size() == 2);
+        const Term* a = term_to_prove.producers[0];
+        const Term* b = term_to_prove.producers[1];
         return proveInequality(BinaryOpType::LT, a, b);
       }
       case BinaryOpType::GT: {
-        NVF_ERROR(term.producers.size() == 2);
-        const Term* a = term.producers[0];
-        const Term* b = term.producers[1];
+        NVF_ERROR(term_to_prove.producers.size() == 2);
+        const Term* a = term_to_prove.producers[0];
+        const Term* b = term_to_prove.producers[1];
         return proveInequality(BinaryOpType::LT, b, a);
       }
       case BinaryOpType::LE: {
-        NVF_ERROR(term.producers.size() == 2);
-        const Term* a = term.producers[0];
-        const Term* b = term.producers[1];
+        NVF_ERROR(term_to_prove.producers.size() == 2);
+        const Term* a = term_to_prove.producers[0];
+        const Term* b = term_to_prove.producers[1];
         return proveInequality(BinaryOpType::LE, a, b);
       }
       case BinaryOpType::GE: {
-        NVF_ERROR(term.producers.size() == 2);
-        const Term* a = term.producers[0];
-        const Term* b = term.producers[1];
+        NVF_ERROR(term_to_prove.producers.size() == 2);
+        const Term* a = term_to_prove.producers[0];
+        const Term* b = term_to_prove.producers[1];
         return proveInequality(BinaryOpType::LE, b, a);
       }
       default:
@@ -523,7 +655,6 @@ bool Program::prove(const Term& term) {
 // less_than_ and less_equal_ to determine if any new proofs were generated;
 // if not, or if we exceed the iteration limit, then we stop.
 void Program::proveOrderings(int max_steps) {
-
   // Count nonzero entries
   int lt_nnz = less_than_.count_nonzero().item<int>();
   int le_nnz = less_equal_.count_nonzero().item<int>();

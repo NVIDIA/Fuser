@@ -362,6 +362,11 @@ class Program {
   // NOTE: constant terms are ordered so that we can manually prove relations
   // between constants whenever they appear in queries.
   std::unordered_map<const Term*, int> terms_in_orderings_;
+  // We hold a list of constants involved in orderings. This facilitates
+  // implications like "x < 3 && y > 4  implies  x < y"
+  // This also lets us check constants in prove() that might not be directly
+  // involved in proven inequalities, such as "x <= 3  implies  x < 4"
+  std::vector<const Term*> constants_in_orderings_;
   at::Tensor less_than_;
   at::Tensor less_equal_;
   // This is set to true when we insert a new relation or grow the size of
