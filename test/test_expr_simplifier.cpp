@@ -468,16 +468,11 @@ using namespace stupid_simple_compiler::ops;
 class ExprSimplifierTest : public NVFuserTest {
   std::unique_ptr<Fusion> fusion_ptr;
   std::unique_ptr<FusionGuard> fusion_guard_ptr;
-  std::unique_ptr<simplification::Program> program_ptr;
-  std::unique_ptr<simplification::ProgramGuard> program_guard_ptr;
 
   void SetUp() override {
     NVFuserTest::SetUp();
     fusion_ptr = std::make_unique<Fusion>();
     fusion_guard_ptr = std::make_unique<FusionGuard>(fusion_ptr.get());
-    program_ptr = std::make_unique<simplification::Program>();
-    program_guard_ptr =
-        std::make_unique<simplification::ProgramGuard>(program_ptr.get());
   }
 };
 

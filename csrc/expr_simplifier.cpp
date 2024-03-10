@@ -177,7 +177,6 @@ class Context {
     // TODO: can we associate a Program with a Fusion and hold onto it forever?
     // If so, it would need to survive Fusion cloning, and we would need to
     // ensure that we never invalidate any of our assumptions or implied proofs.
-    program_ = simplification::ProgramGuard::getCurProgram();
     // decompose a && b in assumptions as a and b
     const auto& axioms = FusionGuard::getCurFusion()->axioms();
     assumptions.insert(assumptions.end(), axioms.begin(), axioms.end());
@@ -198,7 +197,7 @@ class Context {
   }
 
   simplification::Program* program() const {
-    return program_;
+    return simplification::ProgramGuard::getCurProgram();
   }
 
   void validateConsistency() const {
@@ -310,7 +309,6 @@ class Context {
   std::unordered_set<Val*> unrolled_loop_index_;
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
-  simplification::Program* program_;
 };
 
 namespace {
@@ -2728,6 +2726,15 @@ Val* simplifyExpr(
     std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
+  // If we do not detect a Program, it means we'll need to prove everything
+  // from scratch. To do that we will create a blank Program here and it will be
+  // filled with assumptions when we create the Context below.
+  std::unique_ptr<simplification::Program> program_ptr = nullptr;
+  std::unique_ptr<simplification::ProgramGuard> pg_ptr = nullptr;
+  if (simplification::ProgramGuard::getCurProgram() == nullptr) {
+    program_ptr = std::make_unique<simplification::Program>();
+    pg_ptr = std::make_unique<simplification::ProgramGuard>(program_ptr.get());
+  }
   const Context context(variables, assumptions, preserve_error);
   auto logger = debug_print::createLogger(value);
 
