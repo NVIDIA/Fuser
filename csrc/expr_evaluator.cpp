@@ -141,6 +141,14 @@ void ExpressionEvaluator::bind_(
             i);
         bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (rfactor_domain[i]->isDeviceDim()) {
+        // Currently we have the restrictions:
+        // (1) Devices parallelized axis extent == number of devices
+        // (2) Device parallelized axis cannot be split or merged
+        // Therefore, the device parallelized extents will always be 1.
+        // Ignore concrete extents because they hold the unsharded extents.
+        NVF_CHECK(
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }
@@ -208,7 +216,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
+        const auto& eval_i = evaluateHelper(i, known_values);
         if (!eval_i.hasValue()) {
           return null_;
         }

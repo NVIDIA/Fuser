@@ -67,6 +67,11 @@ class ReplayTransformations : public IterVisitor {
     return *this;
   }
 
+  ReplayTransformations& setReplayRFactor(bool replay_rfactor) {
+    replay_rfactor_ = replay_rfactor;
+    return *this;
+  }
+
   // Replays outputs that were generated from ids.first on ids.second
   void runReplay();
 
@@ -144,6 +149,9 @@ class ReplayTransformations : public IterVisitor {
   // Indicates if we want to replay resize ops on the replayed
   // tensor.
   bool replay_resize_ = false;
+
+  // Whether to copy the `rf` flag from ops producing `target_domain`.
+  bool replay_rfactor_ = false;
 
   size_t counter_ = 0;
 
