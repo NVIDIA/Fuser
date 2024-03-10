@@ -350,8 +350,6 @@ void Program::assume(const Term& term) {
         NVF_ERROR(term.producers.size() == 2);
         const Term* a = term.producers[0];
         const Term* b = term.producers[1];
-        bool inclusive =
-            op_type == BinaryOpType::LE || op_type == BinaryOpType::GE;
         if (op_type == BinaryOpType::GT || op_type == BinaryOpType::GE) {
           std::swap(a, b);
         }
@@ -386,9 +384,13 @@ void Program::assume(const Term& term) {
 
         // Check the relevant entry for this comparison. If it needs to be
         // updated, then mark proofs as unsaturated.
-        auto& matrix = inclusive ? less_equal_ : less_than_;
-        proofs_saturated_ &= matrix[pos_a][pos_b].item<int>() > 0;
-        matrix[pos_a][pos_b] = 1;
+        if (op_type == BinaryOpType::LE || op_type == BinaryOpType::GE) {
+          proofs_saturated_ &= less_equal_[pos_a][pos_b].item<int>() > 0;
+          less_equal_[pos_a][pos_b] = 1;
+        } else {
+          proofs_saturated_ &= less_than_[pos_a][pos_b].item<int>() > 0;
+          less_than_[pos_a][pos_b] = 1;
+        }
       }
       default:
         break;
@@ -403,14 +405,16 @@ bool Program::prove(const Term& term) {
   if (std::holds_alternative<BinaryOpType>(term.symbol)) {
     auto op_type = std::get<BinaryOpType>(term.symbol);
 
-    auto proveComparison =
+    auto proveInequality =
         [&](BinaryOpType op_type, const Term* a, const Term* b) -> bool {
       if (a == b) {
         // No need to consult the tables for trivial comparisons
-        if (op_type == BinaryOpType::LE || op_type == BinaryOpType::GE) {
+        if (op_type == BinaryOpType::LE) {
           return true;
-        } else if (op_type == BinaryOpType::LT || op_type == BinaryOpType::GT) {
+        } else if (op_type == BinaryOpType::LT) {
           return false;
+        } else {
+          NVF_ERROR(false, "Params should be swapped such that prove ");
         }
       }
       auto pos_a_it = terms_in_orderings_.find(a);
@@ -424,16 +428,21 @@ bool Program::prove(const Term& term) {
       // Positions of a and b in adjacency matrices
       int pos_a = pos_a_it->second;
       int pos_b = pos_b_it->second;
-      auto lt_acc = less_than_.accessor<int, 2>();
-      // Check position without saturating so that we avoid saturating unless
-      // necessary.
-      if (lt_acc[pos_a][pos_b]) {
-        return true;
-      }
-      if (!proofs_saturated_) {
-        proveOrderings();
-      }
-      return lt_acc[pos_a][pos_b];
+      const auto completeProof = [&](const at::Tensor& matrix) -> bool {
+        auto acc = matrix.accessor<int, 2>();
+        // Check position without saturating so that we avoid saturating unless
+        // necessary.
+        if (acc[pos_a][pos_b] > 0) {
+          return true;
+        }
+        if (!proofs_saturated_) {
+          proveOrderings();
+        }
+        return acc[pos_a][pos_b] > 0;
+      };
+      // Must be LT or LE (see NVF_ERROR check above)
+      return completeProof(
+          op_type == BinaryOpType::LT ? less_than_ : less_equal_);
     };
     switch (op_type) {
       case BinaryOpType::Eq: {
@@ -456,59 +465,64 @@ bool Program::prove(const Term& term) {
         NVF_ERROR(term.producers.size() == 2);
         const Term* a = term.producers[0];
         const Term* b = term.producers[1];
-        return proveComparison(BinaryOpType::LT, a, b);
+        return proveInequality(BinaryOpType::LT, a, b);
       }
       case BinaryOpType::GT: {
         NVF_ERROR(term.producers.size() == 2);
         const Term* a = term.producers[0];
         const Term* b = term.producers[1];
-        return proveComparison(BinaryOpType::LT, b, a);
+        return proveInequality(BinaryOpType::LT, b, a);
       }
       case BinaryOpType::LE: {
         NVF_ERROR(term.producers.size() == 2);
         const Term* a = term.producers[0];
         const Term* b = term.producers[1];
-        return proveComparison(BinaryOpType::LE, a, b);
+        return proveInequality(BinaryOpType::LE, a, b);
       }
       case BinaryOpType::GE: {
         NVF_ERROR(term.producers.size() == 2);
         const Term* a = term.producers[0];
         const Term* b = term.producers[1];
-        return proveComparison(BinaryOpType::LE, b, a);
+        return proveInequality(BinaryOpType::LE, b, a);
       }
       default:
+        std::cout << "OTHER OP" << std::endl;
         break;
     }
   }
   return false;
 }
 
+// The CPU matrices less_than_ and less_equal_ represent the < and <= ordering
+// relations. A given Term* is mapped to a row/column position in these
+// matrices by the map terms_in_orderings_. Given two Terms a and b with
+// integer positions na and nb, less_than_[na][nb] gives the number of ways
+// we have found to prove that a < b using the transitivity of < and <=, as
+// well as the implication "x < y implies x <= y".
+//
+// Matrix multiplication allows us to efficiently expand the transitivity
+// closure. Specifically, the (i, k) entry of less_than_ @ less_than_ sums
+// over all Terms j, the number of ways to prove i < j times the number of
+// ways to prove j < k, encoding the transitivity implication "x < y && y < z
+// implies x < z". Likewise we can compute less_than_ @ less_equal_ to
+// propagate "x < y && y <= z implies x < z" and we can multiply them in the
+// other order to prove a similar result. Note however that less_equal_ @
+// less_equal_ encodes the weaker implication "x <= y && y <= z implies x <=
+// z".
+//
+// We compute at each iteration:
+//   A = (less_than_ + less_equal_) @ (less_than_ + less_equal_)
+//     = less_than_ @ less_than +
+//       less_than_ @ less_equal +
+//       less_equal_ @ less_than_ +
+//       less_equal_ @ less_equal_
+//   B = less_equal_ @  less_equal_
+// A - B then propagates the "x < z" implications above, so we increment
+// less_than_ by A. Meanwhile, B itself encodes the "x <= z" implication so we
+// increment less_equal_ by B. We then count the non-zero entries in both
+// less_than_ and less_equal_ to determine if any new proofs were generated;
+// if not, or if we exceed the iteration limit, then we stop.
 void Program::proveOrderings(int max_steps) {
-  // The CPU matrices less_than_ and less_equal_ represent the < and <= ordering
-  // relations. A given Term* is mapped to a row/column position in these
-  // matrices by the map terms_in_orderings_. Given two Terms a and b with
-  // integer positions na and nb, less_than_[na][nb] gives the number of ways
-  // we have found to prove that a < b using the transitivity of < and <=, as
-  // well as the implication "x < y implies x <= y".
-  //
-  // Matrix multiplication allows us to efficiently expand the transitivity
-  // closure. Specifically, the (i, k) entry of less_than_ @ less_than_ sums
-  // over all Terms j, the number of ways to prove i < j times the number of
-  // ways to prove j < k, encoding the transitivity implication "x < y && y < z
-  // implies x < z". Likewise we can compute less_than_ @ less_equal_ to
-  // propagate "x < y && y <= z implies x < z" and we can multiply them in the
-  // other order to prove a similar result. Note however that less_equal_ @
-  // less_equal_ encodes the weaker implication "x <= y && y <= z implies x <=
-  // z".
-  //
-  // We compute at each iteration:
-  //   A = (less_than_ + less_equal_) @ (less_than_ + less_equal_)
-  //   B = less_equal_ @  less_equal_
-  // A - B then propagates the "x < z" implications above, so we increment
-  // less_than_ by A. Meanwhile, B itself encodes the "x <= z" implication so we
-  // increment less_equal_ by B. We then count the non-zero entries in both
-  // less_than_ and less_equal_ to determine if any new proofs were generated;
-  // if not, or if we exceed the iteration limit, then we stop.
 
   // Count nonzero entries
   int lt_nnz = less_than_.count_nonzero().item<int>();
