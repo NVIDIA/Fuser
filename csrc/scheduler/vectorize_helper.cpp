@@ -945,6 +945,12 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // break point, there must be only the producer innermost IDs or
   // reduction IDs
   int64_t break_point = (int64_t)(reduction_producer->nDims());
+
+  // short-cut to to return break point when producer_innermost_ids is empty
+  if (producer_innermost_ids.size() == 0) {
+    return break_point;
+  }
+
   int num_detected_producer_innermost_ids = 0;
   for (auto it = reduction_producer->getMaybeRFactorDomain().rbegin();
        it != reduction_producer->getMaybeRFactorDomain().rend();
