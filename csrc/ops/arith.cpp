@@ -5,21 +5,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+#include <expr_evaluator.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
+#include <type.h>
+#include <type_promotion.h>
 
 #include <c10/util/BFloat16.h>
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Float8_e5m2.h>
 #include <c10/util/Half.h>
 #include <c10/util/irange.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/utils.h>
-#include <type.h>
-#include <type_promotion.h>
+
 #include <cfloat>
 
 namespace nvfuser {
@@ -125,19 +128,46 @@ TensorView* unaryOp(
   return unaryOp(type, cast_v1)->as<TensorView>();
 }
 
+static TensorView* factoryOutput(
+    const std::vector<Val*>& shape,
+    DataType dtype) {
+  // For concrete dimensions, set IterType to Broadcast or Iteration. If we
+  // cannot determine the IterType, set it to Symbolic so that it can be set
+  // later during dynamic shape concretization.
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(shape.size());
+  ExpressionEvaluator ee;
+  for (Val* shi : shape) {
+    IterType iter_type = IterType::Symbolic;
+    PolymorphicValue ext = ee.evaluate(shi);
+    if (ext.hasValue()) {
+      NVF_CHECK(
+          ext.is<int64_t>(),
+          "Expected int extent argument to factory function but found constant value ",
+          shi->toInlineString());
+      iter_type =
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Symbolic;
+    }
+    out_root.push_back(
+        IterDomainBuilder(
+            shi->fusion()->zeroVal(),
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shi))
+            .iter_type(iter_type)
+            .build());
+  }
+  auto* out_td = IrBuilder::create<TensorDomain>(
+      out_root, TensorDomain::getContiguityFilledWith(out_root, true));
+  auto* out = IrBuilder::create<TensorView>(out_td, dtype);
+  return out;
+}
+
 // TENSOR FACTORIES
 TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed,
     Val* philox_offset) {
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
+  TensorView* out = factoryOutput(shape, dtype);
   IrBuilder::create<RNGOp>(
       RNGOpType::Uniform,
       out,
@@ -156,13 +186,7 @@ TensorView* uniform(
     DataType dtype,
     Val* philox_seed,
     Val* philox_offset) {
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
+  TensorView* out = factoryOutput(shape, dtype);
   IrBuilder::create<RNGOp>(
       RNGOpType::UniformRange,
       out,
@@ -180,13 +204,7 @@ TensorView* normal(
     DataType dtype,
     Val* philox_seed,
     Val* philox_offset) {
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
+  TensorView* out = factoryOutput(shape, dtype);
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalGeneral,
       out,
@@ -202,13 +220,7 @@ TensorView* randn(
     DataType dtype,
     Val* philox_seed,
     Val* philox_offset) {
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
+  TensorView* out = factoryOutput(shape, dtype);
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalStandard,
       out,
@@ -270,13 +282,7 @@ TensorView* full(
     Val* fill_value,
     DataType dtype) {
   fill_value = maybeCastOp(dtype, fill_value);
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
+  TensorView* out = factoryOutput(shape, dtype);
   IrBuilder::create<FullOp>(out, fill_value);
   return out;
 }
@@ -372,12 +378,7 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
       !step->isConstScalar() || !step->isZero(),
       "iota: step value must not equal zero.");
 
-  auto out = TensorViewBuilder()
-                 .ndims(1)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape({length})
-                 .build();
+  TensorView* out = factoryOutput({length}, dtype);
   IrBuilder::create<IotaOp>(out, length, start, step);
   return out;
 }
