@@ -1186,7 +1186,15 @@ TensorView* castIntermediateValueInCompleteFusion(
 
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
-  castInputOutputToLowerPrecision(edges());
+  const std::vector<SegmentedEdge*>& affected_edges =
+      castInputOutputToLowerPrecision(edges());
+  if (!affected_edges.empty()) {
+    std::cerr << "castInputOutputToLowerPrecision modified the following edges"
+              << std::endl;
+    for (const auto* e : affected_edges) {
+      std::cerr << "  " << e << std::endl;
+    }
+  }
 }
 
 //! Lower FP precision of inputs and outputs specified by the given
