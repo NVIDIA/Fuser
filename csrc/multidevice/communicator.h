@@ -135,10 +135,10 @@ class Communicator {
 
   bool is_available_;
   CommunicatorBackend default_backend_;
-  RankType rank_;
-  int64_t size_;
-  RankType local_rank_;
-  int64_t local_size_;
+  RankType rank_ = 0;
+  int64_t size_ = 1;
+  RankType local_rank_ = 0;
+  int64_t local_size_ = 1;
   std::string master_addr_;
   int master_port_;
   bool ucc_available_;

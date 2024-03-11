@@ -310,6 +310,27 @@ void ValGraph::initializeVal(Val* val) {
   initializeVal(val, defs, uses);
 }
 
+void ValGraph::registerExpr(Expr* expr) {
+  NVF_ERROR(
+      !disjoint_exprs_.mappingExists(expr),
+      "Already in the disjoint sets: ",
+      expr->toString());
+  auto expr_group_it = disjoint_exprs_.initializeSet(expr).first;
+  const ExprGroup& expr_group = expr_group_it->second;
+
+  // Update definitions of the outputs
+  for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+    const auto& out_group = toGroup(out_id);
+    addUniqueDefinitions(out_group, expr_group);
+  }
+
+  // Update uses of the inputs in the graphs
+  for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+    const auto& inp_group = toGroup(inp_id);
+    addUniqueUses(inp_group, expr_group);
+  }
+}
+
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   NVF_ERROR(first);
   NVF_ERROR(second);
@@ -626,6 +647,55 @@ void ValGraph::validateConsistency() const {
       }
     }
   }
+}
+
+std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
+    const std::vector<IterDomain*>& ids,
+    const ValGraph& id_graph) {
+  size_t n = ids.size();
+  for (size_t i1 = 0; i1 < n; i1++) {
+    IterDomain* id1 = ids[i1];
+    for (size_t i2 = i1 + 1; i2 < n; i2++) {
+      IterDomain* id2 = ids[i2];
+      if (id_graph.disjointValSets().permissiveAreMapped(id1, id2)) {
+        return std::make_pair(id1, id2);
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+std::optional<SelfMapping> hasSelfMapping(
+    const TensorView* tv,
+    const ValGraph& id_graph) {
+  std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
+      detectSelfMapping(tv->getRootDomain(), id_graph);
+  // Root domains.
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
+  }
+
+  // Rfactor domains
+  if (tv->hasRFactor()) {
+    mapped = detectSelfMapping(tv->getRFactorDomain(), id_graph);
+    if (mapped.has_value()) {
+      return SelfMapping{
+          .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
+    }
+  }
+
+  // Leaf domains
+  // TODO: Exact map isn't quite right here, it should be based on the index
+  // map. However, it should also be impossible for index map to generate a
+  // case like this.
+  mapped = detectSelfMapping(tv->getLeafDomain(), id_graph);
+  if (mapped.has_value()) {
+    return SelfMapping{
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
+  }
+  return std::nullopt;
 }
 
 } // namespace nvfuser

@@ -93,13 +93,12 @@ void CommunicationTest::resetDstBuffers() {
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
 void PipelineTest::validate() {
-  if (ref_unsharded_outputs.empty()) {
-    // execute the fusion on one device without pipeline scheduling
-    auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
-    unshard(fusion_copy.get());
-    FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
-  }
+  // execute the fusion on one device without pipeline scheduling
+  auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
+  unshard(fusion_copy.get());
+  FusionExecutorCache unsharded_fec(std::move(fusion_copy));
+  auto ref_unsharded_outputs =
+      unsharded_fec.runFusionWithInputs(unsharded_inputs);
 
   if (debug_print) {
     std::stringstream ss;
@@ -166,7 +165,7 @@ void PipelineTest::execute() {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator, auto_schedule_in_execute);
+      std::move(fusion), *communicator, multi_device_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;

@@ -4,6 +4,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def softmax_fwd_fusion(
@@ -48,6 +49,11 @@ def softmax_fwd_fn(inputs: list):  # [in_tensor, reduction_axis]
     return torch.nn.functional.softmax(inputs[0], inputs[1])
 
 
+def softmax_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = input + output
+    return int(np.prod(size) * dtype.itemsize * 2)
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -87,8 +93,10 @@ def test_softmax_fwd_baseline_benchmark(
 ):
     clear_cuda_cache()
     input = torch.randn(size, device="cuda", dtype=dtype)
+
     run_benchmark(
         benchmark,
         torch.compile(softmax_fwd_fn) if compile else softmax_fwd_fn,
         [input, reduction_axis],
+        iobytes=softmax_fwd_iobytes(size, dtype),
     )

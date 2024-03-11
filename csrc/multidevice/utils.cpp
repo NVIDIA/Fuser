@@ -24,12 +24,7 @@ bool isSharded(TensorView* tv) {
   for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
     is_sharded.push_back(id->isDeviceDim());
   }
-  // Currently, only the most external dim is allowed to be sharded and we don't
-  // allow split/merge
-  NVF_ERROR(
-      !is_sharded[0] ||
-      (TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(0) ==
-       TensorDomain::noReductions(tv->getLeafDomain()).at(0)));
+
   for (auto i : c10::irange(1, is_sharded.size())) {
     NVF_ERROR(
         !is_sharded.at(i),
@@ -39,7 +34,11 @@ bool isSharded(TensorView* tv) {
         " is sharded in tv ",
         tv->toString());
   }
-  return is_sharded.empty() ? false : is_sharded.at(0);
+  // Currently, only the most external dim is allowed to be sharded and we don't
+  // allow split/merge if tv is sharded.
+  auto tensor_sharded = !is_sharded.empty() && is_sharded.at(0);
+  NVF_ERROR(!tensor_sharded || (TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(0) == TensorDomain::noReductions(tv->getLeafDomain()).at(0)));
+  return tensor_sharded;
 }
 
 namespace {
@@ -154,16 +153,13 @@ void insertReshardings(Fusion* fusion) {
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
-  std::set<DeviceIdxType> device_indices;
+  DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
-    if (tv->hasDeviceMesh()) {
-      std::copy(
-          tv->getDeviceMesh().vector().begin(),
-          tv->getDeviceMesh().vector().end(),
-          std::inserter(device_indices, device_indices.begin()));
+    for (auto d_id : tv->getDeviceMesh().vector()) {
+      max_index = std::max(max_index, d_id);
     }
   }
-  return static_cast<int64_t>(device_indices.size());
+  return static_cast<int64_t>(max_index + 1);
 }
 
 void unshard(TensorView* tv) {
@@ -187,12 +183,29 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
     for (auto val : tvs) {
       NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
       auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
       auto& mesh = tv->getDeviceMesh().vector();
       std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
     }
   }
   return ret;
+}
+
+// Current limitations:
+// 1. Assumes only the outermost dimension is sharded
+// 2. Extent of sharded dimension == number of devices in mesh
+std::vector<int64_t> unshardedSize(
+    TensorView* tv,
+    c10::IntArrayRef sharded_sizes) {
+  std::vector<int64_t> unsharded_sizes;
+  std::copy(
+      sharded_sizes.begin(),
+      sharded_sizes.end(),
+      std::back_inserter(unsharded_sizes));
+  if (isSharded(tv)) {
+    auto num_devices = tv->getDeviceMesh().vector().size();
+    unsharded_sizes[0] = static_cast<int64_t>(num_devices);
+  }
+  return unsharded_sizes;
 }
 
 } // namespace nvfuser

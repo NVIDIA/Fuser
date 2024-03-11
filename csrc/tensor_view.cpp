@@ -226,9 +226,6 @@ std::string TensorView::toString(int indent_size) const {
     ss << getMaybeMaxProducerPosition();
     ss << " )";
   }
-  if (hasDeviceMesh()) {
-    ss << " (" << getDeviceMesh() << ")";
-  }
   return ss.str();
 }
 

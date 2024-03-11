@@ -537,12 +537,7 @@ class NVF_API TensorView : public Val {
   }
 
   const DeviceMesh& getDeviceMesh() const {
-    NVF_ERROR(hasDeviceMesh(), "DeviceMesh is not initialized");
     return mesh_;
-  }
-
-  bool hasDeviceMesh() const {
-    return !mesh_.vector().empty();
   }
 
  protected:

@@ -12,6 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
@@ -339,7 +340,14 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
-  metadata->logical_size = input.sizes();
+  // If tensor is sharded then the input holds the sharded sizes.
+  // Initialize logical size with unsharded size.
+  if (isSharded(tv)) {
+    metadata->logical_size_data = unshardedSize(tv, input.sizes());
+    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+  } else {
+    metadata->logical_size = input.sizes();
+  }
   metadata->logical_stride = input.strides();
   if (tv->hasAllocation()) {
     auto allocation_data =

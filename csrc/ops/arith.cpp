@@ -8,6 +8,8 @@
 #include <ops/arith.h>
 
 #include <c10/util/BFloat16.h>
+#include <c10/util/Float8_e4m3fn.h>
+#include <c10/util/Float8_e5m2.h>
 #include <c10/util/Half.h>
 #include <c10/util/irange.h>
 #include <ir/all_nodes.h>
@@ -445,13 +447,30 @@ TensorView* eye(Val* size, DataType dtype) {
 NVFUSER_DEFINE_UNARY_OP(ceil, Ceil)
 NVFUSER_DEFINE_UNARY_OP(floor, Floor)
 NVFUSER_DEFINE_UNARY_OP(frac, Frac)
-NVFUSER_DEFINE_UNARY_OP(neg, Neg)
 NVFUSER_DEFINE_UNARY_OP(relu, Relu)
 NVFUSER_DEFINE_UNARY_OP(round, Round)
 NVFUSER_DEFINE_UNARY_OP(silu, Silu)
 NVFUSER_DEFINE_UNARY_OP(trunc, Trunc)
 NVFUSER_DEFINE_UNARY_OP(print, Print)
 #undef NVFUSER_DEFINE_UNARY_OP
+
+// As a workaround to #1541, we promote half types to single for neg.
+// Eventually, `neg` should probably be defined using NVFUSER_DEFINE_UNARY_OP.
+// However, currently, nvFuser codegen misses certain header files for half
+// types and therefore has no access to data types like `__nv_bfloat16`  and
+// intrinsics like `__hneg`.
+//
+// Note: TypePromotion::float_op_config is a wrong config to use here, because
+// it "promotes" integers to float and loses precision (see
+// UnaryTests/UnaryTest.Neg/int64_t). TypePromotion::float_only_op_config is
+// also wrong, because it doesn't allow integers at all.
+Val* neg(Val* v) {
+  return unaryOp(UnaryOpType::Neg, v, TypePromotion::default_op_config);
+}
+
+TensorView* neg(TensorView* tv) {
+  return unaryOp(UnaryOpType::Neg, tv, TypePromotion::default_op_config);
+}
 
 Val* logical_not(Val* v) {
   v = maybeCastOp(DataType::Bool, v);

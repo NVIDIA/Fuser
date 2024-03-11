@@ -68,12 +68,26 @@ namespace nvfuser {
   *) Need to work on auto-scheduling, in particular, to combine inter-/intra-
      device scheduling.
 */
+
+struct MultiDeviceExecutorParams {
+  // Experimental: whether to use FusionExecutorCache rather than
+  // FusionExecutor.
+  bool use_fusion_executor_cache = false;
+  // Experimental: whether to apply auto-scheduling in FusionExecutorCache if
+  // use_fusion_executor_cache=true. WAR: temporary hack mainly use for
+  // development
+  bool skip_auto_scheduling = false;
+  // Experimental: whether to cache fusion executor. WAR: avoid recompilation
+  // but implicitely assumes that the input shape don't change over iterations
+  bool cache_fusion_executor = false;
+};
+
 class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm,
-      bool auto_schedule = false);
+      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
@@ -118,15 +132,14 @@ class MultiDeviceExecutor {
   std::unique_ptr<SegmentedFusion> staged_fusion_;
   // Stores the order in which the pipeline's stage should be executed
   RuntimeWorkSpace workspace;
-  // Cache FusionsExecutorCache
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutorCache>>
-      fec_;
+  // Cache Fusions, FusionExecutors, and Communications
+  std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
+  std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
   std::unordered_map<SegmentedGroup*, bool> is_resharding_;
-  // Whether to apply auto-scheduling in FusionExecutorCache
-  bool auto_schedule_ = false;
+  MultiDeviceExecutorParams params_;
 };
 
 } // namespace nvfuser

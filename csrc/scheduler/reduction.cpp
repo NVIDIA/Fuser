@@ -836,7 +836,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     debug() << "\n===== Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "vectorize_factor: " << iter_unroll_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
@@ -1212,18 +1212,26 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  NVF_ERROR(
-      !is_outer_grid_persistence,
-      "is_outer_grid_persistence should be false in scheduleReduction.");
+
+  // allow iter domain grouped reduction for block and grid outer reductions.
+  // TODO: the var name is confusing, should rename
+  // [cross_grid/block_inner_reduction] to [cross_grid/block_reduction], see
+  // https://github.com/NVIDIA/Fuser/issues/1863
+  // grouped welford is only enabled for grid persistent.
+  // see validateAndConvertIterDomainGrouping
+  const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
+  const bool use_iter_grouped_reduction = !rparams.fastest_dim &&
+      (has_welford
+           ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
+           : rparams.cross_block_inner_reduction);
+
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tv,
       reference_tv,
       unroll,
       vectorize,
-      is_outer_grid_persistence,
+      use_iter_grouped_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);

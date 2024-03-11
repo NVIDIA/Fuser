@@ -74,7 +74,6 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
       auto val = group->exprs().at(0)->outputs().at(0);
       NVF_ERROR(val->isA<TensorView>());
       auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
         vals_to_allocate.push_back(val);
       }
@@ -102,8 +101,8 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    bool auto_schedule)
-    : comm_(comm), auto_schedule_(auto_schedule) {
+    MultiDeviceExecutorParams params)
+    : comm_(comm), params_(params) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
@@ -155,13 +154,25 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  if (fec_.find(group) == fec_.end()) {
-    fec_.emplace(
+  if (params_.use_fusion_executor_cache) {
+    fec_.try_emplace(
         group,
-        std::make_unique<FusionExecutorCache>(
-            staged_fusion_->makeFusion(group), 0, auto_schedule_));
+        staged_fusion_->makeFusion(group),
+        0,
+        !params_.skip_auto_scheduling);
+    outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
+  } else {
+    auto [it, has_emplaced] = fe_.try_emplace(group);
+    auto& fe = it->second;
+    if (has_emplaced) {
+      fe.compileFusion(
+          staged_fusion_->makeFusion(group).get(), group_input_IValues);
+    }
+    outputs = fe.runFusion(group_input_IValues);
+    if (!params_.cache_fusion_executor) {
+      fe_.erase(group);
+    }
   }
-  outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
