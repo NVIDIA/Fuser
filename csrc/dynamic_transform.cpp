@@ -39,6 +39,10 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
   for (const auto tv : dynamic_expanded_tvs_) {
     cloned_info.dynamic_expanded_tvs_.push_back(ir_cloner.clone(tv));
   }
+  cloned_info.dynamic_factory_tvs_.reserve(dynamic_factory_tvs_.size());
+  for (const auto v : dynamic_factory_tvs_) {
+    cloned_info.dynamic_factory_tvs_.push_back(ir_cloner.clone(v));
+  }
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   for (const auto v : maybe_zero_extents_set_) {
     cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
@@ -68,6 +72,10 @@ std::string DynamicTransformInitialInfo::toString() const {
   }
   ss << indent << "Dynamic expanded TensorViews:\n";
   for (const auto& tv : dynamic_expanded_tvs_) {
+    ss << indent << indent << tv->toString() << "\n";
+  }
+  ss << indent << "Dynamic factory-function output TensorViews:\n";
+  for (const auto& tv : dynamic_factory_tvs_) {
     ss << indent << indent << tv->toString() << "\n";
   }
   ss << indent << "Dynamic extent Vals:\n";
@@ -102,7 +110,33 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
  private:
+  using IterVisitor::dispatch;
   using IterVisitor::handle;
+
+  void dispatch(Expr* expr) override {
+    // Detect factory methods by checking whether there are no TensorView inputs
+    if (std::none_of(
+            expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
+              return inp->vtype() == ValType::TensorView;
+            })) {
+      for (Val* out_val : expr->outputs()) {
+        if (TensorView* out_tv = dynamic_cast<TensorView*>(out_val)) {
+          const std::vector<IterDomain*>& out_rf =
+              out_tv->getMaybeRFactorDomain();
+          if (std::any_of(out_rf.begin(), out_rf.end(), [](IterDomain* id) {
+                return id->isSymbolic();
+              })) {
+            info_.dynamic_factory_tvs_.push_back(out_tv);
+          }
+        } else {
+          // Factory ops have only TensorView outputs, so we can skip Exprs that
+          // have scalar outputs
+          continue;
+        }
+      }
+    }
+    IterVisitor::dispatch(expr);
+  }
 
   //! Find views that have symbolic outputs
   void handle(ViewOp* op) override {
@@ -234,6 +268,8 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   analyzeResizes(expr_eval);
 
   analyzeExpands(expr_eval);
+
+  analyzeFactoryOutputs(expr_eval);
 
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
   for (auto i : c10::irange(maybe_zero_extents.size())) {
@@ -411,6 +447,37 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeFactoryOutputs(
+    ExpressionEvaluator* expr_eval) {
+  const std::vector<TensorView*>& factory_tvs =
+      initial_info_->getDynamicFactoryOutputs();
+  factory_output_itertypes_.reserve(factory_tvs.size());
+  for (const auto tv_index : c10::irange(factory_tvs.size())) {
+    const TensorView* tv = factory_tvs.at(tv_index);
+    const std::vector<IterDomain*>& rf = tv->getMaybeRFactorDomain();
+    std::vector<std::pair<size_t, IterType>> conc_iter_types;
+    for (size_t pos : c10::irange(rf.size())) {
+      const IterDomain* id = rf[pos];
+      if (!id->isSymbolic()) {
+        continue;
+      }
+      PolymorphicValue extent = expr_eval->evaluate(id->extent());
+      NVF_CHECK(
+          extent.hasValue(),
+          "Could not evaluate dynamic factory op output extent ",
+          id->extent());
+      NVF_ERROR(
+          extent.is<int64_t>(),
+          "Expected integer evaluated extent but found ",
+          extent);
+      IterType iter_type = (extent.as<int64_t>() == 1) ? IterType::Broadcast
+                                                       : IterType::Iteration;
+      conc_iter_types.emplace_back(pos, iter_type);
+    }
+    factory_output_itertypes_.push_back(conc_iter_types);
+  }
+}
+
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
@@ -437,6 +504,10 @@ bool DynamicTransformConcretizationInfo::operator==(
     if (itertype != other_itertype) {
       return false;
     }
+  }
+
+  if (factory_output_itertypes_ != other.factory_output_itertypes_) {
+    return false;
   }
 
   for (const auto i : c10::irange(expand_axes_.size())) {
@@ -474,6 +545,21 @@ std::string DynamicTransformConcretizationInfo::toString() const {
        << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
+  for (const auto& [id_index, iter_type] : resize_itertypes_) {
+    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
+    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
+       << iter_type << "\n";
+  }
+  ss << indent << "Factory Output IterTypes:\n";
+  for (size_t i : c10::irange(factory_output_itertypes_.size())) {
+    TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
+    ss << indent << indent << tv->toString() << std::endl;
+    for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
+      ss << indent << indent << indent
+         << tv->getMaybeRFactorDomain().at(pos)->toString() << " => "
+         << iter_type << std::endl;
+    }
+  }
   for (const auto& [id_index, iter_type] : resize_itertypes_) {
     auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
@@ -522,6 +608,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeEmptyExtents();
 
+  void concretizeFactoryOutputs();
+
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
@@ -562,6 +650,13 @@ void DynamicTransformConcretizer::concretize() {
 
   // Registers replacement of all empty extents with zeroVal()
   concretizeEmptyExtents();
+
+  // Set IterTypes for factory op outputs
+  concretizeFactoryOutputs();
+
+  std::cout << info_->initialInfo()->toString();
+  std::cout << info_->toString();
+  FusionGuard::getCurFusion()->printMath();
 
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
@@ -761,6 +856,25 @@ void DynamicTransformConcretizer::concretizeExpand() {
                                        .expanded_extent(symbolic_id->extent())
                                        .build();
       registerConcretization(symbolic_id, concretized_id);
+    }
+  }
+}
+
+void DynamicTransformConcretizer::concretizeFactoryOutputs() {
+  const std::vector<TensorView*>& factory_tvs =
+      info_->initialInfo()->getDynamicFactoryOutputs();
+  const auto& pair_vecs = info_->getFactoryOutputIterTypes();
+  NVF_ERROR(factory_tvs.size() == pair_vecs.size());
+  for (const size_t i : c10::irange(factory_tvs.size())) {
+    TensorView* tv = factory_tvs[i];
+    const std::vector<std::pair<size_t, IterType>>& pair_vec = pair_vecs[i];
+    for (auto& [pos, iter_type] : pair_vec) {
+      auto* old_id = tv->getMaybeRFactorDomain().at(pos);
+      NVF_ERROR(
+          old_id->definition() == nullptr,
+          "Symbolic factory output has ID definition that would be discarded");
+      auto* new_id = IterDomainBuilder(old_id).iter_type(iter_type).build();
+      registerConcretization(old_id, new_id);
     }
   }
 }
@@ -1076,6 +1190,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   // recomputing these for each root IterDomain, we precompute them for each
   // producer here then re-use them in the following loop.
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
+  bool is_factory_output = true;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
     PairwiseRootDomainMap root_map(producer, consumer);
     // We map symbolic domains here regardless of whether their extents match.
@@ -1085,6 +1200,12 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     // and we just want to use its IterType to concretize the consumer ID.
     root_map.mapSymbolic(true);
     c2p_maps.push_back(root_map.mapConsumerToProducer());
+    is_factory_output = false;
+  }
+
+  if (is_factory_output) {
+    // There is nothing to propagate for factory methods
+    return true;
   }
 
   bool is_concretized = false;
@@ -1198,12 +1319,24 @@ void DynamicTransform::concretizeFusion(
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {
+  // TODO: This is probably too heavy for the number of concretizations we
+  // expect (< 100). We should analyze this and trim out the pieces that are
+  // unlikely to change based on real inputs.
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
     hashCombine(hash, view_result.hash());
   }
   for (const auto& extent_idx : getEmptyExtents()) {
     hashCombine(hash, (size_t)extent_idx);
+  }
+  for (const auto& [id, iter_type] : getResizeIterTypes()) {
+    hashCombine(hash, (size_t)iter_type);
+  }
+  for (const auto& pair_vec : getFactoryOutputIterTypes()) {
+    for (const auto& [pos, iter_type] : pair_vec) {
+      hashCombine(hash, pos);
+      hashCombine(hash, (size_t)iter_type);
+    }
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
