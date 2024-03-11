@@ -654,10 +654,6 @@ void DynamicTransformConcretizer::concretize() {
   // Set IterTypes for factory op outputs
   concretizeFactoryOutputs();
 
-  std::cout << info_->initialInfo()->toString();
-  std::cout << info_->toString();
-  FusionGuard::getCurFusion()->printMath();
-
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
       info_->fusion(),
