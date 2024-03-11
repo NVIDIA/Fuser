@@ -18,6 +18,19 @@
 
 namespace nvfuser {
 
+class MultiDeviceAllocator {
+  public:
+  MultiDeviceAllocator(Fusion* fusion, std::vector<Val*> vals_to_allocate);
+  std::unordered_map<Val*, at::Tensor> allocate(const at::ArrayRef<c10::IValue>& inputs, const c10::Device& device);
+
+  private:
+  ExpressionEvaluator expr_eval_;
+  std::vector<GlobalBufferInfo> buffer_info_;
+  // const MultiDeviceExecutor& executor_;
+  std::vector<Val*> vals_to_allocate_;
+  kir::Kernel kernel_;
+};
+
 /*
   The MultiDeviceExecutor executes a Fusion on a multi-device setting.
   It is instantiated from a Fusion and a Communicator.
@@ -109,15 +122,16 @@ class MultiDeviceExecutor {
   //! Print to default debugging output stream
   std::ostream& print();
 
+  const MultiDeviceExecutorParams& params() {
+    return params_;
+  }
+
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication
   void postKernel(SegmentedGroup* group);
   // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);
-
-  // allocate inter-device communication recv buffers
-  void allocateBuffers(std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
@@ -139,8 +153,7 @@ class MultiDeviceExecutor {
   // Cache whether a SegmentedGroup requires inter-device communication
   std::unordered_map<SegmentedGroup*, bool> is_resharding_;
   // Cached objects used for MultiDevice allocation
-  std::vector<Val*> vals_to_allocate_;
-  std::unique_ptr<FusionExecutorCache> allocator_;
+  std::unique_ptr<MultiDeviceAllocator> allocator_;
 
   MultiDeviceExecutorParams params_;
 };

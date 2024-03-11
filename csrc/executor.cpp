@@ -958,7 +958,7 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
-    const FusionExecutor::GlobalBufferInfo& out_info,
+    const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -1024,11 +1024,11 @@ at::Tensor allocateOutput(
   }
 }
 
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
-// that case output tensors are shallow copies of the aliased inputs
+} // namespace
+
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
-    const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
+    const std::vector<GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -1077,7 +1077,6 @@ std::vector<at::Tensor> allocateOutputs(
   }
   return out_tensors;
 }
-} // namespace
 
 int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
@@ -1291,7 +1290,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
+std::vector<GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
@@ -1342,12 +1341,10 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
-namespace {
-
 //! Return information necessay for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
-std::vector<FusionExecutor::GlobalBufferInfo>
+std::vector<GlobalBufferInfo>
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
@@ -1355,7 +1352,7 @@ std::vector<FusionExecutor::GlobalBufferInfo>
         const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   // const auto kernel = lowered_->kernel();
-  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
+  std::vector<GlobalBufferInfo> outputs;
   NVF_ERROR(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
@@ -1363,7 +1360,7 @@ std::vector<FusionExecutor::GlobalBufferInfo>
     auto out_val = kernel->outputs()[out_i];
     auto output = out_val->as<TensorView>();
 
-    FusionExecutor::GlobalBufferInfo info;
+    GlobalBufferInfo info;
     info.tv = dynamic_cast<TensorView*>(out_val);
     NVF_ERROR(
         info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
@@ -1376,22 +1373,6 @@ std::vector<FusionExecutor::GlobalBufferInfo>
     outputs.emplace_back(info);
   }
   return outputs;
-}
-
-} // namespace
-
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    kir::Kernel* kernel,
-    const c10::Device& device) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, kernel);
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel->indexType(), kernel);
-
-  return allocateOutputs(kernel, output_info, device, expr_eval);
 }
 
 void FusionExecutor::setUsedTVs() {
@@ -1548,7 +1529,7 @@ void dumpKernelArgs(
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
-    const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
+    const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
@@ -1571,9 +1552,9 @@ void dumpKernelArgs(
   }
 }
 
-FusionExecutor::GlobalBufferInfo getGlobalBufferAllocationInfo(
+GlobalBufferInfo getGlobalBufferAllocationInfo(
     const at::Tensor& at_tensor) {
-  FusionExecutor::GlobalBufferInfo info{
+  GlobalBufferInfo info{
       .sizes = at_tensor.sizes().vec(),
       .strides = at_tensor.strides().vec(),
       .type = at_tensor.scalar_type()};
@@ -2366,7 +2347,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   return entry;
 }
 
-FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
+GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
 
