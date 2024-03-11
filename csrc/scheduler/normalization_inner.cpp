@@ -347,86 +347,65 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
 
 // Return true if ha is better than hb
 
+// This sorting function ensures the selected heuristic meeting target
+// occupancy, promotes even workload distribution, enhances register
+// optimization, and prefers higher occupancy.
+// TODO: It leads to 10% regression for softmax around 2K to 6K and 16K.
+// See https://github.com/NVIDIA/Fuser/issues/1876
 bool compareTwoHeuristics(
     const HeuristicParams& ha,
     const HeuristicParams& hb,
     const int64_t target_register_overhead,
-    const int64_t target_warps_per_sm,
-    const bool prioritize_occupancy) {
+    const int64_t target_warps_per_sm) {
   auto compare = [](int64_t a, int64_t b) -> int {
     return a > b ? 1 : (a < b ? -1 : 0);
   };
   int score = 0;
 
-  if (prioritize_occupancy) {
-    // prefer occupancy larger than target
-    score = compare(
-        ha.occupancy >= target_warps_per_sm,
-        hb.occupancy >= target_warps_per_sm);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // prefer reduction count after vectorization is divisible by persistent
-    // batch size
-    score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // Large register overhead leaves more registers for the compiler to
-    // optimize generated SASS code and avoids register spills. But don't want
-    // to use a very large block size which increaes inter-thread communication.
-    // This condition influence dropout_layer_norm at 7K and softmax_dropout at
-    // 6K and 16K.
-    constexpr int64_t opt_max_threads_per_block = 512l;
-    score = compare(
-        ha.free_registers > target_register_overhead &&
-            ha.padded_bdimx <= opt_max_threads_per_block,
-        hb.free_registers > target_register_overhead &&
-            hb.padded_bdimx <= opt_max_threads_per_block);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // Prefer large occupancy
-    score = compare(ha.occupancy, hb.occupancy);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // Tiebreaker, use large persistent batch size so more registers are used
-    // for the persistent buffer.
-    return ha.persistent_batch_size > hb.persistent_batch_size;
-
-  } else {
-    // optimize inter-thread communication
-    // prefer bdimx_val equals power of 2, efficient for tree reduction,
-    score = compare(
-        scheduler_utils::roundUpPow2(ha.padded_bdimx) - ha.padded_bdimx == 0,
-        scheduler_utils::roundUpPow2(hb.padded_bdimx) - hb.padded_bdimx == 0);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // prefer occupancy larger than target
-    score = compare(
-        ha.occupancy >= target_warps_per_sm,
-        hb.occupancy >= target_warps_per_sm);
-    if (score != 0) {
-      return score > 0;
-    }
-
-    // Tiebreaker, use small bdimx for lower inter-thread communication cost
-    return ha.padded_bdimx < hb.padded_bdimx;
+  // prefer occupancy larger than target
+  score = compare(
+      ha.occupancy >= target_warps_per_sm, hb.occupancy >= target_warps_per_sm);
+  if (score != 0) {
+    return score > 0;
   }
+
+  // prefer reduction count after vectorization is divisible by persistent
+  // batch size
+  score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
+  if (score != 0) {
+    return score > 0;
+  }
+
+  // Large register overhead leaves more registers for the compiler to
+  // optimize generated SASS code and avoids register spills. But don't want
+  // to use a very large block size which increaes inter-thread communication.
+  // This condition influence dropout_layer_norm at 7K and softmax_dropout at
+  // 6K and 16K.
+  constexpr int64_t opt_max_threads_per_block = 512l;
+  score = compare(
+      ha.free_registers > target_register_overhead &&
+          ha.padded_bdimx <= opt_max_threads_per_block,
+      hb.free_registers > target_register_overhead &&
+          hb.padded_bdimx <= opt_max_threads_per_block);
+  if (score != 0) {
+    return score > 0;
+  }
+
+  // Prefer large occupancy
+  score = compare(ha.occupancy, hb.occupancy);
+  if (score != 0) {
+    return score > 0;
+  }
+
+  // Tiebreaker, use large persistent batch size so more registers are used
+  // for the persistent buffer.
+  return ha.persistent_batch_size > hb.persistent_batch_size;
 }
 
 // Generate a heuristic for each possible persistent batch size.
 // (1) If the maximum occupancy is less than the target occupancy, use the batch
 //     leads to the largest occupancy.
-
-// (2) If prioritize occupancy, sort the heuristics as follows:
+// (2) sort the heuristics as follows:
 //     (a) Prioritize occupancy exceeding target.
 //         Ensures minimum required occupancy is surpassed.
 //     (b) Favor divisibility by persistent batch size.
@@ -439,19 +418,6 @@ bool compareTwoHeuristics(
 //         Use more registers for persistent buffers.
 // This sequence ensures meeting target occupancy, promotes even workload
 // distribution, enhances register optimization, and prefers higher occupancy.
-
-// (3) For block size prioritization, sort heuristics as follows:
-//     (a) Prefer bdimx_val equals power of 2.
-//         Efficient for tree reduction.
-//     (b) Prefer occupancy larger than target.
-//         Ensures occupancy exceeds the minimum requirement.
-//     (c) Tiebreaker, use small bdimx.
-//         Reduces inter-thread communication cost.
-// This order favors efficient tree reduction, ensures occupancy surpasses the
-// target, and minimizes communication cost with smaller block dimensions as a
-// tiebreaker.
-
-// Currently, prioritize occupancy is used for all fusions except softmax.
 std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -555,19 +521,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   if (current_max_occupancy < target_warps_per_sm) {
     best_heuristic = all_heuristics.at(idx_max_occupancy);
   } else {
-    // Prioritize occupancy for all fusions except softmax.
-    // Not sure why softmax has regression (about 10%) if prioritize occupancy.
-    // So condition is added to filter out softmax.
-    // It also identifies any fusion with exp op and without rng_op, which are
-    // not tested.
-    bool prioritize_occupancy = has_rng_op || (!has_exp_op);
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        [&free_registers, &prioritize_occupancy](
-            const HeuristicParams& a, const HeuristicParams& b) {
+        [&free_registers](const HeuristicParams& a, const HeuristicParams& b) {
           return compareTwoHeuristics(
-              a, b, free_registers, target_warps_per_sm, prioritize_occupancy);
+              a, b, free_registers, target_warps_per_sm);
         });
     best_heuristic = all_heuristics.at(0);
   }
