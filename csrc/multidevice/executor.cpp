@@ -91,7 +91,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  allocator_kernel_ = std::make_unique<kir::Kernel>(copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_).get());
+  allocator_kernel_ = std::make_unique<kir::Kernel>(
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_).get());
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -189,10 +190,11 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       inputs.size() == staged_fusion_->inputs().size(),
       "Wrong number of inputs");
 
-  auto allocations = allocOutputSpace(inputs, allocator_kernel_.get(), comm()->device());
+  auto allocations =
+      allocOutputSpace(inputs, allocator_kernel_.get(), comm()->device());
   NVF_ERROR(vals_to_allocate_.size() == allocations.size());
-  for (auto i: c10::irange(allocations.size())) {
-    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i); 
+  for (auto i : c10::irange(allocations.size())) {
+    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
   // process input values:

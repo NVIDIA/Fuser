@@ -1342,15 +1342,14 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
-//! Return information necessay for allocating output tensors. Input
+//! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
-std::vector<FusionExecutor::GlobalBufferInfo>
-    getOutputBufferInfo(
-        const KernelArgumentHolder& args,
-        ExpressionEvaluator& expr_eval,
-        DataType index_dtype,
-        const kir::Kernel* kernel) {
+std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
+    const KernelArgumentHolder& args,
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   std::vector<FusionExecutor::GlobalBufferInfo> outputs;
   NVF_ERROR(
@@ -1380,11 +1379,10 @@ std::vector<at::Tensor> allocOutputSpace(
     kir::Kernel* kernel,
     const c10::Device& device) {
   auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, kernel);
+  auto expr_eval = executor_utils::bindInputs(kernel_inputs, kernel);
 
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel->indexType(), kernel);
+  auto output_info = getOutputBufferInfo(
+      kernel_inputs, expr_eval, kernel->indexType(), kernel);
 
   return allocateOutputs(kernel, output_info, device, expr_eval);
 }
@@ -1567,7 +1565,8 @@ void FusionExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
+    output_info =
+        getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with

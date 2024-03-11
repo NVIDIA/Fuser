@@ -409,14 +409,6 @@ class FusionExecutor : public NonCopyable {
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
 
-  // //! Return information necessay for allocating output tensors. Input
-  // //! and output tensors are allowed to alias each other, which is
-  // //! specified by the list of int pairs of input and output indices
-  // std::vector<GlobalBufferInfo> getOutputBufferInfo(
-  //     const KernelArgumentHolder& args,
-  //     ExpressionEvaluator& expr_eval,
-  //     DataType index_dtype);
-
   void setUsedTVs();
 
   const std::vector<TensorView*>& getUsedTVs() const {
