@@ -39,9 +39,9 @@ bool isSharded(TensorView* tv) {
       "Cannot shard multiple tensorview axes on the same mesh axis");
   // Currently, we do not allow split/merge if tv is sharded.
   NVF_ERROR(
-      sharded_domains.size() == 0 ||
+      sharded_domains.empty() ||
       tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  return sharded_domains.size() > 0;
+  return !sharded_domains.empty();
 }
 
 template <typename TvIterator>
