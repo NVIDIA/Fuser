@@ -1399,11 +1399,7 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(
-    Val* x,
-    Val* y,
-    const Context& context,
-    int depth = 0);
+bool lessThan(Val* x, Val* y, const Context& context, int depth = 0);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1531,11 +1527,7 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(
-    Val* x,
-    Val* y,
-    const Context& context,
-    int depth) {
+bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   // Max recursion depth of 2 levels was tested to be sufficient transitivity
   // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
   // that test, I observed the following test CPU runtimes (average of ten
