@@ -61,6 +61,7 @@ from pytest_utils import (
 )
 from functools import partial
 from nvfuser import DataType
+
 eps = 1e-2
 
 opinfos = []
@@ -1106,10 +1107,12 @@ tensor_creation_ops.append(uniform_opinfo)
 
 matmul_ops = []
 
+
 def matmul_wrapper(fd, a, b):
     t1 = fd.ops.matmul(a, b)
     t2 = fd.ops.cast(t1, dtype=DataType.Half)
     return t2
+
 
 matmul_opinfo = OpInfo(
     lambda fd: partial(matmul_wrapper, fd),

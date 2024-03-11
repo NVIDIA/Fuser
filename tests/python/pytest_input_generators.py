@@ -1491,9 +1491,11 @@ def matmul_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    test_cases = (((256, 8), (8, 256)),
-                  ((256, 128), (128, 128)),
-                  ((1456, 8), (8, 256)),)
+    test_cases = (
+        ((256, 8), (8, 256)),
+        ((256, 128), (128, 128)),
+        ((1456, 8), (8, 256)),
+    )
     for lhs_shape, rhs_shape in test_cases:
         lhs = make_arg(lhs_shape)
         rhs = make_arg(rhs_shape)
