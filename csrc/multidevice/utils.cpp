@@ -18,30 +18,6 @@
 #include <c10/util/irange.h>
 
 namespace nvfuser {
-
-bool isSharded(TensorView* tv) {
-  std::vector<bool> is_sharded;
-  for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
-    is_sharded.push_back(id->isDeviceDim());
-  }
-
-  for (auto i : c10::irange(1, is_sharded.size())) {
-    NVF_ERROR(
-        !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized",
-        "but axis ",
-        i,
-        " is sharded in tv ",
-        tv->toString());
-  }
-  // Currently, only the most external dim is allowed to be sharded and we don't
-  // allow split/merge if tv is sharded.
-  auto tensor_sharded = !is_sharded.empty() && is_sharded.at(0);
-  NVF_ERROR(
-      !tensor_sharded || tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  return tensor_sharded;
-}
-
 namespace {
 
 std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
@@ -55,6 +31,18 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 }
 
 } // namespace
+
+bool isSharded(TensorView* tv) {
+  auto sharded_domains = getShardedIterDomains(tv);
+  NVF_ERROR(
+      sharded_domains.size() <= 1,
+      "Cannot shard multiple tensorview axes on the same mesh axis");
+  // Currently, we do not allow split/merge if tv is sharded.
+  NVF_ERROR(
+      sharded_domains.size() == 0 ||
+      tv->getMaybeRFactorDomain() == tv->getLeafDomain());
+  return sharded_domains.size() > 0;
+}
 
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

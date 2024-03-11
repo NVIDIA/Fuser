@@ -18,6 +18,46 @@
 
 namespace nvfuser {
 
+// Test single device computation with device parallelized axis is handled
+// properly.
+TEST(NVFuserTest, TestShardedComputeIndex) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0});
+
+  TensorView* a = makeConcreteTensor({4, 1, 2, 5});
+  TensorView* b = sum(a, {0});
+  TensorView* c = add(a, a);
+  TensorView* d = permute(a, {1, 0, 2, 3});
+
+  fusion->addInput(a);
+  fusion->addOutput(b);
+  fusion->addOutput(c);
+  fusion->addOutput(d);
+
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+  d->setDeviceMesh(mesh);
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  b->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+  d->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a_ = at::randn({4, 1, 2, 5}, options);
+  auto b_ = at::sum(a_, {0});
+  auto c_ = a_ + a_;
+  auto d_ = at::permute(a_, {1, 0, 2, 3});
+  std::vector<c10::IValue> inputs_ = {a_};
+  std::vector<at::Tensor> outputs_ = {b_, c_, d_};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs_);
+  auto outputs = fe.runFusion(inputs_);
+  testValidate(fusion.get(), outputs, inputs_, outputs_, __LINE__, __FILE__);
+}
+
 class ShardingTest : public MultiDeviceTest,
                      public ::testing::WithParamInterface<bool> {};
 
