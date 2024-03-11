@@ -205,6 +205,7 @@ std::vector<IterDomain*> newOutputDomain(
   std::vector<int64_t> start_offsets(out_domain.size(), 0);
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
+  std::vector<bool> extent_is_from_symbolic(out_domain.size(), true);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
   std::vector<std::optional<IterType>> iter_types(
       out_domain.size(), std::nullopt);
@@ -224,6 +225,13 @@ std::vector<IterDomain*> newOutputDomain(
               promoteSize(expanded_extent_vals[i], dom[i]->expandedExtent());
         }
         continue;
+      }
+      if (extent_is_from_symbolic[i] && !dom[i]->isSymbolic()) {
+        // We prefer to use extents from non-Symbolic inputs if there are any
+        // because they might indicate a broadcast axis that is resolved in this
+        // op.
+        extent_vals[i] = dom[i]->extent();
+        extent_is_from_symbolic[i] = false;
       }
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
       if (iter_types[i].has_value()) {
