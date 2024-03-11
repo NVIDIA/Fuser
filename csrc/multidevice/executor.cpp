@@ -19,7 +19,7 @@ namespace nvfuser {
 
 namespace {
 
-// returned a copied fusion where the original outputs have been replaced by
+// returns a copied fusion where the original outputs have been replaced by
 // the ones given as argument
 std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
     Fusion* fusion,

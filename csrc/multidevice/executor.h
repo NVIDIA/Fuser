@@ -109,10 +109,6 @@ class MultiDeviceExecutor {
   //! Print to default debugging output stream
   std::ostream& print();
 
-  const MultiDeviceExecutorParams& params() {
-    return params_;
-  }
-
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication
