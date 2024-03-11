@@ -42,14 +42,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
     const ValGraph& exact_graph,
     const ValGraph& permissive_graph);
 
-struct SelfMapping {
-  IterDomain* id1;
-  IterDomain* id2;
-  // For debugging, records which domain `id1` and `id2` belong to. This value
-  // is either "Root", "RFactor", or "Leaf". Consider making it an enum.
-  std::string where;
-};
-
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
@@ -126,18 +118,6 @@ class IdModel : public PolymorphicBase {
     return view_rfactor_ids_;
   }
 
-  // Returns if a self mapping was detected that would invalidate assumptions of
-  // the overall lowering system.
-  //
-  // It is assumed that for any tensor represented by a list of domains,
-  // those domains should never be mapped with each other. It may be
-  // possible to lift this assumption, but it's unclear if it could
-  // matter in practice.
-  //
-  // TODO: Can we make this more of an alias analysis?
-  // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  std::optional<SelfMapping> hasSelfMapping(const TensorView* tv) const;
-
   std::string toString() const;
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
@@ -205,8 +185,25 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
+  // Helper function for building loop promotion map.
+  //
+  // Propagate promotion mappings from root IEL groups to intermediate
+  // and leaf IEL groups by traversing IEL exprs. For each expr, if an
+  // input is promoted, the output needs to be promoted too. If
+  // there's already an equivalent expr that uses the promoted inputs,
+  // create a mapping from the outputs of the IEL expr to the outputs
+  // of the equivalent expr.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // Replay Expr but with the inputs provided. ValGraphs will be updated
+  // for all maps that have entries, adding the output iter domains of the
+  // replayed expression and adding potential mappings through the expression.
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
   // All tensor expressions that this model analyzes
