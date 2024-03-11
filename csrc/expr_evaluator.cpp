@@ -147,8 +147,13 @@ void ExpressionEvaluator::bind_(
         // (2) Device parallelized axis cannot be split or merged
         // Therefore, the device parallelized extents will always be 1.
         // Ignore concrete extents because they hold the unsharded extents.
+        if (1 != t.size(i)) {
+          std::cout << "Binding error of tensor size:" << t.sizes() << std::endl;
+          std::cout << tv->toString() << std::endl;
+          std::cout << tv->definition()->toString() << std::endl;
+        }
         NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(i));
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }

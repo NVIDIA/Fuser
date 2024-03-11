@@ -20,8 +20,7 @@ namespace nvfuser {
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
-TEST_P(ShardingTest, UnshardedGlobalInput) {
-  auto concreteTv = GetParam();
+
 TEST(NVFuserTest, TestContiguousShardSet) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -95,13 +94,14 @@ TEST(NVFuserTest, TestShardedComputeIndex) {
   testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
 }
 
+// params: concrete vs symbolic input, sharded axis
 class ShardingTest : public MultiDeviceTest,
-                     public ::testing::WithParamInterface<bool> {};
+                     public ::testing::WithParamInterface<std::tuple<bool, int>> {};
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
-TEST_F(ShardingTest, UnshardedGlobalInput) {
-  int sharded_axis = 1;
+TEST_P(ShardingTest, UnshardedGlobalInput) {
+  auto [concreteTv, sharded_axis] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
@@ -150,8 +150,7 @@ TEST_F(ShardingTest, UnshardedGlobalInput) {
 // Test memory allocation of multidevice fusion with sharded input
 // and replicated intermediates and output.
 TEST_P(ShardingTest, ShardGlobalInput) {
-  auto concreteTv = GetParam();
-  int sharded_dim = 1;
+  auto [concreteTv, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
@@ -179,6 +178,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
       shardTensor(x1, tv0, communicator->deviceId())};
+  std::cout << "Input shape " << shardTensor(x1, tv0, communicator->deviceId()).sizes() << std::endl;
   auto x2 = x1 * 2;
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
@@ -186,9 +186,17 @@ TEST_P(ShardingTest, ShardGlobalInput) {
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(ConcreteInput, ShardingTest, ::testing::Values(true));
+INSTANTIATE_TEST_SUITE_P(ConcreteInput_InnerShard, ShardingTest, 
+  ::testing::Values(std::make_tuple(true, 1)));
 
-INSTANTIATE_TEST_SUITE_P(SymbolicInput, ShardingTest, ::testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(SymbolicInput_InnerShard, ShardingTest, 
+  ::testing::Values(std::make_tuple(false, 1)));
+
+  INSTANTIATE_TEST_SUITE_P(ConcreteInput_OutermostShard, ShardingTest, 
+  ::testing::Values(std::make_tuple(true, 0)));
+
+INSTANTIATE_TEST_SUITE_P(SymbolicInput_OutermostShard, ShardingTest, 
+  ::testing::Values(std::make_tuple(false, 0)));
 
 } // namespace nvfuser
 #endif

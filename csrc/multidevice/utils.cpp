@@ -53,7 +53,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>>
 
 bool isSharded(TensorView* tv) {
   // Currently, we don't allow split/merge
-  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
+  // NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
   auto sharded_domains = getShardedIterDomains(tv);
   NVF_ERROR(
       sharded_domains.size() <= 1,
@@ -323,8 +323,8 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 // Current limitations:
-// 1. Assumes only the outermost dimension is sharded
-// 2. Extent of sharded dimension == number of devices in mesh
+// 1. Extent of sharded dimension == number of devices in mesh
+// 2. No splits/merge on device parallel axes
 std::vector<int64_t> unshardedSize(
     TensorView* tv,
     c10::IntArrayRef sharded_sizes) {
@@ -335,12 +335,12 @@ std::vector<int64_t> unshardedSize(
       std::back_inserter(unsharded_sizes));
   if (isSharded(tv)) {
     auto num_devices = tv->getDeviceMesh().vector().size();
-    unsharded_sizes[0] = static_cast<int64_t>(num_devices);
+    int axis = dimWithParallelType(tv, ParallelType::DIDx);
+    unsharded_sizes[axis] = static_cast<int64_t>(num_devices);
   }
   return unsharded_sizes;
 }
 
-// TODO: do we need the with reductions?
 int64_t dimWithParallelType(
     TensorView* tv,
     ParallelType pt,
