@@ -425,4 +425,81 @@ TEST_F(TensorFactoryTest, NoInputs) {
   testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 
+TEST_F(TensorFactoryTest, ARangeBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(i);
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = arange(i);
+
+  auto tv2 = add(tv1, tv0);
+  fusion->addOutput(tv2);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input1 = at::randn({100}, options);
+  std::vector<c10::IValue> inputs{1, input1};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(TensorFactoryTest, NormalBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Float);
+  fusion->addInput(i);
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = normal(
+      {i}, fusion->zeroVal(DataType::Float), fusion->oneVal(DataType::Float));
+
+  auto tv2 = add(tv1, tv0);
+  fusion->addOutput(tv2);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input1 = at::randn({100}, options);
+  std::vector<c10::IValue> inputs{1, input1};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(TensorFactoryTest, UniformBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Float);
+  fusion->addInput(i);
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = uniform(
+      {i}, fusion->zeroVal(DataType::Float), fusion->oneVal(DataType::Float));
+
+  auto tv2 = add(tv1, tv0);
+  fusion->addOutput(tv2);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input1 = at::randn({100}, options);
+  std::vector<c10::IValue> inputs{1, input1};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
