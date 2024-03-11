@@ -14,7 +14,7 @@ def dropout_layernorm_bwd_fusion(
 ) -> None:
     """
     Backward pass fusion definition for computing:
-        output = layernorm (input + dropout (input p=dropout_p))
+        output = layernorm (input2 + dropout (input1 p=dropout_p))
 
     Fusion inputs: input, dropout_mask, rms, grads, weights
     Fusion outputs: grad_input, grad_weights, grad_bias
@@ -36,17 +36,23 @@ def dropout_layernorm_bwd_fusion(
     )  # weights
     T6 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )  # inputs
+    )  # input1
+
+    T7 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
+    )  # input2
+
     if dtype in PROMOTE_DTYPES:
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T4 = fd.ops.cast(T4, dtype=DataType.Float)
         T5 = fd.ops.cast(T5, dtype=DataType.Float)
         T6 = fd.ops.cast(T6, dtype=DataType.Float)
+        T7 = fd.ops.cast(T7, dtype=DataType.Float)
 
     T9 = fd.ops.mul(T6, T1)
     S10 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T11 = fd.ops.mul(T9, S10)
-    T12 = fd.ops.add(T6, T11)
+    T12 = fd.ops.add(T7, T11)
 
     V15 = fd.define_vector([T6.size(0), 1], dtype=DataType.Int)
     T16 = fd.ops.broadcast_in_dim(T2, shape=V15, broadcast_dims=[0])
@@ -115,13 +121,14 @@ def test_layernorm_bwd_benchmark(
     eps: float = 1e-5,
 ):
     clear_cuda_cache()
-    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    input1 = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    input2 = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     dropout_p = 0.1
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
-    x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
+    x = input2 + 1 / (1 - dropout_p) * dropout_mask * input1
     mean = x.to(torch.float).mean(dim=-1)
     variance = x.to(torch.float).var(dim=-1, unbiased=False)
     invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
@@ -133,15 +140,15 @@ def test_layernorm_bwd_benchmark(
     if not disable_validation:
         eager_output = torch.nn.functional.layer_norm(
             x.to(torch.double),
-            inputs.shape[1:],
+            input1.shape[1:],
             weight=weights.to(torch.double),
             bias=bias.to(torch.double),
         )
 
         eager_output.backward(grads.to(torch.double))
         fd.validate(
-            [dropout_mask, mean, invstd, grads, weights, inputs],
-            [inputs.grad, weights.grad, bias.grad],
+            [dropout_mask, mean, invstd, grads, weights, input1, input2],
+            [input1.grad, weights.grad, bias.grad],
         )
     if not disable_benchmarking:
         run_benchmark(
