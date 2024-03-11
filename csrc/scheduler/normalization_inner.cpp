@@ -185,12 +185,12 @@ namespace {
 // occupancy, we should be able to saturate the memory bandwidth. Within these
 // constraints, we try to maximize the number of registers each thread can use.
 // Para [target_warps_per_sm]: required occupancy to saturate memory bandwidth.
-// Para [register_overhead]: registers except those for persistent buffers.
+// Para [free_registers]: registers except those for persistent buffers.
 std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
     const int64_t buffer_size_per_thread,
     const int64_t threads_per_block,
     const int64_t target_warps_per_sm,
-    const int64_t register_overhead) {
+    const int64_t free_registers) {
   // convert [target_warps_per_sm] to [target_blocks_per_sm]
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t threads_per_warp = dev_prop->warpSize;
@@ -205,7 +205,7 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
   // minimum register each thread should use to avoid spills
   const int64_t register_per_thread_min =
       buffer_size_per_thread / scheduler_utils::bytes_per_register +
-      register_overhead;
+      free_registers;
 
   // (1) use register calculated from target occupancy
   int64_t threads_per_sm = threads_per_block * target_blocks_per_sm;
@@ -244,11 +244,11 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
 int64_t getMaxPersistentBatch(
     const int64_t buffer_bytes_per_batch,
     const int64_t target_threads_per_sm,
-    const int64_t register_overhead) {
+    const int64_t free_registers) {
   // (1) calculate the maximum register count given the target occupancy.
   int64_t total_register =
       getRegPerThreadGivenThreadsPerSM(target_threads_per_sm);
-  int64_t register_for_buffer = total_register - register_overhead;
+  int64_t register_for_buffer = total_register - free_registers;
 
   // (2) calculate the maximum persistent batch size using the register count.
   int64_t batch_from_register = scheduler_utils::safeDiv(
@@ -270,7 +270,7 @@ struct HeuristicParams {
   int64_t padded_bdimx = -1;
   int64_t persistent_batch_size = -1;
   int64_t register_per_thread = -1;
-  int64_t register_overhead = -1;
+  int64_t free_registers = -1;
   int64_t occupancy = -1;
   int64_t n_persistent_tails = -1;
   bool is_pad_bdimx = false;
@@ -279,7 +279,7 @@ struct HeuristicParams {
               << ", padded_bdimx: " << padded_bdimx
               << ", persistent_batch_size: " << persistent_batch_size
               << ", register_per_thread: " << register_per_thread
-              << ", register_overhead: " << register_overhead
+              << ", free_registers: " << free_registers
               << ", occupancy: " << occupancy
               << ", n_persistent_tails: " << n_persistent_tails
               << ", is_pad_bdimx: " << is_pad_bdimx << std::endl;
@@ -293,7 +293,7 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
     const int64_t min_threads_per_block,
     const int64_t buffer_bytes_per_batch,
     const int64_t target_warps_per_sm,
-    const int64_t register_overhead,
+    const int64_t free_registers,
     const int64_t persistent_batch_size) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto device_warp_size = dev_prop->warpSize;
@@ -329,10 +329,10 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
       persistent_buffer_size,
       threads_per_block,
       target_warps_per_sm,
-      register_overhead);
+      free_registers);
   params.register_per_thread = reg_occ.first;
   params.occupancy = reg_occ.second;
-  params.register_overhead = params.register_per_thread -
+  params.free_registers = params.register_per_thread -
       persistent_buffer_size / scheduler_utils::bytes_per_register;
   // (4) Calculate other quantities reflecting the quality of the heuristic.
   // when [reduction_count_after_vectorize] is not divisible by
@@ -381,9 +381,9 @@ bool compareTwoHeuristics(
     // 6K and 16K.
     constexpr int64_t opt_max_threads_per_block = 512l;
     score = compare(
-        ha.register_overhead > target_register_overhead &&
+        ha.free_registers > target_register_overhead &&
             ha.padded_bdimx <= opt_max_threads_per_block,
-        hb.register_overhead > target_register_overhead &&
+        hb.free_registers > target_register_overhead &&
             hb.padded_bdimx <= opt_max_threads_per_block);
     if (score != 0) {
       return score > 0;
@@ -431,7 +431,7 @@ bool compareTwoHeuristics(
 //         Ensures minimum required occupancy is surpassed.
 //     (b) Favor divisibility by persistent batch size.
 //         Aims for even workload distribution.
-//     (c) Opt for high register overhead.
+//     (c) Opt for more free registers.
 //         Maximizes compiler optimization potential.
 //     (d) Seek larger occupancy.
 //         Exceeds the target minimum for better performance.
@@ -465,13 +465,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const bool has_exp_op,
     const bool has_rng_op) {
   // Define two free parameters used in this heuristic.
-  // register_overhead is all registers except those for the persistent
-  // buffers. The register in each thread = register_overhead +
+  // free_registers is all registers except those for the persistent
+  // buffers. The register in each thread = free_registers +
   // persistent_buffer_size / bytes_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
-  const int64_t register_overhead = has_exp_op ? 32l : 16l;
+  const int64_t free_registers = has_exp_op ? 32l : 16l;
 
   // Target occupancy required to hide memory latency.
   // Used to calculate the maximum register count each thread can use.
@@ -511,7 +511,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   const int64_t target_threads_per_sm =
       std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
   const int64_t pbs_max_2 = getMaxPersistentBatch(
-      buffer_bytes_per_batch, target_threads_per_sm, register_overhead);
+      buffer_bytes_per_batch, target_threads_per_sm, free_registers);
   const int64_t batches_per_block_inner_reduction_max = std::max(
       batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
 
@@ -541,7 +541,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         min_threads_per_block,
         buffer_bytes_per_batch,
         target_warps_per_sm,
-        register_overhead,
+        free_registers,
         pbs));
     if (all_heuristics.back().occupancy > current_max_occupancy) {
       current_max_occupancy = all_heuristics.back().occupancy;
@@ -564,14 +564,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        [&register_overhead, &prioritize_occupancy](
+        [&free_registers, &prioritize_occupancy](
             const HeuristicParams& a, const HeuristicParams& b) {
           return compareTwoHeuristics(
-              a,
-              b,
-              register_overhead,
-              target_warps_per_sm,
-              prioritize_occupancy);
+              a, b, free_registers, target_warps_per_sm, prioritize_occupancy);
         });
     best_heuristic = all_heuristics.at(0);
   }
@@ -756,13 +752,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // TODO: clean and refactor the code into a separate function
 
   // Define two free parameters used in this heuristic.
-  // register_overhead is all registers except those for the persistent
-  // buffers. The register in each thread = register_overhead +
+  // free_registers is all registers except those for the persistent
+  // buffers. The register in each thread = free_registers +
   // persistent_buffer_size / bytes_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
-  const int64_t register_overhead = has_exp_op ? 32l : 16l;
+  const int64_t free_registers = has_exp_op ? 32l : 16l;
 
   // Target occupancy required to hide memory latency
   // Current value is based on tests of sofmax, layer_norm, softmax_dropout,
@@ -985,7 +981,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   const int64_t batches_per_block_inner_reduction_max = getMaxPersistentBatch(
       buffer_bytes_per_batch,
       target_warps_per_sm * dev_prop->warpSize,
-      register_overhead);
+      free_registers);
 
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
@@ -1160,7 +1156,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
                                     persistent_buffer_size,
                                     threads_per_block,
                                     target_warps_per_sm,
-                                    register_overhead)
+                                    free_registers)
                                     .first;
   }
 
