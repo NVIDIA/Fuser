@@ -146,7 +146,7 @@ static TensorView* factoryOutput(
           "Expected int extent argument to factory function but found constant value ",
           shi->toInlineString());
       iter_type =
-          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Symbolic;
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
     }
     out_root.push_back(
         IterDomainBuilder(
