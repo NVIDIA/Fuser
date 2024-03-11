@@ -1478,3 +1478,23 @@ def vector_at_error_generator(
         yield SampleInput(
             make_arg(error_case["tensor_shape"]), index=error_case["index"]
         ), error_type, error_msg
+
+
+def matmul_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=torch.float16,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+    test_cases = (((256, 8), (8, 256)),
+                  ((256, 128), (128, 128)),
+                  ((1456, 8), (8, 256)),)
+    for lhs_shape, rhs_shape in test_cases:
+        lhs = make_arg(lhs_shape)
+        rhs = make_arg(rhs_shape)
+        yield SampleInput(lhs, rhs)

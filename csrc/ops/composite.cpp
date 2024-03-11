@@ -55,8 +55,13 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 }
 
 TensorView* matmul(TensorView* a, TensorView* b) {
-  NVF_CHECK(a->nDims() == b->nDims());
-  NVF_CHECK(a->nDims() == 2);
+  NVF_CHECK(
+      a->nDims() == b->nDims(),
+      "The number of dimension of A and B do not match");
+  // TODO: We'll need to suppor nDims == 3 for bmm.
+  NVF_CHECK(
+      a->nDims() == 2,
+      "Only 2-D Tensors are supported, in the future we'll support 3-D as well!");
   NVF_CHECK(a->getDataType().value() == b->getDataType().value());
 
   std::vector<bool> bcast_dims(a->nDims() + 1, false);

@@ -48,6 +48,7 @@ from pytest_input_generators import (
     var_mean_generator,
     vector_at_error_generator,
     where_error_generator,
+    matmul_input_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,
@@ -59,7 +60,7 @@ from pytest_utils import (
     ArgumentType,
 )
 from functools import partial
-
+from nvfuser import DataType
 eps = 1e-2
 
 opinfos = []
@@ -1103,6 +1104,22 @@ uniform_opinfo = OpInfo(
 )
 tensor_creation_ops.append(uniform_opinfo)
 
+matmul_ops = []
+
+def matmul_wrapper(fd, a, b):
+    t1 = fd.ops.matmul(a, b)
+    t2 = fd.ops.cast(t1, dtype=DataType.Half)
+    return t2
+
+matmul_opinfo = OpInfo(
+    lambda fd: partial(matmul_wrapper, fd),
+    "matmul",
+    dtypes=(torch.float16,),
+    sample_input_generator=matmul_input_generator,
+    reference=torch.matmul,
+)
+matmul_ops.append(matmul_opinfo)
+
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
@@ -1114,3 +1131,4 @@ opinfos.extend(dynamic_shapes_ops)
 opinfos.extend(normalization_ops)
 opinfos.extend(shape_ops)
 opinfos.extend(tensor_creation_ops)
+opinfos.extend(matmul_ops)

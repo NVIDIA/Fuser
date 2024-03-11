@@ -2367,7 +2367,7 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
-    def test_unified_matmul(self):
+    def test_matmul(self):
         inputs = [
             torch.randn(24, 8, device="cuda", dtype=torch.float16),
             torch.randn(8, 16, device="cuda", dtype=torch.float16),
@@ -2376,8 +2376,9 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
-            t2 = eval("fd.ops.matmul")(t0, t1)
-            fd.add_output(t2)
+            t2 = fd.ops.matmul(t0, t1)
+            t3 = fd.ops.cast(t2, dtype=DataType.Half)
+            fd.add_output(t3)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.matmul(inputs[0], inputs[1])
