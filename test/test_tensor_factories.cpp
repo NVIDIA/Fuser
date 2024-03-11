@@ -454,13 +454,16 @@ TEST_F(TensorFactoryTest, NormalBroadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* i = IrBuilder::create<Val>(DataType::Float);
+  Val* i = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(i);
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
 
   auto tv1 = normal(
-      {i}, fusion->zeroVal(DataType::Float), fusion->oneVal(DataType::Float));
+      {i},
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
 
   auto tv2 = add(tv1, tv0);
   fusion->addOutput(tv2);
@@ -480,13 +483,16 @@ TEST_F(TensorFactoryTest, UniformBroadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* i = IrBuilder::create<Val>(DataType::Float);
+  Val* i = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(i);
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
 
   auto tv1 = uniform(
-      {i}, fusion->zeroVal(DataType::Float), fusion->oneVal(DataType::Float));
+      {i},
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
 
   auto tv2 = add(tv1, tv0);
   fusion->addOutput(tv2);
