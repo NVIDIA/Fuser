@@ -58,8 +58,7 @@ int64_t dimWithParallelType(
     ParallelType,
     bool withReductions = false);
 
-// TODO: FIX
-// Returns whether a device's sharded tensors are contiguous
+// Returns whether a device's sharded tensors are contiguously stored
 // with respect to its unsharded tensor
 // i.e. [DIDx(i0), i1] tensors are contiguously stored in [i0, i1]
 // [i0, DIDx(i1)] tensors are sharded.
