@@ -123,18 +123,18 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  inputs = {
+  unsharded_inputs = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
-// stage sharded?, do_reduction?)
-using PipelineTestTwoStagesParams =
-    std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
+// stage sharded?, do_reduction?, use_fusion_executor_cache?)
+using PipelineTestTwoStagesParams = std::
+    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
       public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
@@ -146,8 +146,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
        mesh1,
        is_stage0_sharded,
        is_stage1_sharded,
-       do_reduction] = GetParam();
-  if (!communicator->isBackendAvailable(backend)) {
+       do_reduction,
+       use_fusion_executor_cache] = GetParam();
+  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator->setDefaultBackend(backend);
@@ -169,10 +170,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   std::vector<int64_t> unsharded_input_sizes = {
       first_axis_extent, second_axis_extent, 3, 5};
-  std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
-  if (is_stage0_sharded) {
-    sharded_input_sizes[0] = 1;
-  }
+
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
@@ -197,10 +195,14 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {
-      at::ones(sharded_input_sizes, tensor_options) * communicator->deviceId()};
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
-  validate();
+  if (use_fusion_executor_cache) {
+    multi_device_executor_params.use_fusion_executor_cache = true;
+    multi_device_executor_params.skip_auto_scheduling = true;
+  }
+
+  executeAndValidate();
 }
 
 namespace {
@@ -227,7 +229,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         ::testing::Values(true),
         ::testing::Values(false),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
@@ -238,7 +241,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         ::testing::Values(false),
         ::testing::Values(true),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
@@ -249,7 +253,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         ::testing::Values(false),
         ::testing::Values(false),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
@@ -260,7 +265,8 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(mesh3, mesh4),
         ::testing::Values(true),
         ::testing::Values(true),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
@@ -271,7 +277,8 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(mesh_null), // the same mesh is used for all tensors
         ::testing::Values(true),
         ::testing::Values(true),
-        ::testing::Values(false)));
+        ::testing::Values(false),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Reduce,
@@ -282,7 +289,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         ::testing::Values(true),
         ::testing::Values(false),
-        ::testing::Values(true)));
+        ::testing::Values(true),
+        ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
@@ -293,7 +301,8 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(mesh_null), // the same mesh is used for all tensors
         ::testing::Values(true),
         ::testing::Values(true),
-        ::testing::Values(true)));
+        ::testing::Values(true),
+        ::testing::Bool()));
 
 } // namespace nvfuser
 

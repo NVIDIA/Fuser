@@ -86,15 +86,14 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   if (fusion_copy->outputs().empty()) {
     return {};
   }
-  // TODO: Not working with FusionExecutorCache
-  FusionExecutor fe;
-  fe.compileFusion(fusion_copy.get(), global_inputs_IValues);
-  auto buffers = fe.allocOutputSpace(global_inputs_IValues);
+
+  FusionExecutorCache fec(std::move(fusion_copy), 0, false);
+  auto buffers = fec.allocOutputSpace(global_inputs_IValues);
 
   std::unordered_map<Val*, c10::IValue> allocations;
   for (auto i : c10::irange(buffers.size())) {
     allocations.emplace(
-        copy_to_original_map[fusion_copy->outputs().at(i)], buffers.at(i));
+        copy_to_original_map[fec.fusion()->outputs().at(i)], buffers.at(i));
   }
 
   return allocations;
@@ -102,8 +101,9 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
-    Communicator& comm)
-    : comm_(comm) {
+    Communicator& comm,
+    MultiDeviceExecutorParams params)
+    : comm_(comm), params_(params) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
@@ -155,12 +155,25 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  if (fe_.find(group) == fe_.end()) {
-    fe_.emplace(group, std::make_unique<FusionExecutor>());
-    fusions_.emplace(group, staged_fusion_->makeFusion(group));
-    fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
+  if (params_.use_fusion_executor_cache) {
+    fec_.try_emplace(
+        group,
+        staged_fusion_->makeFusion(group),
+        0,
+        !params_.skip_auto_scheduling);
+    outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
+  } else {
+    auto [it, has_emplaced] = fe_.try_emplace(group);
+    auto& fe = it->second;
+    if (has_emplaced) {
+      fe.compileFusion(
+          staged_fusion_->makeFusion(group).get(), group_input_IValues);
+    }
+    outputs = fe.runFusion(group_input_IValues);
+    if (!params_.cache_fusion_executor) {
+      fe_.erase(group);
+    }
   }
-  outputs = fe_[group]->runFusion(group_input_IValues);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
@@ -268,7 +281,7 @@ std::ostream& MultiDeviceExecutor::print() {
   int communication_counter = 0;
   for (auto group : workspace.group_run_order) {
     if (is_resharding_[group]) {
-      debug() << "Communication " << compute_segment_counter << ":{\n";
+      debug() << "Communication " << communication_counter << ":{\n";
       for (const auto& comm :
            lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
         debug() << comm->toString(2) << "\n";

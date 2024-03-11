@@ -17,6 +17,12 @@ void MinimumDeviceVersion::dispatch(Val* val) {
         {8, 0},
         "Fusion contains BFloat16 values which was introduced in Ampere (8.0)");
   }
+  if (val->dtype() == DataType::Float8_e4m3fn ||
+      val->dtype() == DataType::Float8_e5m2) {
+    ensureVersion(
+        {9, 0},
+        "Fusion contains Float8_xxx values which was introduced in Hopper (9.0)");
+  }
   IterVisitor::dispatch(val);
 }
 

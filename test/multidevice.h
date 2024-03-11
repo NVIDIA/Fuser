@@ -89,9 +89,17 @@ class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
   void validate();
+  void execute();
+  void executeAndValidate() {
+    execute();
+    validate();
+  }
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
+  std::vector<c10::IValue> unsharded_inputs;
+  std::vector<at::Tensor> outputs;
+  MultiDeviceExecutorParams multi_device_executor_params;
 };
 
 } // namespace nvfuser
