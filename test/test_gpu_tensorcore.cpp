@@ -2912,7 +2912,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
         mma_utils::MmaDataTypes data_types = {
             DataType::Half, DataType::Half, DataType::Float};
         int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params, data_types, true, true);
+            params,
+            data_types,
+            // NOTE: Batch split-K matmuls cannot currently re-use smem due to
+            // outer batch loop
+            /*smem_a_reuse_guaranteed=*/false,
+            /*smem_b_reuse_guaranteed=*/false);
         int64_t actual_smem = fe.lastLaunchParams().smem();
         EXPECT_EQ(estimated_smem, actual_smem);
       }
@@ -2989,7 +2994,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
         mma_utils::MmaDataTypes data_types = {
             DataType::Half, DataType::Half, DataType::Float};
         int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params, data_types, true, true);
+            params,
+            data_types,
+            // NOTE: Batch split-K matmuls cannot currently re-use smem due to
+            // outer batch loop
+            /*smem_a_reuse_guaranteed=*/false,
+            /*smem_b_reuse_guaranteed=*/false);
         int64_t actual_smem = fe.lastLaunchParams().smem();
         EXPECT_EQ(estimated_smem, actual_smem);
       }
