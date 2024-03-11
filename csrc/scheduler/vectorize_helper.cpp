@@ -947,7 +947,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   int64_t break_point = (int64_t)(reduction_producer->nDims());
 
   // short-cut to to return break point when producer_innermost_ids is empty
-  if (producer_innermost_ids.size() == 0) {
+  if (producer_innermost_ids.empty()) {
     return break_point;
   }
 
