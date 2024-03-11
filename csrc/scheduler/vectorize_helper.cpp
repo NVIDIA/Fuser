@@ -927,7 +927,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // reduction IDs
   int64_t break_point = (int64_t)(reduction_producer->nDims());
 
-  // short-cut to to return break point when no c2p mapping is going to be performed
+  // short-cut to to return break point when no c2p mapping is going to be
+  // performed
   if (consumer_innermost_ndims == 0) {
     return break_point;
   }
