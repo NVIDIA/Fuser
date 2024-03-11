@@ -2205,4 +2205,104 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       "",
       lparams);
 }
+
+TEST_F(OuterReductionTest, IterGroupedGridReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Half;
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = castOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  std::vector<int64_t> shape({4096, 2048});
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
+  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+
+  // Enforce vectorization so we can group them
+  const int vect_factor = 8;
+  heuristics_params->vectorize_iter_dom = true;
+  heuristics_params->unroll_factor_iter_dom = vect_factor;
+  // Enforce grid reduction
+  heuristics_params->cross_grid_inner_reduction = true;
+  heuristics_params->split_grid_dim_inner_reduction = true;
+
+  scheduleReduction(&fusion, *heuristics_params);
+
+  // lowering & check iteration grouped reductions
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  NVF_CHECK(
+      gpulw.kernel()->summary().has_iter_grouped_reductions,
+      "There must be iter domain grouped reductions.");
+  NVF_CHECK(
+      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
+      "Expected ",
+      vect_factor,
+      " grouped iterations, found ",
+      gpulw.kernel()->summary().num_grouped_iterations);
+
+  FusionExecutor fe;
+  auto lparams = heuristics_params->lparams;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {t0.to(at::kFloat).sum(0)},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+// validation tests of outer reduction scheduler after
+// adding IterGroupedGridReduction
+TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
+  auto test = [](int dim0, int dim1) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(2, dtype);
+    fusion->addInput(tv0);
+    auto tv1 = castOp(DataType::Float, tv0);
+    auto tv2 = sum(tv1, {0});
+    auto tv3 = castOp(dtype, tv2);
+    fusion->addOutput(tv3);
+
+    std::vector<int64_t> shape({dim0, dim1});
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    auto t0 = at::ones(shape, options);
+    std::vector<c10::IValue> inputs({t0});
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto ref = t0.to(at::kFloat).sum({0});
+    testValidate(
+        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  };
+
+  maybeClearAllocator(0);
+  for (int dim0 = 1024; dim0 <= 32768; dim0 *= 2) {
+    for (int dim1 = 1024; dim1 <= 32768; dim1 *= 2) {
+      test(dim0, dim1);
+    }
+  }
+}
+
 } // namespace nvfuser

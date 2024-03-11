@@ -29,13 +29,8 @@ class CancelSplitCat {
         id_model_(
             fusion,
             /*build_graphs=*/false,
-            /*allow_self_mapping=*/true),
-        id_model_for_merging_(
-            fusion,
-            /*build_graphs=*/false,
             /*allow_self_mapping=*/true) {
     id_model_.buildExactGraph();
-    id_model_for_merging_.buildExactGraph();
   }
 
   // Finds all cancellable <split,cat> pairs, cancels them and horizontallly
@@ -146,11 +141,6 @@ class CancelSplitCat {
   // `id_model_` is supposed to be read-only and reflect the
   // original fusion.
   IdModel id_model_;
-
-  // `id_model_for_merging_` is used for
-  // `sameIterDomainTransforms`, which unionizes IterDomains in slices and
-  // checks IterDomains in pads are unionized in the same way.
-  IdModel id_model_for_merging_;
 };
 
 bool sameOp(const std::vector<Expr*>& frontier) {
@@ -167,7 +157,11 @@ bool CancelSplitCat::sameIterDomainTransforms(
   NVF_ERROR(slices.size() == pads.size());
   NVF_ERROR(!slices.empty());
 
-  ValGraph& exact_graph = id_model_for_merging_.idGraph(IdMappingMode::EXACT);
+  // This clones the exact graph so that `mapVals` are done without affecting
+  // other split/cat pairs in consideration. See
+  // MoveSplitCatTest.MultipleCatsOnSameSplit for why this independence is
+  // important.
+  ValGraph exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   {
     // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
     // already mapped due to the `cat` when the IdModel was built.
@@ -186,12 +180,13 @@ bool CancelSplitCat::sameIterDomainTransforms(
   // diffrently between two chains. See
   // MoveSplitCatTest.Noncancellable_PermutedDifferently for an example.
   for (auto* slice : slices) {
-    if (id_model_for_merging_.hasSelfMapping(slice->out())) {
+    if (hasSelfMapping(slice->out(), exact_graph)) {
       return false;
     }
   }
 
   {
+    // Check slices[i0][j] and slices[i1][j] are mapped.
     const std::vector<IterDomain*>& first_rfactor =
         slices[0]->out()->getMaybeRFactorDomain();
     size_t num_dims = first_rfactor.size();
