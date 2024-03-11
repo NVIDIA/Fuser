@@ -958,7 +958,7 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
-    const GlobalBufferInfo& out_info,
+    const FusionExecutor::GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -1024,11 +1024,11 @@ at::Tensor allocateOutput(
   }
 }
 
-} // namespace
-
+// Allocate output tensors for a given kernel. Outputs may alias inputs, in
+// that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
-    const std::vector<GlobalBufferInfo>& output_info,
+    const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -1077,6 +1077,7 @@ std::vector<at::Tensor> allocateOutputs(
   }
   return out_tensors;
 }
+} // namespace
 
 int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
@@ -1290,7 +1291,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-std::vector<GlobalBufferInfo> FusionExecutor::
+std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
@@ -1344,15 +1345,14 @@ std::vector<GlobalBufferInfo> FusionExecutor::
 //! Return information necessay for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
-std::vector<GlobalBufferInfo>
+std::vector<FusionExecutor::GlobalBufferInfo>
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
         DataType index_dtype,
         const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
-  // const auto kernel = lowered_->kernel();
-  std::vector<GlobalBufferInfo> outputs;
+  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
   NVF_ERROR(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
@@ -1360,7 +1360,7 @@ std::vector<GlobalBufferInfo>
     auto out_val = kernel->outputs()[out_i];
     auto output = out_val->as<TensorView>();
 
-    GlobalBufferInfo info;
+    FusionExecutor::GlobalBufferInfo info;
     info.tv = dynamic_cast<TensorView*>(out_val);
     NVF_ERROR(
         info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
@@ -1375,43 +1375,25 @@ std::vector<GlobalBufferInfo>
   return outputs;
 }
 
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    kir::Kernel* kernel,
+    const c10::Device& device) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, kernel);
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel->indexType(), kernel);
+
+  return allocateOutputs(kernel, output_info, device, expr_eval);
+}
+
 void FusionExecutor::setUsedTVs() {
   auto used_vals = fusion_->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
-}
-
-KernelArgumentHolder inferSizes(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    std::vector<Val*> tvs) {
-  FUSER_PERF_SCOPE("inferSizes");
-  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
-      std::make_unique<PrecomputedValues>(fusion);
-  evaluator_precomputed_values->bindInputs(args);
-  evaluator_precomputed_values->evaluate();
-
-  ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
-
-  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
-
-  KernelArgumentHolder ret;
-  ret.setDeviceIndex(args.getDeviceIndex());
-
-  for (Val* val : tvs) {
-    NVF_ERROR(
-        val->isA<TensorView>(),
-        "Cannot infer shape of vals that are not tensors.");
-    auto tv = val->as<TensorView>();
-    const auto& [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
-    const auto dtype = (tv->dtype() == DataType::Index)
-        ? data_type_to_aten(arg_index_type)
-        : data_type_to_aten(tv->dtype());
-    ret.pushTensorProxy(sizes, strides, dtype);
-  }
-  return ret;
 }
 
 KernelArgumentHolder FusionExecutor::inferOutputSizes(
@@ -1529,7 +1511,7 @@ void dumpKernelArgs(
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
-    const std::vector<GlobalBufferInfo>& intermediates_info) {
+    const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
@@ -1552,9 +1534,9 @@ void dumpKernelArgs(
   }
 }
 
-GlobalBufferInfo getGlobalBufferAllocationInfo(
+FusionExecutor::GlobalBufferInfo getGlobalBufferAllocationInfo(
     const at::Tensor& at_tensor) {
-  GlobalBufferInfo info{
+  FusionExecutor::GlobalBufferInfo info{
       .sizes = at_tensor.sizes().vec(),
       .strides = at_tensor.strides().vec(),
       .type = at_tensor.scalar_type()};
@@ -2347,7 +2329,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   return entry;
 }
 
-GlobalBufferInfo FusionExecutor::deserialize(
+FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
 

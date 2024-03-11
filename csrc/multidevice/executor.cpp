@@ -46,141 +46,6 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
 
 } // namespace
 
-// class MultiDeviceAllocator {
-//   public:
-//   MultiDeviceAllocator(const MultiDeviceExecutor& executor);
-//   std::unordered_map<Val*, at::Tensor> allocate(const at::ArrayRef<c10::IValue>& inputs);
-
-//   private:
-//   kir::Kernel kernel;
-//   ExpressionEvaluator expr_eval;
-  // std::vector<Val*> vals_to_allocate_;
-//   std::vector<GlobalBufferInfo> buffer_info;
-//   const MultiDeviceExecutor& executor;
-// };
-
-
-MultiDeviceAllocator::MultiDeviceAllocator(Fusion* fusion, std::vector<Val*> vals_to_allocate)
-: vals_to_allocate_(std::move(vals_to_allocate)), kernel_(copyFusionAndChangeOutputs(fusion, vals_to_allocate_).get()){
-  // Allocator setup
-  // First, figure out what Vals need allocation at runtime
-  // Then, instantiate the allocator
-  // if (!vals_to_allocate_.empty()) {
-  //   allocator_ = std::make_unique<FusionExecutorCache>(
-  //       copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_),
-  //       0,
-  //       false);
-  // }
-
-  
-  // auto fusion_copy = copyFusionAndChangeOutputs(&fusion, vals_to_allocate_);
-
-  // Fusion fusion_copy = std::make_unique<Fusion>();
-  // std::unordered_map<Val*, Val*> copy_to_original_map;
-  // Fusion fusion_copy;
-  // auto original_to_copy_cloner = Fusion::copy(fusion, &fusion_copy);
-
-  // auto original_outputs = fusion_copy.outputs();
-  // // Remove original outputs
-  // std::for_each(
-  //     original_outputs.begin(), original_outputs.end(), [&](auto& output) {
-  //       fusion_copy.removeOutput(output);
-  //     });
-  // // Add vals to allocate as outputs
-  // std::for_each(vals_to_allocate_.begin(), vals_to_allocate_.end(), [&](Val* const& val) {
-  //   fusion_copy.addOutput(original_to_copy_cloner.clone(val));
-
-  // kernel_(&fusion_copy);
-  // });
-
-}
-
-std::unordered_map<Val*, at::Tensor> MultiDeviceAllocator::allocate(const at::ArrayRef<c10::IValue>& inputs, const c10::Device& device) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, &kernel_);
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel_.indexType(), &kernel_);
-
-
-  auto buffers = allocateOutputs(&kernel_, output_info, device, expr_eval);
-
-  std::unordered_map<Val*, at::Tensor> ret;
-  NVF_ERROR(
-      buffers.size() == vals_to_allocate_.size(),
-      "something went wrong with multidevice allocator");
-  for (auto i : c10::irange(buffers.size())) {
-    ret[vals_to_allocate_.at(i)] = buffers.at(i);
-  }
-  return ret;
-}
-
-
-
-// }
-// TODO: use native allocator instead.
-// TODO: reimplement. The implementation here is very naive and wasteful since
-// we entirely copy the fusion, change the outputs to be the Vals we want to
-// allocate, and call allocOutputSpace which effectively compile and run the
-// Fusion. This function creates a potentially important overhead, it needs to
-// be reimplemented
-// void MultiDeviceAllocator::MultiDeviceAllocator(const Fusion& fusion) {
-  // if (vals_to_allocate_.empty()) {
-  //   return;
-  // }
-
-  // KernelArgumentHolder args;
-  // for (auto input: global_inputs_IValues) {
-  //   args.push(input);
-  // }
-
-  // KernelArgumentHolder buffers2 = inferSizes(completeFusion(), args, vals_to_allocate_);
-
-  // std::cout << "RANK :" << comm()->deviceId() << " has allocated " << buffers2.size() << " args:" << std::endl;
-  // for (auto i: c10::irange(buffers2.size())) {
-  //   std::cout << "i=" << i <<":" << std::endl;
-  //   std::cout << at::empty(buffers2[i]) << std::endl;
-  // }
-// allocOutputSpace(
-//     const at::ArrayRef<c10::IValue>& inputs,
-//     kir::Kernel* kernel,
-//     const c10::Device& device)
-
-// std::vector<at::Tensor> allocOutputSpace(
-  //   const at::ArrayRef<c10::IValue>& inputs,
-  //   kir::Kernel* kernel,
-  //   const c10::Device& device) {
-// }
-
-  // auto buffers = allocOutputSpace(global_inputs_IValues, &kernel, comm()->device());
-
-// at::native::empty_strided_cuda(
-//           out_info.sizes,
-//           out_info.strides,
-//           out_info.type,
-//           c10::nullopt,
-//           device,
-//           c10::nullopt);
-
-//         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
-
-
-// addOutputsToArgsAndTensorMap(std::vector<Val*>& group_outputs, const KernelArgumentHolder& group_runtime_outputs)
-
-  // auto buffers = allocator_->allocOutputSpace(global_inputs_IValues);
-
-  // NVF_ERROR(buffers.size() == bufs.size());
-
-  // std::cout << "RANK :" << comm()->deviceId() << " has allocated " << bufs.size() << " args:" << std::endl;
-  // for (auto i: c10::irange(bufs.size())) {
-  //   std::cout << "i=" << i <<":" << std::endl;
-  //   std::cout << bufs.at(i) << std::endl;
-  //   NVF_ERROR(buffers.at(i).sizes() == bufs.at(i).sizes(), buffers.at(i).sizes(), bufs.at(i).sizes()cccccbjhcbicbvhveerfjkddrblfuljnehrijfrbetct
-  //   );
-  // }
-
-
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
@@ -213,7 +78,6 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 
   // Allocator setup
-  std::vector<Val*> vals_to_allocate;
   for (auto group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
@@ -223,11 +87,11 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate.push_back(val);
+        vals_to_allocate_.push_back(val);
       }
     }
   }
-  allocator_ = std::make_unique<MultiDeviceAllocator>(completeFusion(), std::move(vals_to_allocate));
+  allocator_kernel_ = std::make_unique<kir::Kernel>(copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_).get());
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -325,9 +189,10 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       inputs.size() == staged_fusion_->inputs().size(),
       "Wrong number of inputs");
 
-  auto allocations = allocator_->allocate(inputs, comm()->device());
-  for (auto it: allocations) {
-    val_to_IValue_[it.first] = it.second; 
+  auto allocations = allocOutputSpace(inputs, allocator_kernel_.get(), comm()->device());
+  NVF_ERROR(vals_to_allocate_.size() == allocations.size());
+  for (auto i: c10::irange(allocations.size())) {
+    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i); 
   }
 
   // process input values:

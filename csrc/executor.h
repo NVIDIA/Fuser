@@ -26,33 +26,6 @@
 
 namespace nvfuser {
 
-struct GlobalBufferInfo {
-  TensorView* tv = nullptr;
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
-  at::ScalarType type = at::ScalarType::Undefined;
-  bool zero_init = false;
-  bool is_profile_buffer = false;
-};
-
-//! Return information necessay for allocating output tensors. Input
-//! and output tensors are allowed to alias each other, which is
-//! specified by the list of int pairs of input and output indices
-std::vector<GlobalBufferInfo>
-    getOutputBufferInfo(
-        const KernelArgumentHolder& args,
-        ExpressionEvaluator& expr_eval,
-        DataType index_dtype,
-        const kir::Kernel* kernel);
-
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
-// that case output tensors are shallow copies of the aliased inputs
-std::vector<at::Tensor> allocateOutputs(
-    const kir::Kernel* kernel,
-    const std::vector<GlobalBufferInfo>& output_info,
-    const c10::Device& device,
-    ExpressionEvaluator& ee);
-
 bool shouldFillAllocationWithNan();
 NVF_API void setFillAllocationWithNan(bool value);
 
@@ -61,12 +34,25 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-KernelArgumentHolder inferSizes(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    std::vector<Val*> tvs);
+//! Used in distributed setting where we only want to
+//!  allocate output space and receive output data from
+//!  a different rank instead of computing them.
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    kir::Kernel* kernel,
+    const c10::Device& device);
+
 class FusionExecutor : public NonCopyable {
  public:
+  struct GlobalBufferInfo {
+    TensorView* tv = nullptr;
+    std::vector<int64_t> sizes;
+    std::vector<int64_t> strides;
+    at::ScalarType type = at::ScalarType::Undefined;
+    bool zero_init = false;
+    bool is_profile_buffer = false;
+  };
+
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
   void debugCompileFusionFromStr(
@@ -422,6 +408,14 @@ class FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
+
+  // //! Return information necessay for allocating output tensors. Input
+  // //! and output tensors are allowed to alias each other, which is
+  // //! specified by the list of int pairs of input and output indices
+  // std::vector<GlobalBufferInfo> getOutputBufferInfo(
+  //     const KernelArgumentHolder& args,
+  //     ExpressionEvaluator& expr_eval,
+  //     DataType index_dtype);
 
   void setUsedTVs();
 
