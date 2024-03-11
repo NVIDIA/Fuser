@@ -425,7 +425,7 @@ TEST_F(TensorFactoryTest, NoInputs) {
   testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 
-TEST_F(TensorFactoryTest, ARangeBroadcast) {
+TEST_F(TensorFactoryTest, FactoryBroadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -435,67 +435,35 @@ TEST_F(TensorFactoryTest, ARangeBroadcast) {
   fusion->addInput(tv0);
 
   auto tv1 = arange(i);
-
-  auto tv2 = add(tv1, tv0);
-  fusion->addOutput(tv2);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input1 = at::randn({100}, options);
-  std::vector<c10::IValue> inputs{1, input1};
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
-TEST_F(TensorFactoryTest, NormalBroadcast) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  Val* i = IrBuilder::create<Val>(DataType::Int);
-  fusion->addInput(i);
-  TensorView* tv0 = makeSymbolicTensor(1);
-  fusion->addInput(tv0);
-
-  auto tv1 = normal(
+  auto tv2 = normal(
       {i},
       fusion->zeroVal(DataType::Float),
       fusion->oneVal(DataType::Float),
       DataType::Float);
-
-  auto tv2 = add(tv1, tv0);
-  fusion->addOutput(tv2);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input1 = at::randn({100}, options);
-  std::vector<c10::IValue> inputs{1, input1};
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
-TEST_F(TensorFactoryTest, UniformBroadcast) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  Val* i = IrBuilder::create<Val>(DataType::Int);
-  fusion->addInput(i);
-  TensorView* tv0 = makeSymbolicTensor(1);
-  fusion->addInput(tv0);
-
-  auto tv1 = uniform(
+  auto tv3 = uniform(
       {i},
       fusion->zeroVal(DataType::Float),
       fusion->oneVal(DataType::Float),
       DataType::Float);
+  auto tv4 = rand({i}, DataType::Float);
+  auto tv5 = randn({i}, DataType::Float);
+  auto tv6 = full({i}, fusion->oneVal(DataType::Float), DataType::Float);
 
-  auto tv2 = add(tv1, tv0);
-  fusion->addOutput(tv2);
+  auto tv7 = add(tv1, tv0);
+  auto tv8 = add(tv2, tv0);
+  auto tv9 = add(tv3, tv0);
+  auto tv10 = add(tv4, tv0);
+  auto tv11 = add(tv5, tv0);
+  auto tv12 = add(tv6, tv0);
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv11);
+  fusion->addOutput(tv12);
+
+  fusion->printMath();
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
