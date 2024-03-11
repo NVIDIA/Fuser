@@ -80,11 +80,11 @@ std::string DynamicTransformInitialInfo::toString() const {
   }
   ss << indent << "Dynamic extent Vals:\n";
   for (const auto& v : maybe_zero_extents_) {
-    ss << indent << indent << v->toString() << "\n";
+    ss << indent << indent << v->toInlineString() << "\n";
   }
   ss << indent << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
-    ss << indent << indent << v->toString() << "\n";
+    ss << indent << indent << v->toInlineString() << "\n";
   }
   return ss.str();
 }
@@ -282,6 +282,11 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     if (ext_opt == 0) {
       empty_extents_.push_back(i);
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+    debug() << initial_info->toString() << std::endl;
+    debug() << toString() << std::endl;
   }
 }
 
@@ -865,13 +870,16 @@ void DynamicTransformConcretizer::concretizeFactoryOutputs() {
     TensorView* tv = factory_tvs[i];
     const std::vector<std::pair<size_t, IterType>>& pair_vec = pair_vecs[i];
     for (auto& [pos, iter_type] : pair_vec) {
-      auto* old_id = tv->getMaybeRFactorDomain().at(pos);
+      auto* old_id =
+          maybeMutated(tv->getMaybeRFactorDomain().at(pos))->as<IterDomain>();
       NVF_ERROR(
           old_id->definition() == nullptr,
           "Symbolic factory output has ID definition that would be discarded");
       auto* new_id = IterDomainBuilder(old_id).iter_type(iter_type).build();
       registerConcretization(old_id, new_id);
     }
+    mutate(tv->domain());
+    OptOutMutator::mutate(tv);
   }
 }
 
