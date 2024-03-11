@@ -271,11 +271,13 @@ TensorView* full(
     DataType dtype) {
   fill_value = maybeCastOp(dtype, fill_value);
   auto n = shape.size();
+  std::vector<bool> expanded(n, true);
   auto out = TensorViewBuilder()
                  .ndims(n)
                  .dtype(dtype)
                  .contiguity(true)
                  .shape(shape)
+                 .expanded(expanded)
                  .build();
   IrBuilder::create<FullOp>(out, fill_value);
   return out;
