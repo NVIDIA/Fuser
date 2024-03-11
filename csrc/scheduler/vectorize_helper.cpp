@@ -922,6 +922,16 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
+  // Find the conrresponding producer break point. To the right of the
+  // break point, there must be only the producer innermost IDs or
+  // reduction IDs
+  int64_t break_point = (int64_t)(reduction_producer->nDims());
+
+  // short-cut to to return break point when no c2p mapping is going to be performed
+  if (consumer_innermost_ndims == 0) {
+    return break_point;
+  }
+
   const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
                        .mapConsumerToProducer();
 
@@ -939,16 +949,6 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     NVF_ERROR(c2p_it != c2p.end());
     auto producer_id = c2p_it->second;
     producer_innermost_ids.insert(producer_id);
-  }
-
-  // Find the conrresponding producer break point. To the right of the
-  // break point, there must be only the producer innermost IDs or
-  // reduction IDs
-  int64_t break_point = (int64_t)(reduction_producer->nDims());
-
-  // short-cut to to return break point when producer_innermost_ids is empty
-  if (producer_innermost_ids.empty()) {
-    return break_point;
   }
 
   int num_detected_producer_innermost_ids = 0;
