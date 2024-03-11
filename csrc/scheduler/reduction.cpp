@@ -614,10 +614,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           || target_blocks * 2 <= device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
           || target_unroll * 2 <= int64_t(max_unroll))) {
-    std::cout << "target_threads_in_block: " << target_threads_in_block
-              << ", target_blocks: " << target_blocks
-              << ", target_unroll: " << target_unroll << std::endl;
-
     if (target_threads_in_block * 2 <= max_target_threads_in_block) {
       target_threads_in_block *= 2;
     }
@@ -640,10 +636,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
 
   target_unroll = scheduler_utils::lastPow2(target_unroll);
-
-  std::cout << "target_threads_in_block: " << target_threads_in_block
-            << ", target_blocks: " << target_blocks
-            << ", target_unroll: " << target_unroll << std::endl;
 
   // To get to target threads:
   // Prioritize
@@ -786,20 +778,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     grdim = ceilDiv(
         total_reduction_numel,
         max_serial_reduce_top_unroll * bdimy * inner_reduction_unroll_factor);
-    std::cout << "grdim: " << grdim << " bdimy: " << bdimy
-              << ", inner_reduction_unroll_factor: "
-              << inner_reduction_unroll_factor << std::endl;
   }
-  std::cout << "target_blocks: " << target_blocks << ", gidim: " << gidim
-            << ", initial_grdim: " << grdim
-            << ", is_grid_reduce: " << is_grid_reduce << std::endl;
 
   // Try to round up but ensure still have thread local reduction
   if (grdim > 1) {
     int64_t grdim_tmp = scheduler_utils::roundUpPow2(grdim);
     if (rDimAvail() >= 2) {
-      std::cout << "grdim: " << grdim << ", roundUpPow2: " << grdim_tmp
-                << std::endl;
       grdim = grdim_tmp;
     }
   }
@@ -832,7 +816,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         max_remainder_size * bdimy * inner_reduction_unroll_factor);
 
     grdim = grdim_for_stride;
-    std::cout << "grdim_for_stride: " << grdim_for_stride << std::endl;
   }
 
   // Try to do some cleanup of ragged waves on device
@@ -854,18 +837,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     if ((grdim - new_grdim) * 4 <= grdim &&
         new_grdim * gidim % device_multiprocessor_count >
             grdim * gidim % device_multiprocessor_count) {
-      std::cout << "cleanup of ragged waves new_grdim: " << new_grdim
-                << std::endl;
       grdim = new_grdim;
     }
   }
-  std::cout << "target_blocks: " << target_blocks << ", gidim: " << gidim
-            << ", optmized_grdim: " << grdim << std::endl;
-
-  std::cout << "final_paras bdimx: " << bdimx << ", bdimy: " << bdimy
-            << ", iter_unroll_factor: " << iter_unroll_factor
-            << ", inner_reduction_unroll_factor: "
-            << inner_reduction_unroll_factor << std::endl;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
