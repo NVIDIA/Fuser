@@ -329,4 +329,208 @@ TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(SegmentationTest, ForceFp16Simple) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+
+  // Group 2
+  auto tv4 = add(tv3, tv1); // Edge: tv3: expect cast
+  auto tv5 = castOp(DataType::Half, tv4);
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{15, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  // Check the segmented edge is fp16
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    EXPECT_EQ(edge_tv->getDataType(), DataType::Half);
+  }
+}
+
+TEST_F(SegmentationTest, ForceBf16Simple) {
+#if !defined(CUDA_VERSION) || CUDA_VERSION < 11000
+  GTEST_SKIP() << "requires cuda 11.0 or newer toolkit";
+#endif
+
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+
+  // Group 2
+  auto tv4 = add(tv3, tv1); // Edge: tv3: expect cast
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{15, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  // Check the segmented edge is bf16
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    EXPECT_EQ(edge_tv->getDataType(), DataType::BFloat16);
+  }
+}
+
+TEST_F(SegmentationTest, ForceFp16NotAllCast) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(3);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv3 = sum(tv0, {1});
+  auto tv4 = broadcast(tv3, {false, true, false});
+  auto tv5 = sum(tv0, {1});
+
+  // Group 2
+  auto tv6 = add(tv4, tv1); // edge tv4, expect cast
+  auto tv7 = castOp(DataType::Half, tv6);
+
+  // Group 3
+  auto tv8 = sum(tv5, {1}); // edge tv5, don't expect cast
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{16, 16, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  Fusion* complete_fusion = segmented_fusion->completeFusion();
+
+  // Check that the edge that wasn't fp16 is the producer of the
+  //  reduction op, i.e. tv8 = sum(tv5,{1});.
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    if (edge_tv->getDataType() == DataType::Float) {
+      Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
+      EXPECT_TRUE(consumer->isA<ReductionOp>());
+    }
+  }
+}
+
+TEST_F(SegmentationTest, ForceBf16NotAllCast) {
+#if !defined(CUDA_VERSION) || CUDA_VERSION < 11000
+  GTEST_SKIP() << "requires cuda 11.0 or newer toolkit";
+#endif
+
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(3);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Group 1
+  auto tv3 = sum(tv0, {1});
+  auto tv4 = broadcast(tv3, {false, true, false});
+  auto tv5 = sum(tv0, {1});
+
+  // Group 2
+  auto tv6 = add(tv4, tv1); // edge tv4, expect cast
+  auto tv7 = castOp(DataType::BFloat16, tv6);
+
+  // Group 3
+  auto tv8 = sum(tv5, {1}); // edge tv5, don't expect cast
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<int64_t> shape{16, 16, 16};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn(shape, options);
+  auto in1 = at::randn(shape, options);
+  fec.runFusionWithInputs({in0, in1});
+
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+  Fusion* complete_fusion = segmented_fusion->completeFusion();
+
+  // Check that the edge that wasn't fp16 is the producer of the
+  //  reduction op, i.e. tv8 = sum(tv5,{1});.
+  for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    auto* edge_tv = edge->val->as<TensorView>();
+    if (edge_tv->getDataType() == DataType::Float) {
+      Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
+      EXPECT_TRUE(consumer->isA<ReductionOp>());
+    }
+  }
+}
+
 } // namespace nvfuser

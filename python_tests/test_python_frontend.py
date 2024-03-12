@@ -49,6 +49,13 @@ def is_pre_ampere():
     return prop.major < 8
 
 
+def is_pre_hopper():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
+
 def setUpModule():
     from nvfuser import enable_automatic_serialization
 
@@ -225,6 +232,27 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
+
+    @unittest.skipIf(is_pre_hopper(), "Only supported on Hopper and newer devices.")
+    def test_cast_fp8(self):
+        def fn(in_type, out_type):
+            inputs = [
+                torch.randn([5, 5], device="cuda").to(in_type),
+            ]
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.ops.cast(T0, dtype=torch_dtype_to_nvfuser_dtype(out_type))
+                fd.add_output(T1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            eager_out = inputs[0].to(out_type)
+            self.assertEqual(eager_out, nvf_out[0])
+
+        for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
+            for type1 in [torch.float8_e4m3fn, torch.float8_e5m2]:
+                fn(type0, type1)
+                fn(type1, type0)
 
     def test_promote_to_double(self):
         inputs = [
@@ -3201,6 +3229,90 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         # self.assertEqual(nvf_out[0], t24)
 
+    # Test that symbolic IterDomains can be concatenated
+    # https://github.com/NVIDIA/Fuser/issues/1554
+    def test_cat_symbolic(self):
+        inputs = [
+            0.29730177875068026,
+            0.29730177875068026,
+            4,
+            64,
+            768,
+            4,
+            64,
+            768,
+            2,
+            torch.randn([4, 6, 64, 128], dtype=torch.float32, device="cuda"),
+            torch.randn([4, 6, 64, 128], dtype=torch.float32, device="cuda"),
+            torch.randn([4, 64, 768], dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Double)
+            S1 = fd.define_scalar(None, dtype=DataType.Double)
+            S2 = fd.define_scalar(None, dtype=DataType.Int)
+            S3 = fd.define_scalar(None, dtype=DataType.Int)
+            S4 = fd.define_scalar(None, dtype=DataType.Int)
+            S5 = fd.define_scalar(None, dtype=DataType.Int)
+            S6 = fd.define_scalar(None, dtype=DataType.Int)
+            S7 = fd.define_scalar(None, dtype=DataType.Int)
+            S8 = fd.define_scalar(None, dtype=DataType.Int)
+            T9 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T10 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T11 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T12 = fd.ops.mul(T10, S1)
+            T13 = fd.ops.permute(T12, dims=[0, 1, 3, 2])
+            T14 = fd.ops.mul(T9, S0)
+            T15 = fd.ops.permute(T14, dims=[0, 2, 1, 3])
+            S16 = fd.define_scalar(4, dtype=DataType.Int)
+            S17 = fd.define_scalar(64, dtype=DataType.Int)
+            S18 = fd.define_scalar(768, dtype=DataType.Int)
+            V19 = fd.define_vector([S16, S17, S18], dtype=DataType.Int)
+            T20 = fd.ops.reshape(T15, new_shape=V19)
+            T21 = fd.ops.permute(T13, dims=[0, 2, 1, 3])
+            S22 = fd.define_scalar(4, dtype=DataType.Int)
+            S23 = fd.define_scalar(64, dtype=DataType.Int)
+            S24 = fd.define_scalar(768, dtype=DataType.Int)
+            V25 = fd.define_vector([S22, S23, S24], dtype=DataType.Int)
+            T26 = fd.ops.reshape(T21, new_shape=V25)
+            T27 = fd.ops.cat([T20, T26, T11], dim=2)
+            T28 = fd.ops.sum(T27, [0, 1], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T27)
+            fd.add_output(T28)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        t12 = inputs[1] * inputs[-2]
+        t13 = torch.permute(t12, [0, 1, 3, 2])
+        t14 = inputs[0] * inputs[-3]
+        t15 = torch.permute(t14, [0, 2, 1, 3])
+        t20 = torch.reshape(t15, [4, 64, 768])
+        t21 = torch.permute(t13, [0, 2, 1, 3])
+        t26 = torch.reshape(t21, [4, 64, 768])
+        t27 = torch.cat([t20, t26, inputs[-1]], dim=2)
+        t28 = t27.sum([0, 1])
+
+        torch.testing.assert_close(nvf_out[0], t27)
+        torch.testing.assert_close(nvf_out[1], t28)
+
     # Test that trivial reshapes whose inputs are reductions are concretized
     # properly
     # See https://github.com/NVIDIA/Fuser/issues/1691
@@ -3266,6 +3378,21 @@ class TestNvFuserFrontend(TestCase):
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
             self.assertEqual(nvf_out[0], inputs[0].sum(dim=0, keepdim=keepdim))
+
+    def test_issue1872(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            S1 = fd.define_scalar(5, dtype=DataType.Int)
+            V2 = fd.define_vector([S1], dtype=DataType.Int)
+            T3 = fd.ops.full(shape=V2, fill_value=S0, dtype=DataType.Float)
+            T4 = fd.ops.slice(T3, start_indices=[0], end_indices=[2], strides=[1])
+            T5 = fd.ops.cast(T4, dtype=DataType.Half)
+            T6 = fd.ops.slice(T3, start_indices=[2], end_indices=[5], strides=[1])
+            T7 = fd.ops.cast(T6, dtype=DataType.Half)
+            fd.add_output(T5)
+            fd.add_output(T7)
+
+        self.exec_nvfuser(fusion_func, [])
 
     @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1706(self):

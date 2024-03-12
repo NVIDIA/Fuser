@@ -104,7 +104,8 @@ class FusionKernelRuntime {
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
-      int64_t runtime_id = 0);
+      int64_t runtime_id = 0,
+      bool auto_schedule = true);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -316,6 +317,9 @@ class FusionKernelRuntime {
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
@@ -509,7 +513,8 @@ class FusionExecutorCache {
   //! fusion executor is taking the ownership of `fusion`
   NVF_API explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
-      int64_t fusion_id = 0);
+      int64_t fusion_id = 0,
+      bool auto_schedule = true);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -751,6 +756,9 @@ class FusionExecutorCache {
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.
   int64_t fusion_id_ = -1;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 } // namespace nvfuser

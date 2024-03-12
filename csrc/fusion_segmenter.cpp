@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <algorithm>
@@ -1221,6 +1222,10 @@ void SegmentedFusion::finalize() {
 std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
     const std::vector<SegmentedEdge*>& edges,
     const std::vector<SegmentedGroup*>& groups_to_merge) {
+  if (!isOptionEnabled(EnableOption::IoToLowerPrecision)) {
+    return {};
+  }
+
   // A map to keep track of the tv's that have been inserted cast
   //  and its fp16 version. Used to avoid cast insertion multiple
   //  times.
