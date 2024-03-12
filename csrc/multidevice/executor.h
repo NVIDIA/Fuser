@@ -136,7 +136,7 @@ class MultiDeviceExecutor {
   // Cache whether a SegmentedGroup requires inter-device communication
   std::unordered_map<SegmentedGroup*, bool> is_resharding_;
   // Cached objects used for MultiDevice allocation
-  std::unique_ptr<kir::Kernel> allocator_kernel_;
+  std::unique_ptr<Fusion> allocator_fusion_;
   // Cache the tensors that need to be allocated at runtime, which correspond to
   // the destination buffers of interdevice communications.
   std::vector<Val*> vals_to_allocate_;

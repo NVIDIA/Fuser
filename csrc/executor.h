@@ -39,7 +39,7 @@ struct CompileOptions {
 //!  a different rank instead of computing them.
 std::vector<at::Tensor> allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs,
-    kir::Kernel* kernel,
+    Fusion* fusion,
     const c10::Device& device);
 
 class FusionExecutor : public NonCopyable {

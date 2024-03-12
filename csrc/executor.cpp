@@ -1024,10 +1024,10 @@ at::Tensor allocateOutput(
   }
 }
 
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
+// Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocateOutputs(
-    const kir::Kernel* kernel,
+    const Fusion* fusion,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -1051,23 +1051,23 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<std::pair<int64_t, Val*>> sorted_outs;
   sorted_outs.reserve(num_outs);
   for (const auto out_index : c10::irange(num_outs)) {
-    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
+    sorted_outs.emplace_back(out_index, fusion->outputs()[out_index]);
   }
   std::sort(
       sorted_outs.begin(),
       sorted_outs.end(),
-      [kernel](
+      [fusion](
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type == AllocationType::New &&
-            kernel->getOutputAlias(rhs.second).type != AllocationType::New);
+            fusion->getOutputAlias(lhs.second).type == AllocationType::New &&
+            fusion->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
     at::Tensor out_tensor = allocateOutput(
-        output_info[out_index], kernel->getOutputAlias(out), device, ee);
+        output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via
@@ -1351,15 +1351,15 @@ std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
     const KernelArgumentHolder& args,
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const kir::Kernel* kernel) {
+    const Fusion* fusion) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   std::vector<FusionExecutor::GlobalBufferInfo> outputs;
-  outputs.reserve(kernel->outputs().size());
+  outputs.reserve(fusion->outputs().size());
   NVF_ERROR(
-      args.size() == kernel->inputs().size(),
-      "kernel arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    auto out_val = kernel->outputs()[out_i];
+      args.size() == fusion->inputs().size(),
+      "fusion arguments length does not match runtime arguments.");
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+    auto out_val = fusion->outputs()[out_i];
     NVF_ERROR(
         out_val->isA<TensorView>(), "Cannot allocate outputs that are not tensors.");
 
@@ -1379,15 +1379,15 @@ std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
 
 std::vector<at::Tensor> allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs,
-    kir::Kernel* kernel,
+    Fusion* fusion,
     const c10::Device& device) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval = executor_utils::bindInputs(kernel_inputs, kernel);
+  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
 
   auto output_info = getOutputBufferInfo(
-      kernel_inputs, expr_eval, kernel->indexType(), kernel);
+      fusion_inputs, expr_eval, PrimDataType::Int, fusion);
 
-  return allocateOutputs(kernel, output_info, device, expr_eval);
+  return allocateOutputs(fusion, output_info, device, expr_eval);
 }
 
 void FusionExecutor::setUsedTVs() {
