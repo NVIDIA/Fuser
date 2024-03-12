@@ -117,7 +117,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     return static_reshape_output;
   }
 
-  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+  auto root_domain = ops::newOutputDomain({inp_tv});
 
   // Create placeholder rfactor domain. Note it's not connected with the root
   // domain.
