@@ -158,18 +158,14 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   if (params_.use_fusion_executor_cache) {
     auto&& [cloner, fusion] = staged_fusion_->makeFusion(group);
     fec_.try_emplace(
-        group,
-        std::move(fusion),
-        0,
-        !params_.skip_auto_scheduling);
+        group, std::move(fusion), 0, !params_.skip_auto_scheduling);
     outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(group);
     auto& fe = it->second;
     if (has_emplaced) {
       auto&& [cloner, fusion] = staged_fusion_->makeFusion(group);
-      fe.compileFusion(
-          fusion.get(), group_input_IValues);
+      fe.compileFusion(fusion.get(), group_input_IValues);
     }
     outputs = fe.runFusion(group_input_IValues);
     if (!params_.cache_fusion_executor) {
