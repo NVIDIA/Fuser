@@ -74,6 +74,7 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
       auto val = group->exprs().at(0)->outputs().at(0);
       NVF_ERROR(val->isA<TensorView>());
       auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
         vals_to_allocate.push_back(val);
       }
@@ -88,8 +89,6 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
 
   FusionExecutor fe;
   fe.compileFusion(fusion_copy.get(), global_inputs_IValues);
-  // outputs = fe.runFusion(global_inputs_IValues);
-
   auto buffers = fe.allocOutputSpace(global_inputs_IValues);
 
   std::unordered_map<Val*, c10::IValue> allocations;
@@ -135,14 +134,14 @@ MultiDeviceExecutor::MultiDeviceExecutor(
 
 void MultiDeviceExecutor::postKernel(
     SegmentedGroup* group,
-    LaunchParams l_params) {
+    const LaunchParams& l_params) {
   if (!should_run_.at(group)) {
     return;
   }
 
-  // erase from group's input extent corresponding to grid and block dims. Set
-  // them through launchparams.
-  {
+  if (!params_.use_fusion_executor_cache) {
+    // erase from group's input extent corresponding to grid and block dims. Set
+    // them through launchparams.
     std::vector<Val*> group_input_vals;
     for (auto input : group->inputs()) {
       if (input->isA<NamedScalar>()) {

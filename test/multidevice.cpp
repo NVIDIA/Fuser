@@ -176,7 +176,7 @@ void PipelineTest::execute() {
       runtime->print();
     }
   }
-  outputs = runtime->runWithInput(inputs, l_params);
+  outputs = runtime->runWithInput(inputs, std::move(l_params));
 
   if (debug_print) {
     std::stringstream ss;

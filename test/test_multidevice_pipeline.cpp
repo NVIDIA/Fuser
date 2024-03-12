@@ -327,12 +327,6 @@ std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
   return out;
 }
 
-void shardOutMostDim(TensorView* tv) {
-  TensorDomain::noReductions(tv->getLeafDomain())
-      .at(0)
-      ->parallelize(ParallelType::DIDx);
-}
-
 using PipelineTestStagedReductionParams = std::tuple<SchedulingMode>;
 class PipelineTestStagedReduction
     : public PipelineTest,
@@ -364,8 +358,11 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
   for (auto tv : ir_utils::allTvs(fusion.get())) {
-    shardOutMostDim(tv);
     tv->setDeviceMesh(mesh);
+    // shard outmost non-reduction domain
+    TensorDomain::noReductions(tv->getLeafDomain())
+        .at(0)
+        ->parallelize(ParallelType::DIDx);
   }
 
   // Intra-device reduction scheduling for the first reduction:

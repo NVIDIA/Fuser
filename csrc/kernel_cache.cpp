@@ -540,7 +540,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   if (!kernel_runtime->isCompiled()) {
-    kernel_runtime->compileFusionParallel(args, auto_schedule_);
+    kernel_runtime->compileFusionParallel(args);
   }
 
   if (measure_kernel_time_) {
@@ -1239,9 +1239,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 }
 
 // passing args by value because we will be modify this
-void FusionKernelRuntime::compileFusionParallel(
-    KernelArgumentHolder args,
-    bool auto_schedule) {
+void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
@@ -1282,20 +1280,19 @@ void FusionKernelRuntime::compileFusionParallel(
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-      compileKernel(group_runtime_inputs, group_to_run, auto_schedule);
+      compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
                             group_runtime_inputs,
                             group_to_run,
-                            auto_schedule,
                             &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run, auto_schedule);
+          compileKernel(group_runtime_inputs, group_to_run);
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
@@ -1330,8 +1327,7 @@ void FusionKernelRuntime::compileFusionParallel(
 
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
-    SegmentedGroup* sg,
-    bool auto_schedule) {
+    SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   if (isProfilerEnabled()) {

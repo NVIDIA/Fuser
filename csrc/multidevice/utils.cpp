@@ -158,8 +158,10 @@ void insertReshardings(Fusion* fusion) {
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto d_id : tv->getDeviceMesh().vector()) {
-      max_index = std::max(max_index, d_id);
+    if (tv->hasDeviceMesh()) {
+      for (auto d_id : tv->getDeviceMesh().vector()) {
+        max_index = std::max(max_index, d_id);
+      }
     }
   }
   return static_cast<int64_t>(max_index + 1);
@@ -186,6 +188,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
     for (auto val : tvs) {
       NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
       auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
       auto& mesh = tv->getDeviceMesh().vector();
       std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
     }
