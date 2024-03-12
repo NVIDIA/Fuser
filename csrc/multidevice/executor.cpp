@@ -78,7 +78,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 
   // Allocator setup
-  for (SegmentedGroup*  group : staged_fusion_->groups()) {
+  for (SegmentedGroup* group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
       NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
