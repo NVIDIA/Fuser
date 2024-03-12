@@ -164,27 +164,57 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
   return parseEnvOptions("ENABLE", available_options);
 }
 
+const std::unordered_map<std::string, std::pair<DisableOption, std::string>>&
+getDisableOptionDescriptions() {
+  static const std::unordered_map<
+      std::string,
+      std::pair<DisableOption, std::string>>
+      available_options = {
+          {"compile_to_sass",
+           {DisableOption::CompileToSass,
+            "Disable direct compilation to sass so the ptx can be examined"}},
+          {"expr_simplify",
+           {DisableOption::ExprSimplify, "Disable expression simplifier"}},
+          {"fallback", {DisableOption::Fallback, "Disable fallback"}},
+          {"fma", {DisableOption::Fma, "Disable FMA instructions"}},
+          {"grouped_grid_welford_outer_opt",
+           {DisableOption::GroupedGridWelfordOuterOpt,
+            "Disable use of outer-optimized grouped grid welford kernel"}},
+          {"index_hoist",
+           {DisableOption::IndexHoist, "Disable index hoisting"}},
+          {"magic_zero", {DisableOption::MagicZero, "Disable nvfuser_zero"}},
+          {"nvtx", {DisableOption::Nvtx, "Disable NVTX instrumentation"}},
+          {"parallel_compile",
+           {DisableOption::ParallelCompile,
+            "Disable compiling Fusion segments in parallel"}},
+          {"parallel_serde",
+           {DisableOption::ParallelSerde,
+            "Disable deserializing FusionExecutorCache in parallel"}},
+          {"predicate_elimination",
+           {DisableOption::PredicateElimination,
+            "Disable predicate elimination"}},
+          {"kernel_reuse",
+           {DisableOption::KernelReuse,
+            "Disable re-using cached FusionKernelRuntimes with different input shapes"}},
+          {"var_name_remapping",
+           {DisableOption::VarNameRemapping,
+            "Disable variable name remapping"}},
+          {"welford_vectorization",
+           {DisableOption::WelfordVectorization,
+            "Disable vectorizaton of Welford ops"}},
+          {"reuse_mismatched_type_registers",
+           {DisableOption::ReuseMismatchedTypeRegisters,
+            "Disable explicitly re-using registers unless types match"}}};
+  return available_options;
+}
+
 template <>
 std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv() {
-  const std::unordered_map<std::string, DisableOption> available_options = {
-      {"compile_to_sass", DisableOption::CompileToSass},
-      {"expr_simplify", DisableOption::ExprSimplify},
-      {"fallback", DisableOption::Fallback},
-      {"fma", DisableOption::Fma},
-      {"grouped_grid_welford_outer_opt",
-       DisableOption::GroupedGridWelfordOuterOpt},
-      {"index_hoist", DisableOption::IndexHoist},
-      {"magic_zero", DisableOption::MagicZero},
-      {"nvtx", DisableOption::Nvtx},
-      {"parallel_compile", DisableOption::ParallelCompile},
-      {"parallel_serde", DisableOption::ParallelSerde},
-      {"predicate_elimination", DisableOption::PredicateElimination},
-      {"kernel_reuse", DisableOption::KernelReuse},
-      {"var_name_remapping", DisableOption::VarNameRemapping},
-      {"welford_vectorization", DisableOption::WelfordVectorization},
-      {"reuse_mismatched_type_registers",
-       DisableOption::ReuseMismatchedTypeRegisters}};
+  std::unordered_map<std::string, DisableOption> available_options;
+  for (const auto& [label, opt_desc] : getDisableOptionDescriptions()) {
+    available_options.emplace(label, opt_desc.first);
+  }
 
   auto options = parseEnvOptions("DISABLE", available_options);
 

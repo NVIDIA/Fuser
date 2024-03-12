@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
@@ -387,6 +388,90 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
+class FrontendOptionsGuard {
+ public:
+  void setEnableOptions(const std::vector<std::string>& enable_option_labels) {
+    enable_option_labels_ = enable_option_labels;
+  }
+
+  void setDisableOptions(
+      const std::vector<std::string>& disable_option_labels) {
+    disable_option_labels_ = disable_option_labels;
+  }
+
+  void enter() {
+    if (!enable_option_labels_.empty()) {
+      enable_options_guard_ptr_ =
+          std::make_unique<OptionsGuard<EnableOption>>();
+    }
+
+    if (!disable_option_labels_.empty()) {
+      disable_options_guard_ptr_ =
+          std::make_unique<OptionsGuard<DisableOption>>();
+      for (auto& label : disable_option_labels_) {
+        auto opt_it = getDisableOptionDescriptions().find(label);
+        NVF_CHECK(
+            opt_it != getDisableOptionDescriptions().end(),
+            "Unrecognized 'disable=' option provided to nvfuser.options: ",
+            label);
+        DisableOptionsGuard::getCurOptions().set(opt_it->second.first);
+      }
+    }
+
+    std::cout << "ENTER" << std::endl;
+  }
+
+  void exit() {
+    std::cout << "EXIT" << std::endl;
+    enable_options_guard_ptr_ = nullptr;
+    disable_options_guard_ptr_ = nullptr;
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "nvfuser.options(";
+    bool has_prev_option = false;
+    if (!enable_option_labels_.empty()) {
+      if (has_prev_option) {
+        ss << ", ";
+      }
+      has_prev_option = true;
+      bool first_label = true;
+      for (const auto& label : enable_option_labels_) {
+        if (!first_label) {
+          ss << ", ";
+        }
+        first_label = false;
+        ss << "\"" << label << "\"";
+      }
+    }
+    if (!disable_option_labels_.empty()) {
+      if (has_prev_option) {
+        ss << ", ";
+      }
+      has_prev_option = true;
+      bool first_label = true;
+      for (const auto& label : disable_option_labels_) {
+        if (!first_label) {
+          ss << ", ";
+        }
+        first_label = false;
+        ss << "\"" << label << "\"";
+      }
+    }
+    ss << ")";
+    return ss.str();
+  }
+
+ private:
+  std::vector<std::string> enable_option_labels_;
+  std::vector<std::string> disable_option_labels_;
+  std::unique_ptr<OptionsGuard<EnableOption>> enable_options_guard_ptr_ =
+      nullptr;
+  std::unique_ptr<OptionsGuard<DisableOption>> disable_options_guard_ptr_ =
+      nullptr;
+};
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
@@ -450,6 +535,24 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.stats(ss);
         return ss.str();
       });
+
+  //! This guard can be used as a context manager in Python to enable and
+  //! disable options and debug dumps.
+  py::class_<FrontendOptionsGuard> options_guard_class(nvfuser, "options");
+  options_guard_class.def(
+      "__init__",
+      [](FrontendOptionsGuard& self,
+         const std::vector<std::string>& disable_option_labels) {
+        self.setDisableOptions(disable_option_labels);
+      },
+      py::kw_only(),
+      py::arg("disable") = py::none());
+  options_guard_class.def(
+      "__repr__", [](FrontendOptionsGuard& self) { return self.toString(); });
+  options_guard_class.def(
+      "__enter__", [](FrontendOptionsGuard& self) { self.enter(); });
+  options_guard_class.def(
+      "__exit__", [](FrontendOptionsGuard& self) { self.exit(); });
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
@@ -925,7 +1028,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::Operators> nvf_ops(fusion_def, "Operators");
   nvf_ops.def(py::init<FusionDefinition*>());
 
-  // ******************** INSERT OP BINDINGS BELOW HERE ********************
+// ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
 #define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                \

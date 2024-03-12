@@ -119,6 +119,14 @@ enum class DisableOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+//! This returns a mapping from strings like "parallel_compile", which can be
+//! used in NVFUSER_DISABLE or from the frontend like fd.execute(inputs,
+//! disable=['parallel_compile']). These strings are mapped to short one-line
+//! descriptions of what the option does.
+NVF_API const std::
+    unordered_map<std::string, std::pair<DisableOption, std::string>>&
+    getDisableOptionDescriptions();
+
 //! Options to set for Fusion Profiling.  Whenever the profiler
 //! is enabled, its output can be queried from the FusionProfile object.
 //! All options enable the profiler.

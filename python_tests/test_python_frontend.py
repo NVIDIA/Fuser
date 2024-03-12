@@ -20,6 +20,7 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
+import nvfuser
 from nvfuser import (
     FusionCache,
     FusionDefinition,
@@ -3575,6 +3576,27 @@ class TestNvFuserFrontend(TestCase):
         # check if serialization passes during segmentation
         # skip pytorch check because fusion is derived from llama2 network.
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_options_guard(self):
+        inputs = [
+            torch.ones(2, 4, 8, device="cuda"),
+            torch.ones(2, 4, 8, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_scalar(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+            t3 = fd.ops.mul(t2, c0)
+            t4 = fd.ops.sum(t3, [-1], False, DataType.Float)
+
+            fd.add_output(t4)
+
+        with nvfuser.options(disable="parallel_compile") as opt:
+            print(opt)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 
 if __name__ == "__main__":
