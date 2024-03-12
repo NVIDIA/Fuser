@@ -1341,4 +1341,47 @@ TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {
   tv0->setAllocationDomain({}, true);
 }
 
+TEST_F(NVFuserTest, ReductionSchedulerIssue1895) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 8L, z = 8L, w = 16L, h = 512L;
+  auto tv0 = TensorViewBuilder()
+                 .ndims(5)
+                 .shape({-1, -1, -1, -1, -1})
+                 .contiguity({true, true, true, true, true})
+                 .strideOrder({4, 3, 2, 0, 1})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = full(
+      {IrBuilder::create<Val>(x),
+       IrBuilder::create<Val>(y),
+       IrBuilder::create<Val>(z),
+       IrBuilder::create<Val>(w),
+       IrBuilder::create<Val>(h)},
+      fusion->oneVal(),
+      DataType::Float);
+  auto tv2 = mul(tv0, tv1);
+  auto tv3 = sum(tv2, {2, 4});
+  fusion->addOutput(tv3);
+  std::vector<IterDomain*> tv3_dom = {
+      tv3->axis(0), tv3->axis(1), tv3->axis(2), tv3->axis(4), tv3->axis(3)};
+  tv3->setAllocationDomain(tv3_dom, true);
+
+  // tv1 is a constant tensor, and its domains are constant.
+  // Its constant domains are used in ExactMappedExtentSubstitutionPass
+  // to substitute the domains of tv0.
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 =
+      at::randn({x, y, z, w, h}, options)
+          .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  auto ref = t0.to(at::kDouble).sum({2, 4});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
