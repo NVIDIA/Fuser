@@ -428,8 +428,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type,
-    const bool has_exp_op,
-    const bool has_rng_op) {
+    const bool has_exp_op) {
   // Define two free parameters used in this heuristic.
   // free_registers is all registers except those for the persistent
   // buffers. The register in each thread = free_registers +
@@ -675,8 +674,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type,
-    const bool has_exp_op,
-    const bool has_rng_op) {
+    const bool has_exp_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -703,8 +701,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         vectorize_factor,
         project_to_input,
         index_type,
-        has_exp_op,
-        has_rng_op);
+        has_exp_op);
   }
 
   // The following code is only for 3D reduction
@@ -1228,8 +1225,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.vectorize_factor,
       prop.project_persistent_buffers,
       prop.index_type,
-      prop.has_exp_op,
-      prop.has_rng_op);
+      prop.has_exp_op);
   return rparams;
 }
 
