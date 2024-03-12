@@ -1047,9 +1047,9 @@ std::string PredicateElimination::toString() const {
         NVF_ERROR(
             false,
             "Unexpected output ",
-            out->toString(),
+            out,
             " in ",
-            expr->toString());
+            expr);
       }
     }
   }
@@ -1070,7 +1070,7 @@ std::string PredicateElimination::toString() const {
   ss << "\n";
   ss << "Non-predicated expressions:";
   for (auto expr : non_predicated_exprs_) {
-    ss << " " << expr->toString();
+    ss << " " << expr;
   }
   return ss.str();
 }
