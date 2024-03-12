@@ -1604,9 +1604,9 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using FusionHeuristics::emplaceBack, we initialize
   // FusionHeuristics with the desired number of groups.
-  FusionKernelRuntime::HeuristicsPtr heuristics;
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  heuristics = std::make_unique<FusionHeuristics>(num_groups);
+  FusionKernelRuntime::HeuristicsPtr heuristics =
+      std::make_unique<FusionHeuristics>(num_groups);
 
   // Store metadata copy of arguments for ArgumentManager
   KernelArgumentHolder args_metadata;
