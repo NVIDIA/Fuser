@@ -1121,6 +1121,47 @@ TEST_F(ExprSimplifierTest, FactorizeGcd) {
 }
 
 // See https://github.com/NVIDIA/Fuser/pull/1827
+TEST_F(ExprSimplifierTest, DivModLessThan) {
+  // Given these assumptions
+  //   0 <= TIDx < 32
+  //   0 <= i140 < 8
+  // and these definitions
+  //   i52 = 8 * TIDx
+  //   i141 = i52 + i140 = ( 8 * TIDx ) + i140
+  // we need to make the following simplifications:
+  //   i142 = i141 % 128  // = ( TIDx % 16 ) * 8 + i140
+  //   i143 = i142 / 8    // = TIDx % 16
+  //   i144 = i141 / 128  // = TIDx / 16
+  //   i142 % 8           // = i140
+  //   i142 / 8           // = 0
+
+  // simplify i142, with i0 = TIDx, i1 = i140
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( 8 * i0 ) + i1 ) % 128"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("( i0 % 16 ) * 8 + i1"_));
+  // i143
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( ( 8 * i0 ) + i1 ) % 128 ) / 8"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i0 % 16"_));
+  // i144
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( 8 * i0 ) + i1 ) / 128"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i0 / 16"_));
+  // i142 % 8
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( ( 8 * i0 ) + i1 ) % 128 ) % 8"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i1"_));
+}
+
+// See https://github.com/NVIDIA/Fuser/pull/1827
 TEST_F(ExprSimplifierTest, OrderTransitivity) {
   // Macro is just for nicer error printing
 #define EXPECT_VALUE_TRUE(val)          \
