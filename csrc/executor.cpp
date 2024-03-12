@@ -1361,7 +1361,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
   for (const auto out_i : c10::irange(fusion->outputs().size())) {
     auto out_val = fusion->outputs()[out_i];
     NVF_ERROR(
-        out_val->isA<TensorView>(), "Cannot allocate outputs that are not tensors.");
+        out_val->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
 
     FusionExecutor::GlobalBufferInfo info;
     info.tv = out_val->as<TensorView>();
@@ -1384,8 +1385,8 @@ std::vector<at::Tensor> allocOutputSpace(
   auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
   auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
 
-  auto output_info = getOutputBufferInfo(
-      fusion_inputs, expr_eval, PrimDataType::Int, fusion);
+  auto output_info =
+      getOutputBufferInfo(fusion_inputs, expr_eval, PrimDataType::Int, fusion);
 
   return allocateOutputs(fusion, output_info, device, expr_eval);
 }

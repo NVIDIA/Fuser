@@ -78,7 +78,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 
   // Allocator setup
-  // vals_to_allocate_ stores the tensors that need to be allocated at runtime, which correspond to the destination buffers of interdevice communications.
+  // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
+  // which correspond to the destination buffers of interdevice communications.
   // TODO: reuse allocated buffers and support inplace collectives
   for (SegmentedGroup* group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
@@ -93,7 +94,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  allocator_fusion_ = copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
+  allocator_fusion_ =
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {

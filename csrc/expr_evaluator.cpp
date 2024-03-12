@@ -145,7 +145,9 @@ void ExpressionEvaluator::bind_(
         // Currently we have the restrictions:
         // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
-        // Therefore, the device parallelized extents will always be allocated with size 1, but the symbolic axis extent is binded with the extent of the DeviceMesh
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
         NVF_CHECK(
             1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
         bind_(
