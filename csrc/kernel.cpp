@@ -358,7 +358,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
-  summary_.parallel_dimension_map_ =
+  summary_.parallel_dimension_map =
       GpuLower::current()->parallelDimensionMap();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
