@@ -13,20 +13,9 @@
 
 namespace nvfuser {
 
-//!
-//! The TypePromotionConfig flags are derived from Aten/TensorIterator.h
-//!
-//! 1) check_all_same_dtype_ flag checks that all inputs and defined outputs
-//! have the same dtype. Default = False
-//!
-//! 2) promote_inputs_to_common_dtype flag will cast the inputs to the common
-//! dtype. Default = True
-//!
-//! 3) promote_integer_inputs_to_float flag will cast the common dtype to the
-//! default float scalar type if it is an integral type (including bool).
-//!
 struct TypePromotionConfig {
   bool promote_integer_inputs_to_float = false;
+  // Checks the promoted type is either single or double.
   bool require_full_precision_promoted = false;
 };
 
