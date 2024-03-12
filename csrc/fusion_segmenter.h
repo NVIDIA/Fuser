@@ -296,7 +296,6 @@ class FusionHeuristics {
   FusionHeuristics& operator=(const FusionHeuristics&) = delete;
 
   SchedulerEntryOwningPtr& at(int index) {
-    NVF_ERROR(is_segmented_);
     return heuristics_.at(index);
   }
 
