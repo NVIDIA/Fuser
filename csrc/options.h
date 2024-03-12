@@ -71,6 +71,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
+  PredicateElimination,  //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
 

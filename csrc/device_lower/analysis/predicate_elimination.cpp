@@ -10,6 +10,7 @@
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -1035,12 +1036,26 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
 
 std::string PredicateElimination::toString() const {
   std::stringstream ss;
-  ss << "Tensors that do not need predication:";
+  VectorOfUniqueEntries<TensorView*> non_predicated_tvs;
   for (auto expr : non_predicated_exprs_) {
     for (auto out : expr->outputs()) {
-      NVF_ERROR(out->isA<TensorView>());
-      ss << " T" << out->name();
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(out)) {
+        non_predicated_tvs.pushBack(ti->view());
+      } else if (auto tv = dynamic_cast<TensorView*>(out)) {
+        non_predicated_tvs.pushBack(tv);
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected output ",
+            out->toString(),
+            " in ",
+            expr->toString());
+      }
     }
+  }
+  ss << "Tensors that do not need predication:";
+  for (auto tv : non_predicated_tvs) {
+    ss << " T" << tv->name();
   }
   ss << "\n";
   ss << "Init values:";
@@ -1053,6 +1068,10 @@ std::string PredicateElimination::toString() const {
     }
   }
   ss << "\n";
+  ss << "Non-predicated expressions:";
+  for (auto expr : non_predicated_exprs_) {
+    ss << " " << expr->toString();
+  }
   return ss.str();
 }
 
