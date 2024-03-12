@@ -50,6 +50,14 @@ std::shared_ptr<PolymorphicValue> convertMetadataArg(
   return arg;
 }
 
+KernelArgumentHolder copyMetadataArg(const KernelArgumentHolder& src) {
+  KernelArgumentHolder dst;
+  std::transform(
+      src.cbegin(), src.cend(), dst.getBackInserter(), convertMetadataArg);
+  dst.setDeviceIndex(src.getDeviceIndex());
+  return dst;
+}
+
 // Copy bytes of value to back of buffer. This is templated in order to avoid
 // implicit cast such as int64_t -> size_t that might lose information.
 template <typename T>
@@ -1012,7 +1020,8 @@ FusionKernelRuntime::FusionKernelRuntime(
     int64_t concrete_id,
     int64_t runtime_id,
     bool auto_schedule)
-    : fusion_id_{fusion_id},
+    : args_metadata_{args},
+      fusion_id_{fusion_id},
       concrete_id_{concrete_id},
       runtime_id_{runtime_id},
       auto_schedule_{auto_schedule} {
@@ -1021,14 +1030,6 @@ FusionKernelRuntime::FusionKernelRuntime(
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
-
-  // Store metadata copy of arguments for serialization
-  std::transform(
-      args.cbegin(),
-      args.cend(),
-      args_metadata_.getBackInserter(),
-      convertMetadataArg);
-  args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
@@ -1609,13 +1610,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       std::make_unique<FusionHeuristics>(num_groups);
 
   // Store metadata copy of arguments for ArgumentManager
-  KernelArgumentHolder args_metadata;
-  std::transform(
-      args.cbegin(),
-      args.cend(),
-      args_metadata.getBackInserter(),
-      convertMetadataArg);
-  args_metadata.setDeviceIndex(args.getDeviceIndex());
+  KernelArgumentHolder args_metadata = copyMetadataArg(args);
 
   // ArgumentManager manipulates the KernelArgumentHolder argument.
   // We make another metadata copy for the PrecomputedValues.
