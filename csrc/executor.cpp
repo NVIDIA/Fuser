@@ -264,12 +264,9 @@ void FusionExecutor::compileFusion(
       return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
     });
   
-  // Set fusion_ if skipping compilation.
-  std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
-  IrCloner cloner = Fusion::copy(fusion, fusion_copy.get());
   if (skip_compilation) {
-    fusion_ = fusion_copy.get();
-    // fusion_ = std::move(fusion);
+    fusion_ptr_ = std::make_unique<Fusion>(std::move(*fusion));
+    fusion_ = fusion_ptr_.get();
     return;
   }
 

@@ -543,6 +543,7 @@ class FusionExecutor : public NonCopyable {
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
   Fusion* fusion_ = nullptr;
+  std::unique_ptr<Fusion> fusion_ptr_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
