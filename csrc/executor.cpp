@@ -264,8 +264,12 @@ void FusionExecutor::compileFusion(
       return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
     });
   
+  // Set fusion_ if skipping compilation.
+  std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
+  IrCloner cloner = Fusion::copy(fusion, fusion_copy.get());
   if (skip_compilation) {
-    // Set fusion_ here. What is the right way?
+    fusion_ = fusion_copy.get();
+    // fusion_ = std::move(fusion);
     return;
   }
 
@@ -1751,6 +1755,7 @@ std::vector<at::Tensor> FusionExecutor::runAtenFusion(
 
   return outputs;
 }
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
