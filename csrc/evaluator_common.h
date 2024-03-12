@@ -146,7 +146,7 @@ class PrecomputedValues {
 
   NVF_API explicit PrecomputedValues(Fusion* fusion);
 
-  ~PrecomputedValues();
+  NVF_API ~PrecomputedValues();
 
   //! Bind a list of concrete values to the fusion's runtime inputs.
   void bindInputs(const KernelArgumentHolder& args);
