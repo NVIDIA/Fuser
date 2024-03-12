@@ -2489,6 +2489,95 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   }
 }
 
+// On A100, this problem is able to make use of smem epilogue but only if we
+// promote use.
+// See https://github.com/NVIDIA/Fuser/pull/1834
+TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 4096, N = 4096, K = 4096;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto layout = MmaLayout::TN;
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
+  // been purposefully selected to produce a constant occupancy of 25%. This
+  // allows us to effectively evaluate the influence of the use_smem_epilogue
+  // parameter on performance, since changing its value to either true or
+  // false will not affect the occupancy rate.
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(64, 96, 64);
+  gemm_tile.warp_tile = GemmTile(16, 32, 64);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 6;
+  mma_utils::MmaDataTypes data_types = {
+      DataType::Half, DataType::Half, DataType::Float};
+  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          gemm_tile,
+          params.double_buffer_options.smem_double_buffer_stage,
+          data_types,
+          /*ignore_occupancy_drop=*/false);
+  scheduleMatmul(&fusion, params);
+
+  at::manual_seed(0);
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(
+          &fusion,
+          {inputs.first, inputs.second},
+          LaunchParams(),
+          matmul_cparams));
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+
+  // check bank conflicts
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  // (0.001, 0.001) passed on local A100 but failed on CI A100
+  NVF_CHECK(
+      cg_outputs[0].allclose(tref, 0.01, 0.01),
+      "Result validation failed. Max diff: ",
+      (cg_outputs[0] - tref).abs().max());
+  // Check that computed smem matches actually allocated smem
+  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+      params, data_types, true, true);
+  int64_t actual_smem = fe.lastLaunchParams().smem();
+  EXPECT_EQ(estimated_smem, actual_smem);
+
+  if (!params.use_smem_epilogue) {
+    GTEST_SKIP()
+        << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+  }
+}
+
 TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   constexpr bool ignore_occupancy_drop = true;
