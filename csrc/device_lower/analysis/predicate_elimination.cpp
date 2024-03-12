@@ -1047,9 +1047,9 @@ std::string PredicateElimination::toString() const {
         NVF_ERROR(
             false,
             "Unexpected output ",
-            out->toString(),
+            out,
             " in ",
-            expr->toString());
+            expr);
       }
     }
   }
