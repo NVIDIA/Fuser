@@ -98,8 +98,7 @@ void PipelineTest::validate() {
     auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
     unshard(fusion_copy.get());
     FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-    ref_unsharded_outputs =
-        unsharded_fec.runFusionWithInputs(unsharded_inputs);
+    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
   }
 
   if (debug_print) {
