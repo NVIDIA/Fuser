@@ -1352,6 +1352,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
     const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   std::vector<FusionExecutor::GlobalBufferInfo> outputs;
+  outputs.reserve(kernel->outputs().size());
   NVF_ERROR(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
