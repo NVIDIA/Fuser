@@ -357,12 +357,11 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
   std::vector<int64_t> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
-  for (auto tv : ir_utils::allTvs(fusion.get())) {
+  for (auto tv : {tv0, tv1, tv_out}) {
     tv->setDeviceMesh(mesh);
-    // shard outmost non-reduction domain
-    TensorDomain::noReductions(tv->getLeafDomain())
-        .at(0)
-        ->parallelize(ParallelType::DIDx);
+  }
+  for (auto tv : {tv0, tv1}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   // Intra-device reduction scheduling for the first reduction:
@@ -381,24 +380,22 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
       break;
     }
     case SchedulingMode::manualScheduling: {
+      // clang-format off
       // inspired from NVFuserTest.FusionReduction1_CUDA
       // tv0[I0{A}, I1{B}, I2{C}]
       tv1->split(2, 128);
       // tv1[I0{A}, I1{B}, R2o{C/128}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
       tv1->split(2, 4);
-      // tv1[I0{A}, I1{B}, R2oo{C/128/4)}, R2oi{4}, R2i{128}] = tv0[I0{A},
-      // I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B}, R2oo{C/128/4)}, R2oi{4}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
 
       TensorView* tv2 = tv1->rFactor({2});
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A},
-      // I1{B}, I2{C}] tv1[I0{A}, I1{B},                 R2oi{4}, R2i{128}] =
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
+      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B},                 R2oi{4}, R2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
 
       TensorView* tv3 = tv1->rFactor({2});
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A},
-      // I1{B}, I2{C}] tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}] =
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] tv1[I0{A}, I1{B},
-      // R2i{128}] = tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}]
+      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
+      // tv1[I0{A}, I1{B},                          R2i{128}] = tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}]
 
       // Incrementally, can print in between for debugging
       tv0->computeAt(tv2, 2);
@@ -410,13 +407,13 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
 
       tv2->axis(3)->parallelize(ParallelType::Unroll);
       tv1->axis(1)->parallelize(ParallelType::BIDx);
-      tv1->setMemoryType(
-          MemoryType::Global); // necessary to avoid runtime error
+      tv1->setMemoryType(MemoryType::Global); // necessary to avoid runtime error
 
       tv1->axis(-1)->parallelize(ParallelType::TIDx);
       tv2->axis(-1)->parallelize(ParallelType::TIDx);
       tv3->axis(-1)->parallelize(ParallelType::TIDx);
       break;
+      // clang-format on
     }
   }
 

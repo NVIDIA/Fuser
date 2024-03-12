@@ -376,7 +376,7 @@ void prepareRuntimeOrder(
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
       auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
       auto leaf_dom = TensorDomain::noReductions(input_tv->getLeafDomain());
-      for (auto dom : {root_dom, leaf_dom}) {
+      for (const auto& dom : {root_dom, leaf_dom}) {
         for (auto id : dom) {
           const auto extent = id->getMaybeExpandedExtent();
           available_input.insert(extent);
