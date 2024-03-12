@@ -1342,6 +1342,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
+namespace {
+
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
@@ -1358,22 +1360,22 @@ std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
     auto out_val = kernel->outputs()[out_i];
-    auto output = out_val->as<TensorView>();
+    NVF_ERROR(
+        out_val->isA<TensorView>(), "Cannot allocate outputs that are not tensors.");
 
     FusionExecutor::GlobalBufferInfo info;
-    info.tv = dynamic_cast<TensorView*>(out_val);
-    NVF_ERROR(
-        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
-
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    info.tv = out_val->as<TensorView>();
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
     auto dtype =
-        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
     info.type = data_type_to_aten(dtype);
 
     outputs.emplace_back(info);
   }
   return outputs;
 }
+
+} // namespace
 
 std::vector<at::Tensor> allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs,
