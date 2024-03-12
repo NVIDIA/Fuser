@@ -127,12 +127,16 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       (smem_a_reuse_guaranteed ? 0 : smem_a) +
           (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
 
+  // Regardless of occupancy considerations, if we cannot fit an smem epilogue
+  // without reuse then we must promote reuse
+  bool must_reuse = shared_memory_available < total_with_noreuse_smem_epilogue;
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
-      return {true, false};
-    } else {
+    if (must_reuse) {
       return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    } else {
+      return {true, false};
     }
   }
 
@@ -156,8 +160,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Return whether we should use smem for epilogue, and whether syncing for
   // re-use is desired. We avoid the sync if omitting it does not decrease
   // occupancy.
-  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
-      blocks_per_sm_with_noreuse_smem_epilogue;
+  bool promote_prologue_smem_reuse = must_reuse ||
+      blocks_per_sm_with_reused_smem_epilogue !=
+          blocks_per_sm_with_noreuse_smem_epilogue;
 
   return {
       blocks_per_sm_with_reused_smem_epilogue ==
