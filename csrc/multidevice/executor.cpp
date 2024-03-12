@@ -86,13 +86,17 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     return {};
   }
 
-  FusionExecutorCache fec(std::move(fusion_copy), 0, false);
-  auto buffers = fec.allocOutputSpace(global_inputs_IValues);
+  FusionExecutor fe;
+  fe.compileFusion(
+      fusion_copy.get(), global_inputs_IValues);
+  // outputs = fe.runFusion(global_inputs_IValues);
+
+  auto buffers = fe.allocOutputSpace(global_inputs_IValues);
 
   std::unordered_map<Val*, c10::IValue> allocations;
   for (auto i : c10::irange(buffers.size())) {
     allocations.emplace(
-        copy_to_original_map[fec.fusion()->outputs().at(i)], buffers.at(i));
+        copy_to_original_map[fusion_copy->outputs().at(i)], buffers.at(i));
   }
 
   return allocations;
@@ -130,10 +134,25 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 }
 
-void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
+void MultiDeviceExecutor::postKernel(SegmentedGroup* group, LaunchParams l_params) {
   if (!should_run_.at(group)) {
     return;
   }
+
+  // erase from group's input extent corresponding to grid and block dims. Set them through launchparams.
+  {  
+    std::vector<Val*> group_input_vals;
+    for (auto input: group->inputs()) {
+      if (input->isA<NamedScalar>()) {
+        NVF_ERROR(input->as<NamedScalar>()->getParallelDim().has_value());
+        NVF_ERROR(l_params.hasDim(input->as<NamedScalar>()->getParallelDim().value()));
+        continue;
+      }
+      group_input_vals.push_back(input);
+    }
+    group->input_vals = std::move(group_input_vals);
+  } 
+
   // get the IValues corresponding to the group's input
   std::vector<c10::IValue> group_input_IValues;
   for (auto& input : group->inputs()) {
@@ -166,9 +185,9 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
     auto& fe = it->second;
     if (has_emplaced) {
       fe.compileFusion(
-          staged_fusion_->makeFusion(group).get(), group_input_IValues);
+          staged_fusion_->makeFusion(group).get(), group_input_IValues, l_params);
     }
-    outputs = fe.runFusion(group_input_IValues);
+    outputs = fe.runFusion(group_input_IValues, l_params);
     if (!params_.cache_fusion_executor) {
       fe_.erase(group);
     }
@@ -214,7 +233,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs) {
+    const std::vector<c10::IValue>& inputs, LaunchParams l_params) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
@@ -236,7 +255,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
-      postKernel(group);
+      postKernel(group, l_params);
     } else {
       postCommunication(group);
     }

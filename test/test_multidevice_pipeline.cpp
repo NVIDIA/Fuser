@@ -368,13 +368,60 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
     tv->setDeviceMesh(mesh);
   }
 
-  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
-  outputs = {at::sum(
-      unsharded_inputs.at(0).toTensor(), at::OptionalIntArrayRef({0, 2}))};
-
-  if (scheduling_mode == SchedulingMode::automaticScheduling) {
+  // Intra-device reduction scheduling for the first reduction:
+  switch (scheduling_mode)
+  {
+  case SchedulingMode::noIntraDeviceScheduling:
+    break;
+  case SchedulingMode::automaticScheduling:
     multi_device_executor_params.use_fusion_executor_cache = true;
+    break;
+  case SchedulingMode::reductionScheduler: {   
+    auto reduction_params = getReductionHeuristics(fusion.get(), {at::empty(input_sizes, tensor_options)});
+    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    l_params = reduction_params->lparams;
+    scheduleReduction(fusion.get(), *reduction_params);
+    break;
   }
+  case SchedulingMode::manualScheduling: {
+    // inspired from NVFuserTest.FusionReduction1_CUDA
+    // tv0[I0{A}, I1{B}, I2{C}]
+    tv1->split(2, 128);
+    // tv1[I0{A}, I1{B}, R2o{C/128}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+    tv1->split(2, 4);
+    // tv1[I0{A}, I1{B}, R2oo{C/128/4)}, R2oi{4}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+
+    TensorView* tv2 = tv1->rFactor({2});
+    // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+    // tv1[I0{A}, I1{B},                 R2oi{4}, R2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
+
+    TensorView* tv3 = tv1->rFactor({2});
+    // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+    // tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
+    // tv1[I0{A}, I1{B},                          R2i{128}] = tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}]
+
+    // Incrementally, can print in between for debugging
+    tv0->computeAt(tv2, 2);
+    tv2->computeAt(tv3, 2);
+    tv3->computeAt(tv1, 2);
+
+    // Re do it all at once, because why not.
+    tv0->computeAt(tv1, 2);
+
+    tv2->axis(3)->parallelize(ParallelType::Unroll);
+    tv1->axis(1)->parallelize(ParallelType::BIDx);
+    tv1->setMemoryType(MemoryType::Global); // necessary to avoid runtime error
+
+    tv1->axis(-1)->parallelize(ParallelType::TIDx);
+    tv2->axis(-1)->parallelize(ParallelType::TIDx);
+    tv3->axis(-1)->parallelize(ParallelType::TIDx);
+    break;
+  } 
+  }
+
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
+  ref_unsharded_outputs = {at::sum(
+      unsharded_inputs.at(0).toTensor(), at::OptionalIntArrayRef({0, 2}))};
 
   executeAndValidate();
 }
@@ -384,6 +431,8 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestStagedReduction,
     ::testing::Combine(::testing::Values(
         SchedulingMode::noIntraDeviceScheduling,
+        SchedulingMode::manualScheduling,
+        SchedulingMode::reductionScheduler,
         SchedulingMode::automaticScheduling)));
 
 } // namespace nvfuser
