@@ -74,7 +74,7 @@ class AllocationOrderInferencer : public IterVisitor {
     return false;
   }
 
-  // returns the candidate that dominates the allocation order.
+  // Returns the candidate operand that dominates the allocation order.
   //
   // It scans through each candidate to find the first one that:
   //   1. is a TensorView
@@ -82,12 +82,14 @@ class AllocationOrderInferencer : public IterVisitor {
   //   3. has the highest number of non_broadcast IterDomain
   //
   // The function is used to resolve allocation order propagation for operator
-  // with multiple operands. The one operand with the most number of
+  // with multiple operands. The operand with the most number of
   // non-broadcast IterDomain will be dominating the output allocation order.
   // The motivation behind it to avoid breaking allocation order propagation
   // from operands produced by broadcast. e.g. When a binary operator could take
   // in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
   // propagate the channels_last allocation order to output.
+  //
+  // Pre-condition: `candidates` must be the input operands of the same Expr. 
   TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
 
   // alloc_order_map_ records the allocation order of each TensorView.
