@@ -149,9 +149,6 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
-  // total_without_smem_epilogue can be 0, i.e. smem_a == smem_b == 0, if
-  // stages == 0. In such case, occupancy will not be bound by shared memory so
-  // we use the register bound instead.
   const auto blocks_per_sm_without_smem_epilogue = std::min(
       shared_memory_available / total_without_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
