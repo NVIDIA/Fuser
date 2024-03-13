@@ -89,7 +89,7 @@ class AllocationOrderInferencer : public IterVisitor {
   // in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
   // propagate the channels_last allocation order to output.
   //
-  // Pre-condition: `candidates` must be the input operands of the same Expr. 
+  // Pre-condition: `candidates` must be the input operands of the same Expr.
   TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
 
   // alloc_order_map_ records the allocation order of each TensorView.
@@ -115,24 +115,24 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
         [&](auto ptr_id) { return !ptr_id->isBroadcast(); });
   };
 
-  for (auto* val_ptr : candidates) {
-    auto* tv_ptr = dynamic_cast<TensorView*>(val_ptr);
+  for (auto* val : candidates) {
+    auto* tv = dynamic_cast<TensorView*>(val);
     // skip non TensorView entry
-    if (tv_ptr == nullptr) {
+    if (tv == nullptr) {
       continue;
     }
 
     // skip entry that doesn't have an allocation order
-    if (alloc_order_map_.count(tv_ptr) == 0) {
+    if (alloc_order_map_.count(tv) == 0) {
       continue;
     }
 
     // check if current entry sets new record for num of non broadcast
     // iterdomain
-    if (size_t non_bc_count = countNonBroadcastID(tv_ptr);
+    if (size_t non_bc_count = countNonBroadcastID(tv);
         non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
-      src = tv_ptr;
+      src = tv;
     }
   }
 
