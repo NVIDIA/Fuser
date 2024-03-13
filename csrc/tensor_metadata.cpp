@@ -343,15 +343,15 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
-  // If tensor is sharded then the input holds the sharded sizes.
-  // Initialize logical size with unsharded size.
-  if (isSharded(tv)) {
-    metadata->logical_size_data = unshardedSize(tv, input.sizes());
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-  } else {
-    metadata->logical_size = input.sizes();
-  }
+  // If tensor is sharded then logical_size and logical_stride will
+  // refer to size and stride of the sharded tensor.
+  metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
+  if (isSharded(tv)) {
+    std::cout << "Tensor metadata " << tv->toString() << std::endl;
+    std::cout << "sizes " << metadata->logical_size << std::endl;
+    std::cout << "strides " << metadata->logical_stride << std::endl;
+  }
   if (tv->hasAllocation()) {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
