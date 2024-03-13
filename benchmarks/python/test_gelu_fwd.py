@@ -37,6 +37,7 @@ def gelu_fwd_fusion(
         T10 = fd.ops.cast(T10, dtype=dtype)
     fd.add_output(T10)
 
+
 def gelu_fwd_fn(inputs: list):  # [in_tensor, bias]
     return torch.nn.functional.gelu(inputs[0] + inputs[1], approximate="tanh")
 
@@ -52,9 +53,10 @@ def test_gelu_fwd_nvf_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = [torch.randn(size, device="cuda", dtype=dtype, requires_grad=True), #in_tensor
-              torch.ones(size[-1], device="cuda", dtype=dtype) # bias
-            ]
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
+        torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
+    ]
     with FusionDefinition() as fd:
         gelu_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
@@ -74,12 +76,11 @@ def test_gelu_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
-    inputs = [torch.randn(size, device="cuda", dtype=dtype, requires_grad=True), #in_tensor
-              torch.ones(size[-1], device="cuda", dtype=dtype) # bias
-            ]
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
+        torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
+    ]
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
-        benchmark,
-        torch.compile(gelu_fwd_fn) if compile else gelu_fwd_fn,
-        inputs
+        benchmark, torch.compile(gelu_fwd_fn) if compile else gelu_fwd_fn, inputs
     )
