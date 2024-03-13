@@ -215,7 +215,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   lowered_->run();
   const auto kernel = lowered_->kernel();
-  fusion_ = lowered_->kernel();
+  // fusion_ = lowered_->kernel();
   createKernelId(
       ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
@@ -266,7 +266,6 @@ void FusionExecutor::compileFusion(
   
   if (skip_compilation) {
     fusion_ptr_ = std::make_unique<Fusion>(std::move(*fusion));
-    fusion_ = fusion_ptr_.get();
     return;
   }
 
@@ -352,7 +351,7 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  fusion_ = lowered_->kernel()->as<Fusion>();
+  // fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
@@ -1410,7 +1409,7 @@ std::vector<at::Tensor> allocOutputSpace(
 }
 
 void FusionExecutor::setUsedTVs() {
-  auto used_vals = fusion_->usedMathVals();
+  auto used_vals = fusion()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
@@ -1729,27 +1728,26 @@ void FusionExecutor::resetCompiledKernelProperties() {
 std::vector<at::Tensor> FusionExecutor::runAtenFusion(
   KernelArgumentHolder& args,
   std::vector<at::Tensor> outputs) {
-  ExpressionEvaluator ee;
-  const auto& inputs = fusion_->inputs();
+  ExpressionEvaluator expr_eval;
 
+  // TODO: Add profiling code.
+  const auto& inputs = fusion()->inputs();
   for (const auto i : c10::irange(inputs.size())) {
-    ee.bind(inputs[i], *args[i]);
+    expr_eval.bind(inputs[i], *args[i]);
   }
 
+  // TODO: Replace with allocateOutputs.
   if (outputs.empty()) {
-    for (const auto& out_val: fusion_->outputs()) {
-      auto out_tensor = ee.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
-      outputs.emplace_back(out_tensor);
-    }
+    auto output_info = getOutputBufferInfo(args, expr_eval, PrimDataType::Int, fusion());
+    outputs = allocateOutputs(fusion(), output_info, options_.device, expr_eval);
   } else {
-    // TODO: Use validateKernelOutputs
     NVF_ERROR(
-        outputs.size() == fusion_->outputs().size(),
+        outputs.size() == fusion()->outputs().size(),
         __func__,
         " provided number of outputs does not match fusion output");
   }
-  args.push(outputs);
 
+  args.push(outputs);
   return outputs;
 }
 
@@ -1759,16 +1757,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
-
-  FusionGuard fg(fusion_);
-  bool skip_compilation = std::all_of(
-    fusion_->outputs().begin(),
-    fusion_->outputs().end(),
-    [this](Val* out) {
-      return fusion_->getOutputAlias(out).type == AllocationType::Evaluate;
-    });
   
-  if (skip_compilation) {
+  if (fusion_ptr_.get()) {
     return runAtenFusion(args, outputs);
   }
 
@@ -1845,7 +1835,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
-        outputs.size() == fusion_->outputs().size(),
+        outputs.size() == fusion()->outputs().size(),
         __func__,
         " provided number of outputs does not match fusion output");
   }
@@ -2386,7 +2376,7 @@ void FusionExecutor::deserialize(
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  fusion_ = lowered_->kernel()->as<Fusion>();
+  // fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(
       heuristic,
       buffer->fusion_id(),
@@ -2440,11 +2430,11 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   NVF_ERROR(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
-  NVF_ERROR(fusion_ != nullptr, "Fusion is not initialized.");
+  NVF_ERROR(lowered_ != nullptr, "Lowered kernel is not initialized.");
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
-    auto out_val = fusion_->outputs().at(buffer->tv());
+    auto out_val = kernel()->outputs().at(buffer->tv());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
   } else {
