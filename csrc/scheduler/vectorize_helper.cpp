@@ -825,7 +825,7 @@ int64_t getVectorizationFactor(
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
-  if (break_point >= vectorize_maps_entry->size()) {
+  if (break_point >= vectorize_maps_entry.get().size()) {
     return 1;
   }
 
