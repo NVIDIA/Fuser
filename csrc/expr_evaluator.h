@@ -59,6 +59,10 @@ class ExpressionEvaluator {
   //! Try to evaluate a value using const evaluator ref
   NVF_API PolymorphicValue evaluate(const Val* value) const;
 
+  PolymorphicValue evaluate(
+    const Val* value, 
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
+
   bool isKnown(const Val* value) const {
     return known_values_.count(value) > 0;
   }

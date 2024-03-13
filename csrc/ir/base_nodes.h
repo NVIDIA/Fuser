@@ -524,6 +524,10 @@ class NVF_API Expr : public Statement {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
 
+  virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
+
   // Input/output accessors
   const auto& inputs() const {
     return inputs_;
