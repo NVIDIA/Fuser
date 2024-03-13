@@ -3292,4 +3292,62 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
       fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Vectorization through resize is not supported yet. Make sure
+// vectorization is disabled.
+TEST_F(ResizeTest, AvoidVectorization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 2D tensor with a large enough inner domain. The outer
+  // domain will be padded.
+  std::vector<int64_t> shape0({2, 1000L * 128});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(
+      tv0,
+      {fusion.zeroVal(), fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()});
+
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  // The pointwise scheduler should tell the vectorization factor is
+  // 4.
+  auto params = getPointwiseHeuristics(&fusion, inputs);
+  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+
+  schedulePointwise(&fusion, *params);
+
+  // Make sure tv1 is not vectorized
+  ASSERT_TRUE(std::all_of(
+      tv1->getLeafDomain().begin(),
+      tv1->getLeafDomain().end(),
+      [](IterDomain* leaf_id) -> bool {
+        return leaf_id->getParallelType() != ParallelType::Vectorize;
+      }))
+      << "Unexpected vectorization: " << tv1->toString();
+
+  // Make sure tv4 should be vectorized
+  ASSERT_TRUE(std::any_of(
+      tv2->getLeafDomain().begin(),
+      tv2->getLeafDomain().end(),
+      [](IterDomain* leaf_id) -> bool {
+        return leaf_id->getParallelType() != ParallelType::Vectorize;
+      }))
+      << "Failed to vectorize: " << tv2->toString();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
