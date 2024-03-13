@@ -328,6 +328,9 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  for (const auto& hook : lowering_hooks_) {
+    hook(lowered_.get());
+  }
   lowered_->run();
 
   kir::Kernel* kernel = lowered_->kernel();

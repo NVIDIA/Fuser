@@ -142,6 +142,13 @@ class FusionExecutor : public NonCopyable {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
+  // Register a lowering hooks that are called to modify the GpuLower object
+  // before running lowering passes. The main use case is for unit tests to
+  // modify the lowering process.
+  void registerLoweringHook(std::function<void(GpuLower*)> hook) {
+    lowering_hooks_.push_back(std::move(hook));
+  }
+
   // Register a post-lowering hooks that are called to modify the kernel after
   // lowering. The main use case is for unit tests to modify the kernel.
   void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
@@ -590,6 +597,11 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Lowering hooks that are called after the GpuLower instance is created
+  // before running lowering passes.
+  // The main use case is for unit tests to modify the lowering process.
+  std::vector<std::function<void(GpuLower*)>> lowering_hooks_;
 
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.

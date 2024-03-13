@@ -12,6 +12,7 @@ import re
 from typing import List, Callable
 import tempfile
 import unittest
+import os
 
 import torch
 import torch.nn.functional as F
@@ -33,6 +34,20 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
+
+# This DEBUG_SERDE environment flag is used to debug serialization failures.
+#
+# 1) It disables automatically saving FusionCache upon program exit. Therefore,
+# it has to be a global flag not per-test.
+#
+# 2) It resets the FusionCache after each test, which is useful for isolating
+# failures. Note, some failures only occur when running multiple tests
+# together and accumulating fusions in the cache.
+#
+# 3) It keeps the temporary files that are created during serde_check.
+# Normally, these files are deleted after each test.
+env_var_debug_serde = os.getenv("DEBUG_SERDE")
+debug_serde: bool = env_var_debug_serde in ("true", "1")
 
 
 def is_pre_volta():
@@ -57,10 +72,12 @@ def is_pre_hopper():
 
 
 def setUpModule():
-    from nvfuser import enable_automatic_serialization
+    if not debug_serde:
+        from nvfuser import enable_automatic_serialization
 
-    # Turn on default serialization upon program exit
-    enable_automatic_serialization()
+        # Turn on default serialization upon program exit
+        enable_automatic_serialization()
+
     # Automatically load common workplace
     fc = FusionCache.get()
     # Clear FusionCache because the tests expect a new fusion to be generated.
@@ -77,8 +94,11 @@ def serde_check(test_fn: Callable):
         self, fusion_func, inputs = args
 
         # NOTE: For debug purposes, clear FusionCache before running first test
-        # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
-        #    FusionCache.reset()
+        # so the behavior is more deterministic (PR #1848).
+        is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
+        if debug_serde and is_new_fusion_expected:
+            FusionCache.reset()
+            assert FusionCache.get().num_fusions() == 0
 
         # skip_serde_check is only used by the decorator so remove it before running test_fn
         skip_serde_check = kwargs.pop("skip_serde_check", False)
@@ -93,16 +113,27 @@ def serde_check(test_fn: Callable):
         inputs_copy = deepcopy(inputs)
         test_fn(self, fusion_func, inputs_copy, **kwargs)
 
-        with tempfile.NamedTemporaryFile() as tmp:
-            # Serialize FusionCache
-            fc = FusionCache.get()
-            fc.serialize(tmp.name)
+        # If DEBUG_SERDE is enabled, the temporary file is not deleted automatically
+        with tempfile.NamedTemporaryFile(delete=(not debug_serde)) as tmp:
+            try:
+                # Serialize FusionCache
+                fc = FusionCache.get()
+                fc.serialize(tmp.name)
 
-            FusionCache.reset()
+                FusionCache.reset()
 
-            # Get new FusionCache because the previous one was destroyed by the reset call.
-            fc = FusionCache.get()
-            fc.deserialize(tmp.name)
+                # Get new FusionCache because the previous one was destroyed by the reset call.
+                fc = FusionCache.get()
+                fc.deserialize(tmp.name)
+            except Exception as e:
+                if debug_serde:
+                    raise RuntimeError(
+                        f"***** {tmp.name} contains the serialized binary for this failure."
+                    )
+                else:
+                    raise RuntimeError(
+                        "***** Use DEBUG_SERDE=true to debug serialization failure."
+                    )
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
@@ -2249,12 +2280,12 @@ class TestNvFuserFrontend(TestCase):
         for inp in inputs:
             for check, error in checks:
                 if error is None:
-                    # First check is here on legel fusions since the second time
+                    # First check is here on legal fusions since the second time
                     # through they should already be cached
                     out = self.exec_nvfuser(
                         partial(check, acts=inp),
                         inp,
-                        new_fusion_expected=first_check,
+                        new_fusion_expected=(first_check or debug_serde),
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.

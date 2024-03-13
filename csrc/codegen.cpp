@@ -2427,7 +2427,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_template_args.arg(num_grouped_iterations);
     func_template_args.arg(data_type);
 
-    const auto& par_dim_map = kernel_->summary().parallel_dimension_map_;
+    const auto& par_dim_map = kernel_->summary().parallel_dimension_map;
     NVF_ERROR(par_dim_map.get(ParallelType::TIDx)->isConstInt());
     NVF_ERROR(par_dim_map.get(ParallelType::TIDy)->isConstInt());
     func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDx)));
@@ -2675,7 +2675,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // predciated out) we're just going to assume they're part of the iter
       // dimension. This would cause more communication than strictly necessary
       // but should not be a common use case.
-      auto pt_dim = kernel_->summary().parallel_dimension_map_.get(pt);
+      auto pt_dim = kernel_->summary().parallel_dimension_map.get(pt);
       if (pt_dim == nullptr || pt_dim->isOneInt()) {
         continue;
       }
