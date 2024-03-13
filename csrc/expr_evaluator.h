@@ -59,9 +59,8 @@ class ExpressionEvaluator {
   //! Try to evaluate a value using const evaluator ref
   NVF_API PolymorphicValue evaluate(const Val* value) const;
 
-  //! Used  by Expr::evaluate when evaluating inputs to properly update the
-  //! known_values.
-  PolymorphicValue evaluate(
+  //! Base evaluate method called by other overloads and Expr::evaluate
+  const PolymorphicValue& evaluate(
       const Val* value,
       std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
@@ -94,9 +93,6 @@ class ExpressionEvaluator {
       const Val* value,
       const std::unordered_map<const Val*, PolymorphicValue>&
           additional_known_values) const;
-  const PolymorphicValue& evaluateHelper(
-      const Val* value,
-      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
