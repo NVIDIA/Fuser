@@ -1494,21 +1494,23 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
+
+    auto expr_resizes = [](Expr* e) -> bool {
+      return std::any_of(
+          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
+            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+              return ir_utils::hasResizedRfactor(out_tv);
+            }
+            return false;
+          });
+    };
+
     // At this moment, vectorization through resize is not supported
     if (std::any_of(
-            input_tv->uses().begin(),
-            input_tv->uses().end(),
-            [](Expr* use) -> bool {
-              return std::any_of(
-                  use->outputs().begin(),
-                  use->outputs().end(),
-                  [](Val* output) -> bool {
-                    return output->isA<TensorView>() &&
-                        ir_utils::hasResizedRfactor(output->as<TensorView>());
-                  });
-            })) {
+            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
       continue;
     }
+
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
     }

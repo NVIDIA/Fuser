@@ -23,6 +23,10 @@ namespace nvfuser {
 
 class ResizeTest : public NVFuserTest {};
 
+using testing::Each;
+using testing::Not;
+using testing::Property;
+
 // Simple pad test
 TEST_F(ResizeTest, FusionResizePad1) {
   Fusion fusion;
@@ -3300,22 +3304,17 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // Create a 2D tensor with a large enough inner domain. The outer
   // domain will be padded.
-  std::vector<int64_t> shape0({2, 1000L * 128});
-
-  auto tv0 = makeContigConcreteTensor(shape0);
+  std::vector<int64_t> shape({2, 1000L * 128});
+  auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
-
   auto tv1 = pad(
       tv0,
       {fusion.zeroVal(), fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()});
-
   auto tv2 = set(tv1);
-
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  auto t0 = at::randn(shape0, options);
+  at::Tensor t0 = at::randn(shape, options);
   std::vector<c10::IValue> inputs({t0});
 
   // The pointwise scheduler should tell the vectorization factor is
@@ -3326,23 +3325,19 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   schedulePointwise(&fusion, *params);
 
-  // Make sure tv1 is not vectorized
-  ASSERT_TRUE(std::all_of(
-      tv1->getLeafDomain().begin(),
-      tv1->getLeafDomain().end(),
-      [](IterDomain* leaf_id) -> bool {
-        return leaf_id->getParallelType() != ParallelType::Vectorize;
-      }))
-      << "Unexpected vectorization: " << tv1->toString();
+  // Make sure tv1 is not vectorized, i.e., no leaf IterDomains are vectorized.
+  EXPECT_THAT(
+      tv1->getLeafDomain(),
+      Each(
+          Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
+      << "Unexpected vectorization: " << tv1;
 
-  // Make sure tv4 should be vectorized
-  ASSERT_TRUE(std::any_of(
-      tv2->getLeafDomain().begin(),
-      tv2->getLeafDomain().end(),
-      [](IterDomain* leaf_id) -> bool {
-        return leaf_id->getParallelType() != ParallelType::Vectorize;
-      }))
-      << "Failed to vectorize: " << tv2->toString();
+  // Make sure tv2 should be vectorized, i.e., at least one leaf IterDomain is
+  // vectorized.
+  EXPECT_THAT(
+      tv2->getLeafDomain(),
+      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+      << "Failed to vectorize: " << tv2;
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, inputs, params->lparams);
