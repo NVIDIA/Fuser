@@ -404,7 +404,6 @@ std::vector<PolymorphicValue> Expr::evaluate(
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
-
   std::vector<PolymorphicValue> expr_inputs;
   expr_inputs.reserve(inputs().size());
   for (auto inp : inputs()) {
@@ -414,7 +413,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
     }
     expr_inputs.emplace_back(eval_i);
   }
-  return this->evaluate(ee, expr_inputs);  
+  return this->evaluate(ee, expr_inputs);
 }
 
 void Expr::addDataAttribute(PolymorphicValue attr) {

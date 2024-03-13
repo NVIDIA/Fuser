@@ -4460,6 +4460,8 @@ Val* CatOp::getPred(int input_idx) const {
 std::vector<PolymorphicValue> CatOp::evaluate(
     const ExpressionEvaluator& ee,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  // CatOp is preceded by a PadOp internally.
+  // For ATen evaluation, directly compute the unpadded inputs.
   std::vector<at::Tensor> unpadded_inputs;
   int64_t concat_dim = concatenatedDim();
   for (auto inp : inputs()) {

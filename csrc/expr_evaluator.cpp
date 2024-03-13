@@ -199,8 +199,9 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
   return evaluateHelper(value, known_values);
 }
 
-PolymorphicValue ExpressionEvaluator::evaluate(const Val* value, 
-  std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+PolymorphicValue ExpressionEvaluator::evaluate(
+    const Val* value,
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
   return evaluateHelper(value, known_values);
 }
 
