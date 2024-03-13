@@ -132,6 +132,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
       {"pre_segmenter_logging", DebugDumpOption::PreSegmenterLogging},
+      {"predicate_elimination", DebugDumpOption::PredicateElimination},
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
