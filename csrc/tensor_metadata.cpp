@@ -315,8 +315,11 @@ inferAndValidateAllocationSizesAndStrides(
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);
   }
-  // Validate final sizes and strides
-  validateAllocationSizesAndStrides(alloc, tv->getContiguity(), sizes, strides);
+  // Only validate final sizes and strides when we have a non-empty tensor.
+  if (tensor.numel() != 0) {
+    validateAllocationSizesAndStrides(
+        alloc, tv->getContiguity(), sizes, strides);
+  }
   return {std::move(sizes), std::move(strides)};
 }
 

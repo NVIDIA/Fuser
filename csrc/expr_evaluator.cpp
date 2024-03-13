@@ -143,17 +143,17 @@ void ExpressionEvaluator::bind_(
             rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
       } else if (rfactor_domain[i]->isDeviceDim()) {
         // Currently we have the restrictions:
-        // (1) Devices parallelized axis extent == number of devices
+        // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
-        // Therefore, the device parallelized extents will always be 1.
-        // Ignore concrete extents because they hold the unsharded extents.
-        if (1 != t.size(i)) {
-          std::cout << "Binding error of tensor size:" << t.sizes() << std::endl;
-          std::cout << tv->toString() << std::endl;
-          std::cout << tv->definition()->toString() << std::endl;
-        }
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
         NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(i));
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+        bind_(
+            rfactor_domain[i]->extent(),
+            (int)tv->getDeviceMesh().vector().size(),
+            evaluate_validate);
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }
