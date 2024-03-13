@@ -107,7 +107,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Note that we clip smem_double_buffer_stage to 1 since we will always load
   // operands to smem even if stages=0
   MatmulParams::DoubleBufferOptions double_buffer_options{
-      true, true, std::min(1, smem_double_buffer_stage)};
+      true, true, std::max(1, smem_double_buffer_stage)};
 
   const auto [smem_a, smem_b, smem_c] =
       computeSharedMemorySizes(gemm_tile, double_buffer_options, data_types);
