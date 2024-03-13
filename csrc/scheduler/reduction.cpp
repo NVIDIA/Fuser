@@ -551,10 +551,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // when unroll in reduction dim and vect in iteration dim, needs to store
   // loaded data in registers, set a limit on register count we can use to store
   // unrolled and vectorized data. With 512 threads per block, each thread can
-  // use 128 registers. Ideally, we should leave some registers for overhead,
-  // but test show no register spills even set redu unroll to 32 and vect 8. It
-  // uses 32 x 8 x 2 / 4 = 128 registers.
-  auto max_buffer_register = 128L;
+  // use 128 registers. Assume 64 registers are used to store loaded data from
+  // iter and redu unroll, max_unroll can be up to 128 for fp16.
+  // TODO: investigate why set to 128 registers won't cause register spill when
+  // vectorized by 8 and unrolled by 32.
+  auto max_buffer_register = 64L;
   auto max_unroll = ceilDiv(
       // Available unrolling based on size of data type
       max_buffer_register * scheduler_utils::bytes_per_register /
@@ -564,16 +565,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
   max_unroll = scheduler_utils::lastPow2(max_unroll);
 
-  // set a maximum redu unroll, kicks in when iter_unroll is less than 4
-  // and max_unroll is 256.
-  auto const block_redu_unroll = 64l;
-
-  // for grid reduction, use a smaller unroll in reduction dim to avoid
-  // register spills
-  auto const grid_redu_unroll = 16l;
+  // avoid using very larege unroll in reduction dim, e.g. when iter dim is
+  // very small, iter_unroll = 1, don't let all unroll goes to reduction dim.
+  auto const max_redu_unroll = 64l;
 
   // set max thread local serial reduction workload
-  auto const max_serial_reduce_top_unroll = 8L;
+  auto const max_serial_reduce_top_unroll = 16L;
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   const int64_t n_waves = 8;
@@ -704,7 +701,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         total_reduction_numel);
     tmp_bdimy = roundDownPow2OrMultipleOf(tmp_bdimy, 8);
     int64_t tmp_redu_unroll =
-        std::min(block_redu_unroll, target_unroll / iter_unroll_factor);
+        std::min(max_redu_unroll, target_unroll / iter_unroll_factor);
     int64_t thread_local_workload =
         ceilDiv(total_reduction_numel, tmp_bdimy * tmp_redu_unroll);
     return thread_local_workload > max_serial_reduce_top_unroll;
@@ -767,19 +764,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // parallelizing iteration dimension didn't take the available unroll factor.
   // split target_unroll between iter and redu
   inner_reduction_unroll_factor =
-      std::min(block_redu_unroll, target_unroll / iter_unroll_factor);
-
-  // try reduce redu_unroll to use more blocks in reduction dim.
-  // may revise if we are going to do serial grid reduction.
+      std::min(max_redu_unroll, target_unroll / iter_unroll_factor);
   grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
-  while (grdim > 1 && inner_reduction_unroll_factor / 2 >= grid_redu_unroll &&
-         grdim * 2 <= bdimy) {
-    inner_reduction_unroll_factor /= 2;
-    grdim = ceilDiv(
-        total_reduction_numel,
-        max_serial_reduce_top_unroll * bdimy * inner_reduction_unroll_factor);
-  }
 
+  // For grid reduction, use at least 4 blocks in reduction dim.
+  // use at least one wave of blocks.
+  if (is_grid_reduce) {
+    grdim = std::max(grdim, 4l);
+    grdim = std::max(
+        grdim, scheduler_utils::safeDiv(device_multiprocessor_count, gidim));
+  }
   // Try to round up but ensure still have thread local reduction
   if (grdim > 1) {
     int64_t grdim_tmp = scheduler_utils::roundUpPow2(grdim);
