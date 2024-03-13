@@ -2240,7 +2240,7 @@ class NVF_API CatOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const override;
 
   int64_t concatenatedDim() const {
     return attribute<int64_t>(0);
