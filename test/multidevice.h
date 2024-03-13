@@ -101,7 +101,6 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
   MultiDeviceExecutorParams multi_device_executor_params;
-  LaunchParams l_params = {};
 };
 
 } // namespace nvfuser

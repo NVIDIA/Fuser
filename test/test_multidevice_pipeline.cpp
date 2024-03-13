@@ -307,8 +307,6 @@ INSTANTIATE_TEST_SUITE_P(
 enum class SchedulingMode {
   noIntraDeviceScheduling,
   manualScheduling,
-  reductionScheduler,
-  automaticScheduling,
 };
 
 std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
@@ -317,10 +315,6 @@ std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
       return out << "noIntraDeviceScheduling";
     case SchedulingMode::manualScheduling:
       return out << "manualScheduling";
-    case SchedulingMode::reductionScheduler:
-      return out << "reductionScheduler";
-    case SchedulingMode::automaticScheduling:
-      return out << "automaticScheduling";
     default:
       NVF_ERROR(false);
   }
@@ -368,17 +362,6 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
   switch (scheduling_mode) {
     case SchedulingMode::noIntraDeviceScheduling:
       break;
-    case SchedulingMode::automaticScheduling:
-      multi_device_executor_params.use_fusion_executor_cache = true;
-      break;
-    case SchedulingMode::reductionScheduler: {
-      auto reduction_params = getReductionHeuristics(
-          fusion.get(), {at::empty(input_sizes, tensor_options)});
-      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-      l_params = reduction_params->lparams;
-      scheduleReduction(fusion.get(), *reduction_params);
-      break;
-    }
     case SchedulingMode::manualScheduling: {
       // clang-format off
       // inspired from NVFuserTest.FusionReduction1_CUDA
@@ -429,9 +412,7 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestStagedReduction,
     ::testing::Combine(::testing::Values(
         SchedulingMode::noIntraDeviceScheduling,
-        SchedulingMode::manualScheduling,
-        SchedulingMode::reductionScheduler,
-        SchedulingMode::automaticScheduling)));
+        SchedulingMode::manualScheduling)));
 
 } // namespace nvfuser
 

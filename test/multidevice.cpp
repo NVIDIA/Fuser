@@ -171,7 +171,7 @@ void PipelineTest::execute() {
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs, std::move(l_params));
+  outputs = runtime->runWithInput(inputs);
   if (debug_print) {
     if (!communicator->deviceId()) {
       runtime->print();

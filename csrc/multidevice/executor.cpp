@@ -132,29 +132,10 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 }
 
-void MultiDeviceExecutor::postKernel(
-    SegmentedGroup* group,
-    const LaunchParams& l_params) {
+void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   if (!should_run_.at(group)) {
     return;
   }
-
-  if (!params_.use_fusion_executor_cache) {
-    // erase from group's input extent corresponding to grid and block dims. Set
-    // them through launchparams.
-    std::vector<Val*> group_input_vals;
-    for (auto input : group->inputs()) {
-      if (input->isA<NamedScalar>()) {
-        NVF_ERROR(input->as<NamedScalar>()->getParallelDim().has_value());
-        NVF_ERROR(l_params.hasDim(
-            input->as<NamedScalar>()->getParallelDim().value()));
-        continue;
-      }
-      group_input_vals.push_back(input);
-    }
-    group->input_vals = std::move(group_input_vals);
-  }
-
   // get the IValues corresponding to the group's input
   std::vector<c10::IValue> group_input_IValues;
   for (auto& input : group->inputs()) {
@@ -187,11 +168,9 @@ void MultiDeviceExecutor::postKernel(
     auto& fe = it->second;
     if (has_emplaced) {
       fe.compileFusion(
-          staged_fusion_->makeFusion(group).get(),
-          group_input_IValues,
-          l_params);
+          staged_fusion_->makeFusion(group).get(), group_input_IValues);
     }
-    outputs = fe.runFusion(group_input_IValues, l_params);
+    outputs = fe.runFusion(group_input_IValues);
     if (!params_.cache_fusion_executor) {
       fe_.erase(group);
     }
@@ -237,8 +216,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs,
-    LaunchParams l_params) {
+    const std::vector<c10::IValue>& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
@@ -260,7 +238,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
-      postKernel(group, l_params);
+      postKernel(group);
     } else {
       postCommunication(group);
     }
