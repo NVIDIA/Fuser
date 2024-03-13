@@ -159,7 +159,6 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"memory_promotion", EnableOption::MemoryPromotion},
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
-      {"matmul_expr_eval", EnableOption::MatmulExprEval},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
   };
 
@@ -178,6 +177,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
        DisableOption::GroupedGridWelfordOuterOpt},
       {"index_hoist", DisableOption::IndexHoist},
       {"magic_zero", DisableOption::MagicZero},
+      {"matmul_expr_eval", DisableOption::MatmulExprEval},
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
       {"parallel_serde", DisableOption::ParallelSerde},
