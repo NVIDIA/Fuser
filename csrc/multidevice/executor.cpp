@@ -113,7 +113,7 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
         input,
         " for handling group ",
         toString(group));
-    NVF_ERROR(val_to_IValue_.at(input).isTensor());
+    NVF_ERROR(val_to_IValue_.at(input).numel());
     group_input_IValues.push_back(val_to_IValue_.at(input));
   }
 
@@ -163,10 +163,10 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   auto output_val = expr->outputs().at(0);
   at::Tensor input_tensor, output_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
+    input_tensor = val_to_IValue_.at(input_val);
   }
   if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
+    output_tensor = val_to_IValue_.at(output_val);
   }
 
   auto communications =
@@ -182,7 +182,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
@@ -203,7 +203,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
+        inputs.at(input_idx).toTensor();
   }
 
   // Run through the groups to launch kernels and comms
@@ -219,7 +219,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   std::vector<at::Tensor> outputs;
   for (auto output_val : staged_fusion_->outputs()) {
     auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-        ? val_to_IValue_.at(output_val).toTensor()
+        ? val_to_IValue_.at(output_val)
         : at::Tensor();
     outputs.push_back(output);
   }

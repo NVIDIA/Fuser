@@ -90,7 +90,7 @@ class MultiDeviceExecutor {
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
+  std::vector<at::Tensor> runWithInput(const at::ArrayRef<c10::IValue>& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
@@ -117,7 +117,7 @@ class MultiDeviceExecutor {
   void postCommunication(SegmentedGroup* group);
 
   // Stores concrete computed values,
-  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+  std::unordered_map<Val*, at::Tensor> val_to_IValue_;
 
   // holds the Communicator to be used for execution
   Communicator& comm_;
