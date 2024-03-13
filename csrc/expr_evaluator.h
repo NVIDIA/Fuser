@@ -56,10 +56,12 @@ class ExpressionEvaluator {
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
-  //! Try to evaluate a value using const evaluator ref
+  //! Evaluates a value through a const evaluator reference.
+  //! Initializes a known_values map to store intermediate values in lieu of
+  //! known_values_.
   NVF_API PolymorphicValue evaluate(const Val* value) const;
 
-  //! Base evaluate method called by other overloads and Expr::evaluate
+  //! Base evaluate method called by other overloads and Expr::evaluate.
   const PolymorphicValue& evaluate(
       const Val* value,
       std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
@@ -104,7 +106,6 @@ class ExpressionEvaluator {
   PrecomputedValues* precomputed_values_ = nullptr;
   std::unordered_map<const Val*, PolymorphicValue> known_values_;
   std::unordered_map<std::string, PolymorphicValue> known_named_scalars_;
-  PolymorphicValue null_ = std::monostate{};
 };
 
 } // namespace nvfuser

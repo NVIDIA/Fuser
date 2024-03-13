@@ -409,7 +409,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
   for (auto inp : inputs()) {
     const auto& eval_i = ee.evaluate(inp, known_values);
     if (!eval_i.hasValue()) {
-      return {null_};
+      return {std::monostate{}};
     }
     expr_inputs.emplace_back(eval_i);
   }

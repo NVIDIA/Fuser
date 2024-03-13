@@ -4463,8 +4463,12 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   // CatOp is preceded by a PadOp internally.
   // For ATen evaluation, directly compute the unpadded inputs.
   std::vector<at::Tensor> unpadded_inputs;
+  unpadded_inputs.reserve(inputs().size());
   int64_t concat_dim = concatenatedDim();
-  for (auto inp : inputs()) {
+  for (Val* inp : inputs()) {
+    NVF_CHECK(
+        inp->definition() != nullptr && inp->definition()->isA<PadOp>(),
+        "Expected CatOp to be preceded by a PadOp.");
     auto eval_i = ee.evaluate(inp->definition()->input(0), known_values);
     unpadded_inputs.push_back(eval_i.as<at::Tensor>());
   }
