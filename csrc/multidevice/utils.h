@@ -14,8 +14,7 @@
 
 namespace nvfuser {
 
-// Returns whether a TensorView has its first non-reduction axis parallelized
-// on Didx
+// Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
 
@@ -45,14 +44,15 @@ void unshard(TensorView*);
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
 
-// Returns the unsharded tensor size given sharded size and tv
-std::vector<int64_t> unshardedSize(
-    TensorView* tv,
-    c10::IntArrayRef sharded_sizes);
-// TODO
+// This is to be run after the insertResharding pass.
+// For each resharding operation that requires communication
+// over a noncontiguous slices of the tensor, this pass
+// inserts permutations necessary to push the device parallel axis
+// to the front so that communication operations are contiguous.
 void insertPermutes(Fusion* fusion);
 
-// Returns the axis that is parallelized with type
+// Returns the index of the axis with ParallelType
+// if none return -1.
 int64_t dimWithParallelType(
     TensorView*,
     ParallelType,

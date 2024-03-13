@@ -132,9 +132,9 @@ TEST_F(PipelineTest, Pipeline) {
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
-// stage sharded?, do_reduction?, use_fusion_executor_cache?)
+// stage sharded?, do_reduction?, sharded dimension, use_fusion_executor_cache?)
 using PipelineTestTwoStagesParams = std::
-    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
+    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, int, bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
       public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
@@ -147,6 +147,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction,
+       sharded_dim,
        use_fusion_executor_cache] = GetParam();
   if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
@@ -157,7 +158,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
     mesh1 = mesh0;
   }
 
-  int sharded_dim = 1;
   std::vector<int64_t> unsharded_input_sizes = {4, 3, 2, 5};
   if (is_stage0_sharded) {
     unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
@@ -230,6 +230,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(false),
         ::testing::Values(false),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -242,6 +243,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(false),
         ::testing::Values(true),
         ::testing::Values(false),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -254,6 +256,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(false),
         ::testing::Values(false),
         ::testing::Values(false),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -266,6 +269,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true),
         ::testing::Values(false),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -278,6 +282,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true),
         ::testing::Values(false),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -290,6 +295,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(false),
         ::testing::Values(true),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -302,6 +308,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true),
         ::testing::Values(true),
+        ::testing::Values(0, 1),
         ::testing::Bool()));
 
 } // namespace nvfuser

@@ -18,74 +18,39 @@
 
 namespace nvfuser {
 
-// Test memory allocation of multidevice fusion with unsharded inputs
-// and sharded intermediates, outputs.
+class ShardedComputeTest : public NVFuserTest,
+                           public ::testing::WithParamInterface<bool> {};
 
-TEST(NVFuserTest, TestContiguousShardSet) {
+TEST_P(ShardedComputeTest, ComputeIndex) {
+  auto concreteTv = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2, 3, 4});
-  TensorView* a = makeContigConcreteTensor({4, 4, 4});
-  TensorView* b = set(a);
-  TensorView* c = set(a);
+  DeviceMesh mesh({0, 1, 2});
 
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  c->setDeviceMesh(mesh);
-  b->axis(0)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
-
-  ASSERT_TRUE(isContiguousShard(b, a));
-  ASSERT_FALSE(isContiguousShard(c, a));
-}
-
-TEST(NVFuserTest, TestContiguousShardReduce) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2, 3, 4});
-  TensorView* a = makeContigConcreteTensor({4, 4, 4});
-  TensorView* b = sum(a, {0});
-  TensorView* c = sum(a, {0});
-
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  c->setDeviceMesh(mesh);
-  a->axis(0)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
-
-  ASSERT_TRUE(isContiguousShard(b, a));
-  ASSERT_TRUE(isContiguousShard(c, a));
-}
-
-TEST(NVFuserTest, TestShardedComputeIndex) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0});
-
-  TensorView* a = makeConcreteTensor({4, 1, 2, 5});
+  TensorView* a =
+      concreteTv ? makeConcreteTensor({4, 2, 3, 5}) : makeSymbolicTensor(4);
   TensorView* b = sum(a, {0});
   TensorView* c = add(a, a);
-  TensorView* d = permute(a, {1, 0, 2, 3});
+  TensorView* d = permute(a, {{2, 0}});
 
   fusion->addInput(a);
   fusion->addOutput(b);
   fusion->addOutput(c);
   fusion->addOutput(d);
-  
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
   d->setDeviceMesh(mesh);
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  b->axis(1)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
+  a->axis(2)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDx);
+  c->axis(2)->parallelize(ParallelType::DIDx);
   d->axis(0)->parallelize(ParallelType::DIDx);
-  
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto a_ = at::randn({4, 1, 2, 5}, options);
+  auto a_ = at::randn({4, 2, 1, 5}, options);
   auto b_ = at::sum(a_, {0});
   auto c_ = a_ + a_;
-  auto d_ = at::permute(a_, {1, 0, 2, 3});
+  auto d_ = at::permute(a_, {2, 0, 1, 3});
   std::vector<at::Tensor> outputs_ = {b_, c_, d_};
 
   FusionExecutor fe;
@@ -94,6 +59,16 @@ TEST(NVFuserTest, TestShardedComputeIndex) {
   testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
 }
 
+INSTANTIATE_TEST_SUITE_P(
+    ConcreteInput,
+    ShardedComputeTest,
+    ::testing::Values(true));
+
+INSTANTIATE_TEST_SUITE_P(
+    SymbolicInput,
+    ShardedComputeTest,
+    ::testing::Values(false));
+
 // params: concrete vs symbolic input, sharded axis
 class ShardingTest : public MultiDeviceTest,
                      public ::testing::WithParamInterface<std::tuple<bool, int>> {};
@@ -101,30 +76,31 @@ class ShardingTest : public MultiDeviceTest,
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
 TEST_P(ShardingTest, UnshardedGlobalInput) {
-  auto [concreteTv, sharded_axis] = GetParam();
+  auto [concreteTv, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
   std::vector<int64_t> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
-  std::vector<int64_t> input_size = {2, 3, 4, 3};
-  input_size[sharded_axis] = num_devices;
-  input_size[sharded_axis+1] = num_devices;
+  std::vector<int64_t> input_size = {2, 3, 2, 4};
+  input_size[sharded_dim] = num_devices;
+  input_size[sharded_dim+1] = num_devices;
 
   TensorView* tv0 =
-      concreteTv ? makeConcreteTensor(input_size) : makeContigTensor(4);
+      concreteTv ? makeConcreteTensor(input_size) : makeSymbolicTensor(4);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
-  TensorView* tv3 = sum(tv2, {sharded_axis}); 
+  TensorView* tv3 = sum(tv2, {sharded_dim}); 
+
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
 
-  tv1->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-  tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-  tv3->axis(2)->parallelize(ParallelType::DIDx);
+  tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  tv3->axis(sharded_dim+1)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
   for (auto tv : tvs) {
@@ -135,7 +111,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1, communicator->deviceId());
   auto x2 = x1 + x1;
-  auto x3 = shardTensor(at::sum(x0+x0, {sharded_axis}), tv3, communicator->deviceId());
+  auto x3 = shardTensor(at::sum(x0+x0, {sharded_dim}), tv3, communicator->deviceId());
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
@@ -157,13 +133,13 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   std::vector<int64_t> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
-  std::vector<int64_t> unsharded_input_size = {3,4,2,5};
+  std::vector<int64_t> unsharded_input_size = {3,2,5};
   unsharded_input_size[sharded_dim] = num_devices;
 
-  TensorView* tv0 = concreteTv ? makeConcreteTensor(unsharded_input_size)
-                               : makeContigTensor(4);
+  TensorView* tv0 = concreteTv ? makeContigConcreteTensor(unsharded_input_size)
+                               : makeContigTensor(unsharded_input_size.size());
   TensorView* tv1 = set(tv0);
-  TensorView* tv2 = add(tv1, tv1);
+  TensorView* tv2 = sum(tv1, {1});
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
@@ -178,8 +154,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
       shardTensor(x1, tv0, communicator->deviceId())};
-  std::cout << "Input shape " << shardTensor(x1, tv0, communicator->deviceId()).sizes() << std::endl;
-  auto x2 = x1 * 2;
+  auto x2 = at::sum(x1, {1});
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
@@ -187,10 +162,10 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ConcreteInput_InnerShard, ShardingTest, 
-  ::testing::Values(std::make_tuple(true, 1)));
+  ::testing::Values(std::make_tuple(true, 2)));
 
 INSTANTIATE_TEST_SUITE_P(SymbolicInput_InnerShard, ShardingTest, 
-  ::testing::Values(std::make_tuple(false, 1)));
+  ::testing::Values(std::make_tuple(false, 2)));
 
   INSTANTIATE_TEST_SUITE_P(ConcreteInput_OutermostShard, ShardingTest, 
   ::testing::Values(std::make_tuple(true, 0)));

@@ -1211,7 +1211,10 @@ class UpdateLeafIndices : public IterVisitor {
 // Returns halo-extended extent if id has halo. Otherwise, just
 // returns id->extent.
 Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
-  if (normal_extent == nullptr) {
+  // If id is device dim, ignore the extent which holds the unsharded extent.
+  if (id->isDeviceDim()) {
+    normal_extent = GpuLower::current()->kernel()->oneVal();
+  } else if (normal_extent == nullptr) {
     normal_extent = id->extent();
   }
 
@@ -1222,8 +1225,6 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
         SimplifyingIrBuilder::create<Val>(
             (int64_t)halo.width(), DataType::Index));
     return halo_extent;
-  } else if (id->isDeviceDim()) {
-    return GpuLower::current()->kernel()->oneVal();
   } else {
     return normal_extent;
   }
@@ -1603,15 +1604,12 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
     for (const auto i : c10::irange(alloc_dom.size())) {
       if (alloc_dom[i]->isReduction()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
-      } else if (alloc_dom[i]->isDeviceDim()) {
-        strides[i] = GpuLower::current()->kernel()->oneVal();
-        stride_i++;
-      } else {
-        strides[i] = IrBuilder::getItemExpr(
-            IrBuilder::getAttrExpr(
-                IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
-            (int64_t)stride_i++);
-      }
+        continue;
+      } 
+      strides[i] = IrBuilder::getItemExpr(
+          IrBuilder::getAttrExpr(
+              IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -1984,14 +1982,11 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
     for (const auto i : c10::irange(alloc_dom.size())) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isStride()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
-      } else if (alloc_dom[i]->isDeviceDim()) {
-        strides[i] = GpuLower::current()->kernel()->oneVal();
-        stride_i++;
-      } else {
+        continue;
+      } 
       strides[i] = IrBuilder::getItemExpr(
-          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
-          (int64_t)stride_i++);
-      }
+        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
+        (int64_t)stride_i++);
     }
   }
 
