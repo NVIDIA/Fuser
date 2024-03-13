@@ -1487,6 +1487,12 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
+    // At this moment, vectorization through resize is not
+    // supported. This is not required currently as we always insert
+    // cacheBefore, but just in case.
+    if (ir_utils::hasResizedRfactor(output_tv)) {
+      continue;
+    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
@@ -1500,6 +1506,23 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
+
+    auto expr_resizes = [](Expr* e) -> bool {
+      return std::any_of(
+          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
+            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+              return ir_utils::hasResizedRfactor(out_tv);
+            }
+            return false;
+          });
+    };
+
+    // At this moment, vectorization through resize is not supported
+    if (std::any_of(
+            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
+      continue;
+    }
+
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
     }
