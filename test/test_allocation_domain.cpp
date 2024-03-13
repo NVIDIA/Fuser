@@ -1420,8 +1420,7 @@ TEST_F(NVFuserTest, ReductionVectorization) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
