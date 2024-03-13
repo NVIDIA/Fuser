@@ -389,7 +389,7 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
       prof.kernel_profiles.size(),
       " seg_id: ",
       seg_id);
-  auto& kp = prof.kernel_profiles[seg_id];
+  const auto& kp = prof.kernel_profiles[seg_id];
 
   return std::tie(
       prof.fusion_id,
@@ -452,7 +452,6 @@ void FusionProfile::reset() {
   kernel_profiles.clear();
 }
 
-const size_t FusionProfile::first_cupti_idx = 5;
 const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
     // column_header, verbose, segment, list, column_width, number,
     // mantissa_width, unit_multiplier
@@ -492,7 +491,7 @@ double operator*(const std::basic_string<char>& a, double b) {
 }
 
 template <typename T, size_t I>
-std::string to_string(const std::array<T, I>& cont) {
+std::string toString(const std::array<T, I>& cont) {
   std::string out{"["};
   bool first_elem = true;
   for (const auto& elem : cont) {
@@ -508,7 +507,7 @@ std::string to_string(const std::array<T, I>& cont) {
 }
 
 template <bool NOCUPTI = false, size_t I = 0, typename... Ts>
-constexpr std::ostream& print_tuple(
+constexpr std::ostream& printTuple(
     std::ostream& os,
     std::tuple<Ts...> tup,
     size_t seg_id,
@@ -533,6 +532,11 @@ constexpr std::ostream& print_tuple(
           os << std::setprecision(desc.mantissa_width);
         }
         if (desc.unit_multiplier.has_value()) {
+          // NOTE: The "operator*(const std::basic_string<char>& a, double b)"
+          // that is defined in this anonymous namespace is used to prevent a
+          // compiler error in the following line as some tuple values are
+          // strings and trigger this overload even though it does not make
+          // sense to execute.
           os << static_cast<double>(
               std::get<I>(tup) * desc.unit_multiplier.value());
         } else {
@@ -541,7 +545,7 @@ constexpr std::ostream& print_tuple(
       }
     }
     // Going for next element.
-    return print_tuple<NOCUPTI, I + 1>(os, tup, seg_id, verbose);
+    return printTuple<NOCUPTI, I + 1>(os, tup, seg_id, verbose);
   }
 }
 } // namespace
@@ -580,12 +584,12 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 
   // Print no-cupti data per fusion
   if (fp.kernel_profiles.empty()) {
-    print_tuple<true>(os, FusionProfile::toNocuptiTuple(fp), 0, fp.verbose);
+    printTuple<true>(os, FusionProfile::toNocuptiTuple(fp), 0, fp.verbose);
     os << std::endl;
     // Print segment data per segment
   } else {
     for (size_t i = 0; i < fp.kernel_profiles.size(); ++i) {
-      print_tuple(os, FusionProfile::toTuple(fp, i), i, fp.verbose);
+      printTuple(os, FusionProfile::toTuple(fp, i), i, fp.verbose);
       os << std::endl;
     }
   }
@@ -751,17 +755,17 @@ void FusionProfiler::stop() {
       kprof.segment_id = static_cast<size_t>(kp_idx);
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
-      kprof.effective_bandwidth_gbs = (double)(segment(kp_idx).inputBytes() +
-                                               segment(kp_idx).outputBytes()) /
-          kprof.time_ms * mb_divider;
+      kprof.effective_bandwidth_gbs =
+          (double)(kprof.input_bytes + kprof.output_bytes) / kprof.time_ms *
+          mb_divider;
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
       kprof.compile_time_ms = segment(kp_idx).compileTime();
 
-      kprof.grid_str = to_string(kprof.grid);
-      kprof.block_str = to_string(kprof.block);
-      kprof.cluster_str = to_string(kprof.cluster);
-      kprof.shared_mem_str = to_string(kprof.shared_mem);
+      kprof.grid_str = toString(kprof.grid);
+      kprof.block_str = toString(kprof.block);
+      kprof.cluster_str = toString(kprof.cluster);
+      kprof.shared_mem_str = toString(kprof.shared_mem);
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);

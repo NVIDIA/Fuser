@@ -151,7 +151,10 @@ struct FusionProfile {
 
   void reset();
 
-  static const size_t first_cupti_idx;
+  //! NOTE: The "first cupti index" is used to indicate which table column is
+  //! the first column that contains CUPTI based information.  Therefore,
+  //! NVFUSER_DUMP=print.nocupti stops printing at this column.
+  static constexpr size_t first_cupti_idx{5};
   static const std::vector<ProfileAttrDescriptor> profile_attr_descs;
 
   bool verbose{isProfilerPrintingVerbose()};
