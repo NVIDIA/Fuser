@@ -106,6 +106,7 @@ class ExpressionEvaluator {
   PrecomputedValues* precomputed_values_ = nullptr;
   std::unordered_map<const Val*, PolymorphicValue> known_values_;
   std::unordered_map<std::string, PolymorphicValue> known_named_scalars_;
+  PolymorphicValue null_ = std::monostate{};
 };
 
 } // namespace nvfuser
