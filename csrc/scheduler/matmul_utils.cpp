@@ -364,7 +364,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
 
-  if (isOptionEnabled(EnableOption::MatmulExprEval)) {
+  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
     return params;
   }
 

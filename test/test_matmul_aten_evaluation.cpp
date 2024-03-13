@@ -37,9 +37,6 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard enable_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
-
   int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
 
@@ -76,9 +73,6 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
 TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-
-  EnableOptionsGuard enable_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
   int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
@@ -118,9 +112,6 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
 TEST_F(MatmulATenEvaluationTest, DISABLED_MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-
-  EnableOptionsGuard enable_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::MatmulExprEval);
 
   int64_t m = 32, n = 64, k = 128;
   std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
