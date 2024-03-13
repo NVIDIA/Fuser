@@ -70,6 +70,12 @@ struct KernelSummary {
   //! Do we have any welford op?
   bool has_grid_welford = false;
 
+  //! Do we have any iter grouped outer block reduction op?
+  bool has_iter_grouped_reductions = false;
+
+  //! number of grouped iters for grouped outer block reduction
+  int num_grouped_iterations = 1;
+
   //! Do we have any outer grouped grid welford op?
   bool has_outer_grouped_grid_welford = false;
 
@@ -103,7 +109,7 @@ struct KernelSummary {
 
   // Parallel dimension map needed to set the correct properties of grid buffers
   // (is a dim inactive)
-  ParallelDimensionMap parallel_dimension_map_;
+  ParallelDimensionMap parallel_dimension_map;
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;

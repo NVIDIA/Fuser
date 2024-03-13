@@ -95,7 +95,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
 //   dependent domains. Denotes groups of IterDomains that are
-//   considered promoted to a common iter domain
+//   promoted to a common iter domain
 class IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
@@ -132,15 +132,6 @@ class IdModel : public PolymorphicBase {
     return view_rfactor_ids_;
   }
 
-  // Returns if a self mapping was detected that would invalidate assumptions of
-  // the overall lowering system.
-  //
-  // TODO: Can we make this more of an alias analysis?
-  // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  bool hasSelfMapping() const {
-    return self_mapping_info_.has_value();
-  }
-
   std::string toString() const;
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
@@ -157,14 +148,16 @@ class IdModel : public PolymorphicBase {
   void buildAlmostExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
-  // Exact entries, then map through broadcasts
+  // Exact entries, then map through broadcasts. Build the Exact graph
+  // as well if not yet done.
   void buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
-  // domains that are mapped in the permissive graph
+  // domains that are mapped in the permissive graph. Build the Exact
+  // and Permissive graphs as well if not yet done.
   void buildLoopGraph();
 
-  // Build a graph
+  // Build a graph. Dependent graphs are also built if not yet done.
   void buildGraph(IdMappingMode mode);
 
   // Build a graph if not already built
@@ -246,8 +239,10 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
 
-  // Returns a similar thing to buildInlinePromotions but also includes iter
-  // domains that are not inlined.
+  // Given an IEL promotion map, identify the mapping of each loop
+  // group. The promotion must represent all the domains in each loop
+  // group. If a valid representative promotion is not found for a
+  // loop group, no mapping is added for the group.
   std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
@@ -259,9 +254,8 @@ class IdModel : public PolymorphicBase {
 
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
-  // within the loop group. It doesn't have to be in the loop
-  // group. Specifically, we examine each IEL group of the loop graph,
-  // and if an IEL group has a promotion, we consider it as a
+  // within the loop group. Specifically, we examine each IEL group of
+  // the loop group, and if an IEL group has a promotion, we consider it as a
   // candidate of the promotion of this loop group. If not, we include a
   // domain of the IEL group as a candidate too. We also look at the
   // inline promotion map since that may also contain the promotion the
@@ -391,17 +385,13 @@ class IdModel : public PolymorphicBase {
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 
-  // Debug information to hold if a self mapping in a TensorView is found.
-  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = std::nullopt;
+  std::unordered_set<IterDomain*> view_rfactor_ids_;
 
   // Loop promotion map for inlined root broadcast domains
   std::unordered_map<ValGroup, IterDomain*> iel_root_promotion_map_;
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
-
-  std::unordered_set<IterDomain*> view_rfactor_ids_;
 };
 
 } // namespace nvfuser

@@ -54,17 +54,21 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 } // namespace
 
 void IdModel::assertNoSelfMapping() {
-  NVF_ERROR(
-      !hasSelfMapping(),
-      "Unsupported domain mapping detected in ",
-      std::get<0>(*self_mapping_info_)->toString(),
-      ". ",
-      std::get<3>(*self_mapping_info_),
-      " domains, ",
-      std::get<1>(*self_mapping_info_)->toString(),
-      " and ",
-      std::get<2>(*self_mapping_info_)->toString(),
-      ", are mapped with each other.");
+  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+  for (TensorView* tv : tvs_) {
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    NVF_CHECK(
+        !self_mapping.has_value(),
+        "Unsupported domain mapping detected in ",
+        tv,
+        ". ",
+        self_mapping->where,
+        " domains, ",
+        self_mapping->id1,
+        " and ",
+        self_mapping->id2,
+        ", are mapped with each other.");
+  }
 }
 
 IdModel::IdModel(
@@ -1305,7 +1309,6 @@ void IdModel::buildAllGraphs() {
 
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(tvs_, *this);
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
   }
@@ -1380,48 +1383,6 @@ ValGraph IdModel::buildIntersection(
   return intersection;
 }
 
-VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
-    const StatefulInliningInfo& info) {
-  VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
-  for (const ValGroup& group :
-       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    if (group->size() == 1) {
-      terminal_loop_ids.pushBack(group->front()->as<IterDomain>());
-    }
-
-    // Don't select producer iter domains
-    for (auto loop_id : *group) {
-      if (info.p2c_ca_permissive_maps.find(loop_id->as<IterDomain>()) !=
-          info.p2c_ca_permissive_maps.end()) {
-        continue;
-      }
-
-      auto uses_it = id_uses_.find(loop_id->as<IterDomain>());
-      if (uses_it == id_uses_.end()) {
-        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
-        continue;
-      }
-
-      // If there's an output group that is not in the same group, then it's id
-      // consumer terminal. Also if there's no output groups it's id consumer
-      // terminal.
-      bool all_outs_in_loop_group = uses_it->second.empty() ? false : true;
-      for (auto use : uses_it->second) {
-        for (auto out_id : ir_utils::filterByType<IterDomain>(use->outputs())) {
-          if (group != idGraph(IdMappingMode::LOOP).toGroup(out_id)) {
-            all_outs_in_loop_group = false;
-          }
-        }
-      }
-
-      if (!all_outs_in_loop_group) {
-        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
-      }
-    }
-  }
-  return terminal_loop_ids;
-}
-
 namespace {
 
 // When propagating loop promotions from inputs to outputs of an IEL
@@ -1478,17 +1439,30 @@ Expr* findMatchingExpr(
     const std::vector<IterDomain*>& maybe_promoted_inputs,
     bool require_loop_mapped_promotion,
     const ValGraph& loop_graph) {
-  // Grab all uses of the promoted inputs
-  ExprGroups maybe_promoted_input_uses;
-  for (auto inp_id : maybe_promoted_inputs) {
-    // inp_id may have been just replayed, in which case it should
-    // not exist in the IEL graph. It should be just ignored as it
-    // should not have any use yet.
-    if (!iel_graph.hasGroup(inp_id)) {
-      continue;
-    }
-    const auto& inp_exact_group = iel_graph.toGroup(inp_id);
-    maybe_promoted_input_uses.pushBack(iel_graph.getUses(inp_exact_group));
+  // If any of domains in maybe_promoted_inputs is not found in
+  // iel_graph, it means the domain is just replayed and by definition
+  // has no mapping with any existing domain, which means there's no
+  // matching expr.
+  if (std::any_of(
+          maybe_promoted_inputs.begin(),
+          maybe_promoted_inputs.end(),
+          [&](IterDomain* maybe_promoted_input) -> bool {
+            return !iel_graph.hasGroup(maybe_promoted_input);
+          })) {
+    return nullptr;
+  }
+
+  // Grab all eligible uses of the promoted inputs.
+  // Note that any eligible matching expr should be a use of all
+  // inputs in maybe_promoted_input_uses, no matter it's promoted or
+  // not. So it isn't necessary to look at all of
+  // maybe_promoted_input_uses but just need to grab one.
+  NVF_ERROR(!maybe_promoted_inputs.empty());
+  ExprGroups maybe_promoted_input_uses =
+      iel_graph.getUses(iel_graph.toGroup(maybe_promoted_inputs.front()));
+
+  if (maybe_promoted_input_uses.empty()) {
+    return nullptr;
   }
 
   // Look for exprs that have inputs that are mapped in the IEL
@@ -1496,8 +1470,10 @@ Expr* findMatchingExpr(
   for (const ExprGroup& maybe_promoted_input_use_group :
        maybe_promoted_input_uses) {
     NVF_ERROR(!maybe_promoted_input_use_group->empty());
-    // TODO: why skip this? If iel_expr is also an use of the promoted
-    // inputs, shouldn't it be also a candidate?
+    // maybe_promoted_inputs may include non-promoted inputs as
+    // well, so maybe_promoted_input_uses may include the original
+    // iel_expr itself. Since there must at least be a promoted input,
+    // iel_expr itself should not be an expr group we are looking for.
     if (iel_expr == maybe_promoted_input_use_group) {
       continue;
     }
@@ -1511,12 +1487,8 @@ Expr* findMatchingExpr(
         maybe_promoted_input_use->inputs().size());
     bool all_inputs_match = true;
     for (const auto inp_i : c10::irange(maybe_promoted_inputs.size())) {
-      // Here, new promoted ids are not added to iel_graph, so
-      // once promoted, this should not return true anymore. Also,
-      // strictAreMapped doesn't work as promoted domains are not
-      // in the graph
       all_inputs_match = all_inputs_match &&
-          iel_graph.disjointValSets().permissiveAreMapped(
+          iel_graph.disjointValSets().strictAreMapped(
               maybe_promoted_inputs[inp_i],
               maybe_promoted_input_use->inputs().at(inp_i));
     }
@@ -1681,139 +1653,6 @@ void IdModel::propagatePromotionsInIELGraph(
       iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {}, false);
 }
 
-namespace {
-
-// Returns for each ValGroup in provided IdGraph what the input ValGroups are
-// traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
-// at RFactor ValGroups.
-std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph,
-    const std::unordered_set<IterDomain*>& view_rfactor_ids) {
-  // Map from an exact iter domain group, to all the exact iter domain groups it
-  // covers
-  std::unordered_map<ValGroup, ValGroups> covered_ids;
-
-  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
-    // Initialize inputs
-    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    if (id_group_defs.empty()) {
-      covered_ids[id_group] = {id_group};
-    }
-
-    // Initialize rfactor groups
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return view_rfactor_ids.find(id->as<IterDomain>()) !=
-              view_rfactor_ids.end();
-        })) {
-      covered_ids[id_group] = {id_group};
-    }
-
-    // Initialize broadcast groups to empty since broadcast domains
-    // don't matter for indexing
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return id->as<IterDomain>()->isBroadcast();
-        })) {
-      covered_ids[id_group] = {};
-    }
-  }
-
-  ValGraphStmtSort exact_stmt_sort(graph);
-
-  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
-    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
-
-    ValGroups covered;
-    for (const ValGroup& inp_group : input_groups) {
-      covered.pushBack(covered_ids.at(inp_group));
-    }
-
-    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
-      // Don't overwrite initialized cases due to rfactor markings.
-      if (covered_ids.find(output_group) == covered_ids.end()) {
-        covered_ids[output_group] = covered;
-      }
-    }
-  }
-
-  return covered_ids;
-}
-}; // namespace
-
-IterDomain* IdModel::findPromotionOfLoopGroup(
-    const ValGroup& loop_group,
-    const ValGraph& iel_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
-    const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
-    const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) {
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
-
-  std::unordered_map<ValGroup, IterDomain*> promotion_map;
-
-  // Grab all the (potentially promoted) terminal iter domains in this group.
-  // Save the exact group and the iter domain in this vector.
-  std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
-    // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
-      continue;
-    }
-
-    // Grab the iel entry
-    const ValGroup& iel_group = iel_graph.toGroup(loop_id);
-
-    // Does it still need iel_promotion_map? The loop group already has
-    // the replayed domains, so we should be able to find it.
-    auto iel_promo_it = iel_promotion_map.find(iel_group);
-    if (iel_promo_it == iel_promotion_map.end()) {
-      // If this terminal ID doesn't have a promotion associated with it, save
-      // the terminal ID.
-      exact_promoted_terminal_ids.emplace_back(
-          exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
-    } else {
-      // If this terminal ID has a promotion, grab the promoted ID.
-      exact_promoted_terminal_ids.emplace_back(
-          exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
-    }
-
-    if (auto loop_graph_promotion_map_it =
-            loop_graph_promotion_map.find(loop_group);
-        loop_graph_promotion_map_it != loop_graph_promotion_map.end()) {
-      VERBOSE() << "Found in loop promotion: " << nvfuser::toString(loop_group)
-                << std::endl;
-      exact_promoted_terminal_ids.emplace_back(
-          exact_graph.toGroup(loop_graph_promotion_map_it->second),
-          loop_graph_promotion_map_it->second);
-    }
-  }
-
-  // All the exact groups of the iter domains in the loop group
-  ValGroups exact_groups = exact_graph.toGroups(*loop_group);
-
-  // All exact groups covered by all iter domains in this loop group
-  ValGroups loop_group_covered_ids;
-  for (const ValGroup& exact_group : exact_groups) {
-    auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
-    loop_group_covered_ids.pushBack(covered_it->second);
-  }
-
-  // Check if any of the candidate Iter Domains we collected cover all the
-  // exact groups of loop_group_covered_ids. If so, that's the correct
-  // promoted iter domain of this group.
-  for (const auto& entry : exact_promoted_terminal_ids) {
-    const ValGroup& terminal_id_group = entry.first;
-    IterDomain* terminal_id = entry.second;
-    auto covered_it = exact_covered_ids.find(terminal_id_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
-    if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
-      return terminal_id;
-    }
-  }
-
-  return nullptr;
-}
-
 // Replay Expr but with the inputs provided.
 Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
   // Figure out which graphs are already initialized to make sure we add the new
@@ -1886,34 +1725,33 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);
-    id_uses_[out_id];
+    // out_id is a new IterDomain with no use expr yet. Initialize its
+    // use mapping with an empty set
+    NVF_ERROR(id_uses_.emplace(out_id, VectorOfUniqueEntries<Expr*>{}).second);
   }
 
   // Add the expression to the uses of the inputs
   for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-    id_definitions_[inp_id];
+    // inp_id should not be a new domain, so just make sure it has a
+    // def mapping.
+    NVF_ERROR(id_definitions_.find(inp_id) != id_definitions_.end());
     id_uses_[inp_id].pushBack(replay);
   }
 
   // Initialize output iter domains in the graphs
   for (auto mode : initialized_modes) {
-    idGraph(mode).registerExpr(replay);
-    auto replay_group = idGraph(mode).toGroup(replay);
+    auto& graph = idGraph(mode);
 
-    // Initialize output ids in map
+    // Initialize output ids in map. The replay expr will be
+    // registered as a definition by registerExpr
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      idGraph(mode).initializeVal(out_id, {replay}, {});
+      graph.initializeVal(out_id, {}, {});
     }
 
-    // Update uses of the inputs in the graphs
-    for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto inp_group = idGraph(mode).toGroup(inp_id);
-      idGraph(mode).addUniqueUses(inp_group, replay_group);
-    }
+    graph.registerExpr(replay);
 
     // Propagate through all the uses of the iter domain groups of the inputs
     // with the new expression.
-    auto& graph = idGraph(mode);
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (IterDomain* inp : new_inputs) {
@@ -1931,20 +1769,78 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
   return replay;
 }
 
+namespace {
+
+// Returns for each ValGroup in provided IdGraph what the input ValGroups are
+// traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
+// at RFactor ValGroups.
+std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
+    const ValGraph& graph,
+    const std::unordered_set<IterDomain*>& view_rfactor_ids) {
+  // Map from an exact iter domain group, to all the exact iter domain groups it
+  // covers
+  std::unordered_map<ValGroup, ValGroups> covered_ids;
+
+  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
+    // Initialize inputs
+    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
+    if (id_group_defs.empty()) {
+      covered_ids[id_group] = {id_group};
+    }
+
+    // Initialize rfactor groups
+    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+          return view_rfactor_ids.find(id->as<IterDomain>()) !=
+              view_rfactor_ids.end();
+        })) {
+      covered_ids[id_group] = {id_group};
+    }
+
+    // Initialize broadcast groups to empty since broadcast domains
+    // don't matter for indexing
+    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+          return id->as<IterDomain>()->isBroadcast();
+        })) {
+      covered_ids[id_group] = {};
+    }
+  }
+
+  ValGraphStmtSort exact_stmt_sort(graph);
+
+  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
+    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
+
+    ValGroups covered;
+    for (const ValGroup& inp_group : input_groups) {
+      covered.pushBack(covered_ids.at(inp_group));
+    }
+
+    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
+      // Don't overwrite initialized cases due to rfactor markings.
+      if (covered_ids.find(output_group) == covered_ids.end()) {
+        covered_ids[output_group] = covered;
+      }
+    }
+  }
+
+  return covered_ids;
+}
+}; // namespace
+
 std::unordered_map<ValGroup, IterDomain*> IdModel::
     projectIELPromotionToLoopGraph(
         const ValGraph& iel_graph,
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) {
-  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map;
-
-  std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
+  const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
       computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
       computeTerminalLoopIds(inlining_info);
+
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map;
 
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
@@ -1968,6 +1864,134 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::
   }
 
   return loop_promotion_map;
+}
+
+IterDomain* IdModel::findPromotionOfLoopGroup(
+    const ValGroup& loop_group,
+    const ValGraph& iel_graph,
+    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
+    const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+    const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) {
+  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+
+  std::unordered_map<ValGroup, IterDomain*> promotion_map;
+
+  // Grab all the (potentially promoted) terminal iter domains in this group.
+  // Save the exact group and the iter domain in this vector.
+  std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
+  for (auto loop_id : *loop_group) {
+    // If not a terminal id in the group skip
+    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+      continue;
+    }
+
+    // Grab the iel entry. There can be iter domains that were added
+    // after the IEL graph was built. All the promotion information is
+    // associated with the domains that exist in the original graph,
+    // so the new domains can be simply ignored.
+    if (!iel_graph.hasGroup(loop_id)) {
+      continue;
+    }
+
+    const ValGroup& iel_group = iel_graph.toGroup(loop_id);
+
+    // Does it still need iel_promotion_map? The loop group already has
+    // the replayed domains, so we should be able to find it.
+    auto iel_promo_it = iel_promotion_map.find(iel_group);
+    if (iel_promo_it == iel_promotion_map.end()) {
+      // If this terminal ID doesn't have a promotion associated with it, save
+      // the terminal ID.
+      exact_promoted_terminal_ids.emplace_back(
+          exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
+    } else {
+      // If this terminal ID has a promotion, grab the promoted ID.
+      exact_promoted_terminal_ids.emplace_back(
+          exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
+    }
+
+    if (auto loop_graph_promotion_map_it =
+            loop_graph_promotion_map.find(loop_group);
+        loop_graph_promotion_map_it != loop_graph_promotion_map.end()) {
+      VERBOSE() << "Found in loop promotion: " << nvfuser::toString(loop_group)
+                << std::endl;
+      exact_promoted_terminal_ids.emplace_back(
+          exact_graph.toGroup(loop_graph_promotion_map_it->second),
+          loop_graph_promotion_map_it->second);
+    }
+  }
+
+  // All the exact groups of the iter domains in the loop group
+  ValGroups exact_groups = exact_graph.toGroups(*loop_group);
+
+  // All exact groups covered by all iter domains in this loop group
+  ValGroups loop_group_covered_ids;
+  for (const ValGroup& exact_group : exact_groups) {
+    auto covered_it = exact_covered_ids.find(exact_group);
+    NVF_ERROR(covered_it != exact_covered_ids.end());
+    loop_group_covered_ids.pushBack(covered_it->second);
+  }
+
+  // Check if any of the candidate Iter Domains we collected cover all the
+  // exact groups of loop_group_covered_ids. If so, that's the correct
+  // promoted iter domain of this group.
+  for (const auto& entry : exact_promoted_terminal_ids) {
+    const ValGroup& terminal_id_group = entry.first;
+    IterDomain* terminal_id = entry.second;
+    auto covered_it = exact_covered_ids.find(terminal_id_group);
+    NVF_ERROR(covered_it != exact_covered_ids.end());
+    if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
+      return terminal_id;
+    }
+  }
+
+  return nullptr;
+}
+
+VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
+    const StatefulInliningInfo& info) {
+  VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
+  for (const ValGroup& group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    if (group->size() == 1) {
+      terminal_loop_ids.pushBack(group->front()->as<IterDomain>());
+    }
+
+    // Don't select producer iter domains
+    for (auto loop_id : *group) {
+      if (info.p2c_ca_permissive_maps.find(loop_id->as<IterDomain>()) !=
+          info.p2c_ca_permissive_maps.end()) {
+        continue;
+      }
+
+      // It's terminal if there's no use group
+      auto uses_it = id_uses_.find(loop_id->as<IterDomain>());
+      if (uses_it == id_uses_.end() || uses_it->second.empty()) {
+        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
+        continue;
+      }
+
+      // If there's an output group that is not in the same group,
+      // then it's a terminal ID
+      bool all_outs_in_loop_group = true;
+      for (auto use : uses_it->second) {
+        if (std::any_of(
+                use->outputs().begin(),
+                use->outputs().end(),
+                [&](Val* out) -> bool {
+                  return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+                })) {
+          all_outs_in_loop_group = false;
+          break;
+        }
+      }
+
+      if (!all_outs_in_loop_group) {
+        terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
+      }
+    }
+  }
+  return terminal_loop_ids;
 }
 
 void IdModel::sanityCheckLoopPromotionMap(

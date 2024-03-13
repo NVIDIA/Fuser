@@ -71,6 +71,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
+  PredicateElimination, //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -85,6 +86,10 @@ enum class EnableOption {
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
   WarnRegisterSpill, //! Enable warnings of register spill
+  MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
+                  //! matmul
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
 };
 

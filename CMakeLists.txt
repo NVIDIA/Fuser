@@ -504,10 +504,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_memory.cpp
   ${NVFUSER_ROOT}/test/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/test/test_no_op.cpp
+  ${NVFUSER_ROOT}/test/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
   ${NVFUSER_ROOT}/test/test_pointwise.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
+  ${NVFUSER_ROOT}/test/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/test/test_replay.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
   ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/test/test_segmentation.cpp
@@ -515,6 +518,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/test/test_swizzle.cpp
   ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
+  ${NVFUSER_ROOT}/test/test_unary.cpp
 )
 
 if(BUILD_TEST)
@@ -569,6 +573,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_sharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
@@ -583,6 +588,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_aten_evaluation.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
@@ -692,6 +698,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
+  ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/bit.cu
   ${NVFUSER_ROOT}/runtime/block_reduction.cu
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu

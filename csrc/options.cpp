@@ -132,6 +132,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
       {"pre_segmenter_logging", DebugDumpOption::PreSegmenterLogging},
+      {"predicate_elimination", DebugDumpOption::PredicateElimination},
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
@@ -156,7 +157,10 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
       {"static_fusion_count", EnableOption::StaticFusionCount},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill}};
+      {"warn_register_spill", EnableOption::WarnRegisterSpill},
+      {"matmul_expr_eval", EnableOption::MatmulExprEval},
+      {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
+  };
 
   return parseEnvOptions("ENABLE", available_options);
 }
@@ -211,18 +215,13 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-// These may need to be thread local, or their modifications may need to
-// be protected by mutual exclusion for thread safety. At this
-// moment, the correctness of modifying option values has to be
-// guaranteed by the modifying code.
+thread_local DebugDumpOptions active_dump_options;
 
-DebugDumpOptions active_dump_options;
+thread_local EnableOptions active_enable_options;
 
-EnableOptions active_enable_options;
+thread_local DisableOptions active_disable_options;
 
-DisableOptions active_disable_options;
-
-ProfilerOptions active_profiler_options;
+thread_local ProfilerOptions active_profiler_options;
 
 } // namespace
 

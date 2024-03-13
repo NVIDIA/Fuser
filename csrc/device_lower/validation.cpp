@@ -589,9 +589,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
           def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()),
-          "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
-          "TensorView: ",
-          tv);
+          "Vectorized accesses cannot be inline with computation: ",
+          (def == nullptr ? tv->toString() : def->toString()));
     }
     // Validate the vectorized domain maps to the innermost domain of
     // tv. Note that we don't need to validate its producer tv as
@@ -1006,7 +1005,12 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
+  // To avoid errors in analysis when using ATen evaluation for matmul, only
+  // validate expressions that require codegen. See PR # 1775 and Issue #1812
+  std::vector<Val*> outs_requiring_codegen =
+      lower_utils::getFusionOutputsRequiringCodegen(fusion);
+  auto exprs = StmtSort::getExprsBetween(
+      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -1173,18 +1177,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     if (tv->definition()->isA<ReductionOp>()) {
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
-
-      NVF_CHECK(
-          is_allreduce,
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for allreduce reductions: ",
-          rop->toString());
-
-      NVF_CHECK(
-          tv->domain()->hasGridReduction(),
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for grid reductions: ",
-          rop->toString());
 
       std::vector<BinaryOpType> op_types({rop->getReductionOpType()});
       std::vector<Val*> init_vals({rop->init()});
