@@ -1269,9 +1269,12 @@ TensorDomain* fullReplay(
   }
   NVF_CHECK(
       !old_domain->hasAllocation(),
-      "Due to #986, the allocation domain may or may not be between root and leaf. So, when `old_domain` has allocation, it may be incorrect to use its leaf as the target domain: ",
+      "Due to #986, the allocation domain may or may not be between root and "
+      "leaf. So, when `old_domain` has allocation, it may be incorrect to "
+      "use its leaf as the target domain: ",
       old_domain->toString(0, /*leaf_only=*/false));
   ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+  replay.setReplayRFactor(true);
 
   std::vector<IterDomain*> new_leaf;
   new_leaf.reserve(old_domain->nDims());
@@ -1318,19 +1321,31 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
   std::vector<Val*> new_outs;
   new_outs.reserve(e->outputs().size());
 
-  for (Val* old : e->outputs()) {
-    auto* old_tv = dynamic_cast<TensorView*>(old);
+  for (Val* old_out : e->outputs()) {
+    auto* old_out_tv = dynamic_cast<TensorView*>(old_out);
     NVF_CHECK(
-        old_tv != nullptr,
+        old_out_tv != nullptr,
         "This function doesn't support non-TensorView outputs yet: ",
-        old);
+        old_out);
+    TensorDomain* old_domain = old_out_tv->domain();
 
-    std::vector<IterDomain*> new_root = IterDomain::clone(
-        TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain()));
-    TensorDomain* new_domain = fullReplay(old_tv->domain(), new_root);
-    TensorView* new_tv =
-        IrBuilder::create<TensorView>(new_domain, *old->getDataType());
-    new_outs.push_back(new_tv);
+    std::vector<IterDomain*> new_out_root;
+    new_out_root.reserve(old_domain->root().size());
+    size_t i = 0;
+    for (IterDomain* in_rfactor_id :
+         TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
+      // Copy the `rf` flag from `old_domain` and everything else from
+      // `in_rfactor_id`.
+      new_out_root.push_back(
+          IterDomainBuilder(in_rfactor_id)
+              .is_rfactor_domain(old_domain->root()[i]->isRFactorProduct())
+              .build());
+      i++;
+    }
+    TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
+    TensorView* new_out_tv =
+        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+    new_outs.push_back(new_out_tv);
   }
 
   return e->newObjectFunc()(

@@ -824,6 +824,11 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
+  // break point is beyond the range of vectorize_maps_entry, no vectorization.
+  if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
+    return 1;
+  }
+
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
@@ -922,6 +927,17 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
+  // Find the conrresponding producer break point. To the right of the
+  // break point, there must be only the producer innermost IDs or
+  // reduction IDs
+  int64_t break_point = (int64_t)(reduction_producer->nDims());
+
+  // short-cut to to return break point when no c2p mapping is going to be
+  // performed
+  if (consumer_innermost_ndims == 0) {
+    return break_point;
+  }
+
   const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
                        .mapConsumerToProducer();
 
@@ -941,10 +957,6 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     producer_innermost_ids.insert(producer_id);
   }
 
-  // Find the conrresponding producer break point. To the right of the
-  // break point, there must be only the producer innermost IDs or
-  // reduction IDs
-  int64_t break_point = (int64_t)(reduction_producer->nDims());
   int num_detected_producer_innermost_ids = 0;
   for (auto it = reduction_producer->getMaybeRFactorDomain().rbegin();
        it != reduction_producer->getMaybeRFactorDomain().rend();
