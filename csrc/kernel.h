@@ -109,7 +109,7 @@ struct KernelSummary {
 
   // Parallel dimension map needed to set the correct properties of grid buffers
   // (is a dim inactive)
-  ParallelDimensionMap parallel_dimension_map_;
+  ParallelDimensionMap parallel_dimension_map;
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;

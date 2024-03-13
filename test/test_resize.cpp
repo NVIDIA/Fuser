@@ -23,6 +23,10 @@ namespace nvfuser {
 
 class ResizeTest : public NVFuserTest {};
 
+using testing::Each;
+using testing::Not;
+using testing::Property;
+
 // Simple pad test
 TEST_F(ResizeTest, FusionResizePad1) {
   Fusion fusion;
@@ -3290,6 +3294,55 @@ TEST_F(ResizeTest, SqueezeSlicedExpand) {
 
   testValidate(
       fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// Vectorization through resize is not supported yet. Make sure
+// vectorization is disabled.
+TEST_F(ResizeTest, AvoidVectorization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 2D tensor with a large enough inner domain. The outer
+  // domain will be padded.
+  std::vector<int64_t> shape({2, 1000L * 128});
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = pad(
+      tv0,
+      {fusion.zeroVal(), fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()});
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  // The pointwise scheduler should tell the vectorization factor is
+  // 4.
+  auto params = getPointwiseHeuristics(&fusion, inputs);
+  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+
+  schedulePointwise(&fusion, *params);
+
+  // Make sure tv1 is not vectorized, i.e., no leaf IterDomains are vectorized.
+  EXPECT_THAT(
+      tv1->getLeafDomain(),
+      Each(
+          Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
+      << "Unexpected vectorization: " << tv1;
+
+  // Make sure tv2 should be vectorized, i.e., at least one leaf IterDomain is
+  // vectorized.
+  EXPECT_THAT(
+      tv2->getLeafDomain(),
+      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+      << "Failed to vectorize: " << tv2;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
