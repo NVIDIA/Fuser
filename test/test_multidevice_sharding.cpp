@@ -18,12 +18,17 @@
 
 namespace nvfuser {
 
-TEST(NVFuserTest, TestShardedComputeIndex2) {
+class ShardedComputeTest : public NVFuserTest,
+                           public ::testing::WithParamInterface<bool> {};
+
+TEST_P(ShardedComputeTest, ComputeIndex) {
+  auto concreteTv = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh({0, 1, 2});
 
-  TensorView* a = makeConcreteTensor({4, 2, 3, 5});
+  TensorView* a =
+      concreteTv ? makeConcreteTensor({4, 2, 3, 5}) : makeSymbolicTensor(4);
   TensorView* b = sum(a, {0});
   TensorView* c = add(a, a);
   TensorView* d = permute(a, {{2, 0}});
@@ -32,7 +37,7 @@ TEST(NVFuserTest, TestShardedComputeIndex2) {
   fusion->addOutput(b);
   fusion->addOutput(c);
   fusion->addOutput(d);
-  
+
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
@@ -42,75 +47,28 @@ TEST(NVFuserTest, TestShardedComputeIndex2) {
   c->axis(2)->parallelize(ParallelType::DIDx);
   d->axis(0)->parallelize(ParallelType::DIDx);
 
-  fusion->printKernel();
-  
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto a_ = at::randn({4, 2, 1, 5}, options);
   auto b_ = at::sum(a_, {0});
   auto c_ = a_ + a_;
   auto d_ = at::permute(a_, {2, 0, 1, 3});
-  std::cout << "a" << a_ << std::endl;
-  std::cout << "b" << b_ << std::endl;
-  std::cout << "c" << c_ << std::endl;
-  std::cout << "d" << d_ << std::endl;
   std::vector<at::Tensor> outputs_ = {b_, c_, d_};
-
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {a_});
   auto outputs = fe.runFusion({a_});
-  for (auto i : outputs) {
-    std::cout << i << std::endl;
-  }
   testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, TestShardedComputeIndex) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2});
+INSTANTIATE_TEST_SUITE_P(
+    ConcreteInput,
+    ShardedComputeTest,
+    ::testing::Values(true));
 
-  TensorView* a = makeSymbolicTensor(4); //makeConcreteTensor({4, 2, 3, 5});
-  TensorView* b = sum(a, {0});
-  TensorView* c = add(a, a);
-  TensorView* d = permute(a, {{2, 0}});
-
-  fusion->addInput(a);
-  fusion->addOutput(b);
-  fusion->addOutput(c);
-  fusion->addOutput(d);
-  
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  c->setDeviceMesh(mesh);
-  d->setDeviceMesh(mesh);
-  a->axis(2)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
-  c->axis(2)->parallelize(ParallelType::DIDx);
-  d->axis(0)->parallelize(ParallelType::DIDx);
-
-  fusion->printKernel();
-  
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto a_ = at::randn({4, 2, 1, 5}, options);
-  auto b_ = at::sum(a_, {0});
-  auto c_ = a_ + a_;
-  auto d_ = at::permute(a_, {2, 0, 1, 3});
-  std::cout << "a" << a_ << std::endl;
-  std::cout << "b" << b_ << std::endl;
-  std::cout << "c" << c_ << std::endl;
-  std::cout << "d" << d_ << std::endl;
-  std::vector<at::Tensor> outputs_ = {b_, c_, d_};
-
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {a_});
-  auto outputs = fe.runFusion({a_});
-  for (auto i : outputs) {
-    std::cout << i << std::endl;
-  }
-  testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
-}
+INSTANTIATE_TEST_SUITE_P(
+    SymbolicInput,
+    ShardedComputeTest,
+    ::testing::Values(false));
 
 class ShardingTest : public MultiDeviceTest,
                      public ::testing::WithParamInterface<bool> {};

@@ -149,7 +149,7 @@ void ExpressionEvaluator::bind_(
         // with size 1, but the symbolic axis extent is binded with the extent
         // of the DeviceMesh
         NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(i));
         bind_(
             rfactor_domain[i]->extent(),
             (int)tv->getDeviceMesh().vector().size(),

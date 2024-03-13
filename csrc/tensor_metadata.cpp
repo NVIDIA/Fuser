@@ -347,11 +347,6 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   // refer to size and stride of the sharded tensor.
   metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
-  if (isSharded(tv)) {
-    std::cout << "Tensor metadata " << tv->toString() << std::endl;
-    std::cout << "sizes " << metadata->logical_size << std::endl;
-    std::cout << "strides " << metadata->logical_stride << std::endl;
-  }
   if (tv->hasAllocation()) {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);

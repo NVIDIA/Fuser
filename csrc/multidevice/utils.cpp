@@ -181,22 +181,4 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-// Current limitations:
-// 1. Assumes only the outermost dimension is sharded
-// 2. Extent of sharded dimension == number of devices in mesh
-std::vector<int64_t> unshardedSize(
-    TensorView* tv,
-    c10::IntArrayRef sharded_sizes) {
-  std::vector<int64_t> unsharded_sizes;
-  std::copy(
-      sharded_sizes.begin(),
-      sharded_sizes.end(),
-      std::back_inserter(unsharded_sizes));
-  if (isSharded(tv)) {
-    auto num_devices = tv->getDeviceMesh().vector().size();
-    unsharded_sizes[0] = static_cast<int64_t>(num_devices);
-  }
-  return unsharded_sizes;
-}
-
 } // namespace nvfuser
