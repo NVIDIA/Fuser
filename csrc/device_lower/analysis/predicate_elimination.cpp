@@ -587,6 +587,11 @@ class PredicateChcker : public IterVisitor {
   // See FusionPredicateElimination7 for a concrete example.
   bool predicateNonDivisibleSplit(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      RECORD_AND_RETURN(false);
+    }
     const auto& non_divisible_split_info =
         GpuLower::current()->nonDivisibleSplitInfo();
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
