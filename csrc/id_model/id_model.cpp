@@ -1225,8 +1225,6 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
 
-  std::unordered_map<ValGroup, IterDomain*> promotion_map;
-
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
@@ -1304,21 +1302,25 @@ VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
         continue;
       }
 
+      // It's terminal if there's no use group
       auto uses_it = id_uses_.find(loop_id->as<IterDomain>());
-      if (uses_it == id_uses_.end()) {
+      if (uses_it == id_uses_.end() || uses_it->second.empty()) {
         terminal_loop_ids.pushBack(loop_id->as<IterDomain>());
         continue;
       }
 
-      // If there's an output group that is not in the same group, then it's id
-      // consumer terminal. Also if there's no output groups it's id consumer
-      // terminal.
-      bool all_outs_in_loop_group = uses_it->second.empty() ? false : true;
+      // If there's an output group that is not in the same group,
+      // then it's a terminal ID
+      bool all_outs_in_loop_group = true;
       for (auto use : uses_it->second) {
-        for (auto out_id : ir_utils::filterByType<IterDomain>(use->outputs())) {
-          if (group != idGraph(IdMappingMode::LOOP).toGroup(out_id)) {
-            all_outs_in_loop_group = false;
-          }
+        if (std::any_of(
+                use->outputs().begin(),
+                use->outputs().end(),
+                [&](Val* out) -> bool {
+                  return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+                })) {
+          all_outs_in_loop_group = false;
+          break;
         }
       }
 

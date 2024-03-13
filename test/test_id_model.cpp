@@ -256,7 +256,7 @@ void checkStep2Results(
 // the promotion map is exactly the same as a given reference
 // map. Since the valid promotion map may not be unique, the exact
 // equality is not required, however, as long as everything is done
-// deterministically, the resulting map should alwasy be the
+// deterministically, the resulting map should always be the
 // same. The exact equality helps ensure the determinism as well.
 void checkStep3Results(
     const ValGraph& loop_graph,
@@ -284,10 +284,6 @@ void checkStep3Results(
           << ". Actual: " << promotion_id->toString();
       continue;
     }
-
-    ASSERT_NE(ref_promotion_it, ref_promotion_map.end())
-        << "No matching loop group found in the reference map: "
-        << nvfuser::toString(loop_group);
 
     auto ref_promotion_id = ref_promotion_it->second;
     ASSERT_EQ(promotion_id, ref_promotion_id)
@@ -1155,8 +1151,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {
-          // 1, 2, 3, 46, 6, 7, 41, 8, 9, 10, 35, 36, 11, 12, 61, 15, 16, 56,
-          // 17, 18, 29, 30, 79, 80 -> 79
+          // 1 2 3 6 7 8 9 10 11 12 15 16 17 18 19 29 30 35 36 41 46 56 61
+          // 79 80 -> 80
           {std::unordered_set<Val*>{
                tv1->getRootDomain().at(0),
                tv2->getRootDomain().at(0),
@@ -1184,7 +1180,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
                id79,
                id80},
            id80},
-          // 71, 47, 42, 37, 62, 57, 31, 81, 83 -> 83
+          // 31 37 42 47 57 62 71 81 83 -> 83
           {std::unordered_set<Val*>{
                getChildId(tv1->getRootDomain().at(0), 1),
                getChildId(tv2->getRootDomain().at(0), 2),
@@ -1196,7 +1192,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
                id81,
                id83},
            id83},
-          // 73, 49, 44, 39, 64, 59, 33, 85, 87 -> 87
+          // 33 39 44 49 59 64 73 85 87 -> 87
           {std::unordered_set<Val*>{
                tv1->axis(0),
                tv2->axis(0),
@@ -1212,17 +1208,17 @@ TEST_F(IdModelTest, LoopPromotion6) {
           {std::unordered_set<Val*>{tv2->axis(2)}, tv4->axis(2)},
           // 50 -> 45
           {std::unordered_set<Val*>{tv2->axis(1)}, tv4->axis(1)},
-          // 40, 88 -> 88
+          // 40 88 -> 88
           {std::unordered_set<Val*>{tv5->axis(1), id88}, id88},
           // 63 -> 58
           {std::unordered_set<Val*>{tv6->axis(2)}, tv8->axis(2)},
           // 65 -> 60
           {std::unordered_set<Val*>{tv6->axis(1)}, tv8->axis(1)},
-          // 34, 86 -> 86
+          // 34 86 -> 86
           {std::unordered_set<Val*>{tv9->axis(1), id86}, id86},
-          // 38, 84 -> 84
+          // 38 84 -> 84
           {std::unordered_set<Val*>{tv5->axis(2), id84}, id84},
-          // 32, 82 -> 82 (TODO: update the doc)
+          // 32 82 -> 82
           {std::unordered_set<Val*>{tv9->axis(2), id82}, id82},
       };
 
@@ -1297,16 +1293,6 @@ TEST_F(IdModelTest, LoopPromotion7) {
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {
-          // 3, 4, 5, 14, 6, 7, 8, -> 8
-          {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(0),
-               tv3->getRootDomain().at(0),
-               tv3->getRootDomain().at(1),
-               getChildId(tv3->getRootDomain().at(0), 1),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
-               getChildId(tv4->getRootDomain().at(0), 1)},
-           getChildId(tv4->getRootDomain().at(0), 1)},
           // 3, 4, 5, 14, 6, 7, 8, -> 8
           {std::unordered_set<Val*>{
                tv2->getRootDomain().at(0),
@@ -1423,7 +1409,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {
-          // 1, 2, 3, 20, 6, 7, 17, 8, 9, 26, 14, 15, 29
+          // 1, 2, 3, 20, 6, 7, 17, 8, 9, 26, 14, 15, 29 -> 29
           {std::unordered_set<Val*>{
                tv1->getRootDomain().at(0),
                tv2->getRootDomain().at(0),
