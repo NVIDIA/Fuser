@@ -2350,6 +2350,10 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
   int M = 4096, N = 4096, K = 4096;
+  // This tests num_stages=0, which should be treated identically to
+  // num_stages=1. It is put here to exercise this path to ensure we don't
+  // crash in generateSharedMemoryEpilogueHeuristics.
+  // See https://github.com/NVIDIA/Fuser/pull/1917 for more info
   for (int num_stages : {0, 2}) {
     for (auto layout : kAllSupportedMmaLayout) {
       Fusion fusion;
