@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
 #include <cupti.h>
 #include <fusion_profiler.h>
 #include <iomanip>
@@ -59,8 +60,8 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
       prof.cluster = {
           pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
-      prof.dynamic_shared_mem = pKARecord->dynamicSharedMemory;
-      prof.static_shared_mem = pKARecord->staticSharedMemory;
+      prof.shared_mem = {
+          pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
       prof.registers = pKARecord->registersPerThread;
 
       FusionProfiler::recordAsyncKernelActivity(std::move(prof));
@@ -378,6 +379,61 @@ uint32_t SegmentProfiler::segmentId() const {
   return segment_id_;
 }
 
+auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
+  NVF_CHECK(
+      !prof.kernel_profiles.empty(),
+      "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
+  NVF_CHECK(
+      seg_id < prof.kernel_profiles.size(),
+      "Invalid seg_id for FusionProfile. Segments: ",
+      prof.kernel_profiles.size(),
+      " seg_id: ",
+      seg_id);
+  const auto& kp = prof.kernel_profiles[seg_id];
+
+  return std::tie(
+      prof.fusion_id,
+      prof.segments,
+      prof.cuda_evt_time_ms,
+      prof.host_time_ms,
+      prof.compile_time_ms,
+      prof.kernel_time_ms,
+      prof.effective_bandwidth_gbs,
+      prof.percentage_peak_bandwidth,
+      prof.input_bytes,
+      prof.output_bytes,
+      kp.segment_id,
+      kp.time_ms,
+      kp.compile_time_ms,
+      kp.effective_bandwidth_gbs,
+      kp.percentage_peak_bandwidth,
+      kp.input_bytes,
+      kp.output_bytes,
+      kp.shared_mem_str,
+      kp.registers,
+      kp.grid_str,
+      kp.block_str,
+      kp.cluster_str,
+      kp.device,
+      kp.stream,
+      kp.peak_bandwidth_gbs,
+      kp.device_name,
+      kp.name);
+}
+
+auto FusionProfile::toNocuptiTuple(const FusionProfile& prof) {
+  NVF_CHECK(
+      prof.kernel_profiles.empty(),
+      "Cannot convert FusionProfile to a tuple without CUPTI gathered stats!");
+
+  return std::tie(
+      prof.fusion_id,
+      prof.segments,
+      prof.cuda_evt_time_ms,
+      prof.host_time_ms,
+      prof.compile_time_ms);
+}
+
 void FusionProfile::reset() {
   fusion_id = -1;
   segments = 0;
@@ -387,150 +443,163 @@ void FusionProfile::reset() {
   compile_time_ms = 0.0;
   kernel_time_ms = 0.0;
 
-  input_bytes = 0;
-  output_bytes = 0;
-
   effective_bandwidth_gbs = 0.0;
   percentage_peak_bandwidth = 0.0;
+
+  input_bytes = 0;
+  output_bytes = 0;
 
   kernel_profiles.clear();
 }
 
-std::array<const char*, 25> column_strs{
-    "Fus#",      "NSegs",       "CuEvtTm(ms)",  "HstTm(ms)",
-    "CmpTm(ms)", "KerTm(ms)",   "EffBw(GB/s)",  "%PeakBw",
-    "S-Seg#",    "S-KerTm(ms)", "S-CmpTm(ms)",  "S-EffBw(GB/s)",
-    "S-%PeakBw", "S-In(MB)",    "S-Out(MB)",    "S-Smem[Dyn,Stat]",
-    "S-Regs",    "S-Grid",      "S-Block",      "S-Cluster",
-    "S-Dev",     "S-Stm",       "S-PkBw(GB/s)", "S-DeviceName",
-    "S-KerName"};
+const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
+    // column_header, verbose, segment, list, column_width, number,
+    // mantissa_width, unit_multiplier
+    {"Fus#", false, false, false, 5, true, 0, std::nullopt},
+    {"NSegs", false, false, false, 5, true, 0, std::nullopt},
+    {"CuEvtTm(ms)", false, false, false, 11, true, 3, std::nullopt},
+    {"HstTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"CmpTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"KerTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"EffBw(GB/s)", false, false, false, 11, true, 3, std::nullopt},
+    {"%PkBw", false, false, false, 7, true, 2, std::nullopt},
+    {"In(MB)", true, false, false, 8, true, 3, 1.0e-6},
+    {"Out(MB)", true, false, false, 9, true, 3, 1.0e-6},
+    {"S-Seg#", false, true, false, 6, true, 0, std::nullopt},
+    {"S-KerTm(ms)", false, true, false, 11, true, 3, std::nullopt},
+    {"S-CmpTm(ms)", true, true, false, 11, true, 3},
+    {"S-EffBw(GB/s)", false, true, false, 13, true, 3, std::nullopt},
+    {"S-%PkBw", false, true, false, 7, true, 2, std::nullopt},
+    {"S-In(MB)", false, true, false, 8, true, 3, 1.0e-6},
+    {"S-Out(MB)", false, true, false, 9, true, 3, 1.0e-6},
+    {"S-Smem[Dyn,Stat]", false, true, true, 16, false, 0, std::nullopt},
+    {"S-Regs", false, true, false, 6, true, 0, std::nullopt},
+    {"S-Grid", false, true, true, 16, true, 0, std::nullopt},
+    {"S-Block", false, true, true, 16, false, 0, std::nullopt},
+    {"S-Cluster", true, true, true, 16, false, 0, std::nullopt},
+    {"S-Dev", true, true, false, 5, true, 0, std::nullopt},
+    {"S-Stm", true, true, false, 5, true, 0, std::nullopt},
+    {"S-PkBw(GB/s)", true, true, false, 12, true, 3, std::nullopt},
+    {"S-DeviceName", true, true, false, 20, false, 0, std::nullopt},
+    {"S-KerName", false, true, false, 20, false, 0, std::nullopt}};
+
+namespace {
+// The operator* overloads are to satisfy the compiler and should not be called!
+double operator*(const std::basic_string<char>& a, double b) {
+  NVF_ERROR(false, "This types operator* overload should not be called!");
+  return 0.0;
+}
+
+template <typename T, size_t I>
+std::string toString(const std::array<T, I>& cont) {
+  std::string out{"["};
+  bool first_elem = true;
+  for (const auto& elem : cont) {
+    if (first_elem) {
+      first_elem = false;
+    } else {
+      out += ", ";
+    }
+    out += std::to_string(elem);
+  }
+  out += "]";
+  return out;
+}
+
+template <bool NOCUPTI = false, size_t I = 0, typename... Ts>
+constexpr std::ostream& printTuple(
+    std::ostream& os,
+    std::tuple<Ts...> tup,
+    size_t seg_id,
+    bool verbose) {
+  if constexpr (
+      (I == sizeof...(Ts)) ||
+      (NOCUPTI && (I == FusionProfile::first_cupti_idx))) {
+    return os;
+  } else {
+    os << std::setfill(' ') << std::fixed << std::right;
+    const auto& desc = FusionProfile::profile_attr_descs.at(I);
+    // Print the tuple and go to next element
+    if ((verbose && desc.verbose) || !desc.verbose) {
+      if constexpr (I > 0) {
+        os << " ";
+      }
+      os << std::setw(desc.column_width);
+      if (seg_id > 0 && !desc.segment) {
+        os << "-";
+      } else {
+        if (desc.number) {
+          os << std::setprecision(desc.mantissa_width);
+        }
+        if (desc.unit_multiplier.has_value()) {
+          // NOTE: The "operator*(const std::basic_string<char>& a, double b)"
+          // that is defined in this anonymous namespace is used to prevent a
+          // compiler error in the following line as some tuple values are
+          // strings and trigger this overload even though it does not make
+          // sense to execute.
+          os << static_cast<double>(
+              std::get<I>(tup) * desc.unit_multiplier.value());
+        } else {
+          os << std::get<I>(tup);
+        }
+      }
+    }
+    // Going for next element.
+    return printTuple<NOCUPTI, I + 1>(os, tup, seg_id, verbose);
+  }
+}
+} // namespace
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
+  // Print headers only for first fusion
   if (fp.fusion_id == 0) {
     // `os` may have leftover characters in the line
     // before the header is printed. So we start with a newline.
     os << std::endl;
+    // Print headers starting on the left
+    os << std::setfill(' ') << std::left;
 
-    os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
-       << std::setw(5) << std::get<1>(column_strs) << " " << std::setw(11)
-       << std::get<2>(column_strs) << " " << std::setw(9)
-       << std::get<3>(column_strs) << " " << std::setw(9)
-       << std::get<4>(column_strs);
-
-    if (!fp.kernel_profiles.empty()) {
-      os << " " << std::setw(9) << std::get<5>(column_strs) << " "
-         << std::setw(11) << std::get<6>(column_strs) << " " << std::setw(9)
-         << std::get<7>(column_strs);
-
-      os << " " << std::setw(6) << std::get<8>(column_strs) << " "
-         << std::setw(9) << std::get<9>(column_strs);
-
-      if (fp.verbose) {
-        os << " " << std::setw(11) << std::get<10>(column_strs);
+    // Print no-cupti headers
+    for (size_t i = 0; i < FusionProfile::first_cupti_idx; ++i) {
+      const auto& desc = FusionProfile::profile_attr_descs.at(i);
+      if (i > 0) {
+        os << " ";
       }
-
-      os << " " << std::setw(13) << std::get<11>(column_strs) << " "
-         << std::setw(9) << std::get<12>(column_strs) << " " << std::setw(9)
-         << std::get<13>(column_strs) << " " << std::setw(9)
-         << std::get<14>(column_strs) << " " << std::setw(16)
-         << std::get<15>(column_strs) << " " << std::setw(6)
-         << std::get<16>(column_strs) << " " << std::setw(16)
-         << std::get<17>(column_strs) << " " << std::setw(16)
-         << std::get<18>(column_strs);
-
-      if (fp.verbose) {
-        os << " " << std::setw(16) << std::get<19>(column_strs) << " "
-           << std::setw(5) << std::get<20>(column_strs) << " " << std::setw(5)
-           << std::get<21>(column_strs) << " " << std::setw(12)
-           << std::get<22>(column_strs) << " " << std::setw(20)
-           << std::get<23>(column_strs);
-      }
-
-      os << " " << std::setw(20) << std::get<24>(column_strs);
+      os << std::setw(desc.column_width) << desc.column_header;
     }
 
+    // Print cupti collected column headers
+    if (!fp.kernel_profiles.empty()) {
+      for (size_t i = FusionProfile::first_cupti_idx;
+           i < FusionProfile::profile_attr_descs.size();
+           ++i) {
+        const auto& desc = FusionProfile::profile_attr_descs.at(i);
+        if ((fp.verbose && desc.verbose) || !desc.verbose) {
+          os << " " << std::setw(desc.column_width) << desc.column_header;
+        }
+      }
+    }
     os << std::endl;
   }
 
+  // Print no-cupti data per fusion
   if (fp.kernel_profiles.empty()) {
-    os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
-       << fp.fusion_id << " " << std::setw(5) << fp.segments << " "
-       << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms << " "
-       << std::setw(9) << std::setprecision(3) << fp.host_time_ms << " "
-       << std::setw(9) << std::setprecision(3) << fp.compile_time_ms
-       << std::endl;
+    printTuple<true>(os, FusionProfile::toNocuptiTuple(fp), 0, fp.verbose);
+    os << std::endl;
+    // Print segment data per segment
   } else {
-    bool first_prof = true;
-    int idx = 0;
-    for (auto& kp : fp.kernel_profiles) {
-      if (first_prof) {
-        os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
-           << fp.fusion_id << " " << std::setw(5) << fp.segments << " "
-           << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms
-           << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms
-           << " " << std::setw(9) << std::setprecision(3) << fp.compile_time_ms
-           << " " << std::setw(9) << std::setprecision(3) << fp.kernel_time_ms
-           << " " << std::setw(11) << std::setprecision(2)
-           << fp.effective_bandwidth_gbs << " " << std::setw(9)
-           << std::setprecision(2) << fp.percentage_peak_bandwidth;
-        first_prof = false;
-      } else {
-        os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
-           << "-"
-           << " " << std::setw(5) << "-"
-           << " " << std::setw(11) << "-"
-           << " " << std::setw(9) << "-"
-           << " " << std::setw(9) << "-"
-           << " " << std::setw(9) << "-"
-           << " " << std::setw(11) << "-"
-           << " " << std::setw(9) << "-";
-      }
-      std::stringstream grid;
-      grid << "[" << std::get<0>(kp.grid) << ", " << std::get<1>(kp.grid)
-           << ", " << std::get<2>(kp.grid) << "]";
-      std::stringstream block;
-      block << "[" << std::get<0>(kp.block) << ", " << std::get<1>(kp.block)
-            << ", " << std::get<2>(kp.block) << "]";
-      std::stringstream cluster;
-      cluster << "[" << std::get<0>(kp.cluster) << ", "
-              << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster)
-              << "]";
-      std::stringstream smem;
-      smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem
-           << "]";
-      os << std::setfill(' ') << std::right << std::fixed << " " << std::setw(6)
-         << idx << " " << std::setw(11) << std::setprecision(3) << kp.time_ms;
-
-      if (fp.verbose) {
-        os << " " << std::setw(11) << std::setprecision(3)
-           << kp.compile_time_ms;
-      }
-
-      os << " " << std::setw(13) << std::setprecision(2)
-         << kp.effective_bandwidth_gbs << " " << std::setw(9)
-         << std::setprecision(2) << kp.percentage_peak_bandwidth << " "
-         << std::setw(9) << std::setprecision(3)
-         << ((double)kp.input_bytes / 1000000.0) << " " << std::setw(9)
-         << std::setprecision(3) << ((double)kp.output_bytes / 1000000.0) << " "
-         << std::setw(16) << smem.str() << " " << std::setw(6) << kp.registers
-         << " " << std::setw(16) << grid.str() << " " << std::setw(16)
-         << block.str();
-      if (fp.verbose) {
-        os << " " << std::setw(16) << cluster.str() << " " << std::setw(5)
-           << kp.device << " " << std::setw(5) << kp.stream << " "
-           << std::setw(12) << std::setprecision(2) << kp.peak_bandwidth_gbs
-           << " " << std::setw(20) << kp.device_name;
-      }
-      os << " " << std::setw(20) << kp.name;
+    for (size_t i = 0; i < fp.kernel_profiles.size(); ++i) {
+      printTuple(os, FusionProfile::toTuple(fp, i), i, fp.verbose);
       os << std::endl;
-      ++idx;
     }
   }
+
   return os;
 }
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
+      cpp_printing_enabled_(true),
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
@@ -575,6 +644,14 @@ void FusionProfiler::reset() {
 
 ProfilerState FusionProfiler::state() {
   return get()->state_;
+}
+
+void FusionProfiler::setCppPrinting(bool enable) {
+  get()->cpp_printing_enabled_ = enable;
+}
+
+bool FusionProfiler::cppPrintingEnabled() {
+  return get()->cpp_printing_enabled_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
@@ -675,6 +752,7 @@ void FusionProfiler::stop() {
           fp->segments_[kp_idx].state() == ProfilerState::Finished,
           "SegmentProfiler ProfilerState is not Finished!",
           fp->segments_[kp_idx].state());
+      kprof.segment_id = static_cast<size_t>(kp_idx);
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
       kprof.effective_bandwidth_gbs =
@@ -683,6 +761,11 @@ void FusionProfiler::stop() {
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
       kprof.compile_time_ms = segment(kp_idx).compileTime();
+
+      kprof.grid_str = toString(kprof.grid);
+      kprof.block_str = toString(kprof.block);
+      kprof.cluster_str = toString(kprof.cluster);
+      kprof.shared_mem_str = toString(kprof.shared_mem);
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);
