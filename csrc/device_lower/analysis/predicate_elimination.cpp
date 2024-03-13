@@ -60,7 +60,7 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
   return true;
 }
 
-class PredicateAnalyzer : public OptOutDispatch {
+class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  public:
   //! Checks if a predicate is needed to avoid out-of-bound accesses.
   //!
@@ -86,7 +86,7 @@ class PredicateAnalyzer : public OptOutDispatch {
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
 
-    PredicateAnalyzer analyzer(c2p);
+    ProducerConsumerPairAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -98,7 +98,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+  ProducerConsumerPairAnalyzer(
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
       : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
@@ -352,7 +353,7 @@ class PredicateChcker : public IterVisitor {
   bool predicateProducerConsumerPair(Expr* expr) const {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        if (PredicateAnalyzer::needsPredicate(input, output)) {
+        if (ProducerConsumerPairAnalyzer::needsPredicate(input, output)) {
           return true;
         }
       }
