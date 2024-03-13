@@ -36,6 +36,59 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
   return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
 
+//! Return sizes of smem_a, smem_b, smem_c in bytes
+std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
+    const MatMulTileOptions& gemm_tile,
+    const MatmulParams::DoubleBufferOptions& double_buffer_options,
+    const MmaDataTypes& data_types) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+
+  int ab_factor = double_buffer_options.double_buffer_smem_write
+      ? double_buffer_options.smem_double_buffer_stage
+      : 1;
+
+  // see scheduleContiguousVectorLoad
+  const int vector_word = 8;
+  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
+  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const size_t smem_a =
+      (size_t)(ceilDiv(mk, round_to_factor) * round_to_factor * ab_factor) *
+      dataTypeSize(data_types[0]);
+  const size_t smem_b =
+      (size_t)(ceilDiv(nk, round_to_factor) * round_to_factor * ab_factor) *
+      dataTypeSize(data_types[1]);
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
+      dataTypeSize(data_types[2]);
+
+  return {smem_a, smem_b, smem_c};
+}
+
+int64_t computeExpectedSharedMemoryUsage(
+    const MatmulParams& params,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed) {
+  const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
+      params.tile_sizes, params.double_buffer_options, data_types);
+
+  if (params.use_smem_epilogue) {
+    if (params.promote_prologue_smem_reuse) {
+      return (int64_t)std::max(
+          smem_c + (smem_a_reuse_guaranteed ? 0 : smem_a) +
+              (smem_b_reuse_guaranteed ? 0 : smem_b),
+          smem_a + smem_b);
+    } else {
+      return (int64_t)(smem_a + smem_b + smem_c);
+    }
+  } else {
+    return (int64_t)(smem_a + smem_b);
+  }
+}
+
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
@@ -49,24 +102,13 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   const size_t shared_memory_available =
       device_smem_limit - shared_memory_overhead;
 
-  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
-  const auto threads_per_block =
-      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+  // Create a temporary DoubleBufferOptions with full double buffering, for
+  // estimating shared memory size.
+  MatmulParams::DoubleBufferOptions double_buffer_options{
+      true, true, smem_double_buffer_stage};
 
-  // see scheduleContiguousVectorLoad
-  const int vector_word = 8;
-  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
-      properties->warpSize * vector_word;
-  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
-  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
-  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
-      dataTypeSize(data_types[0]);
-  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
-      dataTypeSize(data_types[1]);
-  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
-      dataTypeSize(data_types[2]);
+  const auto [smem_a, smem_b, smem_c] =
+      computeSharedMemorySizes(gemm_tile, double_buffer_options, data_types);
 
   // NOTE: we can simply add these sizes since they should be integer multiples
   // of 16 bytes, so they will automatically be aligned. This may change with
@@ -85,17 +127,24 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       (smem_a_reuse_guaranteed ? 0 : smem_a) +
           (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
 
+  // Regardless of occupancy considerations, if we cannot fit an smem epilogue
+  // without reuse then we must promote reuse
+  bool must_reuse = shared_memory_available < total_with_noreuse_smem_epilogue;
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
-      return {true, false};
-    } else {
+    if (must_reuse) {
       return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    } else {
+      return {true, false};
     }
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
   // occupancy is estimated using register and shared memory usage.
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
@@ -111,8 +160,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Return whether we should use smem for epilogue, and whether syncing for
   // re-use is desired. We avoid the sync if omitting it does not decrease
   // occupancy.
-  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
-      blocks_per_sm_with_noreuse_smem_epilogue;
+  bool promote_prologue_smem_reuse = must_reuse ||
+      blocks_per_sm_with_reused_smem_epilogue !=
+          blocks_per_sm_with_noreuse_smem_epilogue;
 
   return {
       blocks_per_sm_with_reused_smem_epilogue ==
@@ -812,37 +862,27 @@ void WarpMmaSwizzler::scheduleOperandRead(
     }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    // For example, [K, M]
     if (transpose2) {
-      // For example, [K, M]
       tv->reorder({{-2, -1}});
       // [M, K]
-      tv->split(-2, 8);
-      tv->split(-1, 8);
-      // [Mo, M8, Ko, K8]
-      tv->split(-3, 8 / swizzle_size);
-      // For example swizzle_size = 2
-      // [Mo, M2, M4, Ko, K8]
-      tv->split(-2, swizzle_size);
-      // [Mo, M2, M4, Koo, K2, K8]
-      tv->swizzle(SwizzleType::XOR, -5, -2);
-    } else {
-      // For example, [K, M]
-      tv->split(-2, 8);
-      tv->split(-1, 8);
-      // [Ko, K8, Mo, M8]
-      tv->reorder({{-2, -3}});
-      // [Ko, Mo, K8, M8]
-      // Note: the extent of Mo may not be a multiple of swizzle_size, but we
-      // still split swizzle_size. If this is the case, effectively we are
-      // padding it to a multiple of swizzle_size.
-      tv->split(-3, swizzle_size);
-      // For example, swizzle_size = 2
-      // [Ko, Moo, Mo2, K8, M8]
-      tv->reorder({{-2, -3}});
-      // [Ko, Moo, K8, Mo2, M8]
-      tv->split(-3, 8 / swizzle_size);
+    }
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // For example transpose2 == false
+    // [Ko, K8, Mo, M8]
+    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+    // still split swizzle_size. If this is the case, effectively we are
+    // padding it to a multiple of swizzle_size.
+    tv->split(-2, swizzle_size);
+    // For example, swizzle_size = 2
+    // [Ko, K8, Moo, Mo2, M8]
+    tv->split(-4, 8 / swizzle_size);
+    // [Ko, K2, K4, Moo, Mo2, M8]
+    tv->swizzle(SwizzleType::XOR, -5, -2);
+    if (!transpose2) {
+      tv->reorder({{-3, -5}});
       // [Ko, Moo, K2, K4, Mo2, M8]
-      tv->swizzle(SwizzleType::XOR, -4, -2);
     }
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
@@ -1298,8 +1338,9 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
 namespace {
 
 void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
-  auto* init = IrBuilder::create<Val>(0.0);
   for (auto prop : props) {
+    auto* init =
+        IrBuilder::create<Val>(0.0, prop.insouts.out->getDataType().value());
     IrBuilder::create<MmaOp>(
         prop.insouts.out, prop.insouts.a, prop.insouts.b, init);
   }

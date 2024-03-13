@@ -8,10 +8,10 @@
 #include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/mark_aliases_prepare.h>
 #include <options.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser::preseg_passes {
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
@@ -23,10 +23,10 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
-  // Fusion outputs that are (1) aliased by others, (2) not aliases
-  // themselves, and (3) not fusion inputs (yes, a fusion may trivially forward
-  // an input). Code will later add `segment_set` before them so aliases are
-  // separated from non-aliases and more likely to be accepted by the no-op
+  // Fusion outputs that are (1) aliased by another fusion output, (2) not
+  // aliases themselves, and (3) not fusion inputs (yes, a fusion may trivially
+  // forward an input). Code will later add `segment_set` before them so aliases
+  // are separated from non-aliases and more likely to be accepted by the no-op
   // scheduler.
   std::unordered_set<TensorView*> aliased_outs;
 
@@ -36,7 +36,8 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       continue;
     }
 
-    if (aliased_io->isFusionOutput() && !aliased_io->isFusionInput() &&
+    if (tv->isFusionOutput() && aliased_io->isFusionOutput() &&
+        !aliased_io->isFusionInput() &&
         analysis.getNearestAliasedIo(aliased_io) == nullptr) {
       aliased_outs.insert(aliased_io);
     }
@@ -112,4 +113,4 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser::preseg_passes

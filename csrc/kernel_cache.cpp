@@ -15,8 +15,8 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
-#include <optimization/pre_segmenter.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -362,10 +362,72 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
+void prepareRuntimeOrder(
+    SegmentedFusion* segmented_fusion,
+    RuntimeWorkSpace& runtime_workspace) {
+  // Setup group run order:
+  std::unordered_set<Val*> available_input;
+
+  // setup the order tensor dimensions are bound
+  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
+    auto input_val = segmented_fusion->inputs()[i];
+    available_input.insert(input_val);
+
+    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
+      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
+      for (const size_t dim : c10::irange(root_dom.size())) {
+        const auto extent = root_dom[dim]->getMaybeExpandedExtent();
+        available_input.insert(extent);
+        runtime_workspace.group_extent_binding_order.push_back(extent);
+      }
+    }
+  }
+
+  // Keep track of groups that has run
+  std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
+
+  while (!std::all_of(
+      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
+    bool one_ran = false;
+
+    // Find the first segment with all inputs available to run
+    for (const size_t group_i :
+         c10::irange(segmented_fusion->groups().size())) {
+      auto& group = segmented_fusion->groups()[group_i];
+      if (group_ran[group_i]) {
+        continue;
+      }
+      const auto& group_inputs = group->inputs();
+      bool ready_to_run = std::all_of(
+          group_inputs.begin(),
+          group_inputs.end(),
+          [&available_input](Val* val) { return available_input.count(val); });
+
+      if (ready_to_run) {
+        runtime_workspace.group_run_order.push_back(group);
+        const auto& group_outputs = group->outputs();
+
+        // Insert graph segment output to tensor map
+        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+          available_input.insert(group_outputs[group_out_i]);
+        }
+        group_ran[group_i] = true;
+        one_ran = true;
+      }
+    }
+    NVF_ERROR(
+        one_ran,
+        "Couldn't run all groups, something must have gone wrong in segmentation.");
+  }
+}
+
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
-    int64_t fusion_id)
-    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
+    int64_t fusion_id,
+    bool auto_schedule)
+    : fusion_(std::move(fusion)),
+      fusion_id_{fusion_id},
+      auto_schedule_(auto_schedule) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -522,9 +584,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   NVF_ERROR(fusion->outputs().size() == outputs.size());
   size_t new_size = 0;
   for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
-    const AliasInfo* alias_info =
-        fusion->getOutputAlias(fusion->outputs()[out_index]).second;
-    if (alias_info == nullptr || !alias_info->hide_output) {
+    Val* out = fusion->outputs()[out_index];
+    if (!fusion->getOutputAlias(out).hide_output) {
       outputs[new_size] = outputs[out_index];
       new_size++;
     }
@@ -760,7 +821,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
-        kernel_runtimes.size()));
+        kernel_runtimes.size(),
+        auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -948,10 +1010,12 @@ FusionKernelRuntime::FusionKernelRuntime(
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
-    int64_t runtime_id)
+    int64_t runtime_id,
+    bool auto_schedule)
     : fusion_id_{fusion_id},
       concrete_id_{concrete_id},
-      runtime_id_{runtime_id} {
+      runtime_id_{runtime_id},
+      auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -966,7 +1030,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       convertMetadataArg);
   args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
@@ -984,11 +1048,11 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  if (serde_buffer == nullptr) {
+  if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
@@ -1027,7 +1091,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  prepareRuntimeOrder();
+  prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
@@ -1171,63 +1235,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   return outputs;
 }
 
-void FusionKernelRuntime::prepareRuntimeOrder() {
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  // setup the order tensor dimensions are bound
-  for (const size_t i : c10::irange(segmented_fusion_->inputs().size())) {
-    auto input_val = segmented_fusion_->inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
-      for (const size_t dim : c10::irange(root_dom.size())) {
-        const auto extent = root_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace_.group_extent_binding_order.push_back(extent);
-      }
-    }
-  }
-
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion_->groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         c10::irange(segmented_fusion_->groups().size())) {
-      auto& group = segmented_fusion_->groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace_.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
-  }
-}
-
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
@@ -1336,7 +1343,9 @@ void FusionKernelRuntime::compileKernel(
     fusion_to_run->printMath();
   }
   FusionGuard fg(fusion_to_run.get());
-  scheduler_entry->schedule(fusion_to_run.get());
+  if (auto_schedule_) {
+    scheduler_entry->schedule(fusion_to_run.get());
+  }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");

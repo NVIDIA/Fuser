@@ -41,27 +41,27 @@ def layernorm_bwd_fusion(
     T19 = fd.ops.mul(T14, T18)
 
     T23 = fd.ops.broadcast_in_dim(T4, shape=V12, broadcast_dims=[1])
-    T28 = fd.ops.sum(T1, axes=[0], keepdim=False, dtype=DataType.Null)
+    T28 = fd.ops.sum(T1, dims=[0], keepdim=False, dtype=DataType.Null)
 
     T30 = fd.ops.mul(T1, T23)
     T31 = fd.ops.mul(T1, T19)
-    T32 = fd.ops.sum(T31, axes=[0], keepdim=False, dtype=DataType.Null)
+    T32 = fd.ops.sum(T31, dims=[0], keepdim=False, dtype=DataType.Null)
 
     T34 = fd.ops.mul(T30, T18)
     T35 = fd.ops.mul(T30, T14)
-    T36 = fd.ops.sum(T35, axes=[1], keepdim=False, dtype=DataType.Null)
+    T36 = fd.ops.sum(T35, dims=[1], keepdim=False, dtype=DataType.Null)
 
     T40 = fd.ops.broadcast_in_dim(T36, shape=V8, broadcast_dims=[0])
     T41 = fd.ops.neg(T34)
-    T42 = fd.ops.sum(T41, axes=[1], keepdim=False, dtype=DataType.Null)
+    T42 = fd.ops.sum(T41, dims=[1], keepdim=False, dtype=DataType.Null)
     T46 = fd.ops.broadcast_in_dim(T42, shape=V8, broadcast_dims=[0])
     S47 = fd.define_scalar(-0.500000, dtype=DataType.Double)
     T48 = fd.ops.mul(S47, T40)
     S49 = fd.define_scalar(3.00000, dtype=DataType.Double)
     T50 = fd.ops.pow(T3, S49)
     T51 = fd.ops.mul(T48, T50)
-    T54 = fd.ops.sum(T46, axes=[1], keepdim=False, dtype=DataType.Null)
-    T55 = fd.ops.sum(T51, axes=[1], keepdim=False, dtype=DataType.Null)
+    T54 = fd.ops.sum(T46, dims=[1], keepdim=False, dtype=DataType.Null)
+    T55 = fd.ops.sum(T51, dims=[1], keepdim=False, dtype=DataType.Null)
 
     T59 = fd.ops.broadcast_in_dim(T55, shape=V8, broadcast_dims=[0])
     T63 = fd.ops.broadcast_in_dim(T59, shape=V12, broadcast_dims=[0, 1])

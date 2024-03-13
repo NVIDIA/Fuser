@@ -55,9 +55,6 @@ Vector define_vector_fn(
   std::vector<Scalar> args;
   size_t idx = 0;
   for (const auto& item : values) {
-    NVF_CHECK(
-        idx < 8,
-        "The specified vector size exceeds the max tensor size for nvfuser.");
     if (py::isinstance<py::int_>(item)) {
       auto int_value = py::cast<int64_t>(item);
       NVF_CHECK(
@@ -402,6 +399,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Int32", DataType::Int32)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
+      .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
+      .value("Float8_e5m2", DataType::Float8_e5m2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
@@ -418,7 +417,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def_static(
           "get",
           &FusionCache::get,
-          py::arg("max_fusions") = int(8192),
+          py::arg("max_fusions") = int(16384),
+          py::arg("selected_device") = py::none(),
           py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
@@ -544,8 +544,9 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              // Allows for a Vector of Sizes to be inputed as a list
-              if (py::isinstance<py::list>(obj)) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
                   inputs.push_back(
                       torch::jit::toIValue(item, c10::AnyType::get()));
@@ -715,10 +716,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& shape,
-             std::vector<std::optional<bool>>& contiguity,
-             PrimDataType dtype = DataType::Float,
-             bool is_cpu = false,
+             const std::vector<int64_t>& shape,
+             std::vector<std::optional<bool>> contiguity = {},
+             const PrimDataType dtype = DataType::Float,
+             const bool is_cpu = false,
              std::vector<int64_t> stride_order = {}) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
             NVF_CHECK(
@@ -735,6 +736,16 @@ void initNvFuserPythonBindings(PyObject* module) {
                   " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
+            if (contiguity.empty()) {
+              for (const auto dim_size : shape) {
+                if (dim_size == 1) {
+                  contiguity.emplace_back(std::nullopt);
+                } else {
+                  contiguity.emplace_back(false);
+                }
+              }
+            }
+
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
@@ -747,7 +758,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return out;
           },
           py::arg("shape"),
-          py::arg("contiguity"),
+          py::arg("contiguity") = py::list(),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::arg("stride_order") = py::list(),
@@ -865,9 +876,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self, size_t size) -> Vector {
-        NVF_CHECK(
-            size < 8,
-            "The specified vector size exceeds the max tensor size for nvfuser.");
         std::vector<Scalar> args;
         args.reserve(size);
         for (size_t i = 0; i < size; ++i) {
@@ -1906,8 +1914,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = 0;                                                     \
-        std::vector<int> axes(arg.dims);                                      \
-        std::iota(axes.begin(), axes.end(), 0);                               \
+        std::vector<int> dims(arg.dims);                                      \
+        std::iota(dims.begin(), dims.end(), 0);                               \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
             {fd->recordingState(arg())},                                      \
@@ -1918,7 +1926,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            axes,                                                             \
+            dims,                                                             \
             false,                                                            \
             dtype));                                                          \
         return output;                                                        \
@@ -1930,7 +1938,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         int axis,                                                            \
+         int dim,                                                             \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
@@ -1948,13 +1956,13 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            {axis},                                                           \
+            {dim},                                                            \
             keepdim,                                                          \
             dtype));                                                          \
         return output;                                                        \
       },                                                                      \
       py::arg("arg"),                                                         \
-      py::arg("axis"),                                                        \
+      py::arg("dim"),                                                         \
       py::arg("keepdim") = false,                                             \
       py::arg("dtype") = DataType::Null,                                      \
       py::return_value_policy::reference);                                    \
@@ -1962,14 +1970,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         const std::vector<int>& axes,                                        \
+         const std::vector<int>& dims,                                        \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
         NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());         \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());         \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
             {fd->recordingState(arg())},                                      \
@@ -1980,13 +1988,13 @@ void initNvFuserPythonBindings(PyObject* module) {
                                         const std::vector<int>&,              \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
-            axes,                                                             \
+            dims,                                                             \
             keepdim,                                                          \
             dtype));                                                          \
         return output;                                                        \
       },                                                                      \
       py::arg("arg"),                                                         \
-      py::arg("axes"),                                                        \
+      py::arg("dims"),                                                        \
       py::arg("keepdim") = false,                                             \
       py::arg("dtype") = DataType::Null,                                      \
       py::return_value_policy::reference);
@@ -2663,25 +2671,25 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& axes,
+         std::vector<int>& dims,
          int64_t correction,
          bool keepdim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.var");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());
         Tensor output = fd->defineTensor(ndims);
         fd->defineRecord(new VarianceOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(axes),
+            std::move(dims),
             correction,
             keepdim));
         return output;
       },
       py::arg("arg"),
-      py::arg("axes"),
+      py::arg("dims"),
       py::arg("correction"),
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
@@ -2689,26 +2697,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var_mean",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& axes,
+         std::vector<int>& dims,
          int64_t correction,
          bool keepdim) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.var_mean");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());
         Tensor var = fd->defineTensor(ndims);
         Tensor mean = fd->defineTensor(ndims);
         fd->defineRecord(new VarianceMeanOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(var()), fd->recordingState(mean())},
-            std::move(axes),
+            std::move(dims),
             correction,
             keepdim));
         return std::make_tuple(var, mean);
       },
       py::arg("arg"),
-      py::arg("axes"),
+      py::arg("dims"),
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);

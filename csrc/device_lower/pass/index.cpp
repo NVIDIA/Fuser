@@ -15,6 +15,7 @@
 #include <options.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 
 #include <device_lower/pass/index.h>
 
@@ -611,10 +612,107 @@ void IndexLowering::handleBlockReduction(
   GpuLower::current()->propagateExprInfo(rop, back());
 }
 
+void IndexLowering::handleSerialGridReduction(
+    const ReductionOp* rop,
+    Val* out,
+    Val* in) {
+  const auto out_tv = out->as<kir::TensorIndex>()->view();
+  const auto out_domain = out_tv->domain();
+
+  // If we do a grid reduction we can't have a reduction axis that is not bound
+  // to a grid or block dim.
+  NVF_ERROR(
+      std::none_of(
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
+          [](IterDomain* id) {
+            return !id->isThread() && id->isReduction() &&
+                !id->extent()->isOneInt();
+          }),
+      "Found a reduction stage that has both a non-parallelized ",
+      "reduction and a grid reduction. This is not supported, ",
+      "please use rfactor to do the serialized reduction first, ",
+      "then the grid reduction. ",
+      rop->toString());
+
+  NVF_ERROR(!rop->isAllreduce(), "Serial grid allReduce is not implemented");
+
+  // Allocate global work buffer TensorIndex.
+  //
+  // For convenience, the global work buffer is allocated like the leaf domain
+  // of the ReductionOp output. In the future, we may want the allocation
+  // domain to be different in order to enable re-use of global output buffers
+  // for in-place reduction.
+  std::vector<IterDomain*> work_buffer_root;
+  work_buffer_root.reserve(out_tv->nDims());
+  for (IterDomain* id : out_tv->getLeafDomain()) {
+    work_buffer_root.push_back(IterDomainBuilder(id).build());
+  }
+  auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
+  auto work_buffer_tv = IrBuilder::create<TensorView>(
+      work_buffer_domain, out_tv->dtype(), MemoryType::Global);
+  Val* work_buffer_idx_val = nullptr;
+  for (auto v :
+       Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
+    work_buffer_idx_val = SimplifyingIrBuilder::addExpr(work_buffer_idx_val, v);
+  }
+
+  auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
+      work_buffer_tv,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          work_buffer_idx_val, for_loops_));
+
+  auto work_alloc = IrBuilder::create<kir::Allocate>(
+      work_buffer_tv, work_buffer_tv->getMemoryType());
+  pushBack(work_alloc);
+
+  // The thread predicate for GridReduction needs to be set
+  // separately from the main predicate. Do not combine them like
+  // other expressions.
+  const auto& thread_pred =
+      GpuLower::current()->threadPredMap().getPredicatedParallelTypes(out_tv);
+
+  auto serial_grid_reduction = IrBuilder::create<kir::GridReduction>(
+      rop->getReductionOpType(),
+      rop->init(),
+      out,
+      in,
+      // skip work_buffer, sync_buffer, entrance_ind, n_entrances for serial
+      // reduction node
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+      false,
+      work_buffer_idx);
+
+  serial_grid_reduction =
+      serial_grid_reduction->withThreadPredicate(thread_pred);
+
+  if (rop->predicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withPredicate(rop->predicate())
+            ->as<kir::GridReduction>();
+  }
+  if (rop->writePredicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withWritePredicate(rop->writePredicate())
+            ->as<kir::GridReduction>();
+  }
+
+  pushBack(serial_grid_reduction);
+  GpuLower::current()->propagateExprInfo(rop, back());
+}
+
 void IndexLowering::handleGridReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
+  if (rop->serialGridReductionRequested()) {
+    handleSerialGridReduction(rop, out, in);
+    return;
+  }
+
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
@@ -1330,7 +1428,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   // indexing ldst op
   auto out = lowerDstIndex(ldst->out(), {}, true);
-  auto in = Index::cpAsyncBulkIndex(in_tv, out_tv, mbarrier_index, for_loops_);
+  auto in = Index::cpAsyncBulkIndex(
+      in_tv, out_tv, out_tv, mbarrier_index, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -1342,8 +1441,10 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+  auto in_tv = ldst->in()->as<TensorView>();
   auto out_tv = ldst->out()->as<TensorView>();
-  auto out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
+  auto out =
+      Index::cpAsyncBulkIndex(out_tv, in_tv, out_tv, nullptr, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -1628,6 +1729,16 @@ void IndexLowering::handle(const kir::AsyncWait* wait) {
 void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::BlockSerializeWait* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeWait*>(sync)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::BlockSerializeRelease* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeRelease*>(sync)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {

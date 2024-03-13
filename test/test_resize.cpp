@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -1620,6 +1627,37 @@ TEST_F(ResizeTest, FusionResizePadWithValue) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Same as Pad1 but pad by negative value to create an empty tensor
+TEST_F(ResizeTest, FusionResizePadToEmptyTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({4, 2});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(-1L), IrBuilder::create<Val>(-1L)},
+          IrBuilder::create<Val>(2.0));
+  fusion->addOutput(tv1);
+  // set allocation domain to trigger validation check on size/stride
+  tv1->setAllocationDomain(tv1->getMaybeRFactorDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::pad(t0, {-1, -1}, "constant", 2);
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }

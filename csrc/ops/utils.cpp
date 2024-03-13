@@ -9,8 +9,6 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <algorithm>
 #include <limits>
 
@@ -347,6 +345,15 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
@@ -382,6 +389,15 @@ Val* getMaximumValue(DataType v) {
     case DataType::BFloat16:
       return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
+      break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());

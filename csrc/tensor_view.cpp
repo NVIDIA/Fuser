@@ -16,7 +16,9 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
@@ -173,15 +175,6 @@ TensorView::TensorView(
   domain_ = IrBuilder::create<TensorDomain>(sizes, contig_info);
 }
 
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<torch::jit::Value>& jit_value)
-    : TensorView(passkey, jit_value->type()->cast<c10::TensorType>()) {
-  NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-}
-
 NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
@@ -256,7 +249,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
-      promote_reuse_(src->promote_reuse_) {}
+      promote_reuse_(src->promote_reuse_),
+      mesh_(src->mesh_) {}
 
 void TensorView::printTransforms() const {
   IrTransformPrinter(std::cout).printTransforms(this);
@@ -1293,9 +1287,12 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
       !hasComputeAt(),
       "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
 
+  bool is_allowed_op =
+      !ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(this) &&
+      !ir_utils::isIndexSelectLookupTv(this);
   NVF_CHECK(
-      !ir_utils::isSelectInput(this) && !ir_utils::isIndexSelectLookupTv(this),
-      "Right now, caching tensors that are input to the select op is not allowed as they must be in global memory.")
+      is_allowed_op,
+      "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
@@ -1429,6 +1426,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
     case MmaOperand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
+        setAllocationDomain(getLeafDomain(), true);
         mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
       }
       break;

@@ -7,9 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -72,6 +71,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
+  PredicateElimination, //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -86,6 +86,10 @@ enum class EnableOption {
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
   WarnRegisterSpill, //! Enable warnings of register spill
+  MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
+                  //! matmul
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -164,7 +168,7 @@ class Options {
     options_.erase(option_type);
   }
 
-  static std::unordered_map<OptionEnum, std::vector<std::string>>
+  NVF_API static std::unordered_map<OptionEnum, std::vector<std::string>>
   getOptionsFromEnv();
 
  protected:
@@ -174,7 +178,7 @@ class Options {
 //! Utility class to temporarily overrride the Enable options,
 //! including those provided by the environment variable
 template <typename OptionEnum>
-class OptionsGuard {
+class NVF_API OptionsGuard {
  public:
   OptionsGuard() : prev_options_(getCurOptions()) {}
 
@@ -182,7 +186,7 @@ class OptionsGuard {
     getCurOptions() = prev_options_;
   }
 
-  static Options<OptionEnum>& getCurOptions();
+  NVF_API static Options<OptionEnum>& getCurOptions();
 
  private:
   Options<OptionEnum> prev_options_;
@@ -190,23 +194,24 @@ class OptionsGuard {
 
 // DebugDump options
 template <>
-std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
     DebugDumpOption>::getOptionsFromEnv();
 
 using DebugDumpOptions = Options<DebugDumpOption>;
 
 template <>
-Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions();
+NVF_API Options<DebugDumpOption>& OptionsGuard<
+    DebugDumpOption>::getCurOptions();
 
 using DebugDumpOptionsGuard = OptionsGuard<DebugDumpOption>;
 
-bool isDebugDumpEnabled(DebugDumpOption option);
+NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
 // Enable options
 template <>
-std::unordered_map<EnableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv();
 
 using EnableOptions = Options<EnableOption>;
@@ -216,30 +221,30 @@ bool isOptionEnabled(EnableOption option);
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 
 template <>
-Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
+NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
 
 using EnableOptionsGuard = OptionsGuard<EnableOption>;
 
 // Disable options
 template <>
-std::unordered_map<DisableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv();
 
 using DisableOptions = Options<DisableOption>;
 
-bool isOptionDisabled(DisableOption option);
+NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
 template <>
-Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
+NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
 using DisableOptionsGuard = OptionsGuard<DisableOption>;
 
 // Profiler Options
 
 template <>
-std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
     ProfilerOption>::getOptionsFromEnv();
 
 using ProfilerOptions = Options<ProfilerOption>;
@@ -254,7 +259,7 @@ const std::vector<std::string>& getProfilerOptionArguments(
     ProfilerOption option);
 
 template <>
-Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
+NVF_API Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
 
 using ProfilerOptionsGuard = OptionsGuard<ProfilerOption>;
 

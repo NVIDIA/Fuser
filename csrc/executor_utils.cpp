@@ -37,6 +37,7 @@
 #include <nvfuser_resources/broadcast.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
+#include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
 #include <nvfuser_resources/fused_welford_helper.h>
 #include <nvfuser_resources/fused_welford_impl.h>
@@ -72,6 +73,7 @@ std::string kernelPreamble() {
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
+  ss << nvfuser_resources::fp8_support_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
@@ -107,8 +109,6 @@ std::string kernelPreamble() {
 
   return ss.str();
 }
-
-namespace {
 
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
@@ -159,6 +159,8 @@ void queryTargetGPUVersion(
     compile_to_sass = true;
   }
 }
+
+namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
@@ -843,7 +845,14 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      NVF_ERROR(false, src, "\nCUDA NVRTC compile error: ", log_buf);
+      // Print CUDA starting at first global function
+      size_t kernel_start = src.find("__global__");
+      NVF_ERROR(
+          false,
+          "\n",
+          src.substr(kernel_start),
+          "\nCUDA NVRTC compile error: ",
+          log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
       debug() << log_buf << std::endl;

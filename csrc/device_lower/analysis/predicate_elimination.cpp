@@ -10,6 +10,7 @@
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -863,7 +864,9 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  traverseTo(fusion->outputs());
+  // To avoid errors in analysis when using ATen evaluation for matmul, only use
+  // outputs that require codegen. See PR # 1775 and Issue #1812
+  traverseTo(lower_utils::getFusionOutputsRequiringCodegen(fusion));
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
@@ -1033,12 +1036,21 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
 
 std::string PredicateElimination::toString() const {
   std::stringstream ss;
-  ss << "Tensors that do not need predication:";
+  VectorOfUniqueEntries<TensorView*> non_predicated_tvs;
   for (auto expr : non_predicated_exprs_) {
     for (auto out : expr->outputs()) {
-      NVF_ERROR(out->isA<TensorView>());
-      ss << " T" << out->name();
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(out)) {
+        non_predicated_tvs.pushBack(ti->view());
+      } else if (auto tv = dynamic_cast<TensorView*>(out)) {
+        non_predicated_tvs.pushBack(tv);
+      } else {
+        NVF_ERROR(false, "Unexpected output ", out, " in ", expr);
+      }
     }
+  }
+  ss << "Tensors that do not need predication:";
+  for (auto tv : non_predicated_tvs) {
+    ss << " T" << tv->name();
   }
   ss << "\n";
   ss << "Init values:";
@@ -1051,6 +1063,10 @@ std::string PredicateElimination::toString() const {
     }
   }
   ss << "\n";
+  ss << "Non-predicated expressions:";
+  for (auto expr : non_predicated_exprs_) {
+    ss << " " << expr;
+  }
   return ss.str();
 }
 

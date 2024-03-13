@@ -585,7 +585,6 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-      NVF_CHECK(rhs != 0);
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
@@ -612,22 +611,22 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
-      return {lhs == rhs};
+      return {eq(lhs, rhs)};
       break;
     case BinaryOpType::NE:
-      return {lhs != rhs};
+      return {ne(lhs, rhs)};
       break;
     case BinaryOpType::GT:
-      return {lhs > rhs};
+      return {gt(lhs, rhs)};
       break;
     case BinaryOpType::GE:
-      return {lhs >= rhs};
+      return {ge(lhs, rhs)};
       break;
     case BinaryOpType::LT:
-      return {lhs < rhs};
+      return {lt(lhs, rhs)};
       break;
     case BinaryOpType::LE:
-      return {lhs <= rhs};
+      return {le(lhs, rhs)};
       break;
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
@@ -1310,8 +1309,6 @@ SqueezeOp::SqueezeOp(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      NVF_ERROR(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
@@ -1357,12 +1354,20 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
   NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
+  at::Tensor out = in;
   for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
-    if (!is_squeeze_dims[i]) {
+    if (is_squeeze_dims[i]) {
+      if (in.stride(i) == 0) {
+        // If the input dimension is expanded in this dimension, undo the expand
+        // by slicing. This ensures that any broadcast dimensions will be
+        // unexpanded when we do the final call to view()
+        out = out.slice(i, 0, 1);
+      }
+    } else {
       out_shape.push_back(in.sizes()[i]);
     }
   }
-  return {in.view(out_shape)};
+  return {out.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
@@ -1444,6 +1449,7 @@ ReductionOp::ReductionOp(
   addAttribute(init);
   addDataAttribute(reduction_op_type);
   addDataAttribute(is_allreduce);
+  addDataAttribute(false); // serial reduction
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -2063,6 +2069,77 @@ void MmaOp::setMacro(MmaMacro macro) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
+std::vector<PolymorphicValue> MmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto tv_a = inA()->as<TensorView>();
+  const auto tv_b = inB()->as<TensorView>();
+  NVF_CHECK(
+
+      tv_a->nDims() == tv_b->nDims(),
+      "Either both or none of A and B should be batch");
+  // Verify that the broadcasted size is 3.
+  NVF_CHECK(
+      tv_a->nDims() == 3,
+      "MmaOp::evaluate is not implemented for size: ",
+      tv_a->nDims());
+
+  // Assumptions:
+  //    Currently, the evaluate method assumes that the MmaOp is preceded by a
+  //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
+  //    first operand and the first dim for the second operand.
+  //    The inputs here will be [M, K, 1] x [1, K, N].
+  NVF_CHECK(
+      input(0)->definition() != nullptr &&
+          input(0)->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_CHECK(
+      input(1)->definition() != nullptr &&
+          input(1)->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
+  NVF_CHECK(
+      tv_a->getRootDomain().back()->isBroadcast(),
+      "Expected last dimension to be broadcasted for first operand.");
+  NVF_CHECK(
+      tv_b->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
+
+  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
+  // outputs. To preserve numerical equivalence and precision, the output of
+  // ATen matmul should be the same as MmaOp out `eventually`. Supported cases:
+  //  1. MmaOp->out() and MmaOp->input() are the same dtype.
+  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
+  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) will not
+  // occur.
+
+  auto used_as_dtype = [](Val* out) -> DataType {
+    const std::vector<Expr*>& uses = out->uses();
+    if (uses.size() == 1) {
+      if (auto* unary = dynamic_cast<UnaryOp*>(uses.front())) {
+        if (unary->getUnaryOpType() == UnaryOpType::Cast) {
+          return unary->out()->getDataType().value();
+        }
+      }
+    }
+    return out->getDataType().value();
+  };
+
+  // Check if we eventually convert to the ATen output dtype.
+  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
+  NVF_CHECK(used_as_dtype(out()) == tv_a->getDataType().value());
+
+  // Squeeze the inputs to remove the broadcasted dimensions.
+  const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
+  const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
+
+  // After removing the broadcast dimensions, the format should be
+  // [M, K] x [K, N] compatible with aten::matmul format.
+  at::Tensor output = in_a.matmul(in_b);
+
+  return {output};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
 ExpandOp::ExpandOp(
@@ -2103,7 +2180,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
   for (auto i : c10::irange(1, inputs.size())) {
     expanded_size.push_back((int64_t)inputs.at(i));
   }
-  return {at::expand_copy(in, expanded_size)};
+  return {in.expand(expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
@@ -2670,7 +2747,7 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
   return cloned;
 }
 
-std::vector<IterDomain*> IterDomain::clone(
+/*static*/ std::vector<IterDomain*> IterDomain::clone(
     const std::vector<IterDomain*>& domains) {
   std::vector<IterDomain*> cloned_domains;
   std::transform(

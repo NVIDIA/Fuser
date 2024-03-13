@@ -10,6 +10,8 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
+#include <scheduler/matmul_heuristic.h>
+#include <visibility.h>
 #include <array>
 #include <variant>
 #include <vector>
@@ -26,7 +28,7 @@ namespace mma_utils {
 //!  into shared memory with the given vectorization word.
 //! TODO:
 //!  will need to add bank conflict removal swizzle in a follow up.
-void scheduleContiguousVectorLoad(
+NVF_API void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
     int vector_word,
@@ -35,13 +37,17 @@ void scheduleContiguousVectorLoad(
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options.
 //! TODO: rewrite this one with makeTile
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile);
+NVF_API void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
 //! on consumers of mma ops in epilog.
 //! TODO: remove this one eventually.
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile);
+NVF_API void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
@@ -289,13 +295,13 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-MatmulProblemLayoutOpt getMmaLayout(
+NVF_API MatmulProblemLayoutOpt getMmaLayout(
     Fusion* fusion,
     const mma_utils::MulSumProperties::InputsOutputs& props);
 
 //! This overloaded version is just a wrapper on the above function, where
 //! the mma_utils::MulSumProperties::InputsOutputs is extracted from the fusion.
-MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
+NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -337,7 +343,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 
 //! This version assumes roles_map has been analyzed to determine smem datatypes
 //! as well as guarantees about prologue smem reuse.
-std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
@@ -388,6 +394,16 @@ class CombineMulSum : public IterVisitor {
   //! than can be replaced by a mma op, or has a single mma op.
   bool is_valid_ = false;
 };
+
+//! Compute the amount of shared memory we expect to need. The actual amount
+//! allocated will be determined by aliasing (see alias_memory.cpp). This
+//! function is useful for testing that we provide accurate information to our
+//! heuristics.
+int64_t computeExpectedSharedMemoryUsage(
+    const MatmulParams& params,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false);
 
 } // namespace mma_utils
 

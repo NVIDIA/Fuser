@@ -139,6 +139,28 @@ TEST_F(ExprEvalTest, ConstReference) {
   checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
+// Verify intermediate values are added to the known_values_ map.
+TEST_F(ExprEvalTest, KnownValUpdate) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = cat({tv2, tv1}, 0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  evaluator.evaluate(tv3);
+  NVF_CHECK(evaluator.isKnown(tv2));
+}
+
 // Evaluate expressions in a simple IR
 TEST_F(ExprEvalTest, Basic) {
   Fusion fusion;
@@ -654,6 +676,23 @@ TEST_F(ExprEvalTest, Reshape_MergeBroadcast) {
 
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(54));
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1));
+}
+
+TEST_F(ExprEvalTest, SumDiv) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* s = sum(in, {0});
+  TensorView* out = div(in, s);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  evaluator.evaluate(out);
 }
 
 } // namespace nvfuser

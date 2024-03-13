@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <dispatch.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>

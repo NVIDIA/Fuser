@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <root_domain_map.h>
@@ -173,6 +174,14 @@ void AliasFinder::handle(const ViewOp* view) {
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : c10::irange(out_root_layout->size())) {
+    if (!out_root_layout->contiguity[i].has_value() &&
+        !out_root_layout->allocation_domain[i]->isBroadcast()) {
+      // TODO(#1126): Due to #1126, `out_root` materializes an expanded
+      // broadcast IterDomain from `in_rfactor` when `view` splits or merges
+      // that IterDomain. We return no alias when this happen; otherwise
+      // AliasTest.MergeBroadcastsBetweenConcretes would fail.
+      return;
+    }
     allocation_to_contiguity.pushBack(
         out_root_layout->allocation_domain[i], out_root_layout->contiguity[i]);
   }
@@ -181,18 +190,6 @@ void AliasFinder::handle(const ViewOp* view) {
   // `allocation_to_contiguity`. Stop when an `Expr` requires a data copy;
   // otherwise generate the allocation order of `out_rfactor` and the
   // corresponding contiguity flags.
-  std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
-      PairwiseRootDomainMap(in, out).mapConsumerToProducer();
-  auto has_expanded_extent = [&out_root_to_in_rfactor](IterDomain* id) -> bool {
-    // TODO(#1174): Preserve expanded extents in `out_root` so we don't have to
-    // look for expanded extents in `in_rfactor`.
-    if (const auto i = out_root_to_in_rfactor.find(id);
-        i != out_root_to_in_rfactor.end()) {
-      id = i->second;
-    }
-    return id->hasExpandedExtent();
-  };
-
   const std::vector<IterDomain*>& out_root = out->getRootDomain();
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
@@ -217,9 +214,9 @@ void AliasFinder::handle(const ViewOp* view) {
       const auto [inner_contiguity, merge_i] =
           allocation_to_contiguity.erase(merge->inner());
       const auto [mergeable, contiguity] = mergeContiguity(
-          has_expanded_extent(merge->outer()),
+          merge->outer()->hasExpandedExtent(),
           outer_contiguity,
-          has_expanded_extent(merge->inner()),
+          merge->inner()->hasExpandedExtent(),
           inner_contiguity);
       if (!mergeable) {
         return;
