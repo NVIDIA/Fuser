@@ -202,6 +202,11 @@ class FusionExecutor : public NonCopyable {
     return lowered_->kernel();
   }
 
+  Fusion* fusion() const {
+    NVF_ERROR(lowered_ || fusion_ptr_);
+    return lowered_? lowered_->kernel()->as<Fusion>() : fusion_ptr_.get();
+  }
+
   const ThreadPredicateMap& threadPredMap() const {
     return lowered_->threadPredMap();
   }
@@ -541,8 +546,8 @@ class FusionExecutor : public NonCopyable {
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
-  // Copy of lowered_->kernel()
-  Fusion* fusion_ = nullptr;
+
+  // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_ptr_;
 
   // Track the block size this kernel was compiled with. If the block size
