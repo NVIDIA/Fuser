@@ -824,6 +824,11 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
+  // break point is beyond the range of vectorize_maps_entry, no vectorization.
+  if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
+    return 1;
+  }
+
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
