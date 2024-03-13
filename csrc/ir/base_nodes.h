@@ -636,6 +636,8 @@ class NVF_API Expr : public Statement {
 
   std::vector<Statement*> attributes_;
 
+  PolymorphicValue null_ = std::monostate{};
+
  private:
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
