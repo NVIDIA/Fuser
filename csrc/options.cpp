@@ -101,6 +101,7 @@ template <>
 std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
     DebugDumpOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DebugDumpOption> available_options = {
+      {"!", DebugDumpOption::CallStack},
       {"bank_conflict", DebugDumpOption::BankConflictInfo},
       {"buffer_reuse_verbose", DebugDumpOption::BufferReuseInfo},
       {"ca_map", DebugDumpOption::ComputeAtMap},
