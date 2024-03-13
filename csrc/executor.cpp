@@ -215,7 +215,6 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   lowered_->run();
   const auto kernel = lowered_->kernel();
-  // fusion_ = lowered_->kernel();
   createKernelId(
       ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
@@ -265,7 +264,7 @@ void FusionExecutor::compileFusion(
     });
   
   if (skip_compilation) {
-    fusion_ptr_ = std::make_unique<Fusion>(std::move(*fusion));
+    fusion_ = std::make_unique<Fusion>(std::move(*fusion));
     return;
   }
 
@@ -351,7 +350,6 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  // fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
@@ -1708,21 +1706,22 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> FusionExecutor::runAtenFusion(
+std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   KernelArgumentHolder& args,
   std::vector<at::Tensor> outputs) {
-  ExpressionEvaluator expr_eval;
+  ExpressionEvaluator ee;
 
-  // TODO: Add profiling code.
+  // TODO: Add relevant profiling code.
   const auto& inputs = fusion()->inputs();
   for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
+    ee.bind(inputs[i], *args[i]);
   }
 
-  // TODO: Replace with allocateOutputs.
   if (outputs.empty()) {
-    auto output_info = getOutputBufferInfo(args, expr_eval, PrimDataType::Int, fusion());
-    outputs = allocateOutputs(fusion(), output_info, options_.device, expr_eval);
+    for (const auto& out_val: fusion()->outputs()) {
+      auto out_tensor = ee.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      outputs.emplace_back(out_tensor);
+    }
   } else {
     NVF_ERROR(
         outputs.size() == fusion()->outputs().size(),
@@ -1741,8 +1740,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   
-  if (fusion_ptr_.get()) {
-    return runAtenFusion(args, outputs);
+  if (isCompilationSkipped()) {
+    return evaluateFusionOutputs(args, outputs);
   }
 
   NVF_ERROR(isCompiled());
@@ -2359,7 +2358,6 @@ void FusionExecutor::deserialize(
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  // fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(
       heuristic,
       buffer->fusion_id(),

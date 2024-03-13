@@ -203,8 +203,8 @@ class FusionExecutor : public NonCopyable {
   }
 
   Fusion* fusion() const {
-    NVF_ERROR(lowered_ || fusion_ptr_);
-    return lowered_? lowered_->kernel()->as<Fusion>() : fusion_ptr_.get();
+    NVF_ERROR(lowered_ || fusion_);
+    return lowered_? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -498,6 +498,15 @@ class FusionExecutor : public NonCopyable {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
+  bool isCompilationSkipped() {
+    if (!fusion_) {
+      NVF_ERROR(!lowered_, "Expected a lowered kernel to be initialized.");
+      return false;
+    }
+    NVF_ERROR(!lowered_, "Expected GPU lowering to be skipped.");
+    return true;
+  }
+
  private:
   CompileOptions options_;
 
@@ -548,7 +557,7 @@ class FusionExecutor : public NonCopyable {
   std::unique_ptr<GpuLower> lowered_;
 
   // Initialized for non-compiled fusions
-  std::unique_ptr<Fusion> fusion_ptr_;
+  std::unique_ptr<Fusion> fusion_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
