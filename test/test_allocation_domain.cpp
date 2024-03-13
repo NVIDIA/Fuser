@@ -1406,19 +1406,15 @@ TEST_F(NVFuserTest, ReductionVectorization) {
   auto tv3 = mul(tv2, tv1);
   auto tv4 = sum(tv3, {2});
   fusion->addOutput(tv4);
-  std::vector<IterDomain*> tv4_dom = {
-      tv4->axis(2), tv4->axis(1), tv4->axis(0)};
+  std::vector<IterDomain*> tv4_dom = {tv4->axis(2), tv4->axis(1), tv4->axis(0)};
   tv4->setAllocationDomain(tv4_dom, true);
 
   // tv1 is a constant tensor, and its domains are constant.
   // Its constant domains are used in ExactMappedExtentSubstitutionPass
   // to substitute the domains of tv0.
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 =
-      at::randn({x, 1, z}, options);
-  auto t1 =
-      at::randn({x, y, z}, options)
-          .as_strided({x, y, z}, {1, x, x * y});
+  auto t0 = at::randn({x, 1, z}, options);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
   std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
