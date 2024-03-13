@@ -2105,24 +2105,38 @@ std::vector<PolymorphicValue> MmaOp::evaluate(
       tv_b->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
 
+  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
+  // outputs. To preserve numerical equivalence and precision, the output of
+  // ATen matmul should be the same as MmaOp out `eventually`. Supported cases:
+  //  1. MmaOp->out() and MmaOp->input() are the same dtype.
+  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
+  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) will not
+  // occur.
+
+  auto used_as_dtype = [](Val* out) -> DataType {
+    const std::vector<Expr*>& uses = out->uses();
+    if (uses.size() == 1) {
+      if (auto* unary = dynamic_cast<UnaryOp*>(uses.front())) {
+        if (unary->getUnaryOpType() == UnaryOpType::Cast) {
+          return unary->out()->getDataType().value();
+        }
+      }
+    }
+    return out->getDataType().value();
+  };
+
+  // Check if we eventually convert to the ATen output dtype.
+  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
+  NVF_CHECK(used_as_dtype(out()) == tv_a->getDataType().value());
+
   // Squeeze the inputs to remove the broadcasted dimensions.
   const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
   const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
 
   // After removing the broadcast dimensions, the format should be
   // [M, K] x [K, N] compatible with aten::matmul format.
-  auto output = in_a.matmul(in_b);
+  at::Tensor output = in_a.matmul(in_b);
 
-  // ATen preserves the input dtype whereas MmaOP generates float outputs.
-  // Cast to the dtype of the MmaOp output for consistency.
-  // NOTE: MmaOp returns the float output, whereas in the evaluate method,
-  //      we are casting from float -> input_dtype -> float. This will lead
-  //      to loss of precision.
-  //      MmaOp::evaluate should be modified to effectively handle cast(MmaOp(H,
-  //      H), H) This will avoid the above cast chain and precision issue.
-  if (tv_a->getDataType() != out()->getDataType().value()) {
-    output = output.to(data_type_to_aten(out()->getDataType().value()));
-  }
   return {output};
 }
 

@@ -508,6 +508,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
   ${NVFUSER_ROOT}/test/test_pointwise.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
+  ${NVFUSER_ROOT}/test/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
   ${NVFUSER_ROOT}/test/test_replay.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
@@ -517,6 +518,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/test/test_swizzle.cpp
   ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
+  ${NVFUSER_ROOT}/test/test_unary.cpp
 )
 
 if(BUILD_TEST)
