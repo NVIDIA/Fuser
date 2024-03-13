@@ -104,8 +104,10 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 
   // Create a temporary DoubleBufferOptions with full double buffering, for
   // estimating shared memory size.
+  // Note that we clip smem_double_buffer_stage to 1 since we will always load
+  // operands to smem even if stages=0
   MatmulParams::DoubleBufferOptions double_buffer_options{
-      true, true, smem_double_buffer_stage};
+      true, true, std::min(1, smem_double_buffer_stage)};
 
   const auto [smem_a, smem_b, smem_c] =
       computeSharedMemorySizes(gemm_tile, double_buffer_options, data_types);
@@ -150,12 +152,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // total_without_smem_epilogue can be 0, i.e. smem_a == smem_b == 0, if
   // stages == 0. In such case, occupancy will not be bound by shared memory so
   // we use the register bound instead.
-  const auto blocks_per_sm_without_smem_epilogue =
-      total_without_smem_epilogue == 0
-      ? blocks_per_sm_by_register
-      : std::min(
-            shared_memory_available / total_without_smem_epilogue,
-            (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_without_smem_epilogue = std::min(
+      shared_memory_available / total_without_smem_epilogue,
+      (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_reused_smem_epilogue = std::min(
       shared_memory_available / total_with_reused_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
