@@ -69,6 +69,11 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   //! local memory. However, accessing producer tensors still may
   //! result in out-of-bound as they are replayed as consumers.
   static bool needsPredicate(TensorView* producer, TensorView* consumer) {
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(consumer->definition())) {
+      return false;
+    }
     // Both tensors must be on local or shared memory. Global tensors must be
     // predicated as allocation is done based on root domains. Smem
     // and local tensors are allocated based on leaf domains.
@@ -526,6 +531,11 @@ class PredicateChcker : public IterVisitor {
   // provided.
   bool predicateNonDivisibleRootDomains(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      RECORD_AND_RETURN(false);
+    }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
@@ -906,10 +916,14 @@ void PredicateElimination::dispatch(Expr* expr) {
     auto input_def = input->definition();
     // When input_def is null, input must be an input to the fusion,
     // so that must be allocated on global memory. Since we don't omit
-    // predication for expressions involving global memory, this
-    // should never occur.
-    NVF_ERROR(
-        input_def != nullptr, "Inconsistent input found: ", input->toString());
+    // predication for expressions involving global memory except when we are
+    // accessing the global memory with TMA, the following condition should
+    // only occur if expr is a TMA load. For TMA loads, initialization is
+    // handled in the TMA load itself, so we don't need to set a init value
+    // here.
+    if (input_def == nullptr) {
+      continue;
+    }
 
     // If input is an output of reduction, it should be fully
     // initialied as it's allocated on local memory.
