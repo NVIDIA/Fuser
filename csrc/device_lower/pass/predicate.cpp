@@ -225,6 +225,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
 std::vector<Expr*> generateConditionalFromPredicate(
     const std::vector<Expr*>& exprs) {
+  if (isDebugDumpEnabled(DebugDumpOption::PredicateElimination)) {
+    debug() << GpuLower::current()->predicateElimination().toString()
+            << std::endl;
+  }
   return ConditionalFromPredicateModifier::fillPredicates(exprs);
 }
 

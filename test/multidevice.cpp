@@ -164,8 +164,8 @@ void PipelineTest::execute() {
     std::cout << ss.str() << std::endl;
   }
 
-  runtime =
-      std::make_unique<MultiDeviceExecutor>(std::move(fusion), *communicator);
+  runtime = std::make_unique<MultiDeviceExecutor>(
+      std::move(fusion), *communicator, multi_device_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
