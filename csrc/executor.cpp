@@ -264,7 +264,7 @@ void FusionExecutor::compileFusion(
     });
   
   if (skip_compilation) {
-    fusion_ = std::make_unique<Fusion>(std::move(*fusion));
+    fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
 
