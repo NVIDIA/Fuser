@@ -24,11 +24,13 @@ enum class DebugDumpOption {
   FunctionTrace, //!< Dump the function trace of selected internal function. The
                  //!< function of interest needs to be instrumented with
                  //!< DEBUG_PRINT_SCOPE and optionally RECORD_AND_RETURN before
-                 //!< it can be traced. If you are interested in tracing a
-                 //!< specific function while developing a PR, you are
-                 //!< recommended to keep the instrumentation code in your PR
-                 //!< and so later people can use it after committed to the main
-                 //!< branch.
+                 //!< it can be traced. If RECORD_AND_RETURN is not used,
+                 //!< function tracing will still work, but it will not be able
+                 //!< to print the return value and the line of the return
+                 //!< statement. If you are interested in tracing a specific
+                 //!< function while developing a PR, you are recommended to
+                 //!< keep the instrumentation code in your PR and so later
+                 //!< people can use it after committed to the main branch.
   FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
   FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
