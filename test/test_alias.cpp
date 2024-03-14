@@ -1110,9 +1110,15 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
-  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard profiler_options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
+
+  // This test turns out to be a good exercise for
+  // NVFUSER_DUMP=perf_debug_verbose, because some kernels are skipped. See
+  // #1943.
+  DebugDumpOptionsGuard dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::PerfDebugVerbose);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
