@@ -215,7 +215,7 @@ class BankConflictInfo : public kir::IrVisitor {
 
   void inferLaunchParams(const kir::Kernel* kernel) {
     const auto& parallel_dimension_map =
-        kernel->summary().parallel_dimension_map_.getMap();
+        kernel->summary().parallel_dimension_map.getMap();
     for (const auto& [p, v] : parallel_dimension_map) {
       auto inferred_parallel_dim = expr_eval_.evaluate(v);
       if (inferred_parallel_dim.hasValue()) {
