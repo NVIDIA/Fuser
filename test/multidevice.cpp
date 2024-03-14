@@ -93,7 +93,7 @@ void CommunicationTest::resetDstBuffers() {
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
 void PipelineTest::validate() {
-  if (validate_with_prescribed_values) {
+  if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
     auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
     unshard(fusion_copy.get());
