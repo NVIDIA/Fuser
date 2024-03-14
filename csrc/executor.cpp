@@ -1708,18 +1708,14 @@ void FusionExecutor::resetCompiledKernelProperties() {
 
 std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   KernelArgumentHolder& args,
-  std::vector<at::Tensor> outputs) {
-  ExpressionEvaluator ee;
-
+  std::vector<at::Tensor> outputs,
+  ExpressionEvaluator& expr_eval) {
+  
   // TODO: Add relevant profiling code.
-  const auto& inputs = fusion()->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
-    ee.bind(inputs[i], *args[i]);
-  }
 
   if (outputs.empty()) {
     for (const auto& out_val: fusion()->outputs()) {
-      auto out_tensor = ee.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      auto out_tensor = expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
       outputs.emplace_back(out_tensor);
     }
   } else {
@@ -1740,8 +1736,15 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   
+  // Bind fusion inputs 
+  ExpressionEvaluator expr_eval;
+  const auto& inputs = fusion()->inputs();
+  for (const auto i : c10::irange(inputs.size())) {
+    expr_eval.bind(inputs[i], *args[i]);
+  }
+
   if (isCompilationSkipped()) {
-    return evaluateFusionOutputs(args, outputs);
+    return evaluateFusionOutputs(args, outputs, expr_eval);
   }
 
   NVF_ERROR(isCompiled());
@@ -1790,13 +1793,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-
-  ExpressionEvaluator expr_eval;
-  const auto& inputs = kernel()->inputs();
-
-  for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
-  }
 
   const bool measure_kernel_time = measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
