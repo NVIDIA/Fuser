@@ -1729,19 +1729,12 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   ExpressionEvaluator& expr_eval) {
   
   // TODO: Add relevant profiling code.
-
   if (outputs.empty()) {
     for (const auto& out_val: fusion()->outputs()) {
       auto out_tensor = expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
       outputs.emplace_back(out_tensor);
     }
-  } else {
-    NVF_ERROR(
-        outputs.size() == fusion()->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
   }
-
   args.push(outputs);
   return outputs;
 }
@@ -1752,6 +1745,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+  
+  NVF_ERROR(
+        outputs.empty() || (outputs.size() == fusion()->outputs().size()),
+        __func__,
+        " provided number of outputs does not match fusion output");
   
   // Bind fusion inputs 
   ExpressionEvaluator expr_eval;
@@ -1826,13 +1824,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, options_.device, expr_eval);
-  } else {
-    // TODO: Use validateKernelOutputs
-    NVF_ERROR(
-        outputs.size() == fusion()->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
+        fusion(), executor_entry->outputs, options_.device, expr_eval);
   }
   args.push(outputs);
 
