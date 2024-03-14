@@ -90,7 +90,8 @@ VarMeanResult variance_mean(
   // There are compilation errors for half precision
   auto dtype = x->getDataType().value();
   NVF_CHECK(
-      !(dtype == DataType::Half || dtype == DataType::BFloat16),
+      !(dtype == DataType::Half || dtype == DataType::BFloat16 ||
+        dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2),
       "variance_mean is not supported for ",
       dtype,
       " please upcast to float");
@@ -558,17 +559,20 @@ ForwardNormResult batch_norm(
             "Input running stats must have dtype defined");
         auto cast_output = castOp(*rm_dtype, aliased_output);
 
-        fusion->aliasOutputToInput(cast_output, input_to_cast);
+        fusion->aliasOutputToInput(
+            cast_output, input_to_cast, AllocationType::ReuseBuffer);
       };
 
       if (running_mean->isFusionInput()) {
-        fusion->aliasOutputToInput(new_mean_hat, running_mean);
+        fusion->aliasOutputToInput(
+            new_mean_hat, running_mean, AllocationType::ReuseBuffer);
       } else {
         cast_to_input_dtype(running_mean, new_mean_hat);
       }
 
       if (running_var->isFusionInput()) {
-        fusion->aliasOutputToInput(new_var_hat, running_var);
+        fusion->aliasOutputToInput(
+            new_var_hat, running_var, AllocationType::ReuseBuffer);
       } else {
         cast_to_input_dtype(running_var, new_var_hat);
       }
@@ -783,11 +787,15 @@ ForwardNormResult instance_norm(
       auto _running_mean = running_mean;
       auto _running_var = running_var;
       if (_running_mean->getDataType().value() == DataType::Half ||
-          _running_mean->getDataType().value() == DataType::BFloat16) {
+          _running_mean->getDataType().value() == DataType::BFloat16 ||
+          _running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
+          _running_mean->getDataType().value() == DataType::Float8_e5m2) {
         _running_mean = castOp(DataType::Float, _running_mean);
       }
       if (_running_var->getDataType().value() == DataType::Half ||
-          _running_var->getDataType().value() == DataType::BFloat16) {
+          _running_var->getDataType().value() == DataType::BFloat16 ||
+          _running_var->getDataType().value() == DataType::Float8_e4m3fn ||
+          _running_var->getDataType().value() == DataType::Float8_e5m2) {
         _running_var = castOp(DataType::Float, running_var);
       }
       auto rev_momentum =
@@ -801,11 +809,14 @@ ForwardNormResult instance_norm(
       auto new_mean_sum = sum(new_mean_hat, {static_cast<int>(kBatchDim)});
       auto new_mean_channels_only = mul(new_mean_sum, reciprocal(B));
       if (running_mean->getDataType().value() == DataType::Half ||
-          running_mean->getDataType().value() == DataType::BFloat16) {
+          running_mean->getDataType().value() == DataType::BFloat16 ||
+          running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
+          running_mean->getDataType().value() == DataType::Float8_e5m2) {
         new_mean_channels_only =
             castOp(running_mean->getDataType().value(), new_mean_channels_only);
       }
-      fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
+      fusion->aliasOutputToInput(
+          new_mean_channels_only, running_mean, AllocationType::ReuseBuffer);
 
       auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
       auto unbiased_var =
@@ -819,11 +830,14 @@ ForwardNormResult instance_norm(
       auto new_var_sum = sum(new_var_hat, {static_cast<int>(kBatchDim)});
       auto new_var_channels_only = mul(new_var_sum, reciprocal(B));
       if (running_var->getDataType().value() == DataType::Half ||
-          running_var->getDataType().value() == DataType::BFloat16) {
+          running_var->getDataType().value() == DataType::BFloat16 ||
+          running_var->getDataType().value() == DataType::Float8_e4m3fn ||
+          running_var->getDataType().value() == DataType::Float8_e5m2) {
         new_var_channels_only =
             castOp(running_var->getDataType().value(), new_var_channels_only);
       }
-      fusion->aliasOutputToInput(new_var_channels_only, running_var);
+      fusion->aliasOutputToInput(
+          new_var_channels_only, running_var, AllocationType::ReuseBuffer);
     }
 
     mean = welford_out.avg;

@@ -212,9 +212,7 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
-  auto ref = t1 + t0.reshape(shape_after);
-
-  testValidate(fec.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test multiple patterns of reshape
@@ -698,9 +696,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({3, 4}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0 + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     NVF_CHECK(
         executor_cache.countRuntimes() == 1,
         "Expect to create a single runtime");
@@ -710,9 +707,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({4, 3}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({4, 3}) + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
@@ -725,9 +721,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({4, 3}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({4, 3}) + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(
@@ -844,11 +839,8 @@ void reductionDynamicViewAddFusion(
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
-    auto at_y = (reshape_before_reduction)
-        ? at::sum(at_x_reshape, kReductionAxis)
-        : at::add(at_x_reshape, at_bias);
 
-    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -952,7 +944,7 @@ void reductionDynamicPadAddFusion(
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
@@ -1018,9 +1010,7 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   at::Tensor at0 = at::randn({5}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at1 = at::slice(at0, 0, 0, 2);
-  auto at2 = at::slice(at1, 0, 0, 1);
-  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
@@ -1048,8 +1038,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
   at::Tensor at2 = at::randn({3}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at3 = at::cat({at0, at1, at2}, 0);
-  testValidate(&fusion, outputs, aten_inputs, {at3}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
@@ -1074,8 +1063,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   at::Tensor at1 = at::randn({0}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at2 = at::cat({at0, at1}, 0);
-  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
   // Check that fusion consists only of tv2 = set(tv0)
   auto fkr = fusion_executor_cache.getMostRecentKernelRuntime();
@@ -1110,17 +1098,9 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
   std::vector<c10::IValue> aten_inputs = {at0, 32};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at1 = at0.reshape({256, 4, 32, 28, 28});
-  auto atmean = at1.mean({2, 3, 4}, /*keepdim*/ true);
-  auto atvar = at1.var({2, 3, 4}, /*unbiased*/ true, /*keepdim*/ true);
 
   testValidate(
-      fusion_executor_cache.fusion(),
-      outputs,
-      aten_inputs,
-      {atmean, atvar},
-      __LINE__,
-      __FILE__);
+      fusion_executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, Issue249_CUDA) {
@@ -1144,18 +1124,11 @@ TEST_F(NVFuserTest, Issue249_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
-  auto at_y = (at_x + at_x).reshape({2, 4, -1});
-  auto at_z = at_y + at_y;
 
   auto outputs = fusion_executor_cache.runFusionWithInputs({at_x});
 
   testValidate(
-      fusion_executor_cache.fusion(),
-      outputs,
-      {at_x},
-      {at_z},
-      __LINE__,
-      __FILE__);
+      fusion_executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 // This is just like the test above, but uses an input scalar with value -1
@@ -1183,8 +1156,6 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
-  auto at_y = (at_x + at_x).reshape({2, 4, -1});
-  auto at_z = at_y + at_y;
 
   // Dynamic reshape sizes that are not constant at definition must be explicit:
   // no -1 allowed
@@ -1199,7 +1170,6 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
       fusion_executor_cache.fusion(),
       outputs,
       {at_x, 2, 4, 15},
-      {at_z},
       __LINE__,
       __FILE__);
 }
@@ -1244,7 +1214,7 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
 
   auto outputs = fe.runFusion({t0});
 
-  testValidate(fusion, outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Another test related to https://github.com/NVIDIA/Fuser/issues/852
@@ -1274,9 +1244,6 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
       c->definition(), nullptr); // Replacement value should not be redefined
   EXPECT_EQ(tv0->definition()->as<FullOp>()->getFillValue(), c);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::full({2}, 1L, options);
-
   inlineMost();
 
   FusionExecutor fe;
@@ -1284,7 +1251,213 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
 
   auto outputs = fe.runFusion({3L});
 
-  testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {3L}, __LINE__, __FILE__);
+}
+
+// Test that we can squeeze Symbolic IterDomains and that we properly detect
+// improper concretizations where we have squeezed a dimension with extent
+// other than 1.
+// See https://github.com/NVIDIA/Fuser/issues/1273
+TEST_F(NVFuserTest, SymbolicSqueeze) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = squeeze(
+      tv1, std::vector<bool>({false, true})); // Squeeze second dimension
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1};
+  // An invalid input has a second dimension that cannot be squeezed
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
+
+  // An informative error message should be given by
+  // SqueezeOp::checkConcretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          " must concretize to IterType::Broadcast but found")));
+}
+
+// See https://github.com/NVIDIA/Fuser/issues/1468
+TEST_F(NVFuserTest, SymbolicExpand) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addInput(s2);
+  fusion->addInput(s3);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = expand(tv1, {s2, s3});
+  auto tv3 = add(tv2, tv2);
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1, 6, 5};
+  // An invalid input has a second dimension that cannot be expanded
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  testValidate(fec.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
+
+  // An informative error message should be given during concretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
+}
+
+// Test that constant zero extents are not overwritten during concretization
+// with non-constant extents.
+// See https://github.com/NVIDIA/Fuser/issues/1572
+TEST_F(NVFuserTest, ConcretizeConstantExtents) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  auto tv2 = permute(tv1, {1, 2, 0, 3});
+  auto tv3 = slice(tv2, {0, 0, 0, 0}, {32, 1, 4096, 128});
+  auto tv4 = reshape(
+      tv3,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(32, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(4096, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(128, DataType::Int)),
+      });
+  // Note this slice has zero extent in last dimension. RemoveEmptyPass should
+  // recognize this and replace with full()
+  auto tv5 = slice(tv4, {0, 0, 0}, {32, 4096, 0});
+
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4096, 12288}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test that dynamic reductions that should result in squeezes are handled
+// properly.
+// See https://github.com/NVIDIA/Fuser/issues/1667
+TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+      });
+  auto tv2 = sum(tv1, {0, 2, 3, 4});
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Same as above but for Welford ops
+// See https://github.com/NVIDIA/Fuser/issues/1667
+TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  // Explicitly cast Int to Index, so that these extents are not immediate
+  // constants
+  auto tv1 = reshape(
+      tv0,
+      {
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(2, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(1, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+          castOp(DataType::Index, IrBuilder::create<Val>(3, DataType::Int)),
+      });
+  auto res =
+      variance_mean(tv1, {0, 2, 3, 4}, /*unbiased=*/true, /*keepdim=*/false);
+  fusion->addOutput(res.mean);
+  fusion->addOutput(res.var);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 2, 9}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

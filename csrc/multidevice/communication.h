@@ -6,10 +6,13 @@
  */
 // clang-format on
 #pragma once
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#include <torch/csrc/distributed/c10d/Types.hpp>
+#include <type.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -22,6 +25,7 @@ struct CommParams {
   std::vector<at::Tensor> src_bufs;
   std::vector<at::Tensor> dst_bufs;
   Team team; // should not have duplicate
+  c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
 };
 
 /*
@@ -30,9 +34,6 @@ communication operation to be executed on the network. The base class
 Communication should not be used directly but through its derived classes:
 Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will be
 added later.
-
-Later, Communication could be made a derived class of Expr and be thought
-as a kernel IRs resulting of the lowering of a PipelineCommunication.
 
 CommParams contains the arguments for the communication constructors.
 Note that each process (associated with a device index given by
@@ -64,7 +65,9 @@ class Communication {
 
   // Triggers the execution of the communication. This is a non-blocking call.
   // The communication can be posted multiple times
-  virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) = 0;
+  virtual c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) = 0;
 
  protected:
   // argument "name" is only used for printing
@@ -92,10 +95,12 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class Broadcast : public Communication {
+class NVF_API Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -109,10 +114,12 @@ Requirements:
   - non-roots have one src buffer and no dst buffer
   - all buffers have the same size
 */
-class Gather : public Communication {
+class NVF_API Gather : public Communication {
  public:
   Gather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -124,10 +131,12 @@ Requirements:
   - all device have one src buffer and <team_size> dst buffers
   - all buffers have the same size
 */
-class Allgather : public Communication {
+class NVF_API Allgather : public Communication {
  public:
   Allgather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -140,10 +149,59 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class Scatter : public Communication {
+class NVF_API Scatter : public Communication {
  public:
   Scatter(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce the src buffers to the root's dst buffer.
+
+Requirements:
+  - the root is set and belongs to the team
+  - the root has one src buffers and one dst buffer
+  - non-roots have one src buffer and no dst buffer
+  - all buffers have the same size
+*/
+class NVF_API Reduce : public Communication {
+ public:
+  Reduce(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce the src buffers to the dst buffer.
+
+Requirements:
+  - all devices have one src buffer and one dst buffer
+  - all buffers have the same size
+*/
+class NVF_API Allreduce : public Communication {
+ public:
+  Allreduce(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce all the src buffers and shard the result to the dst buffers.
+
+Requirements:
+  - all devices have <team_size> src buffer and one dst buffer
+  - all buffers have the same size
+*/
+class NVF_API ReduceScatter : public Communication {
+ public:
+  ReduceScatter(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -161,10 +219,12 @@ case of a local copy)
   - If team is of size 2, the unique non-root have no src buffer and one dst
 buffer
 */
-class SendRecv : public Communication {
+class NVF_API SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 } // namespace nvfuser

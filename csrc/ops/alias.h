@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -21,16 +21,16 @@
 
 namespace nvfuser {
 
-Val* set(Val*);
-TensorView* set(TensorView*);
+NVF_API Val* set(Val*);
+NVF_API TensorView* set(TensorView*);
 
 // segment_set hints segmenter to break kernel
-Val* segment_set(Val*);
-TensorView* segment_set(TensorView*);
+NVF_API Val* segment_set(Val*);
+NVF_API TensorView* segment_set(TensorView*);
 
-TensorView* view(TensorView* x, DataType dtype);
+NVF_API TensorView* view(TensorView* x, DataType dtype);
 
-TensorView* reshape(
+NVF_API TensorView* reshape(
     TensorView* x,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
@@ -39,22 +39,35 @@ TensorView* reshape(
 //! fixed as the length of the new_sizes vector, but the size Vals can be
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
-TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
+NVF_API TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
 
-TensorView* flatten(TensorView* x, int64_t start_dim = 0, int64_t end_dim = -1);
-
-TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze);
-
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes);
-
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim);
-
-TensorView* squeeze(
+NVF_API TensorView* flatten(
     TensorView* x,
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& dims);
+    int64_t start_dim = 0,
+    int64_t end_dim = -1);
 
-TensorView* unsqueeze(TensorView* x, int dim);
+//! Squeeze the selected dimensions.
+//!
+//! NOTE: This function throws an error when encountering an unsqueezable
+//! dimension. This behavior differs from PyTorch.
+NVF_API TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims);
+
+//! Squeeze the dimensions corresponding to "true" in to_squeeze, i.e. remove
+//! those broadcasted dimensions.
+//!
+//! NOTE: This function throws an error when encountering an unsqueezable
+//! dimension. This behavior differs from PyTorch.
+//!
+//! If squeeze_expanded is true, then expanded Broadcasts will be removed just
+//! as if they were not expanded. If squeeze_expanded is false, then it is an
+//! error for an expanded broadcast to have a corresponding "true" value in
+//! to_squeeze.
+NVF_API TensorView* squeeze(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze,
+    bool squeeze_expanded = false);
+
+NVF_API TensorView* unsqueeze(TensorView* x, int dim);
 
 //! Permute a tensor as specified by axis mappings.
 //!
@@ -62,15 +75,26 @@ TensorView* unsqueeze(TensorView* x, int dim);
 //! new to old positions. Positions are relative to the noReduction
 //! domain.
 //!
-//! \param inp Tensor to transpose
+//! \param x Tensor to transpose
 //! \param new2old vector mapping from new to old positions.
-TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old);
+NVF_API TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old);
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<int64_t>& new2old);
+
+//! Same as above, but with the TensorView::reorder-like API.
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::unordered_map<int, int>& old2new);
+NVF_API TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<std::pair<const int, int>>& new2old);
 
 //! Transpose a tensor by swapping the two dimensions.
-TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);
+NVF_API TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);
 
 //! Transpose a 2D tensor.
-TensorView* transpose(TensorView* x);
+NVF_API TensorView* transpose(TensorView* x);
 
 //! Pad a tensor by given widths by specified value. Similar to torch.pad, the
 //! pad_widths vector specifies the padding widths of the innermost N
@@ -78,14 +102,14 @@ TensorView* transpose(TensorView* x);
 //! omitted, a default value of zero is assumed. The provied value will be cast
 //! to the dtype of the argument x.
 //! TODO: Support other padding types
-TensorView* pad(
+NVF_API TensorView* pad(
     TensorView* x,
     const std::vector<Val*>& pad_widths,
     Val* value = nullptr,
     std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Concatenate tensors in the given dimension
-TensorView* cat(
+NVF_API TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t dim,
     std::optional<IterType> iter_type_opt = std::nullopt);
@@ -94,6 +118,19 @@ TensorView* cat(
 //! ranges parameter. Stepping must be one at this moment. The semantics of
 //! slicing with negative values and values >= extent follow those of numpy and
 //! PyTorch.
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
+NVF_API TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
+
+//! A variant of the above `slice` function. This is closer to the Python API.
+NVF_API TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops,
+    const std::vector<int64_t>& steps);
+
+//! Same as above except that `steps` are all 1.
+NVF_API TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops);
 
 } // namespace nvfuser

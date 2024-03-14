@@ -16,6 +16,7 @@
 #include <ir/cloner.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -94,12 +95,12 @@ inline int64_t safeDiv(const int64_t x, const int64_t y) {
 // `to_update` to the positions in the splitted tensor. Splitting one dimension
 // multiple times is supported, and if this is the case, then the order of
 // `to_split` matters. All given dimensions are numbers before any split.
-void splitDims(
+NVF_API void splitDims(
     TensorView* tv,
     std::vector<std::pair<size_t, size_t>> to_split, // (dim, size)
     std::vector<size_t>& to_update);
 
-inline void splitDims(
+NVF_API inline void splitDims(
     TensorView* tv,
     std::vector<std::pair<size_t, size_t>> to_split) { // (dim, size)
   std::vector<size_t> unused;
@@ -112,7 +113,7 @@ inline void splitDims(
 // merge.
 // NOTE: merged is done as the entries in the order of `to_merge`, assuming an
 // order from inner to outer
-std::optional<size_t> mergeDims(
+NVF_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update);
@@ -139,7 +140,7 @@ size_t mergeNonReduction(TensorView* tv);
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
 // `reference_tv`. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
-void parallelizeAllLike(
+NVF_API void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
@@ -189,7 +190,31 @@ struct PersistentBufferInfo {
 // return inputs as being marked persistent if they follow this pattern. It is
 // important to note however inputs don't strictly have to be persistent as they
 // can simply be read multiple times from GMEM in the same kernel.
-PersistentBufferInfo persistentBuffers(Fusion* fusion);
+NVF_API PersistentBufferInfo persistentBuffers(Fusion* fusion);
+
+// A persistent tv can be projected to its producers when all the producers are
+// persistent tvs and there is no reduction op.
+bool canProjectToPersistentProducer(
+    TensorView* buffer,
+    const std::vector<TensorView*>& producers,
+    const std::unordered_set<TensorView*>& persistent_buffer_set);
+
+//! Evaluates if a persistent buffer can be projected to input tvs without
+//! dependency on reduction tvs. Returns a std::pair with a boolean indicating
+//! whether projection is feasible and a vector of projectable tvs.
+//!
+//! The function operates in two main steps:
+//! (1) Checks if the persistent buffer has dependencies on any of the given
+//!     reduction tvs. If no dependencies are found, it returns true with an
+//!     empty vector of target broadcast tvs.
+//! (2) If there are dependencies, it examines each reduction tv for an
+//!     associated broadcast tv that can be projected to. If all reduction tvs
+//!     have corresponding broadcast tvs, true is returned along with these tvs.
+//!     If any reduction tv lacks a corresponding broadcast tv, false is
+//!     returned with the current list of identified broadcast tvs.
+std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
+    const std::vector<TensorView*> reduction_tvs,
+    TensorView* persistent_buffer);
 
 struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
@@ -232,7 +257,7 @@ struct PersistentBufferSizeReturn {
 // persistently, only based on buffers that must be persistent, and based on the
 // maximum of all minimum size requirement. i.e. if must be persistent, only
 // hold persistent dimension.
-PersistentBufferSizeReturn persistentBufferSize(
+NVF_API PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
@@ -248,7 +273,7 @@ std::pair<bool, bool> canonicalDimReduction(
 
 // Return a list of tensor views that are outputs of reduction operations. If
 // multiple outputs of an expression are found, only include one in the list
-std::vector<TensorView*> getReductionTvs(Fusion* fusion);
+NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
@@ -257,15 +282,15 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion);
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
-void clearMemorySpace(Fusion* fusion);
+NVF_API void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+NVF_API std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 
@@ -356,10 +381,14 @@ struct DisjointRFactorSetInfo {
 // passed in as a reference. Algorithm is N^2 based on number of dims in
 // reference, but generating the disjoint rfactor set is likely the limiter on
 // perf of this function.
+//
+// rfactor_reorder_map is provided to assume TensorView `of` will be reordered
+// per the map
 DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set);
+    DisjointSets<IterDomain*>& disjoint_rfactor_set,
+    const std::unordered_map<int, int>& rfactor_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -393,9 +422,13 @@ struct BroadcastMultipleInformation {
 // non-broadcast dimension in the given input/output. Otherwise if all
 // dimensions are broadcast that input/output will not contribute to the
 // multiple.
-BroadcastMultipleInformation getBroadcastMultiples(
+//
+// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// the map
+NVF_API BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
-    DataType index_type);
+    DataType index_type,
+    const std::unordered_map<int, int>& rfactor_reorder_map = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
@@ -461,7 +494,7 @@ struct BoundedDirectionalTransformPropagator {
   //! Replay transforms from tensorview `from`
   //!  to the tensorviews that are consumers
   //!  of boundary tensorviews in `to` and producers of `from`.
-  static void backward(
+  NVF_API static void backward(
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
@@ -520,13 +553,13 @@ struct BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
+NVF_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.
 // [1, 0, 0] pos 2 would return false
 // [1, 0, 0] pos 1 would return true
-bool breakIsDisjoint(std::vector<int> group_ids, int pos);
+NVF_API bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 
 // Generates an old to new map to reorder tv's domain as the rfactor order.
 // Priority is given to inner most dimensions for example:
@@ -534,14 +567,19 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 // domain [i0*i2, i1]
 // will produce the map {{0, 1}, {1, 0}}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
+NVF_API std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
+
+// Generates an old to new map to reorder tv's domain as the rfactor order.
+// This only handles the simple case where allocation is a permutation of
+// rfactor domain, otherwise, the function returns an empty container.
+std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
 //! Check if tv is an output of a fastest-dim reduction
-bool isFastestDimReduction(TensorView* tv);
+NVF_API bool isFastestDimReduction(TensorView* tv);
 
 // A wrapper for Fusion::rotateLoop that provide more consistent interace
 inline void rotateLoop(
@@ -582,7 +620,7 @@ inline void rotateLoop(
 //! tv1, but the data dependency for the resize op is still satisfied
 //! by having a copy of tv1, i.e., tv4. Note that the other op using
 //! tv1 still uses tv1.
-void prepareForMemoryTypePromotion(Fusion* fusion);
+NVF_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
 //! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
@@ -590,13 +628,13 @@ void prepareForMemoryTypePromotion(Fusion* fusion);
 //! with blockIdx, the producer memory type will be changed to
 //! Global. A proper RAW sync will be automatically inserted when the
 //! fusion is lowered.
-void promoteProducerMemoryTypes(
+NVF_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
 
 //! Get all tensors that are connected to from_tvs without going through
 //! any tvs in the cutoff_tv_set.
-std::unordered_set<TensorView*> getAllTvsFrom(
+NVF_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 

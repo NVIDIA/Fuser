@@ -1,13 +1,15 @@
 import ctypes
+import gc
+import pytest_benchmark
 import torch
+from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
-from torch.autograd import DeviceType
 
 
 def get_device_properties() -> Tuple[int, float]:
     """
-    Computes L2 cache size and peak device bandwidth (GBps) using ctypes and cuda.
+    Computes device properties using ctypes and cuda.
     Note: Consider using CUDA-Python when CUDA support >= 12.0.
     """
     libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
@@ -22,36 +24,97 @@ def get_device_properties() -> Tuple[int, float]:
         raise OSError("could not load any of: " + " ".join(libnames))
 
     # Device attribute enums (taken from cuda.h)
-    # https://nvidia.github.io/cuda-python/module/cuda.html
+    # https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#group__CUDA__TYPES_1ge12b8a782bebe21b1ac0091bf9f4e2a3
 
+    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK = 8
+    CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK = 12
+    CU_DEVICE_ATTRIBUTE_CLOCK_RATE = 13
     CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36
     CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37
     CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR = 39
+
+    device_properties = {}
+    device = torch.cuda.current_device()
+    cuda_properties = torch.cuda.get_device_properties(device)
+
+    device_properties["gpu_name"] = cuda_properties.name
+    device_properties["gpu_compute_capability_major"] = cuda_properties.major
+    device_properties["gpu_compute_capability_minor"] = cuda_properties.minor
+    device_properties["gpu_gmem_bytes"] = cuda_properties.total_memory
+    device_properties["gpu_sm_count"] = cuda_properties.multi_processor_count
+
+    max_threads_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_threads_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_max_threads_per_block"] = max_threads_per_block.value
+
+    smem_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(smem_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_smem_bytes_per_block"] = smem_per_block.value
+
+    max_reg_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_reg_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_regs_per_block"] = max_reg_per_block.value
+
+    max_clock_khz = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_clock_khz),
+        CU_DEVICE_ATTRIBUTE_CLOCK_RATE,
+        device,
+    )
+    device_properties["gpu_clock_rate_khz"] = max_clock_khz.value
 
     l2_cache_size = ctypes.c_int()
-    device = torch.cuda.current_device()
-    memory_clock_rate = ctypes.c_int()
-    memory_bus_width = ctypes.c_int()
-
     cuda.cuDeviceGetAttribute(
         ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device
     )
+    device_properties["gpu_l2_bytes"] = l2_cache_size.value
+
+    memory_clock_rate = ctypes.c_int()
     cuda.cuDeviceGetAttribute(
         ctypes.byref(memory_clock_rate), CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device
     )
+    device_properties["gpu_mem_clock_khz"] = memory_clock_rate.value
+
+    memory_bus_width = ctypes.c_int()
     cuda.cuDeviceGetAttribute(
         ctypes.byref(memory_bus_width),
         CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
         device,
     )
+    device_properties["gpu_mem_bus_width"] = memory_bus_width.value
+
+    max_threads_per_sm = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_threads_per_sm),
+        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR,
+        device,
+    )
+    device_properties["gpu_max_threads_per_sm"] = max_threads_per_sm.value
 
     # Compute peak bandwidth in GBps
     peak_bandwidth = (2 * memory_bus_width.value * memory_clock_rate.value) / (1e6 * 8)
+    device_properties["gpu_peak_bandwidth_gbps"] = peak_bandwidth
 
-    return l2_cache_size.value, peak_bandwidth
+    return device_properties
 
 
-L2_CACHE_SIZE, PEAK_BANDWIDTH_GBPS = get_device_properties()
+DEVICE_PROPERTIES = get_device_properties()
+L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
+PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
 
 def clear_l2_cache() -> None:
@@ -61,6 +124,18 @@ def clear_l2_cache() -> None:
     n_elements = L2_CACHE_SIZE // 4
     x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
     y = torch.clone(x)
+
+
+def clear_cuda_cache() -> None:
+    """
+    Utility function to clear CUDA cache before running a test.
+    """
+    if (
+        torch.cuda.memory_allocated()
+        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
+    ):
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 class NVFBenchmark:
@@ -158,28 +233,39 @@ class NVFBenchmark:
             pass
 
     def set_metrics(
-        self, inputs: Union[torch.Tensor, List], outputs: Union[torch.Tensor, List]
+        self,
+        inputs: Union[torch.Tensor, List],
+        outputs: Union[torch.Tensor, List],
+        iobytes: int = None,
     ) -> None:
         """
         Utility function to compute metrics for the target function.
+
+        Args:
+            inputs: Inputs to the target function
+            outputs: Outputs of the target function
+            iobytes (Optional): When given, IO bytes computation is skipped
+                and this is used to compute the metrics.
+
         Current metrics:
             IOBytes: Total bytes in inputs + outputs
             BytesPerSecond: IOBytes * total_rounds / total_time
             Bandwdith (GBps): BytesPerSecond / (1024**3)
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
-        if isinstance(inputs, torch.Tensor):
-            inputs = [inputs]
-        if isinstance(outputs, torch.Tensor):
-            outputs = [outputs]
+        if not iobytes:
+            if isinstance(inputs, torch.Tensor):
+                inputs = [inputs]
+            if isinstance(outputs, torch.Tensor):
+                outputs = [outputs]
 
-        iobytes = 0
-        for inp in inputs:
-            if isinstance(inp, torch.Tensor):
-                iobytes += inp.element_size() * inp.numel()
-        for out in outputs:
-            if isinstance(out, torch.Tensor):
-                iobytes += out.element_size() * out.numel()
+            iobytes = 0
+            for inp in inputs:
+                if isinstance(inp, torch.Tensor):
+                    iobytes += inp.element_size() * inp.numel()
+            for out in outputs:
+                if isinstance(out, torch.Tensor):
+                    iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
         bandwidth_bps = (
@@ -193,7 +279,12 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark, benchmark_fn: Callable, inputs: Union[torch.Tensor, List]
+    benchmark: pytest_benchmark.fixture.BenchmarkFixture,
+    benchmark_fn: Callable,
+    inputs: Union[torch.Tensor, List],
+    rounds: int = 10,
+    warmup_rounds: int = 1,
+    iobytes: int = None,
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
@@ -206,9 +297,15 @@ def run_benchmark(
     Returns:
         outputs: Output of the target function
     """
+
+    def setup():
+        clear_l2_cache()
+        return [inputs], {}
+
     nvf_benchmark = NVFBenchmark(benchmark)
-    clear_l2_cache()
-    outputs = nvf_benchmark(benchmark_fn, inputs)
-    nvf_benchmark.set_metrics(inputs, outputs)
+    outputs = nvf_benchmark.pedantic(
+        benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
+    )
+    nvf_benchmark.set_metrics(inputs, outputs, iobytes)
     nvf_benchmark.cleanup()
     return outputs

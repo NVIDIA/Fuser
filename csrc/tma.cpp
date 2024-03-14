@@ -26,6 +26,7 @@ namespace tma {
 #if (CUDA_VERSION >= 12000)
 
 inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
+  // NOTE: future fp8 support?
   switch (std::get<PrimDataType>(dtype.type)) {
     case PrimDataType::Double:
       return CU_TENSOR_MAP_DATA_TYPE_FLOAT64;
@@ -58,15 +59,15 @@ inline CUtensorMapInterleave getCUtensorMapInterleave(
   }
 }
 
-inline CUtensorMapSwizzle getCUtensorMapSwizzle(TensorMapSwizzle swizzle) {
+inline CUtensorMapSwizzle getCUtensorMapSwizzle(MmaInputSmemSwizzle swizzle) {
   switch (swizzle) {
-    case TensorMapSwizzle::NoSwizzle:
+    case MmaInputSmemSwizzle::None:
       return CU_TENSOR_MAP_SWIZZLE_NONE;
-    case TensorMapSwizzle::B32:
+    case MmaInputSmemSwizzle::B32:
       return CU_TENSOR_MAP_SWIZZLE_32B;
-    case TensorMapSwizzle::B64:
+    case MmaInputSmemSwizzle::B64:
       return CU_TENSOR_MAP_SWIZZLE_64B;
-    case TensorMapSwizzle::B128:
+    case MmaInputSmemSwizzle::B128:
       return CU_TENSOR_MAP_SWIZZLE_128B;
     default:
       NVF_ERROR(false, "Unknown tensor map swizzle type!");
@@ -130,27 +131,6 @@ std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, TensorMapSwizzle swizzle) {
-  switch (swizzle) {
-    case TensorMapSwizzle::NoSwizzle:
-      os << "NoSwizzle";
-      break;
-    case TensorMapSwizzle::B32:
-      os << "32B";
-      break;
-    case TensorMapSwizzle::B64:
-      os << "64B";
-      break;
-    case TensorMapSwizzle::B128:
-      os << "128B";
-      break;
-    default:
-      NVF_CHECK(false, "Unknown tensor map swizzle type!");
-      break;
-  }
-  return os;
-}
-
 std::ostream& operator<<(std::ostream& os, TensorMapL2Promotion l2_promotion) {
   switch (l2_promotion) {
     case TensorMapL2Promotion::NoL2Promotion:
@@ -195,11 +175,11 @@ Val* encodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     TensorMapInterleave interleave,
-    TensorMapSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
-  auto output = IrBuilder::create<Val>(
-      OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
+  auto output =
+      IrBuilder::create<Val>(OpaqueType::make<TensorMap>("TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
       output,
       data_type,

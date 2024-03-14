@@ -18,6 +18,11 @@ namespace nvfuser {
 
 namespace {
 
+template <typename... Args>
+void vlog(const Args&... args) {
+  scheduler_debug_utils::log("[cache_policy_refiner] ", args...);
+}
+
 // Returns whether a pointwise expression `expr` expands its input operand
 // `in_tv`.
 bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
@@ -115,11 +120,11 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
 
 // Returns true if the cache policy is changed.
 bool refineCachePolicy(LoadStoreOp* ldst) {
-  scheduler_debug_utils::log("Processing ", ldst->toString());
+  vlog("Processing ", ldst->toString());
 
   const Expr* expand = findExpand(ldst);
   if (expand == nullptr) {
-    scheduler_debug_utils::log(
+    vlog(
         "Skipped ",
         ldst->toString(),
         " because we cannot find the using expand.");
@@ -127,7 +132,7 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
   }
 
   auto target_cache_op = CacheOp::AllLevels;
-  scheduler_debug_utils::log(
+  vlog(
       "Changed the cache op of ",
       ldst->toString(),
       " from ",

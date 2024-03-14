@@ -10,6 +10,7 @@
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -59,7 +60,7 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
   return true;
 }
 
-class PredicateAnalyzer : public OptOutDispatch {
+class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  public:
   //! Checks if a predicate is needed to avoid out-of-bound accesses.
   //!
@@ -85,7 +86,7 @@ class PredicateAnalyzer : public OptOutDispatch {
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
 
-    PredicateAnalyzer analyzer(c2p);
+    ProducerConsumerPairAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -97,7 +98,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+  ProducerConsumerPairAnalyzer(
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
       : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
@@ -153,16 +155,20 @@ class PredicateAnalyzer : public OptOutDispatch {
   // axis. Otherwise, we can't skip predication as it might cause
   // out-bound accesses with the producer tensor
   void handle(Split* split) override {
-    auto factor = split->factor()->getInt();
-    if (!factor.has_value()) {
+    auto factor = split->factor()->value();
+    if (!factor.is<int64_t>()) {
       needs_predicate_ = true;
+      return;
+    }
+
+    if (factor == 1) {
+      // Trivial splits cannot cause out-of-bounds
       return;
     }
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() ||
-        ((in_extent->evaluateInt() % factor.value()) != 0)) {
+    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
       needs_predicate_ = true;
       return;
     }
@@ -347,7 +353,7 @@ class PredicateChcker : public IterVisitor {
   bool predicateProducerConsumerPair(Expr* expr) const {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        if (PredicateAnalyzer::needsPredicate(input, output)) {
+        if (ProducerConsumerPairAnalyzer::needsPredicate(input, output)) {
           return true;
         }
       }
@@ -437,17 +443,17 @@ class PredicateChcker : public IterVisitor {
           id->getParallelType() == ParallelType::Unswitch) {
         return true;
       }
+    }
 
-      // TODO: （Enable in a follow up)
-      //  This cannot yet be removed since smem initialization needs to be
-      //  handled specially, e.g. as in smem_reduce test. Will be able to
-      //  lift this one once the generic pred removal pass with fusion
-      //  traversal is ready.
-      auto consumer_def = consumer->definition();
-      if (ir_utils::isReductionOp(consumer_def)) {
-        if (producer->getMemoryType() == MemoryType::Shared) {
-          return true;
-        }
+    // TODO: (Enable in a follow up)
+    //  This cannot yet be removed since smem initialization needs to be
+    //  handled specially, e.g. as in smem_reduce test. Will be able to
+    //  lift this one once the generic pred removal pass with fusion
+    //  traversal is ready.
+    auto consumer_def = consumer->definition();
+    if (ir_utils::isReductionOp(consumer_def)) {
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        return true;
       }
     }
 
@@ -859,7 +865,9 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  traverseTo(fusion, fusion->outputs());
+  // To avoid errors in analysis when using ATen evaluation for matmul, only use
+  // outputs that require codegen. See PR # 1775 and Issue #1812
+  traverseTo(lower_utils::getFusionOutputsRequiringCodegen(fusion));
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
@@ -1029,12 +1037,21 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
 
 std::string PredicateElimination::toString() const {
   std::stringstream ss;
-  ss << "Tensors that do not need predication:";
+  VectorOfUniqueEntries<TensorView*> non_predicated_tvs;
   for (auto expr : non_predicated_exprs_) {
     for (auto out : expr->outputs()) {
-      NVF_ERROR(out->isA<TensorView>());
-      ss << " T" << out->name();
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(out)) {
+        non_predicated_tvs.pushBack(ti->view());
+      } else if (auto tv = dynamic_cast<TensorView*>(out)) {
+        non_predicated_tvs.pushBack(tv);
+      } else {
+        NVF_ERROR(false, "Unexpected output ", out, " in ", expr);
+      }
     }
+  }
+  ss << "Tensors that do not need predication:";
+  for (auto tv : non_predicated_tvs) {
+    ss << " T" << tv->name();
   }
   ss << "\n";
   ss << "Init values:";
@@ -1047,6 +1064,10 @@ std::string PredicateElimination::toString() const {
     }
   }
   ss << "\n";
+  ss << "Non-predicated expressions:";
+  for (auto expr : non_predicated_exprs_) {
+    ss << " " << expr;
+  }
   return ss.str();
 }
 

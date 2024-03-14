@@ -297,7 +297,7 @@ bool isScalarOp(const Expr* expr) {
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
 }
 
 std::optional<IterDomain*> getMaybeWarpReductionDim(
@@ -341,7 +341,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluateInt();
+    auto extent_value = reduction_on_xdim->extent()->evaluate();
     if (extent_value % at::cuda::warp_size() == 0) {
       return std::optional<IterDomain*>(reduction_on_xdim);
     }
@@ -605,7 +605,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options(),
+          node->macro(),
           node->layout());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -654,11 +654,20 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
+      expr->isA<kir::BlockSerializeWait>() ||
+      expr->isA<kir::BlockSerializeRelease>()) {
     return true;
   }
 
   if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+
+  if (auto gr = dynamic_cast<const kir::GridReduction*>(expr);
+      gr && gr->isSerial()) {
+    // Serial GridReductions do not have a block sync. Instead, they sync in
+    // separate nodes surrounding their loop nest.
     return false;
   }
 
@@ -785,7 +794,7 @@ bool supportInlinePredicate(Expr* expr) {
 bool isScalarExpr(Expr* expr) {
   if (expr->inputs().empty() || expr->outputs().empty()) {
     // For expressions that does not have input/output, they are usually lowered
-    // expressions like CpAsyncWait. We don't consider these as scalar
+    // expressions like AsyncWait. We don't consider these as scalar
     // expressions.
     return false;
   }
@@ -804,7 +813,7 @@ bool isScalarExpr(Expr* expr) {
 
 bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.get(id->getParallelType());
+  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -819,6 +828,41 @@ Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
       u32addr,
       IrBuilder::metadataExpr(smem_tv));
   return u32addr;
+}
+
+Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
+  // See the comment above for getGridCommWorkBufferSize.
+  NVF_ERROR(
+      ptb.hasBID(),
+      "Detected  needing a grid sync but no grid bits set in bitmap.");
+  Val* buffer_size = GpuLower::current()->kernel()->oneVal();
+  for (auto pt : kParallelTypeBIDs) {
+    // Synchronized within pt, so all blocks of this PT use the same
+    // sync buffer location, and thus no need to expand the sync
+    // buffer size.
+    if (ptb.get(pt)) {
+      continue;
+    }
+    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    if (pt_dim == nullptr || pt_dim->isOneInt()) {
+      continue;
+    }
+    buffer_size = SimplifyingIrBuilder::mulExpr(buffer_size, pt_dim);
+  }
+  return buffer_size;
+}
+
+std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
+  std::vector<Val*> outs_requiring_codegen;
+  outs_requiring_codegen.reserve(fusion->outputs().size());
+  std::copy_if(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      std::back_inserter(outs_requiring_codegen),
+      [&fusion](Val* out) {
+        return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
+      });
+  return outs_requiring_codegen;
 }
 
 } // namespace lower_utils

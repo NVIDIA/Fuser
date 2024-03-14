@@ -29,6 +29,14 @@ class MatmulParams : public HeuristicParams {
   struct DoubleBufferOptions {
     bool double_buffer_smem_write = false;
     bool double_buffer_smem_read = false;
+    // This parameter controls the number of double buffering or circular
+    // buffering stages to use when loading operands a and b.
+    //
+    // If this value is greater than two then it indicates circular buffering,
+    // in which case async_gmem_load_operands must also be true.
+    //
+    // Note that whenever double_buffer_smem_write is true, this value must be
+    // greater than one. Otherwise it is ignored.
     int smem_double_buffer_stage = 2;
 
     bool operator==(const DoubleBufferOptions& other) const {
@@ -67,7 +75,7 @@ class MatmulParams : public HeuristicParams {
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
-  MmaOptions::MacroType mma_macro = MmaOptions::MacroType::NoMMA;
+  MmaMacro mma_macro = MmaMacro::NoMMA;
 
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;
@@ -97,11 +105,15 @@ class MatmulParams : public HeuristicParams {
   //! Promote reuse of prologue shared memory
   bool promote_prologue_smem_reuse = false;
 
+  //! Whether to do single-kernel split-K. If this is >1, we will rfactor the K
+  //! axis and perform a grid reduction before the epilogue.
+  int splitk_factor = 1;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
-       << "MMA macro: " << nvfuser::toString(mma_macro, true) << "\n"
+       << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
        << double_buffer_options.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
@@ -122,6 +134,7 @@ class MatmulParams : public HeuristicParams {
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
+       << "Split-K factor: " << splitk_factor << "\n"
        << "====================================\n";
     return ss.str();
   }
@@ -138,7 +151,8 @@ class MatmulParams : public HeuristicParams {
         (nvfuser::hash(mma_macro) << 1) ^ (double_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 5);
+        (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
+        (std::hash<size_t>{}(splitk_factor) << 6);
     return attr_hash;
   }
 
@@ -159,7 +173,8 @@ class MatmulParams : public HeuristicParams {
         other_casted->grid_swizzle_factor == grid_swizzle_factor &&
         other_casted->use_smem_epilogue == use_smem_epilogue &&
         other_casted->promote_prologue_smem_reuse ==
-        promote_prologue_smem_reuse;
+        promote_prologue_smem_reuse &&
+        other_casted->splitk_factor == splitk_factor;
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {

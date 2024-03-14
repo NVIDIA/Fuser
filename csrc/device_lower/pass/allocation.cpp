@@ -165,9 +165,10 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto id : maybe_rfactor_domain) {
       if (id->isReduction() || id->isStride()) {
         continue;
-      } else if (id->isBroadcast()) {
+      } else if (id->isBroadcast() || id->isDeviceDim()) {
         // No matter whether this broadcast is expanded or not, we always
         // allocate size 1
+        // Allocate devices axes as size 1
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
@@ -218,7 +219,7 @@ class AllocationInserter : public kir::ExprMutator {
         [](IterDomain* dom) { return dom->as<Val>(); });
 
     // Get all exprs involved in generating the allocation IDs
-    auto exprs = StmtSort::getExprsTo(tv->fusion(), start_vals);
+    auto exprs = StmtSort::getExprsTo(start_vals);
 
     // Get the halo extent if found
     auto getExtent = [this](IterDomain* id) {
@@ -335,10 +336,10 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
       const auto local_id = info.buffer->axis((int)axis_i);
 
-      // Don't use reduction/stride/broadcast axis in the allocation
-      // computation
+      // Don't use reduction/stride/broadcast/device axis in the
+      // allocation computation
       if (local_id->isReduction() || local_id->isStride() ||
-          local_id->isBroadcast()) {
+          local_id->isBroadcast() || local_id->isDeviceDim()) {
         continue;
       }
 

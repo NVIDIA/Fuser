@@ -9,9 +9,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
-
-#include <c10/core/DeviceType.h>
-#include <c10/util/Exception.h>
+#include <visibility.h>
 
 #include <cuda_runtime.h>
 
@@ -35,18 +33,17 @@ namespace executor_utils {
 std::string kernelPreamble();
 
 //! Bind input values to runtime values
-ExpressionEvaluator bindInputs(
-    const KernelArgumentHolder& args,
-    Fusion* fusion);
+NVF_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
-std::string disassembleBinary(
+NVF_API std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
 // I'm not happy with CompiledKernel being a struct exposing all the fields.
 // This could be refactored.
 struct CompiledKernel : public NonCopyable {
-  ~CompiledKernel();
+  NVF_API ~CompiledKernel();
 
   CUmodule module = nullptr;
   CUfunction function = nullptr;
@@ -58,6 +55,7 @@ struct CompiledKernel : public NonCopyable {
   std::string kernel_name;
   std::string compile_args;
   long block_size = -1;
+  int register_spills = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
@@ -65,7 +63,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 
@@ -144,26 +142,6 @@ class VectorizedTensorValidation {
   using DataType = VectorizedTensorInfo;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::VECTORIZED_TENSOR_VALIDATION;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  InputAliasIndices
-//!    Stores position info of aliased input tensors
-class InputAliasIndices {
- public:
-  using DataType = std::vector<std::pair<int, int>>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::INPUT_ALIAS_INDICES;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  OutputAliasIndices
-//!    Stores position info of aliased output tensors
-class OutputAliasIndices {
- public:
-  using DataType = std::unordered_set<int>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::OUTPUT_ALIAS_INDICES;
 };
 
 //! Base abstract class for unified storage in `ExecutorCompileTimeInfoCache`,
@@ -314,6 +292,13 @@ class CudaKernelTimer {
   bool initialized_ = false;
   float kernel_time_ms_ = 0;
 };
+
+//! Query the target GPU version number NVRTC compiles CUDA kernels for
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int& major,
+    int& minor,
+    bool& compile_to_sass);
 
 } // namespace executor_utils
 } // namespace nvfuser

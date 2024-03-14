@@ -165,6 +165,8 @@ ensure_in_list() {
 # ensure some NVFUSER_DUMP options are enabled
 appended_dump=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx)
 export NVFUSER_DUMP=$appended_dump
+appended_enable=$(ensure_in_list "$NVFUSER_ENABLE" static_fusion_count)
+export NVFUSER_ENABLE=$appended_enable
 
 # Allow command to fail, but record exit code
 set +e

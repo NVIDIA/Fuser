@@ -16,7 +16,9 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
@@ -173,15 +175,6 @@ TensorView::TensorView(
   domain_ = IrBuilder::create<TensorDomain>(sizes, contig_info);
 }
 
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<torch::jit::Value>& jit_value)
-    : TensorView(passkey, jit_value->type()->cast<c10::TensorType>()) {
-  NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-}
-
 NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
@@ -233,6 +226,9 @@ std::string TensorView::toString(int indent_size) const {
     ss << getMaybeMaxProducerPosition();
     ss << " )";
   }
+  if (hasDeviceMesh()) {
+    ss << " (" << getDeviceMesh() << ")";
+  }
   return ss.str();
 }
 
@@ -253,7 +249,12 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
-      promote_reuse_(src->promote_reuse_) {}
+      promote_reuse_(src->promote_reuse_),
+      mesh_(src->mesh_) {}
+
+void TensorView::printTransforms() const {
+  IrTransformPrinter(std::cout).printTransforms(this);
+}
 
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
@@ -781,6 +782,41 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   return this;
 }
 
+TensorView* TensorView::swizzle(SwizzleType swizzle_type, int x, int y) {
+  if (x < 0) {
+    x += (int)domain()->nDims();
+  }
+  if (y < 0) {
+    y += (int)domain()->nDims();
+  }
+
+  // Check swizzle specific constraints on the input axes:
+  auto x_id = axis(x);
+  auto y_id = axis(y);
+
+  NVF_ERROR(
+      x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
+      "Only constant iterdomains supported on given swizzle type");
+
+  int in_x_size = (int)x_id->extent()->evaluate();
+  int in_y_size = (int)y_id->extent()->evaluate();
+
+  // Check size constraints based on swizzle type
+  if (swizzle_type == SwizzleType::XOR) {
+    NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
+  }
+
+  if (swizzle_type == SwizzleType::XOR) {
+    // XOR swizzle only support power of 2 swizzle unit sizes:
+    bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
+    NVF_ERROR(is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
+  }
+
+  domain()->swizzle(swizzle_type, x, y);
+
+  return this;
+}
+
 TensorView* TensorView::swizzle(
     Swizzle2DType swizzle_type,
     int x,
@@ -816,7 +852,7 @@ TensorView* TensorView::swizzle(
   // Disable unsupported use cases at the current step.
   //  Currently do not support reducing or broadcasting
   //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs(fusion(), {axis(x), axis(y)});
+  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
   for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
     NVF_ERROR(
         !id->isBroadcast() && !id->isReduction(),
@@ -841,8 +877,8 @@ TensorView* TensorView::swizzle(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluateInt();
-    int in_y_size = (int)y_id->extent()->evaluateInt();
+    int in_x_size = (int)x_id->extent()->evaluate();
+    int in_y_size = (int)y_id->extent()->evaluate();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
@@ -928,7 +964,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options(),
+        this_mma->macro(),
         this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
@@ -1251,9 +1287,12 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
       !hasComputeAt(),
       "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
 
+  bool is_allowed_op =
+      !ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(this) &&
+      !ir_utils::isIndexSelectLookupTv(this);
   NVF_CHECK(
-      !ir_utils::isSelectInput(this) && !ir_utils::isIndexSelectLookupTv(this),
-      "Right now, caching tensors that are input to the select op is not allowed as they must be in global memory.")
+      is_allowed_op,
+      "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
@@ -1375,19 +1414,37 @@ bool TensorView::isEmptyTensor() const {
       });
 }
 
-void TensorView::applyMmaSwizzle(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+void TensorView::applyMmaSwizzle(MmaOperand operand) {
+  switch (operand) {
+    case MmaOperand::Accumulator:
+      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this);
+      if (definition()->isA<MmaOp>()) {
+        setAllocationDomain(getLeafDomain(), true);
+      }
       break;
-    case MmaOptions::Operand::A:
-    case MmaOptions::Operand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+    case MmaOperand::A:
+    case MmaOperand::B:
+      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
+      if (ir_utils::isLdMatrixOp(definition())) {
+        setAllocationDomain(getLeafDomain(), true);
+        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
+      }
       break;
     default:
       NVF_ERROR(false, "unknown operand flag");
       break;
   }
+}
+
+void TensorView::applyMmaSwizzle(
+    MmaInputSmemSwizzle swizzle,
+    bool transpose,
+    bool transpose2) {
+  NVF_ERROR(
+      getMemoryType() == MemoryType::Shared,
+      "Shared memory swizzle is only supported for shared memory");
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
+      this, swizzle, transpose, transpose2);
 }
 
 void TensorView::commitLeafToRFactor() {
@@ -1480,7 +1537,21 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
     NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
     ndims_ = stride_order.size();
   }
-  stride_order_ = std::move(stride_order);
+
+  // TODO: this shouldn't be necessary. For details see issue
+  // https://github.com/NVIDIA/Fuser/issues/1399
+  //
+  // skip stride_order if its alloc_domain is in the same order as with rfactor
+  // domain. We don't need this and we should be able to just use stride_order_,
+  // but currently alloc_domain support isn't ideal and could prevent
+  // vectorization. Adding this workaround to restore performance.
+  if (std::adjacent_find(
+          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
+            return l <= r;
+          }) != stride_order.end()) {
+    // stride_order is not in descending order, we cannot skip it.
+    stride_order_ = std::move(stride_order);
+  }
   return *this;
 }
 
@@ -1524,7 +1595,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
+    if (extent->isConstScalar() && extent->evaluate() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {

@@ -565,6 +565,9 @@ class WelfordVectorizer : public kir::ExprMutator {
 
 std::vector<Expr*> vectorizeWelford(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::vectorizeWelford");
+  if (isOptionDisabled(DisableOption::WelfordVectorization)) {
+    return exprs;
+  }
   return WelfordVectorizer::vectorize(exprs);
 }
 

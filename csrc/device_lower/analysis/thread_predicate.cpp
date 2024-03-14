@@ -239,8 +239,9 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
 
   // Run through inputs and update bitsets
   for (const auto* inp : expr->inputs()) {
-    if (!ir_utils::isTV(inp))
+    if (!ir_utils::isTV(inp)) {
       continue;
+    }
 
     auto tv_inp = inp->as<TensorView>();
 
@@ -365,7 +366,7 @@ class RedundantUseAnalysis : BackwardVisitor {
  public:
   RedundantUseAnalysis(Fusion* fusion, const ThreadPredicateMap& pred_map)
       : fusion_(fusion), pred_map_(pred_map) {
-    traverseTo(fusion, fusion->terminatingMathVals());
+    traverseTo(fusion->terminatingMathVals());
   }
 
   //! Returns a bit map signifying the parallel dimensions

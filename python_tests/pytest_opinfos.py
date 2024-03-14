@@ -22,7 +22,6 @@ from pytest_input_generators import (
     define_tensor_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
-    define_vector_input_error_generator,
     elementwise_binary_generator,
     _elementwise_binary_torch,
     elementwise_unary_generator,
@@ -35,11 +34,14 @@ from pytest_input_generators import (
     pad_error_generator,
     permute_generator,
     permute_error_generator,
+    random_dist_error_generator,
     reduction_error_generator,
     reshape_generator,
     reshape_error_generator,
     slice_generator,
     slice_error_generator,
+    squeeze_generator,
+    squeeze_error_generator,
     take_along_axis_generator,
     take_along_axis_error_generator,
     tensor_size_error_generator,
@@ -49,8 +51,9 @@ from pytest_input_generators import (
 )
 from pytest_utils import (
     bool_int_dtypes,
-    int_dtypes,
+    complex_dtypes,
     full_precision_float_dtypes,
+    int_dtypes,
     int_float_dtypes,
     float_complex_dtypes,
     ArgumentType,
@@ -85,15 +88,6 @@ define_vector_constant_opinfo = OpInfo(
     fd_error_input_fn=api_test_fd_fn,
 )
 fusion_input_ops.append(define_vector_constant_opinfo)
-
-define_vector_input_opinfo = OpInfo(
-    lambda fd: fd.define_vector,
-    "define_vector_input",
-    sample_input_generator=None,
-    error_input_generator=define_vector_input_error_generator,
-    fd_error_input_fn=api_test_fd_fn,
-)
-fusion_input_ops.append(define_vector_input_opinfo)
 
 """ End Fusion Input Operations """
 
@@ -1018,6 +1012,19 @@ slice_opinfo = OpInfo(
 )
 shape_ops.append(slice_opinfo)
 
+squeeze_opinfo = OpInfo(
+    lambda fd: fd.ops.squeeze,
+    "squeeze",
+    sample_input_generator=squeeze_generator,
+    error_input_generator=squeeze_error_generator,
+    reference=torch.squeeze,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(squeeze_opinfo)
+
 take_along_axis_opinfo = OpInfo(
     lambda fd: fd.ops.take_along_axis,
     "take_along_dim",
@@ -1063,6 +1070,38 @@ iota_opinfo = OpInfo(
     ),
 )
 tensor_creation_ops.append(iota_opinfo)
+
+# NOTE: normal's python API does not produce value based errors given most parameters are
+# symbolic as Scalar or Vector parameters.  The dtype parameter is checked to make sure the
+# user does not ask for non-floating point random numbers.
+uniform_opinfo = OpInfo(
+    lambda fd: fd.ops.normal,
+    "normal",
+    dtypes=(bool_int_dtypes + complex_dtypes),
+    error_input_generator=random_dist_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(uniform_opinfo)
+
+# NOTE: uniform's python API does not produce value based errors given most parameters are
+# symbolic as Scalar or Vector parameters.  The dtype parameter is checked to make sure the
+# user does not ask for non-floating point random numbers.
+uniform_opinfo = OpInfo(
+    lambda fd: fd.ops.uniform,
+    "uniform",
+    dtypes=(bool_int_dtypes + complex_dtypes),
+    error_input_generator=random_dist_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(uniform_opinfo)
 
 """ End Tensor Creation """
 

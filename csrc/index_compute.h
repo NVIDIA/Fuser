@@ -76,6 +76,7 @@ class IndexCompute : public BackwardVisitor {
 
   void handle(Split*) override;
   void handle(Merge*) override;
+  void handle(Swizzle*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
@@ -478,7 +479,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
-      bool generate_pointer = false);
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
@@ -486,7 +488,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false);
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
   //! allocation domain of a producer tensor. The size of the returned
@@ -587,6 +590,7 @@ class Index {
   //! zeros
   static Val* cpAsyncBulkIndex(
       TensorView* gmem_tv,
+      TensorView* smem_tv,
       TensorView* consumer,
       Val* mbarrier,
       const std::vector<kir::ForLoop*>& loops);

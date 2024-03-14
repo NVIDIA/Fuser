@@ -17,7 +17,6 @@
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
 
-#include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
 
 #include <mutex>
@@ -78,6 +77,10 @@ struct PairPointerEquals {
   }
 };
 
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
+void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
+
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -87,12 +90,22 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
+//!
+//! When serde_buffer argument is a nullptr, we run the
+//! SegmentCandidateFinder::segment pass in the constructor and compile the
+//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
+//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  explicit FusionKernelRuntime(
+  NVF_API explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      const serde::FusionKernelRuntime* serde_buffer = nullptr,
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      bool auto_schedule = true);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -120,7 +133,9 @@ class FusionKernelRuntime {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(const serde::FusionKernelRuntime* buffer);
+  void deserialize(
+      const serde::FusionKernelRuntime* buffer,
+      int8_t device_index);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
@@ -135,11 +150,11 @@ class FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  void compileFusionParallel(KernelArgumentHolder args);
+  NVF_API void compileFusionParallel(KernelArgumentHolder args);
 
   const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
@@ -209,7 +224,7 @@ class FusionKernelRuntime {
   //
   // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  NVF_API std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -246,9 +261,7 @@ class FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  const std::vector<SchedulerEntryPtr>& schedulers() const;
-
-  void prepareRuntimeOrder();
+  NVF_API const std::vector<SchedulerEntryPtr>& schedulers() const;
 
  private:
   //! Entries indexed by groupID:
@@ -297,8 +310,21 @@ class FusionKernelRuntime {
 
   std::mutex mutex_;
 
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
+
+  // ID of concretized fusion in FusionExecutorCache
+  int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
+
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
@@ -352,7 +378,7 @@ class InputsIdLookup : public NonCopyable {
   //! However, if scalar_inputs_to_record is provided, then the values of scalar
   //! inputs at the integer locations specified in that argument will affect the
   //! returned ID.
-  IdLookupReturn lookupId(
+  NVF_API IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::unordered_set<size_t>& scalar_inputs_to_record = {},
       int8_t device = 0);
@@ -490,7 +516,10 @@ class FusionExecutorCache {
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  explicit FusionExecutorCache(std::unique_ptr<Fusion> fusion);
+  NVF_API explicit FusionExecutorCache(
+      std::unique_ptr<Fusion> fusion,
+      int64_t fusion_id = 0,
+      bool auto_schedule = true);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -501,7 +530,7 @@ class FusionExecutorCache {
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
   //! WARING: Correctness is not guaranteed.
-  std::vector<at::Tensor> runFusionWithInputs(
+  NVF_API std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
@@ -513,7 +542,9 @@ class FusionExecutorCache {
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
-  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs, int8_t device = 0);
+  NVF_API bool isCompiled(
+      const at::ArrayRef<c10::IValue>& inputs,
+      int8_t device = 0);
 
   Fusion* fusion() {
     return fusion_.get();
@@ -643,7 +674,7 @@ class FusionExecutorCache {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer);
+  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement
@@ -677,6 +708,9 @@ class FusionExecutorCache {
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
+  using ConcreteInfo =
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>;
+
   //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
   //! map is a (device, concretization info) pair. In case fusion_ contains
   //! no dynamic transforms, the second part of the key is null. When a new set
@@ -685,7 +719,7 @@ class FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      ConcreteInfo,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
       PairPointerHash,
       PairPointerEquals>
@@ -697,6 +731,12 @@ class FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  //! Map each pair of device_id and concretization info to an integer id
+  std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
+      conc_info_id_map_;
+  //! For serialization, track a deterministic order for (device_id and
+  //! concretization info) pair
+  std::vector<ConcreteInfo> deterministic_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
@@ -717,6 +757,13 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
+
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 } // namespace nvfuser

@@ -4,16 +4,20 @@ All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 -#}
 {% macro gitinfo(run_num, run_name, gitinfo) -%}
-    <h3>
-        Git information: <i>{{ run_name|e }}</i>
-    </h3>
-    <span><code>{{ gitinfo.abbrev|e }}</code> {{ gitinfo.title|e }}</span>
-    <br>
-    <span>{{ gitinfo.author_name|e }}</span> &lt;<span>{{ gitinfo.author_email|e }}&gt;</span>
-    <br>
-    <span>{{ gitinfo.author_time }}</span>
-    <br>
+    {%- if run_name is not none -%}
+        <span class="run_heading"><i>{{ run_name|e }}</i></span>
+        <br>
+    {%- endif -%}
+    <a class="git_title"
+       href="https://github.com/NVIDIA/Fuser/commit/{{ gitinfo.full_hash }}"><code class="git_abbrev">{{ gitinfo.abbrev|e }}</code> {{ gitinfo.title|e }}</a>
+    <a href="https://github.com/NVIDIA/Fuser/tree/{{ gitinfo.full_hash }}">[browse]</a>
+    <div class="git_meta">
+        <span class="git_author">{{ gitinfo.author_name|e }}</span> &lt;<span class="git_email">{{ gitinfo.author_email|e }}&gt;</span>
+        <br>
+        <span class="git_time">{{ gitinfo.author_time|e }}</span>
+    </div>
     {% if gitinfo.diffn is not none and gitinfo.diff | length > 0 %}
+        <br>
         Dirty working directory
         <button onclick="toggleDiv('git_diff_{{ run_num }}')">
             <i>{{ run_name }}</i> git diff
@@ -28,7 +32,4 @@ SPDX-License-Identifier: BSD-3-Clause
                 <pre><code class="language-diff">{{gitinfo.diff|e}}</code></pre>
             </div>
         {% endif %}
-        <a href="https://github.com/NVIDIA/Fuser/commit/{{ gitinfo.full_hash }}">View commit</a>
-        <br>
-        <a href="https://github.com/NVIDIA/Fuser/tree/{{ gitinfo.full_hash }}">Browse code at this commit</a>
     {%- endmacro -%}

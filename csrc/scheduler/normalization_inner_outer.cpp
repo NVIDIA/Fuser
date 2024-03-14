@@ -584,9 +584,13 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
     const size_t tmp_gmem_dtype_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   auto rparams = std::make_shared<ReductionParams>();
   rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
   // Parameters for inner reduction:
   // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
   // Iteration dim: gdimy
@@ -901,10 +905,10 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
       max_outer_reduction_dtype_size,
-      vectorize_factor);
-  rparams->smem_persistent_tvs = buffer_params.smem_persistent_tvs;
-  rparams->project_persistent_buffers = buffer_params.project_to_input;
-  rparams->cparams.index_type = runtime_info.getIndexType();
+      vectorize_factor,
+      buffer_params.project_to_input,
+      runtime_info.getIndexType());
+
   return rparams;
 }
 

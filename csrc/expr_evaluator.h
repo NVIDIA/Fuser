@@ -7,13 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <evaluator_common.h>
 #include <exceptions.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
 #include <polymorphic_value.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -24,7 +24,7 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class ExpressionEvaluator {
-  void bind_(
+  NVF_API void bind_(
       const Val* value,
       PolymorphicValue concrete_value,
       bool evaluate_validate);
@@ -51,13 +51,17 @@ class ExpressionEvaluator {
   void bind(ParallelType pt, PolymorphicValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  const PolymorphicValue& evaluate(const Val* value);
+  NVF_API const PolymorphicValue& evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
-  //! Try to evaluate a known value using const evaluator ref
-  PolymorphicValue evaluate(const Val* value) const;
+  //! Try to evaluate a value using const evaluator ref
+  NVF_API PolymorphicValue evaluate(const Val* value) const;
+
+  bool isKnown(const Val* value) const {
+    return known_values_.count(value) > 0;
+  }
 
   //! Debugging helper, prints all the currently known values
   void print() const;

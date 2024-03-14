@@ -10,13 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-# Will only create the nvfuser module if CUDA is available
-try:
-    from nvfuser import (
-        FusionDefinition,
-    )
-except ImportError:
-    pass
+from nvfuser import FusionDefinition
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -67,7 +61,7 @@ class TestScheduleOps(TestCase):
 
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            fd.t1 = fd.ops.sum(fd.t0, axis=-1)
+            fd.t1 = fd.ops.sum(fd.t0, dim=-1)
             fd.add_output(fd.t1)
 
         class InputError(FusionDefinition):
@@ -91,7 +85,7 @@ class TestScheduleOps(TestCase):
 
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            fd.t1 = fd.ops.sum(fd.t0, axis=-1)
+            fd.t1 = fd.ops.sum(fd.t0, dim=-1)
             fd.add_output(fd.t1)
 
         class BasicValid(FusionDefinition):

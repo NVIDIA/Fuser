@@ -226,8 +226,10 @@ inline std::string toString(const PolymorphicValue& v) {
   if (v.is<at::Tensor>()) {
     const auto& t = v.as<at::Tensor>();
     ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
-       << ")";
+       << "stride=" << t.strides() << ", dtype=" << t.dtype()
+       << ", device=" << t.device() << ", data_ptr=" << t.data_ptr() << ")";
+  } else if (v.is<std::monostate>()) {
+    ss << "std::monostate";
   } else {
     ss << v;
   }
@@ -319,6 +321,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().abs();
+  }
   NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
@@ -371,6 +376,15 @@ inline PolymorphicValue toTensor(
   }
   NVF_ERROR(
       false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+}
+
+// Convert PolymorphicValue to c10::Scalar.
+inline c10::Scalar toScalar(const PolymorphicValue& x) {
+  if (x.is<std::complex<double>>()) {
+    return (c10::complex<double>)x.as<std::complex<double>>();
+  } else {
+    return (c10::Scalar)x;
+  }
 }
 
 } // namespace PolymorphicValue_functions

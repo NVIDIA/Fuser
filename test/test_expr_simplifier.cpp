@@ -30,7 +30,7 @@ namespace {
 // simplifies to true. We don't use x->sameAs(y), because we want to consider
 // a(b+c), ab+ac, (b+c)a, ba+ca as equivalent, but `sameAs` can not do this job.
 bool isEquivalent(Val* x, Val* y) {
-  return simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true;
+  return simplifyExpr(IrBuilder::eqExpr(x, y))->value().as<bool>();
 }
 
 // assert that x/y -> z
@@ -548,23 +548,23 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("1.0 * d"_)->sameAs("d"_));
   EXPECT_TRUE(simplifyExpr("i * 1"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
-  EXPECT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
-  EXPECT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
+  EXPECT_EQ(simplifyExpr("0 * i"_)->value(), 0);
+  EXPECT_EQ(simplifyExpr("i * 0"_)->value(), 0);
   EXPECT_TRUE(simplifyExpr("gcd( i , 0 )"_)->sameAs("abs( i )"_));
 
   EXPECT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
   EXPECT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
-  EXPECT_EQ(simplifyExpr("gcd( i , 1 )"_)->getInt(), 1);
+  EXPECT_EQ(simplifyExpr("gcd( i , 1 )"_)->value(), 1);
 
   EXPECT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
   EXPECT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
-  EXPECT_EQ(simplifyExpr("false && b"_)->getBool(), false);
-  EXPECT_EQ(simplifyExpr("b && false"_)->getBool(), false);
+  EXPECT_EQ(simplifyExpr("false && b"_)->value(), false);
+  EXPECT_EQ(simplifyExpr("b && false"_)->value(), false);
 
-  EXPECT_EQ(simplifyExpr("true || b"_)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("b || true"_)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("true || b"_)->value(), true);
+  EXPECT_EQ(simplifyExpr("b || true"_)->value(), true);
   EXPECT_TRUE(simplifyExpr("false || b"_)->sameAs("b"_));
   EXPECT_TRUE(simplifyExpr("b || false"_)->sameAs("b"_));
 
@@ -580,8 +580,8 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("i / 1"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("d / 1.0"_)->sameAs("d"_));
 
-  EXPECT_EQ(simplifyExpr("0 / i"_)->getInt(), 0);
-  EXPECT_EQ(simplifyExpr("i % 1"_)->getInt(), 0);
+  EXPECT_EQ(simplifyExpr("0 / i"_)->value(), 0);
+  EXPECT_EQ(simplifyExpr("i % 1"_)->value(), 0);
 
   // -(-a) -> a
   EXPECT_TRUE(simplifyExpr("- - i"_)->sameAs("i"_));
@@ -682,47 +682,47 @@ TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
                                  const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::ltExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::ltExpr("0"_, x), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::leExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::leExpr(x, "0"_), {}, assumptions)->value() ==
          false) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->value() ==
          false) &&
-        (simplifyExpr(IrBuilder::geExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::geExpr("0"_, x), {}, assumptions)->value() ==
          false) &&
-        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->value() ==
          false);
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
   };
   auto assertProvedNonNegative = [](Val* x,
                                     const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->value() ==
          false) &&
-        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->value() ==
          false);
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
   };
   auto assertProvedNonZero = [](Val* x,
                                 const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::neExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::neExpr("0"_, x), {}, assumptions)->value() ==
          true) &&
-        (simplifyExpr(IrBuilder::eqExpr(x, "0"_), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::eqExpr(x, "0"_), {}, assumptions)->value() ==
          false) &&
-        (simplifyExpr(IrBuilder::eqExpr("0"_, x), {}, assumptions)->getBool() ==
+        (simplifyExpr(IrBuilder::eqExpr("0"_, x), {}, assumptions)->value() ==
          false);
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " != 0";
   };
@@ -778,24 +778,24 @@ TEST_F(ExprSimplifierTest, SignProve) {
 
 TEST_F(ExprSimplifierTest, PredicateProve) {
   std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_};
-  EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 >= i1"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("i2 <= 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 >= i2"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("i3 > 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("i3 >= 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 < i3"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 <= i3"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("i4 >= 5"_, {}, assumptions)->getBool(), true);
-  EXPECT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 >= i1"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("i2 <= 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 >= i2"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("i3 > 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("i3 >= 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 < i3"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 <= i3"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("i4 >= 5"_, {}, assumptions)->value(), true);
+  EXPECT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->value(), true);
 }
 
 TEST_F(ExprSimplifierTest, EquivalenceSimplification) {
   auto assertProvedEquiv = [](Val* x, Val* y) {
-    auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true) &&
-        (simplifyExpr(IrBuilder::neExpr(x, y))->getBool() == false);
+    auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->value() == true) &&
+        (simplifyExpr(IrBuilder::neExpr(x, y))->value() == false);
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString()
                         << " == " << y->toInlineString();
   };
@@ -852,65 +852,65 @@ TEST_F(ExprSimplifierTest, DistributeMul) {
 
 TEST_F(ExprSimplifierTest, Compare) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption})->getBool();
+    return simplifyExpr(x, {}, {assumption})->value();
   };
 
-  EXPECT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
+  EXPECT_TRUE(simplify("i1 <= i1"_, "i1 < i2"_));
 
-  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
-  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
-  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
-  EXPECT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).has_value());
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
+  EXPECT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).hasValue());
 
-  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
-  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
-  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
-  EXPECT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).has_value());
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
+  EXPECT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).hasValue());
 
-  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
-  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
-  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
-  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
 
-  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
-  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
-  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
-  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
 
-  EXPECT_TRUE(*simplify(
+  EXPECT_TRUE(simplify(
       "i1 < 3"_,
       "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
 
-  EXPECT_TRUE(*simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
-  EXPECT_TRUE(*simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
-  EXPECT_TRUE(*simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
-  EXPECT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
+  EXPECT_TRUE(simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
+  EXPECT_TRUE(simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
+  EXPECT_TRUE(simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
+  EXPECT_TRUE(simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
   EXPECT_TRUE(
-      *simplifyExpr(
-           "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
-           ->getBool());
+      simplifyExpr(
+          "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
+          ->value());
 
-  EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
-  EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
+  EXPECT_TRUE(simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
+  EXPECT_TRUE(simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
 
-  EXPECT_TRUE(*simplify(
+  EXPECT_TRUE(simplify(
       "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
       "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
-  EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+  EXPECT_TRUE(simplify("i1 % i2 < i2"_, "i2 >= 0"_));
 
   EXPECT_TRUE(
-      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
+      simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->value());
   EXPECT_TRUE(
-      *simplifyExpr(
-           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
-           ->getBool());
+      simplifyExpr(
+          "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
+          ->value());
   // Two terms of the LHS are both the same as the single RHS term,
   // but the removal should be done only for one of them. If doubly
   // removed, the predicate would be false
-  EXPECT_TRUE(*simplify("i1 + i1 > i1"_, "i1 > 0"_));
-  EXPECT_TRUE(*simplify("i1 < i1 + i1"_, "i1 > 0"_));
-  EXPECT_TRUE(*simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(simplify("i1 + i1 > i1"_, "i1 > 0"_));
+  EXPECT_TRUE(simplify("i1 < i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {

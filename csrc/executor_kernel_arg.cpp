@@ -12,7 +12,7 @@
 
 #include <executor_kernel_arg.h>
 #include <instrumentation.h>
-#include <serde/polymorphic_value_serde.h>
+#include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {
@@ -255,6 +255,14 @@ std::vector<std::byte> polymorphicValueToBytes(
       at::BFloat16 v16 = (at::BFloat16)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
+    } else if (dtype == DataType::Float8_e4m3fn) {
+      at::Float8_e4m3fn v8 = (at::Float8_e4m3fn)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e4m3fn));
+    } else if (dtype == DataType::Float8_e5m2) {
+      at::Float8_e5m2 v8 = (at::Float8_e5m2)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e5m2));
     } else {
       NVF_ERROR(
           false,

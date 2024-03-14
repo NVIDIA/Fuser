@@ -119,8 +119,11 @@ class CompiledKernel:
         # Example input:
         #
         #   ptxas info    : 307 bytes gmem
-        #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
-        #   ptxas info    : Function properties for _ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_
+        #   ptxas info    : Compiling entry function
+        #   '_ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_'
+        #   for 'sm_86'
+        #   ptxas info    : Function properties for
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
         #   ptxas info    : Used 203 registers, 16 bytes smem, 472 bytes cmem[0], 8 bytes cmem[2]
         #
@@ -380,11 +383,15 @@ class LogParserPyTest(LogParser):
     def compile_regex(self):
         super().compile_regex()
 
+        self.itemlist_re = re.compile(r"Running \d+ items in this shard: (.*)$")
+
+        self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
+
         self.all_test_names: list[str] | None = None
 
     def parse_line(self, line):
         if self.all_test_names is None:
-            m = re.match(r"Running \d+ items in this shard: (.*)$", line)
+            m = re.match(self.itemlist_re, line)
             if m is not None:
                 # grab the test list
                 self.all_test_names = m.groups()[0].split(", ")
@@ -406,6 +413,14 @@ class LogParserPyTest(LogParser):
                     line = testrest[1]
                 else:
                     return True
+        else:
+            # Less reliable: match any line having at least one double colon
+            # and interpret that as test name
+            m = re.match(self.wildcard_testname_re, line)
+            if m is not None:
+                d = m.groupdict()
+                self.current_test = d["testname"]
+                line = d["line"]
 
         if line == "PASSED":
             self.finalize_test(True)
@@ -542,7 +557,7 @@ class TestRun:
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
                         line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
-                    if re.search(r"void kernel\d+\b", line) is not None:
+                    if re.search(r"void (nvfuser|kernel)_?\d+\b", line) is not None:
                         # we arrived at the kernel definition
                         break
                     if first:
@@ -576,7 +591,8 @@ class TestRun:
                         kern.index_type = m.groups()[0]
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
-                    kern.code += re.sub(r"\bkernel\d+\b", "kernelN", line)
+                    # also match kernel_43 to handle new-style naming with static fusion count
+                    kern.code += re.sub(r"\bnvfuser_\d+\b", "nvfuser_N", line)
         kern.code = kern.code.rstrip()
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
@@ -633,6 +649,39 @@ class TestDiff:
     kernel_diffs: list[KernelDiff] | None = None
 
 
+def sanitize_ptx_lines(lines: list[str]) -> list[str]:
+    """Remove comments and remove kernel id"""
+    sanitary_lines = []
+    for l in lines:
+        # Replace mangled kernel names like
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
+        # with
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
+
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
+
+        # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
+        l = re.sub(r"//.*$", "", l)
+        sanitary_lines.append(l)
+    return sanitary_lines
+
+
 @dataclass
 class TestDifferences:
     run1: TestRun
@@ -645,6 +694,7 @@ class TestDifferences:
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
+    env_diff: str = field(init=False)
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
@@ -670,6 +720,16 @@ class TestDifferences:
         if len(self.preamble_diff) > 0:
             print("Preambles differ between runs indicating changes to runtime files")
 
+        self.env_diff = "\n".join(
+            difflib.unified_diff(
+                self.run1.env.splitlines(),
+                self.run2.env.splitlines(),
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
+                n=5,
+            )
+        )
+
         for testname, compiled_test1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
                 compiled_test1.kernels = [
@@ -681,11 +741,14 @@ class TestDifferences:
 
             compiled_test2 = self.run2.kernel_map[testname]
 
-            if len(compiled_test1.kernels) != len(compiled_test2.kernels):
+            test1_kernel_count = len(compiled_test1.kernels)
+            test2_kernel_count = len(compiled_test2.kernels)
+            minimum_kernel_count = min(test1_kernel_count, test2_kernel_count)
+            if test1_kernel_count != test2_kernel_count:
                 print(
-                    f"WARNING: Test {testname} has different number of kernels "
-                    f"in {self.run1.directory} than in {self.run2.directory}. "
-                    "Not showing diffs for this test.",
+                    f"WARNING: Test {testname} has {test1_kernel_count} kernels "
+                    f"in {self.run1.directory} and {test2_kernel_count} kernels in {self.run2.directory}. "
+                    f"Only showing diffs for the first {minimum_kernel_count} kernels in this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
@@ -698,7 +761,7 @@ class TestDifferences:
                 )
 
             kernel_diffs = []
-            for kernel_num in range(len(compiled_test1.kernels)):
+            for kernel_num in range(minimum_kernel_count):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
                 assert kern1.code is not None
@@ -708,8 +771,8 @@ class TestDifferences:
                 if kern1.ptx is not None and kern2.ptx is not None:
                     ptx_diff_lines = list(
                         difflib.unified_diff(
-                            kern1.ptx.splitlines(),
-                            kern2.ptx.splitlines(),
+                            sanitize_ptx_lines(kern1.ptx.splitlines()),
+                            sanitize_ptx_lines(kern2.ptx.splitlines()),
                             fromfile=self.run1.name,
                             tofile=self.run2.name,
                             n=5,
@@ -729,11 +792,13 @@ class TestDifferences:
                     kernel_inclusion_criterion == "all"
                     or (
                         kernel_inclusion_criterion == "mismatched_cuda_or_ptx"
+                        and diff_lines is not None
                         and len(diff_lines) > 0
                     )
                     or (
                         kernel_inclusion_criterion
                         in ["mismatched_cuda_or_ptx", "mismatched_ptx"]
+                        and ptx_diff_lines is not None
                         and len(ptx_diff_lines) > 0
                     )
                 ):
@@ -823,7 +888,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
-        "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
+        "--hide-diffs",
+        "--no-print-diff",
+        action="store_true",
+        help="Print diffs to STDOUT?",
     )
     parser.add_argument(
         "--kernel-inclusion-criterion",

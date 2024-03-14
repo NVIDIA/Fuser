@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <device_lower/analysis/sync_information.h>
@@ -18,6 +17,7 @@
 #include <parallel_dimension_map.h>
 #include <utils.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <memory>
 #include <unordered_map>
@@ -70,6 +70,12 @@ struct KernelSummary {
   //! Do we have any welford op?
   bool has_grid_welford = false;
 
+  //! Do we have any iter grouped outer block reduction op?
+  bool has_iter_grouped_reductions = false;
+
+  //! number of grouped iters for grouped outer block reduction
+  int num_grouped_iterations = 1;
+
   //! Do we have any outer grouped grid welford op?
   bool has_outer_grouped_grid_welford = false;
 
@@ -103,10 +109,16 @@ struct KernelSummary {
 
   // Parallel dimension map needed to set the correct properties of grid buffers
   // (is a dim inactive)
-  ParallelDimensionMap parallel_dimension_map_;
+  ParallelDimensionMap parallel_dimension_map;
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  //! Minimum compute capability of device that can execute this kernel
+  std::pair<int, int> min_device_version;
+
+  //! Plain text description of why min_device_version_ is required
+  std::string min_device_version_reason;
 };
 
 class KernelPerformanceProfile {
@@ -165,7 +177,7 @@ class KernelInternalProxy;
 //! Container for a lowered Kernel IR
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Kernel final : public Fusion {
+class NVF_API Kernel final : public Fusion {
   friend KernelInternalProxy;
 
  public:
@@ -175,16 +187,7 @@ class Kernel final : public Fusion {
   // we do something like generate an initialization statement for a reduction
   // TV, we may want to continue to do fusion like analysis on the original
   // expression.
-  // TODO: Assert index type is int or int32
-  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int)
-      : Fusion(*fusion), index_type_(index_type) {
-    // Index type must be resolved to either int32 or int64
-    NVF_ERROR(
-        index_type_ == PrimDataType::Int ||
-            index_type_ == PrimDataType::Int32 || "Invalid index type: ",
-        index_type_);
-  }
-
+  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int);
   Kernel() = delete;
 
   // No move or copy semantics
@@ -271,7 +274,7 @@ class Kernel final : public Fusion {
 //! A special debugging proxy for Kernel.
 //!
 //! Should not be used for other than testing and debugging.
-class KernelInternalProxy {
+class NVF_API KernelInternalProxy {
  public:
   KernelInternalProxy(Kernel* kernel) : kernel_(kernel) {}
 

@@ -13,6 +13,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <kernel.h>
 #include <utils.h>
 
@@ -88,7 +89,7 @@ void IrTransformPrinter::handle(Fusion* f) {
   }
 }
 
-void IrTransformPrinter::printTransforms(TensorView* tv) {
+void IrTransformPrinter::printTransforms(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
   os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 

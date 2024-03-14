@@ -12,11 +12,14 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <deque>
 #include <unordered_map>
 
 namespace nvfuser {
+
+class IdModelValidator;
 
 // There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
@@ -75,7 +78,7 @@ namespace nvfuser {
 //
 class IterDomainGraph {
  public:
-  IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
+  NVF_API IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
 
   const DisjointSets<IterDomain*>& permissiveNodes() const {
     return permissive_nodes_;
@@ -169,6 +172,9 @@ class IterDomainGraph {
 
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
@@ -180,7 +186,7 @@ class ComputeAtMap {
   ComputeAtMap& operator=(const ComputeAtMap&) = delete;
   ComputeAtMap(ComputeAtMap&&) = default;
   ComputeAtMap& operator=(ComputeAtMap&&) = default;
-  ComputeAtMap(Fusion* fusion);
+  NVF_API ComputeAtMap(Fusion* fusion, bool allow_self_mapping = false);
 
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
@@ -208,13 +214,15 @@ class ComputeAtMap {
 
   //! Returns if id0 and id1 are mapped to each other with provided
   //! IdMappingMode
-  bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode) const;
+  NVF_API bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode)
+      const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
   //! iteration size. Not guarenteed to return the same ID every call, but is
   //! guarenteed to return iter domains in the same disjoint set.
-  IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode) const;
+  NVF_API IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode)
+      const;
 
   //! Returns a list of expressions that produce the iter domains of all exact
   //! mapped id's to 'id'. Expressions that are the same exact transformations
@@ -377,6 +385,9 @@ class ComputeAtMap {
   // Shortcut to access the fusion this computeAt map was
   //  built from.
   Fusion* fusion_;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 } // namespace nvfuser

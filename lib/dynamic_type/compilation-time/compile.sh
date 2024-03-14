@@ -33,6 +33,7 @@ timeall() {
     timeit $1 main.cpp -DTYPE="DynamicType<Containers<std::vector,std::list,std::deque>,int,double,int*,float*,double*,std::string,std::string*,std::string**,std::string***,std::string****,std::string*****,std::string******,std::string*******,std::string********,std::string*********>" -I../src/ -std=c++17 -O3 -o main18.exe
     timeit $1 main.cpp -DTYPE="DynamicType<Containers<std::vector,std::list,std::deque>,int,double,int*,float*,double*,std::string,std::string*,std::string**,std::string***,std::string****,std::string*****,std::string******,std::string*******,std::string********,std::string*********,std::string**********>" -I../src/ -std=c++17 -O3 -o main19.exe
     timeit $1 main.cpp -DTYPE="DynamicType<Containers<std::vector,std::list,std::deque>,int,double,int*,float*,double*,std::string,std::string*,std::string**,std::string***,std::string****,std::string*****,std::string******,std::string*******,std::string********,std::string*********,std::string**********,std::string***********>" -I../src/ -std=c++17 -O3 -o main20.exe
+    ls -lah
     rm -rf *.exe
 }
 

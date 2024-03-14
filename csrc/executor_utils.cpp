@@ -37,6 +37,7 @@
 #include <nvfuser_resources/broadcast.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
+#include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
 #include <nvfuser_resources/fused_welford_helper.h>
 #include <nvfuser_resources/fused_welford_impl.h>
@@ -50,7 +51,6 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensorcore.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -73,6 +73,7 @@ std::string kernelPreamble() {
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
+  ss << nvfuser_resources::fp8_support_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
@@ -99,7 +100,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
@@ -109,8 +109,6 @@ std::string kernelPreamble() {
 
   return ss.str();
 }
-
-namespace {
 
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
@@ -161,6 +159,8 @@ void queryTargetGPUVersion(
     compile_to_sass = true;
   }
 }
+
+namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
@@ -371,12 +371,12 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
-  NVF_ERROR(
-      !info.contig_alloc_ids.empty(),
-      "No root ID found for vectorization with ",
-      info.consumer_tv->toString(),
-      " and ",
-      info.producer_tv->toString());
+  if (info.contig_alloc_ids.empty()) {
+    // This happens when device lowering removes the `Expr` that computes
+    // `info.consumer_tv` because it's merely an alias.
+    // `getTensorIndexFromIdGraph` captures only remaining `Expr`s.
+    return;
+  }
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
@@ -585,13 +585,6 @@ void validateAlignedVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  auto tensor_vectorization_validation_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
-          });
-
   // Verify extents of aligned vectorized tensors
   for (const auto& vec_info : kernel->summary().vectorized_set_info) {
     if (vec_info.vectorized_leaf_id->getParallelType() ==
@@ -602,6 +595,12 @@ void validateAlignedVectorizedTensors(
 
   // Validate input and output tensors with aligend
   // vectorization.
+  auto tensor_vectorization_validation_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::VectorizedTensorValidation>(
+          data_cache, [kernel]() {
+            return executor_utils::getVectorizedTensorValidationInfo(kernel);
+          });
   for (auto pos : tensor_vectorization_validation_entry.get()
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
@@ -758,10 +757,10 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 // Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    const int64_t fusion_id,
+    const std::string& id,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << fusion_id << suffix;
+  file_name << "__tmp_kernel_" << id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -846,7 +845,14 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      NVF_ERROR(false, src, "\nCUDA NVRTC compile error: ", log_buf);
+      // Print CUDA starting at first global function
+      size_t kernel_start = src.find("__global__");
+      NVF_ERROR(
+          false,
+          "\n",
+          src.substr(kernel_start),
+          "\nCUDA NVRTC compile error: ",
+          log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
       debug() << log_buf << std::endl;
@@ -970,6 +976,10 @@ void fillCompileOptions(
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
+
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
   // (since older driver doesn't necessarily recognize PTX emitted by new
@@ -977,9 +987,13 @@ void fillCompileOptions(
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
+  std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
+  if (major == 9) {
+    // Hopper MMAs require 90a instead of 90
+    compute += "a";
+  }
   nvrtc_compile_driver.setOption(compute);
 
   nvrtc_compile_driver.setOption("-default-device");
@@ -1056,7 +1070,7 @@ void fillCompileOptions(
 }
 
 // Dump ptxas output if register spill is detected
-void warnRegisterSpill(const std::string& compile_log) {
+int warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
     auto it_end =
         std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
@@ -1091,14 +1105,15 @@ void warnRegisterSpill(const std::string& compile_log) {
       load_count > allowed_spill) {
     debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
+  return store_count + load_count;
 }
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int64_t id,
+    const std::string& id,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel" << id << ".cu";
+  ss << "__tmp_kernel_" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
@@ -1109,7 +1124,7 @@ void createNvrtcProgram(
 std::unique_ptr<CompiledKernel> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const int64_t id,
+    const std::string& id,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1164,7 +1179,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
@@ -1264,7 +1279,8 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(compiled_kernel->compile_log);
+    compiled_kernel->register_spills =
+        warnRegisterSpill(compiled_kernel->compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
@@ -1433,8 +1449,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
-template class ExecutorCompileTimeEntry<InputAliasIndices>;
-template class ExecutorCompileTimeEntry<OutputAliasIndices>;
 
 } // namespace caching
 

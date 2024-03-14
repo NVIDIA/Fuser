@@ -108,7 +108,7 @@ static void NvFuserScheduler_IndexSelect_Lower(
   schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    GpuLower gpu_lower(&fusion);
+    GpuLower(&fusion).run();
   }
 }
 

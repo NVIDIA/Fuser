@@ -8,14 +8,13 @@
 #pragma once
 
 #include <c10/core/ScalarType.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <ir/builder_passkey.h>
 #include <polymorphic_value.h>
 #include <type.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <iostream>
@@ -94,7 +93,7 @@ class ExprPasskey {
 //! is also important for the design to have a dispatch system for a Statment.
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
-class Statement : public NonCopyable, public PolymorphicBase {
+class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
@@ -218,7 +217,7 @@ class Statement : public NonCopyable, public PolymorphicBase {
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
 //!
-class Val : public Statement {
+class NVF_API Val : public Statement {
  public:
   // When we create a Val we immediately register them with the active fusion.
   explicit Val(
@@ -326,38 +325,10 @@ class Val : public Statement {
     return isScalar() && dtype_ == DataType::Bool;
   }
 
-  // If this Val is an integer with a direct constant value associated with it,
-  // will return the value of that constant integer. If this integer has
-  // defining expressions it will return a std::nullopt. Those values should be
-  // infered using evaluateInt.
-  std::optional<int64_t> getInt() const;
-
-  // If this Val is a double with a direct constant value associated with it,
-  // will return the value of that constant double. If this double has
-  // defining expressions it will return a std::nullopt. Those values should be
-  // infered using evaluateDouble.
-  std::optional<double> getDouble() const;
-
-  // If this Val is a bool with a direct constant value associated with it,
-  // will return the value of that constant bool. If this bool has defining
-  // expressions it will return a std::nullopt. Those values should be infered
-  // using evaluateBool.
-  std::optional<bool> getBool() const;
-
-  // If this Val is a constant integer, and its history is comprised only of
-  // constant values, will return the value of that constant integer. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  int64_t evaluateInt();
-
-  // If this Val is a constant double, and its history is comprised only of
-  // constant values, will return the value of that constant double. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  double evaluateDouble();
-
-  // If this Val is a constant bool, and its history is comprised only of
-  // constant values, will return the value of that constant bool. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  bool evaluateBool();
+  // If this Val's history is comprised only of constant values, will return a
+  // PolymorphicValue. Cannot make constant as expression evaluator takes
+  // non-constant Vals.
+  PolymorphicValue evaluate();
 
   // Returns if no dependencies and is a constant scalar.
   virtual bool isConst() const {
@@ -525,7 +496,7 @@ using newObjectFuncType = Expr*(
 //!  7) A string entry must be added in expr_type_string_map
 //!  8) Entry added to ir_graphviz .cpp/.h
 //!
-class Expr : public Statement {
+class NVF_API Expr : public Statement {
  public:
   explicit Expr(IrBuilderPasskey);
 
@@ -542,6 +513,10 @@ class Expr : public Statement {
   // Creates a new instance of the expression with all its field copied.
   // Note that unlike IrCloner, this function only do a shallow copy
   Expr* shallowCopy() const;
+
+  // Check that if this and other are the same operator. This main difference
+  // from sameAs is that sameOp does not check the inputs.
+  virtual bool sameOp(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
 

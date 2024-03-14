@@ -7,7 +7,7 @@ on:
       - main
 # the most recent commit in the PR would cancel older commit's in-progress workflows
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.ref_type == 'branch' && github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
   cancel-in-progress: true
 
 env:
@@ -29,6 +29,9 @@ jobs:
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
           source tools/setup-env.sh
+
+          # clang-tidy does not work well with gcc-13 headers, remove them
+          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
 
           # Install lintrunner
           pip install lintrunner

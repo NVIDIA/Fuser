@@ -10,6 +10,8 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
+#include <scheduler/matmul_heuristic.h>
+#include <visibility.h>
 #include <array>
 #include <variant>
 #include <vector>
@@ -26,7 +28,7 @@ namespace mma_utils {
 //!  into shared memory with the given vectorization word.
 //! TODO:
 //!  will need to add bank conflict removal swizzle in a follow up.
-void scheduleContiguousVectorLoad(
+NVF_API void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
     int vector_word,
@@ -35,13 +37,17 @@ void scheduleContiguousVectorLoad(
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options.
 //! TODO: rewrite this one with makeTile
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile);
+NVF_API void scheduleWarpTileWithReduction(
+    TensorView* tv,
+    MatMulTileOptions tile);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
 //! on consumers of mma ops in epilog.
 //! TODO: remove this one eventually.
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile);
+NVF_API void scheduleWarpTileWithNoReduction(
+    TensorView* tv,
+    MatMulTileOptions tile);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
@@ -70,7 +76,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!   This class is used to implement the thread swizzle format
 //!     required for the mma macros, cf. PTX ISA 9.7.13.4.
 //!
-//!   The mma instructions (Volta through Ampere) require specific
+//!   The mma instructions (Volta and later arch) require specific
 //!     thread mapping within a warp for both the mma inputs and
 //!     mma outputs. All mma swizzle patterns seen so far turned out
 //!     to be affine, so we could use the normal scheduler interface
@@ -89,7 +95,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!     as follows:
 //!
 //!   Step 1. Before scheduling, the mma op needs to be configured with a macro
-//!   type, either manually or inferred (eg. Volta_16_16_4).
+//!   type, either manually or inferred (eg. Ampere_16_8_8).
 //!
 //!   Step 2. Scheduler can tile the outer dimensions based on any heuristics,
 //!   i.e. the CTA tiling, warp tiling, splitK etc.
@@ -100,7 +106,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!    tensordomain (see [Operand Layout Convention] for exact definition).
 //!
 //!    For example before calling WarpMmaSwizzler, the domain could look like:
-//!    [TileM, TileN, TileK, Im(16), In(16), Rk(4)], to use Volta_16_16_4.
+//!    [TileM, TileN, TileK, Im(16), In(8), Rk(8)], to use Ampere_16_8_8.
 //!    The rightmost 3 iterdomains need to be the innermost component of their
 //!    corresponding root id, similar to vectorization except this requirement
 //!    applies to all 3 rightmost dims.
@@ -160,54 +166,41 @@ class WarpMmaSwizzler {
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
+  static void scheduleMmaWarpOutput(TensorView* tv);
 
-  //! Applies the input mma swizzling to the given tv, should be used
-  //!  on mma input or tv's involved in any fusion before mma, but after smem
-  //!  read.
+  //! Applies the input mma swizzling to the given tv as its allocation domain,
+  //! should be used on mma input or tv's involved in any fusion before mma, but
+  //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
+  static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
+  // TODO: what is transpose2? Why do we need it?
   static void scheduleOperandRead(
       TensorView* tv,
-      MmaOptions options = MmaOptions());
+      MmaInputSmemSwizzle swizzle,
+      bool transpose,
+      bool transpose2);
 
- private:
-  //! Operand swizzle implementations for Volta mma.
-  static void scheduleVoltaOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementations for Volta mma.
-  static void scheduleVoltaM16N16K4Fp32Output(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Accumulator swizzle implementation for emulated 16x16x16 mma tile
-  //!  that enables using ldmatrix.x4.
-  //! Note:
-  //!   Keeping both this option and the ldmatrix.x2 variant above for
-  //! now for wider scheduler exploration space. Eventually both of
-  //! these can be unified with a single affine utility.
-  static void scheduleTuringM16N16K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Utility to lock the transformed dimensions from further transforms.
-  static void setWarpMapped(TensorView* tv, int number_of_dims);
+  //! Note [schedule of ldmatrix]
+  //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
+  //! you will find that, the memory layout of the output of ldmatrix, which
+  //! matches with the input layout of MMA instruction, mismatch with the index
+  //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
+  //! allocation domain of the ldmatrix output and mma inputs to be consistent
+  //! with the memory layout of the output of ldmatrix, and we schedule the
+  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! each thread uses to call ldmatrix. This function is used to schedule the
+  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! output and mma inputs are scheduled in scheduleOperandRead, which must be
+  //! called before this function.
+  static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 };
 
 void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect);
-
-// Returns if the loopnest is initializing for an mma op.
-bool isMmaInitLoop(const kir::ForLoop* loop);
 
 //! A constant with minimum number of fusion inputs that could be MMA inputs.
 //!  TODO: update for square matmuls where both inputs are the same tensor
@@ -254,7 +247,35 @@ class DataWrapperOpt {
   }
 };
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
+// This struct hold properties of a Mul and Sum pair
+// which can possibly be replaced a Mma op. This struct
+// can be be created (partially) from a Mma op.
+struct MulSumProperties {
+  // The Mul amd Sum op which can be replaced by a Mma op.
+  struct MulAndSumOps {
+    BinaryOp* mop = nullptr;
+    ReductionOp* redop = nullptr;
+  };
+
+  // The inputs/ouputs to the possible Mma Op or the actual Mma op.
+  struct InputsOutputs {
+    TensorView* a = nullptr;
+    TensorView* b = nullptr;
+    TensorView* out = nullptr;
+  };
+
+  // The broadcasts which feed the Mma op/Mul-Sum pair.
+  struct Broadcasts {
+    BroadcastOp* bcast_a = nullptr;
+    BroadcastOp* bcast_b = nullptr;
+  };
+
+  MulAndSumOps mulsumops;
+  InputsOutputs insouts;
+  Broadcasts bcasts;
+};
+
+using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using RolesMapOpt = DataWrapperOpt<RolesMap>;
 
@@ -270,11 +291,17 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //! - matmul layout which contains information about transposition of matmul
 //!  inputs, it is based on the order of key domains (M,N K) in fusion input
 //!  tensors,
-//! - mma layout, some architectures (e.g. Volta) support all combination of
+//! - mma layout, some architectures (e.g. Hopper) support all combination of
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+NVF_API MatmulProblemLayoutOpt getMmaLayout(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props);
+
+//! This overloaded version is just a wrapper on the above function, where
+//! the mma_utils::MulSumProperties::InputsOutputs is extracted from the fusion.
+NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -284,10 +311,15 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
 //!  be gathered.
 //!  TODO: 4th domain must be added for batch gemm support.
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
+ProblemIterDomainsOpt getProblemIterDomains(
+    const mma_utils::MulSumProperties::InputsOutputs& props);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
+RolesMapOpt getTensorsRoles(
+    Fusion* fusion,
+    const mma_utils::MulSumProperties::InputsOutputs& props);
 RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
@@ -311,13 +343,67 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 
 //! This version assumes roles_map has been analyzed to determine smem datatypes
 //! as well as guarantees about prologue smem reuse.
-std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
     bool ignore_occupancy_drop = false);
+
+//! Go through the fusion IR to find combinations of mul-sum
+//! which can be replaced with a mma op. This class operates
+//! in two phases. It can go through the graph and find the mul-sum
+//! pairs which can be replaced by a mma op. This phase returns a vector
+//! of properties of the mma op (MulSumAsMmaProps) which would replace the
+//! the mul-sum pair. It then exposes a function to replace with mma ops.
+class CombineMulSum : public IterVisitor {
+ public:
+  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion) {
+    generateMulSumCanidates();
+  };
+
+  const std::vector<MulSumProperties>& getMulSumCanidates(
+      const bool refresh_data = false);
+
+  //! Goes through the fusion to find mul-sum pairs.
+  //! If user sets the caching flags and properties have been previously
+  //! computed, then just return cached results.
+  void generateMulSumCanidates();
+
+  //! Replaces the candidate mul-sum pairs with mma ops.
+  //! Please not this will run generateMulSumCandidates again.
+  void replaceWithMmaOp();
+
+  //! Check if the fusion has a mma-op or a mul-sum pair
+  //! that can be replaced by a mma op.
+  bool isValid() {
+    return is_valid_;
+  }
+
+ protected:
+  void handle(ReductionOp* stmt) override;
+
+ private:
+  Fusion* fusion_;
+  //! This is the list of mul-sum pairs and the properties
+  //! of the mma op which can replace it. This is only populated
+  //! if the mul-sum pair is a valid replacement candidate.
+  std::vector<MulSumProperties> mul_sum_props_ = {};
+  //! This variable tracks if the fusion has a mul-sum pair
+  //! than can be replaced by a mma op, or has a single mma op.
+  bool is_valid_ = false;
+};
+
+//! Compute the amount of shared memory we expect to need. The actual amount
+//! allocated will be determined by aliasing (see alias_memory.cpp). This
+//! function is useful for testing that we provide accurate information to our
+//! heuristics.
+int64_t computeExpectedSharedMemoryUsage(
+    const MatmulParams& params,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false);
 
 } // namespace mma_utils
 

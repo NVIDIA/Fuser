@@ -124,10 +124,39 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      bind_(
-          rfactor_domain[i]->getMaybeExpandedExtent(),
-          t.size(i),
-          evaluate_validate);
+      auto id = rfactor_domain[i];
+      if (id->hasExpandedExtent()) {
+        // Verify that t is also expanded
+        NVF_ERROR(
+            t.size(i) == 1 || t.stride(i) == 0,
+            "IterDomain ",
+            id->toString(),
+            " in TensorView ",
+            tv->toString(),
+            " has expanded extent but input tensor has size ",
+            t.size(i),
+            " and stride ",
+            t.stride(i),
+            " in dimension ",
+            i);
+        bind_(
+            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (rfactor_domain[i]->isDeviceDim()) {
+        // Currently we have the restrictions:
+        // (1) Devices parallelized axis extent == DeviceMesh's extent
+        // (2) Device parallelized axis cannot be split or merged
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
+        NVF_CHECK(
+            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+        bind_(
+            rfactor_domain[i]->extent(),
+            (int)tv->getDeviceMesh().vector().size(),
+            evaluate_validate);
+      } else {
+        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
+      }
     }
   }
   if (value->isA<NamedScalar>()) {
@@ -192,7 +221,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
+        const auto& eval_i = evaluateHelper(i, known_values);
         if (!eval_i.hasValue()) {
           return null_;
         }
@@ -224,8 +253,9 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   auto it = known_values_.find(value);
-  if (it != known_values_.end())
+  if (it != known_values_.end()) {
     return it->second;
+  }
 
   if (&additional_known_values != &known_values_) {
     it = additional_known_values.find(value);

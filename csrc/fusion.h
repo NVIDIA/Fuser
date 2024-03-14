@@ -8,8 +8,6 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <debug.h>
@@ -17,6 +15,7 @@
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <visibility.h>
 
 #include <any>
 #include <string>
@@ -71,17 +70,42 @@ class DynamicTransformConcretizationInfo;
 class FusionGuard {
  public:
   //! Set the active fusion so it can be manipulated.
-  explicit FusionGuard(Fusion* fusion);
+  NVF_API explicit FusionGuard(Fusion* fusion);
 
-  ~FusionGuard();
+  NVF_API ~FusionGuard();
 
-  static Fusion* getCurFusion();
+  NVF_API static Fusion* getCurFusion();
   static void setCurFusion(Fusion* fusion);
 
  private:
   Fusion* prev_fusion_;
 
   static thread_local Fusion* active_fusion_;
+};
+
+// Set the enum base to `int` so it can be safely serialized as a part of
+// serde::InputOutputAlias.
+enum class AllocationType : int {
+  New, // Allocate a new buffer
+  // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
+  // BatchNorm's running mean. The output EMA is updated in place.
+  ReuseBuffer,
+  // This is used to cheaply compute the output tensor using
+  // `ExpressionEvaluator` (instead of a kernel) for:
+  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // pointer arithmetic of the input.  In this case, aliased_io is a non-null
+  // tensor.
+  // 2. To evaluate output tensors which are not aliases. For example, default
+  // scheduling in matmul when EnableOption::MatmulExprEval is set.
+  Evaluate,
+};
+
+struct AliasInfo {
+  AllocationType type;
+  Val* aliased_io;
+  // Whether integration should hide the output from users. This is currently
+  // only used for ReuseBuffer.
+  bool hide_output;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -93,7 +117,7 @@ class FusionGuard {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Fusion : public IrContainer {
+class NVF_API Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -168,8 +192,8 @@ class Fusion : public IrContainer {
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to genereate registered outputs.
-  std::vector<Expr*> exprs();
+  //! exprs required to generate registered outputs.
+  std::vector<Expr*> exprs() const;
 
   //! Return a vector of fusion inputs that feed this Val
   std::vector<Val*> inputsOf(Val* val);
@@ -197,7 +221,7 @@ class Fusion : public IrContainer {
   Expr* definition(const Val* val) const;
 
   //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic();
+  bool isStochastic() const;
 
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
@@ -219,18 +243,20 @@ class Fusion : public IrContainer {
   // Note: this is not always safe and should be used with extra caution.
   // Currently the only place it's used is in the running stats update for batch
   // normalization.
+  //
+  // TODO(wujingyue): Rename this method because `input` can be another fusion
+  // output.
+  //
   // TODO: alias should be made aware to segmentation, so we'll always include
-  // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input);
+  // the input tensor to the section where output is produced. Currently,
+  // aliases of type `PointerArithmetics` are marked after segmentation, but
+  // those of type `ReuseBuffer` are marked in fusion definitions.
+  NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Return the aliased input of a given output or nullptr if not aliased
-  Val* getOutputAlias(Val* output);
-
-  //! Get indices of aliased outputs
-  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
-
-  //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
+  //! Returns the aliased input of a given output along with an `AliasInfo`
+  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
+  //! aliased.
+  const AliasInfo& getOutputAlias(const Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -260,10 +286,6 @@ class Fusion : public IrContainer {
 
   bool isUpdatingTVUseInfo() {
     return is_during_update_uses_;
-  }
-
-  const auto& ioAlias() const {
-    return io_alias_;
   }
 
   // NOTE: [Fusion managed data]
@@ -411,13 +433,13 @@ class Fusion : public IrContainer {
   //! True if any of tensors has a symblic axis
   bool hasDynamicTransform();
 
+  static IrCloner copy(const Fusion* from, Fusion* to);
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
-
-  static IrCloner copy(const Fusion* from, Fusion* to);
 
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -455,7 +477,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, Val*> io_alias_;
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

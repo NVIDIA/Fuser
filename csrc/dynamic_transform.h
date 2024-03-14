@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -81,6 +81,12 @@ class DynamicTransformInitialInfo {
     return dynamic_resized_ids_;
   }
 
+  //! Return a vector of outputs of ExpandOp expressions that have Symbolic
+  //! output IterTypes
+  const std::vector<TensorView*>& getDynamicExpandedTensorViews() const {
+    return dynamic_expanded_tvs_;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -112,6 +118,8 @@ class DynamicTransformInitialInfo {
 
   std::vector<IterDomain*> dynamic_resized_ids_;
 
+  std::vector<TensorView*> dynamic_expanded_tvs_;
+
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
   std::unordered_set<Val*> maybe_zero_extents_set_;
@@ -128,10 +136,13 @@ class DynamicTransformInitialInfo {
 //! of the fusion inputs
 class DynamicTransformConcretizationInfo {
  public:
-  DynamicTransformConcretizationInfo(
+  NVF_API DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator* expr_eval);
 
+  //! Return a vector of integers each corresponding to the position in
+  //! initialInfo()->getMaybeZeroExtents() of an extent Val which is guaranteed
+  //! to be zero.
   const std::vector<size_t>& getEmptyExtents() const {
     return empty_extents_;
   }
@@ -152,12 +163,22 @@ class DynamicTransformConcretizationInfo {
     return resize_itertypes_;
   }
 
+  //! Return a vector of pairs holding the index of each expanded TensorView in
+  //! the vector returned by initialInfo()->getDynamicExpandedTensorViews(),
+  //! along with a vector of bools describing whether each axis in the output
+  //! root domain is expanded.
+  const std::vector<std::pair<size_t, std::vector<bool>>>& getExpandAxes()
+      const {
+    return expand_axes_;
+  }
+
   //! Comparison operator for the purposes of determining cache hits. This does
   //! not guarantee equality of all members. Instead, it returns equal if the
   //! resulting concretizations would be structurally equivalent. Note that
   //! pointers to Statements may differ between equivalent concretizations due
   //! to cloning before concretization.
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
+  NVF_API bool operator==(
+      const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
@@ -172,6 +193,10 @@ class DynamicTransformConcretizationInfo {
   //! determine the concrete IterType of each resized IterDomain.
   void analyzeResizes(ExpressionEvaluator* expr_eval);
 
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine which axes of dynamic expand operations are expanded.
+  void analyzeExpands(ExpressionEvaluator* expr_eval);
+
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
   }
@@ -184,9 +209,9 @@ class DynamicTransformConcretizationInfo {
     return initial_info_->fusion();
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 
-  size_t hash() const;
+  NVF_API size_t hash() const;
 
  private:
   DynamicTransformConcretizationInfo(
@@ -210,6 +235,11 @@ class DynamicTransformConcretizationInfo {
   //! with its concretized IterType
   std::vector<std::pair<size_t, IterType>> resize_itertypes_;
 
+  //! Holds the index of the expanded TensorView in the vector returned by
+  //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector
+  //! of bools indicating whether each axis is in fact expanded.
+  std::vector<std::pair<size_t, std::vector<bool>>> expand_axes_;
+
   friend class DynamicTransformInfoBuilder;
 };
 
@@ -218,11 +248,11 @@ class DynamicTransform {
   //! Get initial information before we have inputs. This analyzes the Fusion to
   //! determine whether it has dynamic operations, and caches their position for
   //! faster concretization once inputs are available.
-  static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
+  NVF_API static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
-  static void concretizeFusion(
+  NVF_API static void concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
 };

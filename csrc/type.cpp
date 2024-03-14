@@ -111,12 +111,21 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
   if ((wider_type == DataType::Double ||
        wider_type == DataType::ComplexDouble) &&
       (base_type == DataType::Double || base_type == DataType::Float ||
-       base_type == DataType::Half || base_type == DataType::BFloat16)) {
+       base_type == DataType::Half || base_type == DataType::BFloat16 ||
+       base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
     return true;
   }
   if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
       (base_type == DataType::Float || base_type == DataType::Half ||
-       base_type == DataType::BFloat16)) {
+       base_type == DataType::BFloat16 ||
+       base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
+    return true;
+  }
+  if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
+      (base_type == DataType::Float8_e4m3fn ||
+       base_type == DataType::Float8_e5m2)) {
     return true;
   }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
@@ -163,6 +172,9 @@ bool isSupportedTypeByDevice(DataType dtype) {
   auto major_ver = prop->major;
   if (dtype == DataType::BFloat16) {
     return major_ver >= 8;
+  }
+  if (dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2) {
+    return major_ver >= 9;
   }
   return true;
 }
@@ -214,6 +226,10 @@ static std::string data_type2string(DataType t) {
               return "__half";
             case DataType::BFloat16:
               return "__bfloat";
+            case DataType::Float8_e4m3fn:
+              return "__e4m3";
+            case DataType::Float8_e5m2:
+              return "__e5m2";
             case DataType::Int:
               return "int64_t";
             case DataType::Index:
@@ -281,8 +297,6 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::PipelineVal:
-      return "PipelineVal";
     default:
       NVF_ERROR(false, "No string found for val type.");
   }
@@ -338,6 +352,8 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return false;
     default:
       return true;
@@ -456,6 +472,10 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+      return "Turing::adjustPartialLdMatrixAddrInTuring<16>";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
@@ -761,6 +781,10 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive";
     case IdMappingMode::LOOP:
       return "loop";
+    case IdMappingMode::INNERMOST:
+      return "innermost";
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
       NVF_ERROR(false, "Unexpected IdMappingMode Type.");
@@ -834,8 +858,10 @@ constexpr unsigned int supported_switch_pair(PrimDataType t1, PrimDataType t2) {
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
 
-static const char* supported_casts2string(
-    const std::pair<DataType, DataType>& t) {
+static const char* supported_casts2string(std::pair<DataType, DataType> t) {
+  if (t.first == DataType::SMemAddress) {
+    t.first = DataType::UInt32;
+  }
   switch (supported_switch_pair(
       std::get<PrimDataType>(t.first.type),
       std::get<PrimDataType>(t.second.type))) {
@@ -1026,6 +1052,40 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexDouble):
       return "(std::complex<double>)__bfloat2double";
 
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::Float):
+      return "__e5m22float";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::Double):
+      return "__e5m22double";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::Half):
+      return "__e5m22half";
+    case supported_switch_pair(DataType::Float8_e5m2, DataType::BFloat16):
+      return "__e5m22bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float8_e5m2):
+      return "__float2e5m2";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e5m2):
+      return "__double2e5m2";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e5m2):
+      return "__half2e5m2";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e5m2):
+      return "__bfloat2e5m2";
+
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Float):
+      return "__e4m32float";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Double):
+      return "__e4m32double";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::Half):
+      return "__e4m32half";
+    case supported_switch_pair(DataType::Float8_e4m3fn, DataType::BFloat16):
+      return "__e4m32bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float8_e4m3fn):
+      return "__float2e4m3";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e4m3fn):
+      return "__double2e4m3";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e4m3fn):
+      return "__half2e4m3";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e4m3fn):
+      return "__bfloat2e4m3";
+
     default:
       return nullptr;
   }
@@ -1043,6 +1103,10 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Half;
     case at::ScalarType::BFloat16:
       return DataType::BFloat16;
+    case at::ScalarType::Float8_e4m3fn:
+      return DataType::Float8_e4m3fn;
+    case at::ScalarType::Float8_e5m2:
+      return DataType::Float8_e5m2;
     case at::ScalarType::Long:
       return DataType::Int;
     case at::ScalarType::Int:
@@ -1068,6 +1132,10 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
       return at::ScalarType::Half;
     case DataType::BFloat16:
       return at::ScalarType::BFloat16;
+    case DataType::Float8_e4m3fn:
+      return at::ScalarType::Float8_e4m3fn;
+    case DataType::Float8_e5m2:
+      return at::ScalarType::Float8_e5m2;
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
@@ -1145,6 +1213,21 @@ std::ostream& operator<<(std::ostream& out, const IterType bt) {
   return out << iter_type2string(bt);
 }
 
+std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
+  switch (swizzle) {
+    case SwizzleType::NoSwizzle:
+      os << "NoSwizzle";
+      break;
+    case SwizzleType::XOR:
+      os << "Xor";
+      break;
+    default:
+      NVF_ERROR(false, "undefined 2D swizzle");
+      break;
+  }
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
   switch (swizzle) {
     case Swizzle2DType::NoSwizzle:
@@ -1220,6 +1303,10 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
   return os;
 }
 
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>& b) {
+  return os << (b.has_value() ? (*b ? "t" : "f") : "n");
+}
+
 std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
   const char* str = unary_op_type_inline_op2string(uotype);
   return str != nullptr ? std::optional<std::string>(std::string(str))
@@ -1279,6 +1366,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Float:
     case DataType::Half:
     case DataType::BFloat16:
+    case DataType::Float8_e4m3fn:
+    case DataType::Float8_e5m2:
       return "f";
     case DataType::Index:
     case DataType::Int:
@@ -1391,6 +1480,8 @@ int max_digits10(DataType dtype) {
   //   ceil(1 + p log10(2))
   // where p is the precision of the type (aka significand):
   //    Type      Precision   max_digits10
+  //   fp8_e5m2       3           2
+  //   fp8_e4m3       4           3
   //   bfloat16       8           4
   //   float16       11           5
   //   float32       24           9
@@ -1404,6 +1495,10 @@ int max_digits10(DataType dtype) {
     return 5;
   } else if (dtype == DataType::BFloat16) {
     return 4;
+  } else if (dtype == DataType::Float8_e4m3fn) {
+    return 3;
+  } else if (dtype == DataType::Float8_e5m2) {
+    return 2;
   } else {
     NVF_CHECK(
         !isFloatingPointType(dtype),

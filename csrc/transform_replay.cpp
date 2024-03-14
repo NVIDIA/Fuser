@@ -137,6 +137,10 @@ class ReplaySelf : public ReplayTransformations {
     id_map_[m->out()] = merged_id;
   }
 
+  void handle(Swizzle* swizzle) override {
+    NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
+  }
+
   void handle(Swizzle2D* swizzle) override {
     NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
   }
@@ -517,48 +521,17 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
-  if (!opt.replay_allocation) {
-    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
-        producer->container(),
-        producer->getRootDomain(),
-        producer->getRFactorDomain(),
-        producer->getAllocationDomain(),
-        new_IDs,
-        producer->domain()->contiguity());
-    return {replayed, producer_pos};
-  }
+  NVF_ERROR(
+      !opt.replay_allocation,
+      "replayAllocation is not implemented yet for TransformReplay::replayPasC");
 
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
+      producer->getAllocationDomain(),
       new_IDs,
       producer->domain()->contiguity());
-
-  if (consumer->hasAllocation()) {
-    auto replay_PasC = BestEffortReplay(
-        new_IDs,
-        consumer->getLeafDomain(),
-        root_map.mapConsumerToProducer(consumer->domain(), replayed));
-    const auto& c2p_map = replay_PasC.getReplay();
-    std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(consumer->getAllocationDomain().size());
-    for (auto id : consumer->getAllocationDomain()) {
-      auto it = c2p_map.find(id);
-      NVF_CHECK(
-          it != c2p_map.end(),
-          "Unable to replayPasC: can not map ",
-          id->toString(),
-          " in the allocation domain of consumer tensor ",
-          consumer->toString(),
-          " to producer tensor ",
-          producer->toString());
-      new_allocation_domain.emplace_back(it->second);
-    }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
-  }
-
   return {replayed, producer_pos};
 }
 
@@ -572,8 +545,9 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
-  if (consumer == producer)
+  if (consumer == producer) {
     return {consumer->domain(), consumer->nDims()};
+  }
 
   if (producer_pos < 0) {
     producer_pos += (int64_t)producer->nDims() + 1;
@@ -801,12 +775,18 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     return {replayed, consumer_pos};
   }
 
+  NVF_ERROR(
+      consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRFactor(),
+      "TransformReplay::replayCasP currently replays allocation only for Set. "
+      "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
+      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
-      new_IDs,
+      /*allocation=*/std::vector<IterDomain*>{},
+      /*leaf=*/new_IDs,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
@@ -815,21 +795,24 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
         producer->getLeafDomain(),
         root_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
+
+    auto producer_rank = producer->getAllocationDomain().size();
     std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(producer->getAllocationDomain().size());
-    for (auto id : producer->getAllocationDomain()) {
-      auto it = p2c_map.find(id);
-      NVF_CHECK(
-          it != p2c_map.end(),
-          "Unable to replayCasP: can not map ",
-          id->toString(),
-          " in the allocation domain of producer tensor ",
-          producer->toString(),
-          " to consumer tensor ",
-          consumer->toString());
-      new_allocation_domain.emplace_back(it->second);
+    new_allocation_domain.reserve(producer_rank);
+    std::vector<std::optional<bool>> new_contiguity;
+    new_contiguity.reserve(producer_rank);
+
+    for (auto i : c10::irange(producer_rank)) {
+      IterDomain* id = producer->getAllocationDomain()[i];
+      // We won't find reduction IterDomains in the map. See
+      // AllocationDomainTest.CacheBefore.
+      if (auto it = p2c_map.find(id); it != p2c_map.end()) {
+        new_allocation_domain.push_back(it->second);
+        new_contiguity.push_back(producer->getContiguity()[i]);
+      }
     }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+    replayed->setAllocationDomain(
+        std::move(new_allocation_domain), std::move(new_contiguity));
   }
   return {replayed, consumer_pos};
 }
@@ -1261,6 +1244,112 @@ void MostInlinedTransformPropagator::propagateSibling(
   } else if (debug_print) {
     debug() << "  replay skipped" << std::endl;
   }
+}
+
+namespace {
+
+// Replays transformations in `old_domain` on `new_root` and returns the new
+// TensorDomain that's rooted at `new_root`. This shares quite some code with
+// TransformReplay::fullSelfReplay, which can be cleaned up. The main
+// challenge for that is that this function uses `ReplayTransformations` and
+// `fullSelfReplay` uses `ReplaySelf`, a simplified version of
+// `ReplayTransformations` leveraging the fact that it's a self-replay.
+TensorDomain* fullReplay(
+    const TensorDomain* old_domain,
+    const std::vector<IterDomain*>& new_root) {
+  std::unordered_map<IterDomain*, IterDomain*> old_root_to_new;
+  NVF_CHECK(
+      old_domain->root().size() == new_root.size(),
+      "Unable to replay transformations on a root domain of different size: ",
+      old_domain->root().size(),
+      " vs ",
+      new_root.size());
+  for (auto i : c10::irange(new_root.size())) {
+    old_root_to_new[old_domain->root()[i]] = new_root[i];
+  }
+  NVF_CHECK(
+      !old_domain->hasAllocation(),
+      "Due to #986, the allocation domain may or may not be between root and "
+      "leaf. So, when `old_domain` has allocation, it may be incorrect to "
+      "use its leaf as the target domain: ",
+      old_domain->toString(0, /*leaf_only=*/false));
+  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+  replay.setReplayRFactor(true);
+
+  std::vector<IterDomain*> new_leaf;
+  new_leaf.reserve(old_domain->nDims());
+  std::transform(
+      old_domain->leaf().begin(),
+      old_domain->leaf().end(),
+      std::back_inserter(new_leaf),
+      [&](IterDomain* old_leaf_id) {
+        return replay.getReplay().at(old_leaf_id);
+      });
+
+  if (!old_domain->hasRFactor()) {
+    return IrBuilder::create<TensorDomain>(
+        old_domain->container(), new_root, new_leaf, old_domain->contiguity());
+  }
+
+  std::vector<IterDomain*> new_rfactor;
+  new_rfactor.reserve(old_domain->rfactor().size());
+  std::transform(
+      old_domain->rfactor().begin(),
+      old_domain->rfactor().end(),
+      std::back_inserter(new_rfactor),
+      [&](IterDomain* old_rfactor_id) {
+        return replay.getReplay().at(old_rfactor_id);
+      });
+
+  return IrBuilder::create<TensorDomain>(
+      old_domain->container(),
+      new_root,
+      new_rfactor,
+      new_leaf,
+      old_domain->contiguity());
+}
+
+} // namespace
+
+Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
+  auto* new_in_tv = dynamic_cast<TensorView*>(new_in);
+  NVF_CHECK(
+      new_in_tv != nullptr,
+      "This function doesn't support non-TensorView input yet: ",
+      new_in);
+
+  std::vector<Val*> new_outs;
+  new_outs.reserve(e->outputs().size());
+
+  for (Val* old_out : e->outputs()) {
+    auto* old_out_tv = dynamic_cast<TensorView*>(old_out);
+    NVF_CHECK(
+        old_out_tv != nullptr,
+        "This function doesn't support non-TensorView outputs yet: ",
+        old_out);
+    TensorDomain* old_domain = old_out_tv->domain();
+
+    std::vector<IterDomain*> new_out_root;
+    new_out_root.reserve(old_domain->root().size());
+    size_t i = 0;
+    for (IterDomain* in_rfactor_id :
+         TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
+      // Copy the `rf` flag from `old_domain` and everything else from
+      // `in_rfactor_id`.
+      new_out_root.push_back(
+          IterDomainBuilder(in_rfactor_id)
+              .is_rfactor_domain(old_domain->root()[i]->isRFactorProduct())
+              .build());
+      i++;
+    }
+    TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
+    TensorView* new_out_tv =
+        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+    new_outs.push_back(new_out_tv);
+  }
+
+  return e->newObjectFunc()(
+      e->container(), {new_in_tv}, new_outs, e->attributes());
 }
 
 } // namespace nvfuser

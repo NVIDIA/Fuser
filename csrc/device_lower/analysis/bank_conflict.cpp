@@ -27,18 +27,7 @@ bool isSmemTensorIndex(Val* value) {
 }
 
 int64_t getVectorizeSize(kir::TensorIndex* ti) {
-  for (auto id : ti->view()->getLeafDomain()) {
-    if (!isParallelTypeVectorize(id->getParallelType())) {
-      continue;
-    }
-
-    NVF_ERROR(
-        id->extent()->isConstInt(),
-        "Could not evaluate constant value bound to vectorized dim.");
-
-    return id->extent()->evaluateInt();
-  }
-  return 1;
+  return ir_utils::getVectorizeSize(ti->view());
 }
 
 inline int64_t getPhaseSize(int64_t word_size_bytes) {
@@ -226,7 +215,7 @@ class BankConflictInfo : public kir::IrVisitor {
 
   void inferLaunchParams(const kir::Kernel* kernel) {
     const auto& parallel_dimension_map =
-        kernel->summary().parallel_dimension_map_.getMap();
+        kernel->summary().parallel_dimension_map.getMap();
     for (const auto& [p, v] : parallel_dimension_map) {
       auto inferred_parallel_dim = expr_eval_.evaluate(v);
       if (inferred_parallel_dim.hasValue()) {

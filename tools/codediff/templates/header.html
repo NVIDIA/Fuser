@@ -13,6 +13,59 @@ SPDX-License-Identifier: BSD-3-Clause
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/shell.min.js"></script>
 <script>hljs.highlightAll();</script>
 <style>
+div.tooltip {
+    position: absolute;
+    text-align: center;
+    padding: .2rem;
+    background: #EEEEEE;
+    color: #000000;
+    border: 1px;
+    border-radius: 4px;
+    pointer-events: none;
+    font-size: small;
+    font-weight: bold;
+}
+.run_heading {
+  font-size: large;
+  font-weight: bold;
+}
+.git_title, a.git_title, a.git_title:visited {
+  color: black;
+  font-weight: bold;
+  text-decoration: none;
+}
+.git_meta {
+  font-size: small;
+}
+.git_abbrev {
+  color: gray;
+}
+.test_passed {
+  color: green;
+  font-weight: bold;
+}
+.test_failed {
+  color: red;
+  font-weight: bold;
+}
+.benchmark_improved {
+  color: green;
+  font-weight: bold;
+}
+.benchmark_regressed {
+  color: red;
+  font-weight: bold;
+}
+.kernelstat_decreased {
+{#- blue is a little more visible for improvements than red -#}
+  color: blue;
+  font-weight: bold;
+}
+.kernelstat_increased {
+  color: chocolate;
+  font-weight: bold;
+}
+
 button.selected,
 *:focus {
     outline-style: solid;

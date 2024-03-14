@@ -21,11 +21,11 @@ from pytest_utils import (
     complex_dtypes,
 )
 from nvfuser import DataType
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 MINIMUM_SYMBOLIC_SIZE = -1
 INT64_MAX = 2**63 - 1
 MAX_TENSOR_DIMS = 8
-MAX_VECTOR_SIZE = 8
 
 
 # Determine if a number is with desired Domain [low, high)
@@ -467,42 +467,11 @@ def define_vector_constant_error_generator(
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
 
-    check_max_vector_size = ErrorSample(
-        {
-            "values": [-1 for _ in range(MAX_VECTOR_SIZE + 1)],
-        },
-        "The specified vector size exceeds the max tensor size for nvfuser.",
-    )
-
     error_cases = [
         # FIXME: The above_size_range case gives a non-sensical error message.
         # "Unable to cast Python instance to C++ type (#define PYBIND11_DETAILED_ER"
         # check_above_size_range,
         check_below_size_range,
-        check_max_vector_size,
-    ]
-
-    for es in error_cases:
-        yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
-
-
-def define_vector_input_error_generator(
-    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
-):
-    """
-    "define_vector",
-    [](FusionDefinition& self, size_t size) -> Vector {
-    """
-
-    check_max_vector_size = ErrorSample(
-        {
-            "size": (MAX_VECTOR_SIZE + 1),
-        },
-        "The specified vector size exceeds the max tensor size for nvfuser.",
-    )
-
-    error_cases = [
-        check_max_vector_size,
     ]
 
     for es in error_cases:
@@ -736,16 +705,11 @@ def full_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # torch.full(size, fill_value, dtype=None)
-
-    make_arg = partial(
-        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
-    )
-
     # Error: Trying to create tensor with negative dimension
     negative_input_shape = [2, -2]
     yield SampleInput(
         negative_input_shape, make_number(dtype), dtype
-    ), RuntimeError, "extent_int >= 0"
+    ), RuntimeError, "The value -2 at index 1 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)."
 
 
 def gather_generator(
@@ -1011,6 +975,18 @@ def permute_error_generator(
     ), RuntimeError, "argument to have the same length as input"
 
 
+def random_dist_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # Checking that non-supported dtypes fail
+    yield SampleInput(
+        make_number(torch.float),
+        make_number(torch.float),
+        [2, 2],
+        dtype=torch_dtype_to_nvfuser_dtype(dtype),
+    ), RuntimeError, "Random distributions only create floating point types"
+
+
 def reduction_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -1223,6 +1199,78 @@ def slice_error_generator(
     for shape, es in itertools.product(cases, error_cases):
         input_tensor = make_arg(shape)
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+
+def squeeze_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape, squeeze_dims
+    cases = (
+        ((5, 1, 1), (1, 2)),
+        ((5, 1, 1), (-2, -1)),
+        ((5, 1, 1), (2, 1)),
+        ((5, 1, 1), (-1, -2)),
+        ((1, 5, 1), (0, 2)),
+        ((1, 5, 1), (-3, -1)),
+        ((1, 1, 5), (0, 1)),
+        ((1, 1, 5), (-3, -2)),
+        ((5, 5, 5), ()),
+        ((1, 1, 1), ()),
+        ((1, 1, 1), (0, 1, 2)),
+        ((1, 1, 1), (-3, -2, -1)),
+        # No-op test cases
+        # NOTE: These are skipped. We diverge from PyTorch behavior for squeeze
+        # in nvFuser. Our squeeze op will throw an exception if we pass a
+        # squeeze dimension that cannot be squeezed.
+        # See https://github.com/NVIDIA/Fuser/pull/1717
+        # ((5, 5, 5), (0, 1, 2)),
+        # ((5, 5, 5), (-3, -2, -1)),
+        ((), ()),
+    )
+
+    for shape, squeeze_dims in cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims)
+
+
+def squeeze_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape, start_indices, end_indices
+    out_of_range_cases = (
+        ((5, 1, 1), (-4, -5)),  # Dims are completely outside of tensor dims
+        ((5, 1, 1), (3, 4)),
+        ((5, 1, 1), (-3, -4)),  # One dim in range, one dim out of range
+        ((5, 1, 1), (2, 3)),
+    )
+
+    error_type = RuntimeError
+    error_str = "Squeeze dim is outside of Tensor size!"
+    for shape, squeeze_dims in out_of_range_cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims), error_type, error_str
+
+    # shape, start_indices, end_indices
+    too_many_indices_cases = (
+        ((5, 1, 1), (1, 2, 3, 4)),
+        ((5, 1, 1), (-1, -2, -3, -4)),
+        ((), (0,)),
+        ((), (-1,)),
+    )
+
+    error_type = RuntimeError
+    error_str = "The dims to squeeze must be <= the number of dims of the input tensor"
+    for shape, squeeze_dims in too_many_indices_cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims), error_type, error_str
 
 
 def take_along_axis_generator(
