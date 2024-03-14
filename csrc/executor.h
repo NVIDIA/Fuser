@@ -412,7 +412,7 @@ class FusionExecutor : public NonCopyable {
   //! Check if compilation was skipped (fusion segment marked for EE).
   bool isCompilationSkipped() const{
     if (!fusion_) {
-      NVF_ERROR(!lowered_, "Expected a lowered kernel to be initialized.");
+      NVF_ERROR(lowered_, "Expected a lowered kernel to be initialized.");
       return false;
     }
     NVF_ERROR(!lowered_, "Expected GPU lowering to be skipped.");
