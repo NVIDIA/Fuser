@@ -1,4 +1,3 @@
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -27,29 +26,13 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-// mean & var
-std::tuple<float, float> getMeanVar(const std::vector<float>& v) {
-  const int nele = v.size();
-  float mean = std::accumulate(v.begin(), v.end(), 0.0f) / nele;
-  std::vector<float> sub_mean(nele);
-  std::transform(v.begin(), v.end(), sub_mean.begin(), [mean](float x) {
-    return x - mean;
-  });
-  float sq_sum = std::inner_product(
-      sub_mean.begin(), sub_mean.end(), sub_mean.begin(), 0.0);
-  float stdev = std::sqrt(sq_sum / nele);
-  return {mean, stdev};
-}
-
 // This case is to test the correctness of the combined inner and outer
 // scheduler used in layer norm backward. It can also be configured to test the
 // performance using different data types.
 TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
-                    DataType dtype,
-                    bool isBenchmark,
-                    int verbose) {
+                    DataType dtype) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -179,70 +162,43 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
          std::get<2>(aten_gradients).mul(scale_back_factor)},
         __LINE__,
         __FILE__);
-    if (isBenchmark) {
-      FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
-      fkr->enableKernelTimeMeasurement();
 
-      constexpr int nwarm = 5;
-      constexpr int niter = 10;
-      std::vector<float> bw(niter, 0.f);
-      std::vector<float> timeus(niter, 0.f);
+    //  should use shared memory if the register file is insufficient but there
+    //  is ample space in shared memory.
+    int64_t hidden_size = 1l;
+    for (int64_t dim : norm_shape) {
+      hidden_size *= dim;
+    }
 
-      size_t read_write_bytes = 0;
-      const std::vector<at::Tensor> aten_inputs_tmp = {
-          aten_grad_out,
-          aten_input,
-          aten_mean,
-          aten_rstd,
-          aten_weight,
-          aten_bias};
-      const std::vector<at::Tensor> aten_output_tmp = {
-          std::get<0>(aten_gradients),
-          std::get<1>(aten_gradients),
-          std::get<2>(aten_gradients)};
-      for (auto input : aten_inputs_tmp) {
-        read_write_bytes += input.numel() * input.element_size();
-      }
-      for (auto output : aten_output_tmp) {
-        read_write_bytes += output.numel() * output.element_size();
-      }
+    int64_t persistent_buffer_size = hidden_size *
+        (dtype == DataType::Half ? 14l : (dtype == DataType::Float ? 20l : 0l));
+    ASSERT_TRUE(persistent_buffer_size) << "Unsupported data type!";
 
-      for (int i = 0; i < nwarm + niter; i++) {
-        clearL2Cache();
-        // fe.runFusion(inputs, outputs, launch_constraints);
-        auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-        if (i >= nwarm) {
-          float runTimeus = 0.0f;
-          int num_kernels = fkr->executors().size();
-          for (int i = 0; i < num_kernels; i++) {
-            const FusionExecutor& fe = fkr->executors()[i];
-            runTimeus += fe.kernelTimeMs() * 1e3;
-          }
-          float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
-          timeus[i - nwarm] = runTimeus;
-          bw[i - nwarm] = bandwidth;
-          if (verbose == 2)
-            std::cout << "iter= " << i << ", bandwidth= " << bandwidth << "GB/s"
-                      << ", time= " << runTimeus << " us" << std::endl;
-        }
+    if (persistent_buffer_size >
+        InnerOuterPersistentKernelScheduler::register_file_size_combined) {
+      auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      int64_t available_smem = (int64_t)dev_prop->sharedMemPerBlockOptin -
+          scheduler_utils::getSharedMemoryOverheadPerBlock(
+                                   &fusion,
+                                   scheduler_utils::getReductionTvs(&fusion),
+                                   InnerOuterPersistentKernelScheduler::
+                                       max_threads_per_block_combined);
+
+      if (available_smem >= persistent_buffer_size) {
+        const auto& kernel_runtime = fec.getMostRecentKernelRuntime();
+        ASSERT_TRUE(!kernel_runtime->isSegmented())
+            << "Should not segment! hidden_size: " << hidden_size
+            << ", dataTypeSize: " << dataTypeSize(dtype);
+        auto heuristic_params = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(0)
+                                    ->params();
+        ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+        auto rparams = heuristic_params->as<ReductionParams>();
+        ASSERT_TRUE(rparams->shared_mem_persistent_buffer)
+            << "Should use shared memory buffer! hidden_size: " << hidden_size
+            << ", dataTypeSize: " << dataTypeSize(dtype);
       }
-      return getMeanVar(timeus);
-    } else {
-      if (verbose == 1) {
-        std::stringstream sdim0, sdim1;
-        std::for_each(
-            batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-              sdim0 << n << " x ";
-            });
-        std::for_each(
-            norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-              sdim1 << n << " x ";
-            });
-        std::string str1 = sdim1.str();
-        str1.erase(str1.end() - 2);
-        std::cout << "passed, shape= " << sdim0.str() << str1 << std::endl;
-      }
-      return std::make_tuple(-1.0f, -1.0f);
     }
   };
 
@@ -259,37 +215,15 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
       {1600},
       {1984},
       {1987},
+      {16384}, //! use shared memory for persistent
+      {32768}, //! segment and the inner reduction part has 2 persistent tensors
       {65536}};
-  bool isBenchmark = false;
-  bool onlyTestFirstCase = false;
-  int verbose = 0;
   for (auto dtype : data_types) {
     for (auto batch_shape : batch_sizes) {
       for (auto norm_shape : hidden_sizes) {
-        std::tuple<float, float> avg_var =
-            runTest(batch_shape, norm_shape, dtype, isBenchmark, verbose);
-        if (isBenchmark) {
-          std::stringstream sdim0, sdim1;
-          std::for_each(
-              batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-                sdim0 << n << " x ";
-              });
-          std::for_each(
-              norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-                sdim1 << n << " x ";
-              });
-          std::cout << "shape= " << sdim0.str() << sdim1.str()
-                    << ", time_us mean(var)= " << std::get<0>(avg_var) << " ("
-                    << std::get<1>(avg_var) << ")" << std::endl;
-        }
-        if (onlyTestFirstCase)
-          break;
+        runTest(batch_shape, norm_shape, dtype);
       }
-      if (onlyTestFirstCase)
-        break;
     }
-    if (onlyTestFirstCase)
-      break;
   }
 }
 
@@ -1061,4 +995,107 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+// In this test, all 3 input tvs are persistent.
+// tv2, broadcasted in the outer dim, is shared across different rows.
+// To reduce global to shared memory traffic, it is moved to shared memory
+// first. tv1 has 1 consumer and tv0 has 2 consumers. To reduce shared memory to
+// register traffic, tv1 is moved to shared memory pritor to move tv0. The
+// priority order should be tv2, tv1, tv0.
+TEST_F(NVFuserTest, CombinedSharedMemoryPersistent) {
+  auto test = [](int hidden_size) {
+    auto dtype = DataType::Float;
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    auto tv2 = makeContigTensor(1, dtype);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+    auto tv3 = set(tv1);
+    auto tv4 = broadcast(tv2, {true, false});
+    auto tv5 = add(tv0, tv4);
+    auto tv6 = sum(tv5, {-1});
+    auto tv7 = add(tv3, tv5);
+    auto tv8 = sum(tv7, {-1});
+    auto tv9 = add(tv0, tv3);
+    auto tv10 = sum(tv9, {0});
+    auto tv11 = broadcast(tv6, {false, true});
+    auto tv12 = add(tv11, tv5);
+    auto tv13 = broadcast(tv8, {false, true});
+    auto tv14 = add(tv13, tv7);
+    fusion.addOutput(tv12);
+    fusion.addOutput(tv14);
+    fusion.addOutput(tv10);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({528, hidden_size}, options);
+    at::Tensor t1 = at::randn({528, hidden_size}, options);
+    at::Tensor t2 = at::randn({hidden_size}, options);
+    std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    const auto& kernel_runtime = fec.getMostRecentKernelRuntime();
+    if (!kernel_runtime->isSegmented()) {
+      auto heuristic_params = kernel_runtime->schedulerHeuristics()
+                                  ->heuristicsList()
+                                  .at(0)
+                                  ->params();
+      ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+      auto rparams = heuristic_params->as<ReductionParams>();
+      // if shared memory persistent is being used, check which tv is stored in
+      // shared memory. since the priority order should be tv2, tv1, tv0,
+      // if there is only 1, it must be tv2; if there are 2, they must be tv2
+      // and tv1.
+      if (rparams->shared_mem_persistent_buffer) {
+        const auto& sm_tvs = rparams->smem_persistent_tvs;
+        if (sm_tvs.size() == 1) {
+          NVF_ERROR(
+              sm_tvs.at(0)->name() == tv2->name(),
+              "tv2 should be shared memory persistent!");
+        } else if (sm_tvs.size() == 2) {
+          NVF_ERROR(
+              sm_tvs.at(0)->name() != tv0->name() &&
+                  sm_tvs.at(1)->name() != tv0->name(),
+              "tv0 shouldn't be shared memory persistent!");
+        }
+      }
+      auto t3 = t1;
+      auto t4 = t2.unsqueeze(0);
+      auto t5 = t0 + t4;
+      auto t6 = t5.sum({-1});
+      auto t7 = t3 + t5;
+      auto t8 = t7.sum({-1});
+      auto t9 = t0 + t3;
+      auto t10 = t9.sum({0});
+      auto t11 = t6.unsqueeze(-1);
+      auto t12 = t11 + t5;
+      auto t13 = t8.unsqueeze(-1);
+      auto t14 = t13 + t7;
+      testValidate(
+          &fusion,
+          cg_outputs,
+          aten_inputs,
+          {t12, t14, t10},
+          __LINE__,
+          __FILE__);
+    }
+  };
+
+  // on H100, only tv2 is moved to shared memory, latency is 0.261 ms, will
+  // increase to 0.311 ms if reverse order in sort_buffer_tvs. This was tested
+  // on a pre-production card, only relative change matters.
+  test(18 * 1024);
+
+  // on H100, only tv2 and tv1 are moved to shared memory, latency is 0.436 ms,
+  // will increase to 0.481 ms if reverse order in sort_buffer_tvs. This was
+  // tested on a pre-production card, only relative change matters.
+  test(27 * 1024);
+}
 } // namespace nvfuser

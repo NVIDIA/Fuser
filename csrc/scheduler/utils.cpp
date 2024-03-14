@@ -19,6 +19,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <algorithm>
 #include <queue>
 
@@ -848,6 +850,47 @@ getScopePersistenceFactors(
 
 } // namespace
 
+int64_t getPersistentBufferSizeOfTensor(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info) {
+  int64_t buffer_bytes = -1;
+  bool is_input =
+      std::find(
+          persistent_buffer_info.projectable_buffer_inputs.begin(),
+          persistent_buffer_info.projectable_buffer_inputs.end(),
+          buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
+
+  for (auto id : buffer->getMaybeRFactorDomain()) {
+    if (id->isReduction() || id->isBroadcast()) {
+      continue;
+    }
+    // Unmappable dimensions are those that we cannot inline into other
+    // tensor views. So they're the ones that need to be persistent.
+    if (!is_input && !persistent_buffer_info.unmappable_dims.count(id)) {
+      continue;
+    }
+
+    if (is_input &&
+        !persistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
+      continue;
+    }
+
+    auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+    NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
+    if (buffer_bytes == -1) {
+      buffer_bytes = id_size.as<int64_t>();
+    } else {
+      buffer_bytes *= id_size.as<int64_t>();
+    }
+  }
+
+  buffer_bytes = buffer_bytes == -1 ? 0
+                                    : buffer_bytes *
+          (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                runtime_info.getIndexType());
+  return buffer_bytes;
+}
 // Returns true if a persistent tv can be projected to its persistent producers.
 bool canProjectToPersistentProducer(
     TensorView* buffer,
@@ -883,9 +926,6 @@ PersistentBufferSizeReturn persistentBufferSize(
       persistent_buffer_info.projectable_persistent_buffers;
   const auto& projectable_buffers_inputs =
       persistent_buffer_info.projectable_buffer_inputs;
-  const auto& unmappable_dims = persistent_buffer_info.unmappable_dims;
-  const auto& input_unmappable_dims =
-      persistent_buffer_info.unamppable_dims_projected_to_inputs;
 
   std::vector<TensorView*> all_buffers = persistent_buffers;
   all_buffers.insert(
@@ -896,37 +936,9 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {
-    bool is_input = buffer_i >= persistent_buffers.size();
     auto buffer = all_buffers[buffer_i];
-
-    for (auto id : buffer->getMaybeRFactorDomain()) {
-      if (id->isReduction() || id->isBroadcast()) {
-        continue;
-      }
-      // Unmappable dimensions are those that we cannot inline into other
-      // tensor views. So they're the ones that need to be persistent.
-      if (!is_input && !unmappable_dims.count(id)) {
-        continue;
-      }
-
-      if (is_input && !input_unmappable_dims.count(id)) {
-        continue;
-      }
-
-      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-      if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
-      } else {
-        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
-      }
-    }
-
-    persistent_buffer_sizes[buffer_i] = persistent_buffer_sizes[buffer_i] == -1
-        ? 0
-        : persistent_buffer_sizes[buffer_i] *
-            (int64_t)dataTypeSize(
-                buffer->getDataType().value(), runtime_info.getIndexType());
+    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
+        buffer, runtime_info, persistent_buffer_info);
   }
 
   // Buffers involved in normal persistence
@@ -2477,6 +2489,32 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     }
   }
   return tv_group;
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+
+  // (1) part-1, space for the reduction broadcast.
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  // for welford, three arrays of type nvfuser_index_t are used to store var,
+  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // assumed as int64_t
+  int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
+  if (welford_factor == 3l) {
+    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+  }
+  int64_t reduction_broadcast_workspace =
+      max_threads_per_block * dtype_size * welford_factor;
+
+  // (2) part-2, space reserved by the CUDA driver
+  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
 } // namespace scheduler_utils

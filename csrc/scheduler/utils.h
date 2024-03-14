@@ -32,6 +32,7 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
@@ -636,6 +637,19 @@ NVF_API void promoteProducerMemoryTypes(
 NVF_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
+
+//! Get the persistent buffer size of one tensor
+int64_t getPersistentBufferSizeOfTensor(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info);
+
+//! Returns the shared memory overhead per block includes reserved by the CUDA
+//! driver and the space for the reduction broadcast workspace.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
