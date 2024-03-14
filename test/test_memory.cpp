@@ -260,14 +260,14 @@ class TMALdstTest : public TMATest,
 // swizzle for it.
 void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
   // split as core matrices of 8 x 16B
-  tv->split(0, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
-  tv->split(0, 8);
+  tv->split(-1, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
+  tv->split(-2, 8);
   // [N, 8, 16B]
   // swizzle the inner dim of rows of different core matrices
-  tv->split(1, swizzle_size);
-  tv->split(0, swizzle_size);
+  tv->split(-3, swizzle_size);
+  tv->split(-2, swizzle_size);
   // [N/swizzle_size, swizzle_size, 8/swizzle_size, swizzle_size, 16B]
-  tv->swizzle(SwizzleType::XOR, 1, 3);
+  tv->swizzle(SwizzleType::XOR, -4, -2);
 }
 
 TEST_P(TMALdstTest, LoadCompleteTensor1D) {
