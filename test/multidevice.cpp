@@ -123,7 +123,7 @@ void PipelineTest::validate() {
     }
     auto ref_output = isSharded(output_tv) ? shardTensor(
                                                  ref_unsharded_outputs.at(i),
-                                                 output_tv->getDeviceMesh(),
+                                                 output_tv,
                                                  communicator->deviceId())
                                            : ref_unsharded_outputs.at(i);
     auto obtained_output = outputs.at(i);
@@ -144,7 +144,7 @@ void PipelineTest::execute() {
     auto input_tv = fusion->inputs().at(i)->as<TensorView>();
     auto input = isSharded(input_tv) ? shardTensor(
                                            unsharded_inputs.at(i).toTensor(),
-                                           input_tv->getDeviceMesh(),
+                                           input_tv,
                                            communicator->deviceId())
                                      : unsharded_inputs.at(i).toTensor();
     inputs.push_back(input);
