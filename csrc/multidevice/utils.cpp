@@ -32,15 +32,18 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 } // namespace
 
 bool isSharded(TensorView* tv) {
-  auto sharded_domains = getShardedIterDomains(tv);
-  NVF_ERROR(
-      sharded_domains.size() <= 1,
-      "Cannot shard multiple tensorview axes on the same mesh axis");
-  // Currently, we do not allow split/merge if tv is sharded.
-  NVF_ERROR(
-      sharded_domains.empty() ||
-      tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  return !sharded_domains.empty();
+  bool is_sharded = false;
+  auto ids = TensorDomain::noReductions(tv->getLeafDomain());
+  for (auto i : c10::irange(ids.size())) {
+    // Only one axis can be sharded
+    NVF_ERROR(!(is_sharded && ids[i]->isDeviceDim()));
+    is_sharded = is_sharded || ids[i]->isDeviceDim();
+    // Currently do not support split/merge on a device dimension.
+    NVF_ERROR(
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(i) ==
+        TensorDomain::noReductions(tv->getLeafDomain()).at(i));
+  }
+  return is_sharded;
 }
 
 template <typename TvIterator>

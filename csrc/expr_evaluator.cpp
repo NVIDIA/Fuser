@@ -149,7 +149,13 @@ void ExpressionEvaluator::bind_(
         // with size 1, but the symbolic axis extent is binded with the extent
         // of the DeviceMesh
         NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(i));
+            1 == t.size(i),
+            "TensorView ",
+            tv->toString(),
+            " IterDomain ",
+            id->toString(),
+            "is sharded and must have size 1, but input tensor has size ",
+            t.size(i));
         bind_(
             rfactor_domain[i]->extent(),
             (int)tv->getDeviceMesh().vector().size(),
