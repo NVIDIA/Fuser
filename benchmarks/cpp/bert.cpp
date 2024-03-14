@@ -15,14 +15,14 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/utils.h>
 
-#include <benchmark/benchmark.h>
+#include <benchmarks/cpp/benchmark.h>
 
 #include <cuda_runtime.h>
 
 #include <sstream>
 
-#include <benchmark/utils.h>
-#include <test/utils.h>
+#include <benchmarks/cpp/utils.h>
+#include <tests/cpp/utils.h>
 
 using namespace nvfuser;
 
