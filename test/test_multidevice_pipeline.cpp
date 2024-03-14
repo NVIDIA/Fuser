@@ -395,7 +395,8 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
 
       tv2->axis(3)->parallelize(ParallelType::Unroll);
       tv1->axis(1)->parallelize(ParallelType::BIDx);
-      tv1->setMemoryType(MemoryType::Global); // necessary to avoid runtime error
+      tv1->setMemoryType(
+          MemoryType::Global); // necessary to avoid runtime error
 
       tv1->axis(-1)->parallelize(ParallelType::TIDx);
       tv2->axis(-1)->parallelize(ParallelType::TIDx);
