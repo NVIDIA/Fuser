@@ -137,8 +137,15 @@ TEST_F(PipelineTest, Pipeline) {
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
 // stage sharded?, do_reduction?, sharded dimension, use_fusion_executor_cache?)
-using PipelineTestTwoStagesParams = std::
-    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, int, bool>;
+using PipelineTestTwoStagesParams = std::tuple<
+    CommunicatorBackend,
+    DeviceMesh,
+    DeviceMesh,
+    bool,
+    bool,
+    bool,
+    int,
+    bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
       public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
@@ -168,9 +175,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   if (is_stage1_sharded) {
     unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
-    if(do_reduction) {
+    if (do_reduction) {
       GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-      unsharded_input_sizes[sharded_dim+1] = mesh1.vector().size();
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
     }
   }
 
@@ -193,7 +200,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
   if (is_stage1_sharded) {
     // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis = (do_reduction && unsharded_input_sizes[sharded_dim+1] > 1) ? sharded_dim+1 : 0;
+    int tv2_outmost_axis =
+        (do_reduction && unsharded_input_sizes[sharded_dim + 1] > 1)
+        ? sharded_dim + 1
+        : 0;
     tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }

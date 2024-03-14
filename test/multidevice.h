@@ -63,7 +63,7 @@ class MultiDeviceTest : public NVFuserTest {
           tensor.dim(), at::indexing::Slice());
       indices[sharded_dim] = at::indexing::Slice(i, i + 1);
       return tensor.index(indices).contiguous();
-    } 
+    }
     return tensor;
   }
 

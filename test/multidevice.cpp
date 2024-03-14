@@ -121,11 +121,10 @@ void PipelineTest::validate() {
     if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
       continue;
     }
-    auto ref_output = isSharded(output_tv) ? shardTensor(
-                                                 ref_unsharded_outputs.at(i),
-                                                 output_tv,
-                                                 communicator->deviceId())
-                                           : ref_unsharded_outputs.at(i);
+    auto ref_output = isSharded(output_tv)
+        ? shardTensor(
+              ref_unsharded_outputs.at(i), output_tv, communicator->deviceId())
+        : ref_unsharded_outputs.at(i);
     auto obtained_output = outputs.at(i);
     GTEST_EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator->deviceId() << " has unexpected output "
