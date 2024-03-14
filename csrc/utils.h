@@ -420,6 +420,11 @@ class DebugPrintScope {
 
  private:
   std::string name_;
+
+  // Return value and location of the return statement.
+  // Note that the recording of the return value is not automatic. The function
+  // needs to be manually instrumented to replace `return XXX;` with
+  // `RECORD_AND_RETURN(XXX)` to record the return value.
   std::string return_;
   std::string file_;
   int64_t line_ = -1;
@@ -432,18 +437,18 @@ class DebugPrintScope {
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
 // compiler, please use DebugPrintScope directly without this macro.
-#define DEBUG_PRINT_SCOPE(...)                                          \
-  std::unique_ptr<DebugPrintScope> _debug_print_scope;                  \
-  if (isDebugDumpEnabled(DebugDumpOption::CallStack)) {                 \
-    auto enabled = getDebugDumpArguments(DebugDumpOption::CallStack);   \
-    for (auto pattern : enabled) {                                      \
-      std::regex re(pattern);                                           \
-      if (std::regex_match(__func__, re)) {                             \
-        _debug_print_scope =                                            \
-            std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__); \
-        break;                                                          \
-      }                                                                 \
-    }                                                                   \
+#define DEBUG_PRINT_SCOPE(...)                                            \
+  std::unique_ptr<DebugPrintScope> _debug_print_scope;                    \
+  if (isDebugDumpEnabled(DebugDumpOption::FunctionTrace)) {               \
+    auto enabled = getDebugDumpArguments(DebugDumpOption::FunctionTrace); \
+    for (auto pattern : enabled) {                                        \
+      std::regex re(pattern);                                             \
+      if (std::regex_match(__func__, re)) {                               \
+        _debug_print_scope =                                              \
+            std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__);   \
+        break;                                                            \
+      }                                                                   \
+    }                                                                     \
   }
 
 // Record the return value and return it.

@@ -21,7 +21,7 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
-  CallStack, //!< Dump the call stack of selected internal function
+  FunctionTrace, //!< Dump the function trace of selected internal function
   FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
   FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
