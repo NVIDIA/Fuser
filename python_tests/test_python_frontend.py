@@ -29,6 +29,7 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
+    _DisableMatmulViaATenGuard,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
@@ -2416,28 +2417,29 @@ class TestNvFuserFrontend(TestCase):
 
         prop = torch.cuda.get_device_properties(torch.cuda.current_device())
 
-        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
-            if prop.major == 8:
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
-                    nvf_test_inputs,
-                )
-                eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
+        with _DisableMatmulViaATenGuard() as guard:
+            for mm_str, nvf_test_inputs, eager_test_inputs in tests:
+                if prop.major == 8:
+                    nvf_out, _ = self.exec_nvfuser(
+                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
+                        nvf_test_inputs,
+                    )
+                    eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
 
-                fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
-                self.assertEqual(eager_out, fp16_nvf_out)
-            else:
-                with self.assertRaisesRegex(
-                    RuntimeError, "Only the Ampere MMA Op is currently supported!"
-                ):
-                    with FusionDefinition() as fd:
-                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str)(fd)
-                    nvf_out = fd.execute(nvf_test_inputs)
-                # It is necessary to reset the Fusion Cache so
-                # serialization/deserialization does not exhibit the same error
-                # across tests
-                fc = FusionCache.get()
-                fc.reset()
+                    fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
+                    self.assertEqual(eager_out, fp16_nvf_out)
+                else:
+                    with self.assertRaisesRegex(
+                        RuntimeError, "Only the Ampere MMA Op is currently supported!"
+                    ):
+                        with FusionDefinition() as fd:
+                            partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str)(fd)
+                        nvf_out = fd.execute(nvf_test_inputs)
+                    # It is necessary to reset the Fusion Cache so
+                    # serialization/deserialization does not exhibit the same error
+                    # across tests
+                    fc = FusionCache.get()
+                    fc.reset()
 
     def test_integer_division(self):
         inputs = [
