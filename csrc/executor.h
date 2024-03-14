@@ -123,9 +123,11 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
-  std::vector<at::Tensor> runAtenFusion(
+  //! Computes fusion outputs through expression evaluator.
+  std::vector<at::Tensor> evaluateFusionOutputs(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs);
+    std::vector<at::Tensor> outputs,
+    ExpressionEvaluator& expr_eval);
 
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
@@ -407,6 +409,16 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
+  //! Check if compilation was skipped (fusion segment marked for EE).
+  bool isCompilationSkipped() {
+    if (!fusion_) {
+      NVF_ERROR(!lowered_, "Expected a lowered kernel to be initialized.");
+      return false;
+    }
+    NVF_ERROR(!lowered_, "Expected GPU lowering to be skipped.");
+    return true;
+  }
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -498,15 +510,6 @@ class FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
-
-  bool isCompilationSkipped() {
-    if (!fusion_) {
-      NVF_ERROR(!lowered_, "Expected a lowered kernel to be initialized.");
-      return false;
-    }
-    NVF_ERROR(!lowered_, "Expected GPU lowering to be skipped.");
-    return true;
-  }
 
  private:
   CompileOptions options_;
