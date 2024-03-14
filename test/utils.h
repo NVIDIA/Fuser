@@ -442,11 +442,6 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
-
-    // For the NVFuser tests, we generally want to test Fuser's matmul
-    // scheduling and lowering. Thus disabling execution via expression
-    // evaluator.
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
   void TearDown() override {
