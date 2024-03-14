@@ -28,6 +28,37 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+   shardMap(Expr* expr) {
+  NVF_ERROR(
+    expr->outputs().size() == 1,
+    "Resharding operations can only have one output");
+  NVF_ERROR(
+    expr->inputs().size() == 1,
+    "Resharding operations can have only one input");
+  auto output = expr->outputs().at(0)->as<TensorView>();
+  auto input = expr->inputs().at(0)->as<TensorView>();
+
+  std::vector<int64_t> shard_additions;
+  std::vector<int64_t> shard_deletions;
+  auto input_ids = TensorDomain::noReductions(input->getLeafDomain());
+  auto output_ids = output->getLeafDomain();
+  NVF_ERROR(
+    input_ids.size() == output_ids.size());
+  for (size_t i : c10::irange(input_ids.size())) {
+    auto input_id = input_ids[i];
+    auto output_id = output_ids[i];
+    if (input_id->isDeviceDim() && !output_id->isDeviceDim() && !output_id->isReduction()) {
+      shard_deletions.push_back(i);
+    }
+    if (!input_id->isDeviceDim() && output_id->isDeviceDim() && !output_id->isReduction()) {
+      shard_additions.push_back(i);
+    }
+  }
+  return std::make_pair(shard_additions, shard_deletions);
+}
+
 } // namespace
 
 bool isSharded(TensorView* tv) {
@@ -80,27 +111,6 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     }
   }
   return ret;
-}
-
-// Tracks axis that change sharding between producer and consumer.
-// TODO: Update when we support more parallel types. 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-   shardMap(TensorView* producer, TensorView* consumer) {
-  std::vector<int64_t> shard_additions;
-  std::vector<int64_t> shard_deletions;
-  auto producer_leaf = TensorDomain::noReductions(producer->getLeafDomain());
-  auto consumer_leaf = consumer->getLeafDomain();
-  for (size_t i : c10::irange(producer_leaf.size())) {
-    auto producer_id = producer_leaf[i];
-    auto consumer_id = consumer_leaf[i];
-    if (producer_id->isDeviceDim() && !consumer_id->isDeviceDim() && !consumer_id->isReduction()) {
-      shard_deletions.push_back(i);
-    }
-    if (!producer_id->isDeviceDim() && consumer_id->isDeviceDim() && !consumer_id->isReduction()) {
-      shard_additions.push_back(i);
-    }
-  }
-  return std::make_pair(shard_additions, shard_deletions);
 }
 
 bool isResharding(Expr* expr) {
@@ -169,19 +179,19 @@ void insertPermutes(Fusion *fusion) {
     }
   }
   for (auto expr : reshard_exprs) {
-      NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-      NVF_ERROR(
-        expr->outputs().size() == 1,
-        "Resharding operations can only have one output");
-      NVF_ERROR(
-        expr->inputs().size() == 1,
-        "Resharding operations can have only one input");
-      auto output = expr->outputs().at(0)->as<TensorView>();
-      auto input = expr->inputs().at(0)->as<TensorView>();
-      auto shard_map = shardMap(input, output);
+    NVF_ERROR(
+    ir_utils::isTvOp(expr),
+    "Non-tv op is not supported yet: ",
+    expr->toString());
+    NVF_ERROR(
+      expr->outputs().size() == 1,
+      "Resharding operations can only have one output");
+    NVF_ERROR(
+      expr->inputs().size() == 1,
+      "Resharding operations can have only one input");
+    auto output = expr->outputs().at(0)->as<TensorView>();
+    auto input = expr->inputs().at(0)->as<TensorView>();
+      auto shard_map = shardMap(expr);
       auto shard_additions = shard_map.first;
       auto shard_deletions = shard_map.second;
       NVF_ERROR(shard_additions.size() + shard_deletions.size() <= 1, 
@@ -191,8 +201,8 @@ void insertPermutes(Fusion *fusion) {
       // communication libraries can only read/write contiguous tensors.
       // Update expr's input to push the rematerialized axis to the front
       // execute the expr then permute the rematerizlied axis to the proper location.
-      // Originally: [input] -> expr -> [output]
-      // Replace with [input] -> permute -> [inpute_permute] -> expr -> [output_permute] -> [output]
+      // Originally: [input] -> set -> [output]
+      // Replace with [input] -> permute -> [inpute_permute] -> set -> [output_permute] -> [output]
       // Note: there are no reduction based collectives that materialize an axis
       // so expr is guaranteed to be a set.
       if (!shard_deletions.empty() && !isContiguousShard(input, output)) {
@@ -201,33 +211,35 @@ void insertPermutes(Fusion *fusion) {
         int axis = shard_deletions[0];
         auto ptype = input->getLeafDomain()[axis]->getParallelType();
 
-        TensorView* input_permute = permute(input, {{axis, 0}}); 
+        TensorView* input_permute = permute(input, {{axis, 0}});
         input_permute->setDeviceMesh(input->getDeviceMesh());
         input_permute->axis(0)->parallelize(ptype);
 
         TensorView* output_permute = set(input_permute);
-        TensorView* new_output = permute(output_permute, {{0, axis}});
         output_permute->setDeviceMesh(output->getDeviceMesh());
+        TensorView* new_output = permute(output_permute, {{0, axis}});
         new_output->setDeviceMesh(output->getDeviceMesh());
 
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
         fusion->removeExpr(expr);
       }
       // For scatter operations i.e. sharding an axis
-      // communication libraries can only read/write contiguous tensors.
-      // Update expr's input to push the rematerialized axis to the front
-      // execute the expr then permute the rematerizlied axis to the proper location.
-      // Originally: [input] -> expr -> [output]
-      // Replace with [input] -> permute -> [inpute_permute] -> expr -> [output_permute] -> [output]
+      // Update expr's input to push the scattered axis to the front
+      // execute the expr then permute the scatter axis to the proper location.
+      // Originally: [input] -> set/reduce -> [output]
+      // Replace with [input] -> permute -> [inpute_permute] -> set/reduce -> 
+      // [output_permute] -> permute-> [output]
       else if (!shard_additions.empty() && !isContiguousShard(output, input)) {
-        // Note this first permute is a no-op. and puts the input into canonical form.
         auto axis = shard_additions[0];
         auto ptype = output->getLeafDomain()[axis]->getParallelType();
+      
+        // TODO: This first permute doesn't change the underlying memory, it
+        // just moves the sharded axis to 0.
         TensorView* input_permute = permute(input, {{axis, 0}}); 
         input_permute->setDeviceMesh(input->getDeviceMesh());
 
         TensorView* output_permute;
-        // adjust axis if expr is a reduction.
+        // For reduce scatter, determine if the reduction axis shifted to the right by 1.
         auto red_axis = output->getReductionAxis();
         int offset = (red_axis.has_value() && axis > red_axis.value()) ? 1 : 0;
         if (expr->isA<ReductionOp>()) {
@@ -237,13 +249,15 @@ void insertPermutes(Fusion *fusion) {
           output_permute = reductionOp(red_expr->getReductionOpType(), 
             {raxis}, red_expr->init(), input_permute);
         } else {
+          // Note: this is a no-op and is moving a device parallel axis 
           output_permute = set(input_permute);
         }
-        output_permute->setDeviceMesh(output->getDeviceMesh());
+        
         output_permute->axis(0)->parallelize(ptype);
+        output_permute->setDeviceMesh(output->getDeviceMesh());
         TensorView* new_output = permute(output_permute, {{0, axis-offset}});
-        new_output->setDeviceMesh(output->getDeviceMesh());
         new_output->axis(axis-offset)->parallelize(ptype);
+        new_output->setDeviceMesh(output->getDeviceMesh());
 
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
         fusion->removeExpr(expr);

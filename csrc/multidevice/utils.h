@@ -44,7 +44,8 @@ void unshard(TensorView*);
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
 
-// This is to be run after the insertResharding pass.
+// This can only run after the insertResharding pass.
+// Expects all resharding ops are either a set or reduction.
 // For each resharding operation that requires communication
 // over a noncontiguous slices of the tensor, this pass
 // inserts permutations necessary to push the device parallel axis
