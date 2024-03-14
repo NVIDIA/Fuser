@@ -119,24 +119,18 @@ CommParams createParamsForGatherScatter(
     ((is_scatter) ? params.dst_bufs : params.src_bufs) = {buf};
   }
 
-
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      std::vector<at::indexing::TensorIndex> indices(
-          root_buf.dim(), at::indexing::Slice());
-      indices[0] = at::indexing::Slice(i, i + 1);
-      auto slice = root_buf.index(indices);
-      ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(slice);
+      auto sliced_buf = root_buf.index({at::indexing::Slice(i, i + 1), "..."});
+      ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
-
     // The scatter/gather semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
     // have to artificially make it send and receive a dummy buffer
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
-      std::vector<at::indexing::TensorIndex> slice0_indices(root_buf.dim(), at::indexing::Slice());
-      slice0_indices[0] = at::indexing::Slice(0, 1);
-      at::Tensor dummy = createDummyTensor(root_buf.index(slice0_indices));
+      at::Tensor dummy =
+          createDummyTensor(root_buf.index({at::indexing::Slice(0, 1), "..."}));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -205,14 +199,10 @@ void lowerToAllgather(
 
   CommParams params;
   params.team = mesh.vector();
-  auto sharded_dim = dimWithParallelType(input_tv, ParallelType::DIDx);
   for (auto i : c10::irange(mesh.vector().size())) {
-      std::vector<at::indexing::TensorIndex> indices(
-          output_tensor.dim(), at::indexing::Slice());
-      indices[sharded_dim] = at::indexing::Slice(i, i + 1);
-      auto slice = output_tensor.index(indices);
-      params.dst_bufs.push_back(slice);
-    }
+    params.dst_bufs.push_back(
+        output_tensor.index({at::indexing::Slice(i, i + 1), "..."}));
+  }
   params.src_bufs = {input_tensor};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
@@ -330,8 +320,7 @@ CommParams createParamsForReduce(
 
   auto sharded_dim =output_tv->getReductionAxis().value();
   if (mesh.has(my_device_index)) {
-    auto x = input_tensor.squeeze(sharded_dim);
-    params.src_bufs = {x};
+    params.src_bufs = {input_tensor.squeeze(sharded_dim)};
   }
 
   if (my_device_index == root) {

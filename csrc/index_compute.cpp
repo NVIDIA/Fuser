@@ -1605,7 +1605,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       if (alloc_dom[i]->isReduction()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
-      } 
+      }
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(
               IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
@@ -1983,10 +1983,10 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isStride()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
-      } 
+      }
       strides[i] = IrBuilder::getItemExpr(
-        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
-        (int64_t)stride_i++);
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -2183,7 +2183,6 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
     alloc_inds.at(i) = alloc_ind;
   }
-  
   return alloc_inds;
 }
 
