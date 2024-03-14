@@ -408,8 +408,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! ParallelType used for scheduling
   //! Note that we are only using this for multidevice at this point
   py::enum_<ParallelType>(nvfuser, "ParallelType")
-      .value("DIDx", ParallelType::DIDx)
-      .value("DIDy", ParallelType::DIDy);
+      .value("DIDx", ParallelType::DIDx);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -484,13 +483,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "__repr__",
 	  [](DeviceMesh& self) {
             return self.toString();
-          })
-      .def(
-          "reshape",
-	  [](DeviceMesh& self, std::vector<int64_t> new_shape) {
-	    self.reshape(new_shape);
-          },
-          py::arg("new_shape"));
+          });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
