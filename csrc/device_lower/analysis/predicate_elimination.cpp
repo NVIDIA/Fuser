@@ -258,17 +258,15 @@ class PredicateChcker : public IterVisitor {
 
   // Always predicate rng ops as they are expensive.
   bool predicateRNGOp(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    RECORD_AND_RETURN(expr->isA<RNGOp>());
+    return expr->isA<RNGOp>();
   }
 
   // Always predicate integer division and related ops as we don't
   // know what values are in the out-of-bound region and they may
   // cause exceptions
   bool predicateIntDiv(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     auto dt = expr->outputs()[0]->getDataType().value();
-    RECORD_AND_RETURN(
+    return (
         (dt == DataType::Int || dt == DataType::Int32) &&
         expr->isA<BinaryOp>() &&
         (expr->as<BinaryOp>()->getBinaryOpType() == BinaryOpType::Div ||
@@ -280,9 +278,8 @@ class PredicateChcker : public IterVisitor {
   // If we're reducing an expanded domain, we need to be careful to predicate it
   // or we could end up reducing a broadcasted value too many times.
   bool predicateExpandReduce(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     if (!ir_utils::isReductionOp(expr)) {
-      RECORD_AND_RETURN(false);
+      return false;
     }
     auto tv_inputs = ir_utils::getTvs(expr->inputs());
     NVF_ERROR(
@@ -297,7 +294,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     if (!found_expand) {
-      RECORD_AND_RETURN(false);
+      return false;
     }
 
     auto tv_outputs = ir_utils::getTvs(expr->outputs());
@@ -317,17 +314,16 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          RECORD_AND_RETURN(true);
+          return true;
         }
       }
     }
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   // Skip if MisalignedVectorize is involved for now. This could be
   // relaxed.
   bool predicateMisalignedVectorize(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     std::vector<const std::vector<Val*>*> inputs_and_outputs = {
         &(expr->inputs()), &(expr->outputs())};
     for (const auto& inputs_or_outputs : inputs_and_outputs) {
@@ -339,42 +335,38 @@ class PredicateChcker : public IterVisitor {
                   return axis->getParallelType() ==
                       ParallelType::MisalignedVectorize;
                 })) {
-          RECORD_AND_RETURN(true);
+          return true;
         }
       }
     }
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   // Shift is not supported yet.
   bool predicateShift(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     auto halo_info = GpuLower::current()->haloInfo();
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    RECORD_AND_RETURN(
-        halo_info->needsShiftPredicate(expr) ||
+    return halo_info->needsShiftPredicate(expr) ||
         std::any_of(input_tvs.begin(), input_tvs.end(), [&](auto input_tv) {
-          return input_tv->definition() != nullptr &&
-              halo_info->needsShiftPredicate(input_tv->definition());
-        }));
+             return input_tv->definition() != nullptr &&
+                 halo_info->needsShiftPredicate(input_tv->definition());
+           });
   }
 
   // Predicates the expression if any producer-consumer pair of the
   // expression needs to be predicated
   bool predicateProducerConsumerPair(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
         if (ProducerConsumerPairAnalyzer::needsPredicate(input, output)) {
-          RECORD_AND_RETURN(true);
+          return true;
         }
       }
     }
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   bool predicateSharedMemAccess(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     // This is initial step to gradually remove predicates around
     //  sharedmem access in suitable situations.
     // Using an additional variable to track the predicate-on reasons
@@ -384,13 +376,13 @@ class PredicateChcker : public IterVisitor {
         if (producer->getMemoryType() == MemoryType::Shared ||
             consumer->getMemoryType() == MemoryType::Shared) {
           if (needSharedMemPredicate(producer, consumer)) {
-            RECORD_AND_RETURN(true);
+            return true;
           }
         }
       }
     }
 
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   // Check for conditions where the predicate cannot be removed
@@ -530,11 +522,10 @@ class PredicateChcker : public IterVisitor {
   // rather uncommon, either would be fine as long as correctness is
   // provided.
   bool predicateNonDivisibleRootDomains(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
     if (ir_utils::isCpAsyncBulk(expr)) {
-      RECORD_AND_RETURN(false);
+      return false;
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
@@ -565,7 +556,7 @@ class PredicateChcker : public IterVisitor {
       }
       const auto zero_leaf_ids = getZeroLeafIds(output);
       if (zero_leaf_ids.empty()) {
-        RECORD_AND_RETURN(true);
+        return true;
       }
       const auto vals =
           DependencyCheck::getAllValsBetween(split_root, zero_leaf_ids);
@@ -576,31 +567,30 @@ class PredicateChcker : public IterVisitor {
                 return std::find(vals.begin(), vals.end(), split_root_id) ==
                     vals.end();
               })) {
-        RECORD_AND_RETURN(true);
+        return true;
       }
     }
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   // Always predicate if non-divisible split is found. It may be
   // possible to make it less conservative.
   // See FusionPredicateElimination7 for a concrete example.
   bool predicateNonDivisibleSplit(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
     if (ir_utils::isCpAsyncBulk(expr)) {
-      RECORD_AND_RETURN(false);
+      return false;
     }
     const auto& non_divisible_split_info =
         GpuLower::current()->nonDivisibleSplitInfo();
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       if (non_divisible_split_info.splitsToPredicate().find(output) !=
           non_divisible_split_info.splitsToPredicate().end()) {
-        RECORD_AND_RETURN(true);
+        return true;
       }
     }
-    RECORD_AND_RETURN(false);
+    return false;
   }
 
   // If this is a reduction, and if we omit the predicate for the
