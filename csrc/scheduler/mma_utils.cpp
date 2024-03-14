@@ -91,7 +91,7 @@ int64_t computeExpectedSharedMemoryUsage(
 
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
@@ -101,6 +101,13 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
   const size_t shared_memory_available =
       device_smem_limit - shared_memory_overhead;
+
+  // We clip smem_double_buffer_stage to 1 since we will always load operands
+  // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
+  // "no double-buffering", but we still stage incoming data to smem.
+  if (smem_double_buffer_stage < 1) {
+    smem_double_buffer_stage = 1;
+  }
 
   // Create a temporary DoubleBufferOptions with full double buffering, for
   // estimating shared memory size.
