@@ -22,7 +22,15 @@
 
 namespace nvfuser {
 
-class MatmulSASSTest : public NVFuserTest {};
+class MatmulSASSTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
+    NVFuserTest::SetUp();
+  }
+  std::unique_ptr<DisableOptionsGuard> disable_options_ptr =
+      std::make_unique<DisableOptionsGuard>();
+};
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
