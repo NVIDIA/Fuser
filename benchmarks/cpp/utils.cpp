@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <benchmark/utils.h>
+#include <benchmarks/cpp/utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <cuda_utils.h>
 #include <scheduler/all_schedulers.h>
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <sstream>
 

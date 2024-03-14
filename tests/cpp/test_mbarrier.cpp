@@ -12,8 +12,8 @@
 #include <executor.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <unordered_set>
 

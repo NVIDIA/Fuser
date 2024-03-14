@@ -14,9 +14,9 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
-#include <test/rng_helper.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/rng_helper.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>

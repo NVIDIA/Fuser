@@ -10,7 +10,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <polymorphic_value.h>
 #include <type.h>

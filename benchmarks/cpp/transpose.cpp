@@ -17,8 +17,8 @@
 
 #include <cuda_runtime.h>
 
-#include <benchmark/utils.h>
-#include <test/utils.h>
+#include <benchmarks/cpp/utils.h>
+#include <tests/cpp/utils.h>
 
 using namespace nvfuser;
 

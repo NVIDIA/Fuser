@@ -14,8 +14,8 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <torch/torch.h>
 

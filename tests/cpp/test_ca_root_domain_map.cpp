@@ -3,7 +3,7 @@
 
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 namespace nvfuser {
 

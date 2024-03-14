@@ -9,7 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <inlining.h>
 #include <ops/all_ops.h>

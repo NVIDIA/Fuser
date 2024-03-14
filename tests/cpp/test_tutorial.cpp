@@ -15,8 +15,8 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 #include <type.h>
 
 namespace nvfuser {

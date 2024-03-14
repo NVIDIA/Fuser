@@ -10,7 +10,7 @@
 // (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
 // Compiling pytorch with nvcc is not supported either.
 
-#include <test/rng_helper.h>
+#include <tests/cpp/rng_helper.h>
 
 #include <cassert>
 #include <cstdint>

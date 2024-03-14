@@ -12,7 +12,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <sstream>
 #include <string>

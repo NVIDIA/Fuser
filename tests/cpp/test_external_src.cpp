@@ -11,8 +11,8 @@
 
 #include <executor_utils.h>
 #include <fusion.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 #include <utils.h>
 
 #include <fstream>

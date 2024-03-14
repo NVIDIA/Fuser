@@ -14,8 +14,8 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
 
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <torch/torch.h>
 

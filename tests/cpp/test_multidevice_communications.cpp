@@ -10,7 +10,7 @@
 
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
-#include <test/multidevice.h>
+#include <tests/cpp/multidevice.h>
 
 #include <iostream>
 

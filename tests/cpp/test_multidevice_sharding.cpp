@@ -13,8 +13,8 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <test/multidevice.h>
-#include <test/validator.h>
+#include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 

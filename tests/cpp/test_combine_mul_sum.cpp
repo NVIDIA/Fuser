@@ -32,8 +32,8 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 

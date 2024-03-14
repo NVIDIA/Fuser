@@ -16,8 +16,8 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 

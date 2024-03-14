@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <test/utils.h>
-#include <test/validator.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <exceptions.h>
 #include <executor.h>

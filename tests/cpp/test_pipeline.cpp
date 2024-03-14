@@ -15,7 +15,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <algorithm>
 #include <iostream>

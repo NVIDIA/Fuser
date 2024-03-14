@@ -15,7 +15,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/utils.h>
 
-#include <benchmarks/cpp/benchmark.h>
+#include <benchmark/benchmark.h>
 
 #include <cuda_runtime.h>
 

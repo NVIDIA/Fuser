@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <ops/all_ops.h>
 
