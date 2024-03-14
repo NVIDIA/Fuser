@@ -425,9 +425,6 @@ class DebugPrintScope {
   int64_t line_ = -1;
 };
 
-// Debug printing the entering and leaving of a function. The given arguments
-// will be printed when entering the function.
-//
 // Note: ##__VA_ARGS__ is not C++ stardard, but it should work on gcc and clang.
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
@@ -446,7 +443,6 @@ class DebugPrintScope {
     }                                                                   \
   }
 
-// Record the return value and return it.
 #define RECORD_AND_RETURN(ret)                              \
   if (_debug_print_scope) {                                 \
     _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
