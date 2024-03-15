@@ -463,7 +463,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // set the min persistent buffer size to avoid requesting
   // a block size larger than device limit
-  const int64_t batches_per_block_inner_reduction_min =
+   int64_t batches_per_block_inner_reduction_min =
       ceilDiv(parallel_after_vectorize, max_threads_in_block);
 
   // set the max persistent batch size to avoid low occupancy
@@ -477,7 +477,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
   const int64_t pbs_max_2 = getMaxPersistentBatch(
       buffer_bytes_per_batch, target_threads_per_sm, free_registers);
-  const int64_t batches_per_block_inner_reduction_max = std::max(
+   int64_t batches_per_block_inner_reduction_max = std::max(
       batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
 
   // Compute maximum number of reductions we could do in the same kernel based
@@ -496,6 +496,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   all_heuristics.reserve(
       batches_per_block_inner_reduction_max -
       batches_per_block_inner_reduction_min + 1);
+  
+  if(std::getenv("PBS") != nullptr) {
+    int64_t my_pbs = std::stoi(std::getenv("PBS"));
+    batches_per_block_inner_reduction_max = my_pbs;
+    batches_per_block_inner_reduction_min = my_pbs;
+  }
+  
   for (int64_t pbs = batches_per_block_inner_reduction_min;
        pbs <= batches_per_block_inner_reduction_max;
        pbs++) {
