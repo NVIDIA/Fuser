@@ -419,6 +419,8 @@ class DebugPrintScope {
   }
 
  private:
+  // The name of the scope, as specified as the first argument of
+  // DEBUG_PRINT_SCOPE_NAME. If using DEBUG_PRINT_SCOPE, then this is __func__.
   std::string name_;
 
   // Return value and location of the return statement.
@@ -437,19 +439,21 @@ class DebugPrintScope {
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
 // compiler, please use DebugPrintScope directly without this macro.
-#define DEBUG_PRINT_SCOPE(...)                                            \
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)                                 \
   std::unique_ptr<DebugPrintScope> _debug_print_scope;                    \
   if (isDebugDumpEnabled(DebugDumpOption::FunctionTrace)) {               \
     auto enabled = getDebugDumpArguments(DebugDumpOption::FunctionTrace); \
     for (auto pattern : enabled) {                                        \
       std::regex re(pattern);                                             \
-      if (std::regex_match(__func__, re)) {                               \
+      if (std::regex_match(name, re)) {                                   \
         _debug_print_scope =                                              \
             std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__);   \
         break;                                                            \
       }                                                                   \
     }                                                                     \
   }
+
+#define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
 
 // Record the return value and return it.
 #define RECORD_AND_RETURN(ret)                              \

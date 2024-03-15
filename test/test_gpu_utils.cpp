@@ -34,33 +34,32 @@ int myFavoriteFunction(int a, int b) {
   }
 }
 
-TEST_F(NVFuserTest, FunctionTrace) {
-  {
-    std::stringstream ss;
-    DebugStreamGuard g(ss);
-    DebugDumpOptionsGuard gg;
-    gg.getCurOptions().set(DebugDumpOption::FunctionTrace, {".*Favorite.*"});
-    EXPECT_EQ(myFavoriteFunction(1, 2), 3);
-    EXPECT_THAT(
-        ss.str(), ::testing::HasSubstr("Entering myFavoriteFunction(1, 2)"));
-    EXPECT_THAT(
-        ss.str(),
-        ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-    EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:31"));
-  }
-  {
-    std::stringstream ss;
-    DebugStreamGuard g(ss);
-    DebugDumpOptionsGuard gg;
-    gg.getCurOptions().set(DebugDumpOption::FunctionTrace, {".*Favorite.*"});
-    EXPECT_EQ(myFavoriteFunction(-1, 2), -3);
-    EXPECT_THAT(
-        ss.str(), ::testing::HasSubstr("Entering myFavoriteFunction(-1, 2)"));
-    EXPECT_THAT(
-        ss.str(),
-        ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
-    EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:33"));
-  }
+TEST_F(NVFuserTest, FunctionTrace1) {
+  std::stringstream ss;
+  DebugStreamGuard g(ss);
+  DebugDumpOptionsGuard gg;
+  gg.getCurOptions().set(DebugDumpOption::FunctionTrace, {".*Favorite.*"});
+  EXPECT_EQ(myFavoriteFunction(1, 2), 3);
+  EXPECT_THAT(
+      ss.str(), ::testing::HasSubstr("Entering myFavoriteFunction(1, 2)"));
+  EXPECT_THAT(
+      ss.str(),
+      ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:31"));
+}
+
+TEST_F(NVFuserTest, FunctionTrace2) {
+  std::stringstream ss;
+  DebugStreamGuard g(ss);
+  DebugDumpOptionsGuard gg;
+  gg.getCurOptions().set(DebugDumpOption::FunctionTrace, {".*Favorite.*"});
+  EXPECT_EQ(myFavoriteFunction(-1, 2), -3);
+  EXPECT_THAT(
+      ss.str(), ::testing::HasSubstr("Entering myFavoriteFunction(-1, 2)"));
+  EXPECT_THAT(
+      ss.str(),
+      ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:33"));
 }
 
 TEST_F(NVFuserTest, FusionSplitDims_CUDA) {
