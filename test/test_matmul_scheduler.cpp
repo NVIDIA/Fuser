@@ -23,15 +23,13 @@ namespace nvfuser {
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
-  void SetUp() override {
-    // allocation order set by the pass breaks matmul tests
-    // see issue https://github.com/NVIDIA/Fuser/issues/1810
-    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
-        nvfuser::preseg_passes::AllocationDomainPass>>(false);
-  }
-  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
-      nvfuser::preseg_passes::AllocationDomainPass>>
-      guard_;
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  MatmulSchedulerTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
 };
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
@@ -43,15 +41,13 @@ using TestCaseErrorThresholds = std::map<PrecisionsDesc, ErrorThresholds>;
 class PrecisionParametrizedTest
     : public NVFuserFixtureParamTest<PrecisionsDesc> {
  protected:
-  void SetUp() override {
-    // allocation order set by the pass breaks matmul tests
-    // see issue https://github.com/NVIDIA/Fuser/issues/1810
-    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
-        nvfuser::preseg_passes::AllocationDomainPass>>(false);
-  }
-  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
-      nvfuser::preseg_passes::AllocationDomainPass>>
-      guard_;
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  PrecisionParametrizedTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
 };
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {

@@ -14,6 +14,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -42,22 +43,14 @@ TensorView* transposeMaybeInplace(
 
 class TransposeTest : public NVFuserTest {
  protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    previously_enabled_ = preseg_passes::MarkAliasesPreparePass::getEnabled();
-    // For convenience, disable MarkAliasesPreparePass. Many tests in this file
-    // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
-    // would turn those fusions into a no-op, skipping the transpose scheduler.
-    preseg_passes::MarkAliasesPreparePass::setEnabled(false);
-  }
-
-  void TearDown() override {
-    preseg_passes::MarkAliasesPreparePass::setEnabled(previously_enabled_);
-    NVFuserTest::TearDown();
-  }
+  // For convenience, disable MarkAliasesPreparePass. Many tests in this file
+  // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
+  // would turn those fusions into a no-op, skipping the transpose scheduler.
+  TransposeTest() : optimization_guard_(false) {}
 
  private:
-  bool previously_enabled_ = false;
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard_;
 };
 
 // x->sin->transpose->cos->y
