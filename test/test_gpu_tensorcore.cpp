@@ -2350,141 +2350,147 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
   int M = 4096, N = 4096, K = 4096;
-  for (auto layout : kAllSupportedMmaLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
+  // This tests num_stages=0, which should be treated identically to
+  // num_stages=1. It is put here to exercise this path to ensure we don't
+  // crash in generateSharedMemoryEpilogueHeuristics.
+  // See https://github.com/NVIDIA/Fuser/pull/1917 for more info
+  for (int num_stages : {0, 2}) {
+    for (auto layout : kAllSupportedMmaLayout) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
 
-    auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+      auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
 
-    auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
-    auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+      auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+      auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
 
-    tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
-    tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
-    auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
-    fusion.addOutput(tv2);
+      fusion.addOutput(tv2);
 
-    // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
-    // been purposefully selected to produce a constant occupancy of 25%. This
-    // allows us to effectively evaluate the influence of the use_smem_epilogue
-    // parameter on performance, since changing its value to either true or
-    // false will not affect the occupancy rate.
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(64, 128, 32);
-    gemm_tile.warp_tile = GemmTile(32, 32, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+      // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
+      // been purposefully selected to produce a constant occupancy of 25%. This
+      // allows us to effectively evaluate the influence of the
+      // use_smem_epilogue parameter on performance, since changing its value to
+      // either true or false will not affect the occupancy rate.
+      MatMulTileOptions gemm_tile;
+      gemm_tile.cta_tile = GemmTile(64, 128, 32);
+      gemm_tile.warp_tile = GemmTile(32, 32, 32);
+      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 2;
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
-        mma_utils::generateSharedMemoryEpilogueHeuristics(
-            gemm_tile,
-            params.double_buffer_options.smem_double_buffer_stage,
-            data_types,
-            ignore_occupancy_drop);
-    scheduleMatmul(&fusion, params);
+      MatmulParams params;
+      params.mma_macro = MmaMacro::Ampere_16_8_16;
+      params.tile_sizes = gemm_tile;
+      params.async_gmem_load_operands = true;
+      params.double_buffer_options.double_buffer_smem_write = num_stages > 1;
+      params.double_buffer_options.double_buffer_smem_read = num_stages > 1;
+      params.double_buffer_options.smem_double_buffer_stage = num_stages;
+      mma_utils::MmaDataTypes data_types = {
+          DataType::Half, DataType::Half, DataType::Float};
+      std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+          mma_utils::generateSharedMemoryEpilogueHeuristics(
+              gemm_tile,
+              params.double_buffer_options.smem_double_buffer_stage,
+              data_types,
+              ignore_occupancy_drop);
+      scheduleMatmul(&fusion, params);
 
-    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
-    // for prologue and 1 for epilogue.
-    int num_shared_mem_tensors = 0;
-    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
-    for (const auto& tv : ir_utils::allTvs(&fusion)) {
-      if (tv->getMemoryType() == MemoryType::Shared) {
-        num_shared_mem_tensors++;
+      // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
+      // for prologue and 1 for epilogue.
+      int num_shared_mem_tensors = 0;
+      int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+      for (const auto& tv : ir_utils::allTvs(&fusion)) {
+        if (tv->getMemoryType() == MemoryType::Shared) {
+          num_shared_mem_tensors++;
+        }
       }
-    }
-    NVF_CHECK(
-        num_shared_mem_tensors == expected_num_shared_mem_tensors,
-        "Number of shared memory tensors doesn't match!",
-        "Expected: ",
-        expected_num_shared_mem_tensors,
-        ", Got: ",
-        num_shared_mem_tensors);
+      NVF_CHECK(
+          num_shared_mem_tensors == expected_num_shared_mem_tensors,
+          "Number of shared memory tensors doesn't match!",
+          "Expected: ",
+          expected_num_shared_mem_tensors,
+          ", Got: ",
+          num_shared_mem_tensors);
 
-    at::manual_seed(0);
-    auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+      at::manual_seed(0);
+      auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        8,
-        0,
-        fe.compileFusion(
-            &fusion,
-            {inputs.first, inputs.second},
-            LaunchParams(),
-            matmul_cparams));
-    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
-        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      FusionExecutor fe;
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          8,
+          0,
+          fe.compileFusion(
+              &fusion,
+              {inputs.first, inputs.second},
+              LaunchParams(),
+              matmul_cparams));
+      auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+      auto tref = atMatmul(
+          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
-    // check bank conflicts
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    // (0.001, 0.001) passed on local A100 but failed on CI A100
-    NVF_CHECK(
-        cg_outputs[0].allclose(tref, 0.01, 0.01),
-        "Result validation failed. Max diff: ",
-        (cg_outputs[0] - tref).abs().max());
-    // Check that computed smem matches actually allocated smem
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
+      // check bank conflicts
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      // (0.001, 0.001) passed on local A100 but failed on CI A100
+      NVF_CHECK(
+          cg_outputs[0].allclose(tref, 0.01, 0.01),
+          "Result validation failed. Max diff: ",
+          (cg_outputs[0] - tref).abs().max());
+      // Check that computed smem matches actually allocated smem
+      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+          params, data_types, true, true);
+      int64_t actual_smem = fe.lastLaunchParams().smem();
+      EXPECT_EQ(estimated_smem, actual_smem);
 
-    if (!params.use_smem_epilogue) {
-      GTEST_SKIP()
-          << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
-    }
+      if (!params.use_smem_epilogue) {
+        GTEST_SKIP()
+            << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+      }
 
-    // Check that smem is allocated as expected.
-    // There are three cases that are determined by the current device in
-    // mma_utils::generateSharedMemoryEpilogueHeuristics:
-    //   - !use_smem_epilogue : A + B (this test is skipped in this case)
-    //   - use_smem_epilogue && !promote_prologue_smem_reuse : A + B + C
-    //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
-    auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
-    NVF_CHECK(smem_allocs.size() == 3);
-    if (params.promote_prologue_smem_reuse) {
-      // Check prologue shared memory re-use
-      // smem_allocs = {A, B, C} where C is the epilogue buffer
-      // since A and B have no further uses, we should be able to reuse both
-      // of them, implying that the address of C is zero. In this case, B will
-      // also be allocated at address 0 with A stacked above it at position
-      // 8192.
-      EXPECT_EQ(
-          smem_allocs.at(0)->address()->evaluate(),
-          // Assuming B numel times size(dtype) is a multiple of 16 so that
-          // this address is aligned
-          smem_allocs.at(1)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
-      EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
-      EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
-    } else {
-      // Prologue shared memory is not re-used. In this case, memory should
-      // stack in C, B, A order.
-      EXPECT_EQ(
-          smem_allocs.at(0)->address()->evaluate(),
-          // Assuming for B and C that numel times size(dtype) is a multiple
-          // of 16 so that this address is aligned
-          smem_allocs.at(1)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
-              smem_allocs.at(2)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
-      EXPECT_EQ(
-          smem_allocs.at(1)->address()->evaluate(),
-          smem_allocs.at(2)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
-      EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
+      // Check that smem is allocated as expected.
+      // There are three cases that are determined by the current device in
+      // mma_utils::generateSharedMemoryEpilogueHeuristics:
+      //   - !use_smem_epilogue : A + B (this test is skipped in this case)
+      //   - use_smem_epilogue && !promote_prologue_smem_reuse : A + B + C
+      //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
+      auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
+      NVF_CHECK(smem_allocs.size() == 3);
+      if (params.promote_prologue_smem_reuse) {
+        // Check prologue shared memory re-use
+        // smem_allocs = {A, B, C} where C is the epilogue buffer
+        // since A and B have no further uses, we should be able to reuse both
+        // of them, implying that the address of C is zero. In this case, B will
+        // also be allocated at address 0 with A stacked above it at position
+        // 8192.
+        EXPECT_EQ(
+            smem_allocs.at(0)->address()->evaluate(),
+            // Assuming B numel times size(dtype) is a multiple of 16 so that
+            // this address is aligned
+            smem_allocs.at(1)->size()->evaluate() *
+                dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+        EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
+        EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
+      } else {
+        // Prologue shared memory is not re-used. In this case, memory should
+        // stack in C, B, A order.
+        EXPECT_EQ(
+            smem_allocs.at(0)->address()->evaluate(),
+            // Assuming for B and C that numel times size(dtype) is a multiple
+            // of 16 so that this address is aligned
+            smem_allocs.at(1)->size()->evaluate() *
+                    dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
+                smem_allocs.at(2)->size()->evaluate() *
+                    dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+        EXPECT_EQ(
+            smem_allocs.at(1)->address()->evaluate(),
+            smem_allocs.at(2)->size()->evaluate() *
+                dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+        EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
+      }
     }
   }
 }
