@@ -22,15 +22,13 @@ namespace nvfuser {
 
 class MatmulATenEvaluationTest : public NVFuserTest {
  protected:
-  void SetUp() override {
-    // allocation order set by the pass breaks matmul tests
-    // see issue https://github.com/NVIDIA/Fuser/issues/1810
-    guard_ = std::make_unique<nvfuser::preseg_passes::OptimizationPassGuard<
-        nvfuser::preseg_passes::AllocationDomainPass>>(false);
-  }
-  std::unique_ptr<nvfuser::preseg_passes::OptimizationPassGuard<
-      nvfuser::preseg_passes::AllocationDomainPass>>
-      guard_;
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  MatmulATenEvaluationTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
 };
 
 TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
