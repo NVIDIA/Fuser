@@ -1354,6 +1354,32 @@ void schedulePersistentKernel(
     }
   }
 
+  // adjust vectorization factor
+  if (vectorize) {
+    for(auto tv : ir_utils::allTvs(fusion)) {
+      IterDomain* v_id = nullptr;
+      const auto& domains = tv->getLeafDomain();
+      for (auto axis : c10::irange(domains.size())) {
+        auto id = domains[axis];
+        if (isParallelTypeVectorize(id->getParallelType())) {
+          v_id = id;
+          NVF_CHECK(
+              v_id->extent()->isConstInt(),
+              "Vectorizing a domain requires a constant integer size.");
+          auto vector_factor = v_id->extent()->evaluate();
+          const auto dtype_size = dataTypeSize(tv->dtype());    
+          if(vector_factor * dtype_size > 16){
+            auto adjusted_vector_factor = 16 / dtype_size;
+            tv->axis(axis)->parallelize(ParallelType::Serial);
+            tv->split(axis, adjusted_vector_factor);
+            tv->axis(axis+1)->parallelize(ParallelType::Vectorize);
+            std::cout << "Vectorization factor is adjusted to " << adjusted_vector_factor << " for " << tv->name() << std::endl;
+          } 
+        }
+      }
+    }
+  }
+
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
