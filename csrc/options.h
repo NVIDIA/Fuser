@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -151,6 +152,10 @@ enum class ProfilerOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+namespace {
+std::mutex options_mutex;
+}
+
 //! The base template class for the options such as EnableOption
 template <typename OptionEnum>
 class Options {
@@ -158,23 +163,28 @@ class Options {
   Options() : options_(getOptionsFromEnv()) {}
 
   bool has(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock_(options_mutex);
     return options_.count(option);
   }
 
   bool hasAny() const {
+    std::lock_guard<std::mutex> lock_(options_mutex);
     return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock_(options_mutex);
     NVF_ERROR(has(option), "Option not set");
     return options_.at(option);
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
+    std::lock_guard<std::mutex> lock_(options_mutex);
     options_[option_type] = option;
   }
 
   void unset(OptionEnum option_type) {
+    std::lock_guard<std::mutex> lock_(options_mutex);
     options_.erase(option_type);
   }
 

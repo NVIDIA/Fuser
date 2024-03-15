@@ -216,13 +216,13 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-thread_local DebugDumpOptions active_dump_options;
+DebugDumpOptions active_dump_options;
 
-thread_local EnableOptions active_enable_options;
+EnableOptions active_enable_options;
 
-thread_local DisableOptions active_disable_options;
+DisableOptions active_disable_options;
 
-thread_local ProfilerOptions active_profiler_options;
+ProfilerOptions active_profiler_options;
 
 } // namespace
 
