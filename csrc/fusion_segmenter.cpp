@@ -1934,10 +1934,13 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
       return SegmentedFusion::fromCompleteFusion(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
+  } else {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Has segment hints, skip un-segmented scheduling.\n");
   }
   if (fusion) {
     scheduler_debug_utils::canScheduleMessage(
-        "***Runtime***: Has segment hints, try to schedule fusion segmented:\n");
+        "\n***Runtime***: Try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
     NVF_ERROR(false, "unreachable!");
