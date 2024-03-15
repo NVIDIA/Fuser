@@ -87,8 +87,8 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   std::vector<int64_t> unsharded_input_size = {3, 2, 5};
   unsharded_input_size[sharded_dim] = num_devices;
 
-  TensorView* tv0 = concreteTv ? makeContigConcreteTensor(unsharded_input_size)
-                               : makeContigTensor(unsharded_input_size.size());
+  TensorView* tv0 = concreteTv ? makeConcreteTensor(unsharded_input_size)
+                               : makeSymbolicTensor(unsharded_input_size.size());
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = sum(tv1, {1});
   fusion->addInput(tv0);
