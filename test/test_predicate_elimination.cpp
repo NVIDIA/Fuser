@@ -437,4 +437,50 @@ TEST_F(PredicateEliminationTest, 9) {
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  std::vector<TensorView*> tvs = {tv1, tv2};
+  for (auto tv : tvs) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+  fusion.manage("interested_tvs", tvs);
+
+  auto validate_smem_predicate_elimination =
+      [](const std::vector<Expr*>& exprs) -> std::vector<Expr*> {
+    kir::Kernel* kernel = GpuLower::current()->kernel();
+    auto kernel_tvs =
+        kernel->getManaged<std::vector<TensorView*>>("interested_tvs");
+    for (auto tv : kernel_tvs) {
+      EXPECT_TRUE(
+          lower_utils::isExtentEqualToMaxParallelTypeExtent(tv->axis(0)));
+    }
+    return exprs;
+  };
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10 * 32}, options);
+  FusionExecutor fe;
+  fe.registerLoweringHook([&](GpuLower* lower) {
+    lower->passes().insert(
+        lower->passes().begin(),
+        {"validate_smem_predicate_elimination",
+         validate_smem_predicate_elimination});
+  });
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

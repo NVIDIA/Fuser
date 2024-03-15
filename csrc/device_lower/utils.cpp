@@ -813,7 +813,7 @@ bool isScalarExpr(Expr* expr) {
 
 bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.get(id->getParallelType());
+  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
   if (nullptr == pdm_max_extent) {
     return false;
   }

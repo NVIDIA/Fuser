@@ -18,7 +18,9 @@
 
 #include <c10/core/thread_pool.h>
 #include <deque>
+#include <memory>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -386,28 +388,79 @@ std::string toDelimitedInlineString(
   return ss.str();
 }
 
-template <typename... Args>
 class DebugPrintScope {
  public:
+  template <typename... Args>
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
     debug() << "Entering " << name_ << "("
             << toDelimitedString(std::forward_as_tuple(args...)) << ")"
             << std::endl;
   }
+
   ~DebugPrintScope() {
-    debug() << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_;
+    if (!return_.empty()) {
+      debug() << " returning " << return_;
+    }
+    if (!file_.empty()) {
+      debug() << " at " << file_;
+    }
+    if (line_ >= 0) {
+      debug() << ":" << line_;
+    }
+    debug() << std::endl;
+  }
+
+  template <typename T>
+  void setReturn(const T& ret, std::string file = "", int64_t line = -1) {
+    return_ = Printer<std::decay_t<T>>::toString(ret);
+    file_ = std::move(file);
+    line_ = line;
   }
 
  private:
+  // The name of the scope, as specified as the first argument of
+  // DEBUG_PRINT_SCOPE_NAME. If using DEBUG_PRINT_SCOPE, then this is __func__.
   std::string name_;
+
+  // Return value and location of the return statement.
+  // Note that the recording of the return value is not automatic. The function
+  // needs to be manually instrumented to replace `return XXX;` with
+  // `RECORD_AND_RETURN(XXX)` to record the return value.
+  std::string return_;
+  std::string file_;
+  int64_t line_ = -1;
 };
 
+// Debug printing the entering and leaving of a function. The given arguments
+// will be printed when entering the function.
+//
 // Note: ##__VA_ARGS__ is not C++ stardard, but it should work on gcc and clang.
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
 // compiler, please use DebugPrintScope directly without this macro.
-#define DEBUG_PRINT_SCOPE(...) \
-  DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)                                 \
+  std::unique_ptr<DebugPrintScope> _debug_print_scope;                    \
+  if (isDebugDumpEnabled(DebugDumpOption::FunctionTrace)) {               \
+    auto enabled = getDebugDumpArguments(DebugDumpOption::FunctionTrace); \
+    for (auto pattern : enabled) {                                        \
+      std::regex re(pattern);                                             \
+      if (std::regex_match(name, re)) {                                   \
+        _debug_print_scope =                                              \
+            std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__);   \
+        break;                                                            \
+      }                                                                   \
+    }                                                                     \
+  }
+
+#define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
+
+// Record the return value and return it.
+#define RECORD_AND_RETURN(ret)                              \
+  if (_debug_print_scope) {                                 \
+    _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
+  }                                                         \
+  return ret
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
