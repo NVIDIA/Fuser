@@ -864,7 +864,8 @@ bool projectBufferToInputs(
   // memory to store the buffers
   int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
       runtime_info, persistent_buffer_info.persistent_buffers);
-  if (max_available_buffer < persistent_buffer_size_info.persistent_buffer_size) {
+  if (max_available_buffer <
+      persistent_buffer_size_info.persistent_buffer_size) {
     return true;
   }
 
