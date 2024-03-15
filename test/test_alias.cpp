@@ -1110,15 +1110,9 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
-  ProfilerOptionsGuard profiler_options_guard;
+  ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
-
-  // This test turns out to be a good exercise for
-  // NVFUSER_DUMP=perf_debug_verbose, because some kernels are skipped. See
-  // #1943.
-  DebugDumpOptionsGuard dump_options_guard;
-  DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::PerfDebugVerbose);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1150,6 +1144,30 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
   }
+}
+
+TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
+  // A reproducer for #1943.
+  DebugDumpOptionsGuard options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::PerfDebugVerbose);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `add_out` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fec.runFusionWithInputs({in_tensor});
 }
 
 } // namespace nvfuser
