@@ -197,6 +197,39 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
 
+  // Given an IEL promotion map, identify the mapping of each loop
+  // group. The promotion must represent all the domains in each loop
+  // group. If a valid representative promotion is not found for a
+  // loop group, no mapping is added for the group.
+  std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const StatefulInliningInfo& inlining_info);
+
+  // Find a promoted iter domain of a given loop group that covers all
+  // the exact groups representative of the resolved transformations
+  // within the loop group. Specifically, we examine each IEL group of
+  // the loop group, and if an IEL group has a promotion, we consider it as a
+  // candidate of the promotion of this loop group. If not, we include a
+  // domain of the IEL group as a candidate too. Once all candidates are
+  // obtained, we pick one that covers all the exact domains (cf. concrete
+  // domains in ComputeAtMap)
+  IterDomain* findPromotionOfLoopGroup(
+      const ValGroup& loop_group,
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+      const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
+
+  // Terminal loop ids are iteration domains in each loop group that:
+  // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
+  //    consumer TV's iter domain maps to this domain in a way that that domain
+  //    is also in the same loop group
+  // 2) Don't have a direct IterDomain consumer within the group
+  VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
+      const StatefulInliningInfo& info);
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
 
