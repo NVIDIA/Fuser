@@ -44,10 +44,8 @@ bool isSharded(TensorView* tv) {
 
     if (ids[i]->isDeviceDim()) {
       // Currently do not support split/merge on a device dimension.
-      auto exprs = DependencyCheck::getAllExprsBetween(
-          {rids.begin(), rids.end()}, {ids[i], ids[i]});
       NVF_ERROR(
-          exprs.empty(),
+          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
           "Cannot parallelize DIDx on a split/merge axis ",
           ids[i]->toString());
       is_sharded = true;
