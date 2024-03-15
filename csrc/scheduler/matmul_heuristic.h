@@ -29,6 +29,14 @@ class MatmulParams : public HeuristicParams {
   struct DoubleBufferOptions {
     bool double_buffer_smem_write = false;
     bool double_buffer_smem_read = false;
+    // This parameter controls the number of double buffering or circular
+    // buffering stages to use when loading operands a and b.
+    //
+    // If this value is greater than two then it indicates circular buffering,
+    // in which case async_gmem_load_operands must also be true.
+    //
+    // Note that whenever double_buffer_smem_write is true, this value must be
+    // greater than one. Otherwise it is ignored.
     int smem_double_buffer_stage = 2;
 
     bool operator==(const DoubleBufferOptions& other) const {
