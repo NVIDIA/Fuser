@@ -33,15 +33,25 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 
 bool isSharded(TensorView* tv) {
   bool is_sharded = false;
+  auto rids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   auto ids = TensorDomain::noReductions(tv->getLeafDomain());
   for (auto i : c10::irange(ids.size())) {
-    // Only one axis can be sharded
-    NVF_ERROR(!(is_sharded && ids[i]->isDeviceDim()));
-    is_sharded = is_sharded || ids[i]->isDeviceDim();
-    // Currently do not support split/merge on a device dimension.
+    // Only one axis can be sharded on DIDx.
     NVF_ERROR(
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(i) ==
-        TensorDomain::noReductions(tv->getLeafDomain()).at(i));
+        !(is_sharded && ids[i]->isDeviceDim()),
+        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        tv->toString());
+
+    if (ids[i]->isDeviceDim()) {
+      // Currently do not support split/merge on a device dimension.
+      auto exprs = DependencyCheck::getAllExprsBetween(
+          {rids.begin(), rids.end()}, {ids[i], ids[i]});
+      NVF_ERROR(
+          exprs.empty(),
+          "Cannot parallelize DIDx on a split/merge axis ",
+          ids[i]->toString());
+      is_sharded = true;
+    }
   }
   return is_sharded;
 }

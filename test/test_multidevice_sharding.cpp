@@ -18,6 +18,28 @@
 
 namespace nvfuser {
 
+// TODO: This test checks that isSharded generates an error when a split/merged
+// axis is parallelized with DIDx. Update when this restriction is lifted.
+TEST(NVFuserTest, TestIsSharded) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeSymbolicTensor(3);
+  a->axis(2)->parallelize(ParallelType::DIDx);
+  a->split(0, 4);
+  ASSERT_TRUE(isSharded(a));
+
+  TensorView* b = makeSymbolicTensor(3);
+  b->split(1, 4);
+  b->axis(1)->parallelize(ParallelType::DIDx);
+  ASSERT_ANY_THROW(isSharded(b));
+
+  TensorView* c = makeSymbolicTensor(3);
+  c->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+  ASSERT_ANY_THROW(isSharded(c));
+}
+
 class ShardedComputeTest : public NVFuserTest,
                            public ::testing::WithParamInterface<bool> {};
 
