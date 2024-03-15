@@ -862,9 +862,9 @@ bool projectBufferToInputs(
 
   // must project to inputs otherwise don't have enough register or shared
   // memory to store the buffers
-  int64_t max_avilable_space = getMaxRegOrSharedMemorySizeForPersistentBuffer(
+  int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
       runtime_info, persistent_buffer_info.persistent_buffers);
-  if (max_avilable_space < persistent_buffer_size_info.persistent_buffer_size) {
+  if (max_available_buffer < persistent_buffer_size_info.persistent_buffer_size) {
     return true;
   }
 
