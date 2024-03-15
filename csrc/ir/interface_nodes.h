@@ -434,6 +434,7 @@ class NVF_API TensorView : public Val {
   friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
+  friend class SegmentedFusion;
 
   // Inline the computation of this tensor into its consumer at the given
   // position. If this tensor is already inlined in a higher position, then this
@@ -548,6 +549,10 @@ class NVF_API TensorView : public Val {
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
+  }
+
+  void setDataType(DataType dtype) {
+    dtype_ = dtype;
   }
 
  private:
