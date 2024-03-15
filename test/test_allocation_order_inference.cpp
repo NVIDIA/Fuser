@@ -222,6 +222,34 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
   EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(0, 2, 3, 1));
 }
 
+TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor({-1, 1});
+  fusion.addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+  auto tv5 = broadcast(tv3, {true, false, false, true});
+  fusion.addOutput(tv5);
+
+  std::vector<IterDomain*> tv0_order = {
+      tv0->axis(1), tv0->axis(2), tv0->axis(3), tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_order, true);
+
+  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+  EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 2, 0));
+  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
+  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(0, 3, 2, 1));
+}
+
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

@@ -7969,6 +7969,9 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
   auto tv2 = mul(tv0, tv1);
   auto tv3 = sum(tv2, {2, 4});
   fusion->addOutput(tv3);
+  // allocation order propagation exposed bug in reduction scheduler
+  // see issue https://github.com/NVIDIA/Fuser/issues/1895
+  tv3->setAllocationDomain(tv3->getMaybeRFactorDomain(), true);
 
   // tv1 is a constant tensor, and its domains are constant.
   // Its constant domains are used in ExactMappedExtentSubstitutionPass
