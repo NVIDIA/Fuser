@@ -56,8 +56,15 @@ class ExpressionEvaluator {
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
-  //! Try to evaluate a value using const evaluator ref
+  //! Evaluates a value through a const evaluator reference.
+  //! Initializes a known_values map to store intermediate values in lieu of
+  //! known_values_.
   NVF_API PolymorphicValue evaluate(const Val* value) const;
+
+  //! Base evaluate method called by other overloads and Expr::evaluate.
+  const PolymorphicValue& evaluate(
+      const Val* value,
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
   bool isKnown(const Val* value) const {
     return known_values_.count(value) > 0;
@@ -88,9 +95,6 @@ class ExpressionEvaluator {
       const Val* value,
       const std::unordered_map<const Val*, PolymorphicValue>&
           additional_known_values) const;
-  const PolymorphicValue& evaluateHelper(
-      const Val* value,
-      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of

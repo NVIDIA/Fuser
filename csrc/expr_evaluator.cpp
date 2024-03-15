@@ -196,15 +196,15 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
-  return evaluateHelper(value, known_values_);
+  return evaluate(value, known_values_);
 }
 
 PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
   std::unordered_map<const Val*, PolymorphicValue> known_values;
-  return evaluateHelper(value, known_values);
+  return evaluate(value, known_values);
 }
 
-const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
+const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
   if (precomputed_values_ && precomputed_values_->ready()) {
@@ -218,16 +218,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      std::vector<PolymorphicValue> inputs;
-      inputs.reserve(def->inputs().size());
-      for (auto i : def->inputs()) {
-        const auto& eval_i = evaluateHelper(i, known_values);
-        if (!eval_i.hasValue()) {
-          return null_;
-        }
-        inputs.emplace_back(eval_i);
-      }
-      auto outputs = def->evaluate(*this, inputs);
+      auto outputs = def->evaluate(*this, known_values);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }

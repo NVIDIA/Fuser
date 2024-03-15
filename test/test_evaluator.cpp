@@ -695,4 +695,33 @@ TEST_F(ExprEvalTest, SumDiv) {
   evaluator.evaluate(out);
 }
 
+// Verify that the padded inputs are not evaluated
+TEST_F(ExprEvalTest, CatOp) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = cat({tv0, tv1}, 0);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 2}, options);
+  auto t1 = at::randn({3, 2}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  at::Tensor out = evaluator.evaluate(tv2).as<at::Tensor>();
+
+  for (auto padded_in : tv2->definition()->inputs()) {
+    EXPECT_FALSE(evaluator.isKnown(padded_in));
+  }
+
+  EXPECT_TRUE(at::equal(out, at::cat({t0, t1}, 0)));
+}
+
 } // namespace nvfuser
