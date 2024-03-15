@@ -423,9 +423,8 @@ TEST_F(AliasTest, DuplicateOutputs) {
   // Verify aliasing among duplicated outputs
   EXPECT_TRUE(out_tensor_0.is_alias_of(out_tensor_1));
   // Verify no segmentation
-  NVF_CHECK(
-      !fec.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation is not supposed to happen");
+  EXPECT_FALSE(fec.getMostRecentKernelRuntime()->isSegmented())
+      << "segmentation is not supposed to happen";
 
   at::Tensor expected_out_tensor = in_tensor.add(3.141);
   // Verify output values.
@@ -804,7 +803,7 @@ TEST_F(AliasTest, TrivialInputForwarding) {
   testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
-  NVF_CHECK(fec.isCompiled({t0, t1}));
+  EXPECT_TRUE(fec.isCompiled({t0, t1}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
   EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fec.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
@@ -826,7 +825,7 @@ TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
   testValidate(fec.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
-  NVF_CHECK(fec.isCompiled({t0}));
+  EXPECT_TRUE(fec.isCompiled({t0}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0});
   EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fec.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
@@ -1110,7 +1109,7 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
-  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
 
@@ -1130,7 +1129,8 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   FusionExecutorCache fec(std::move(fusion));
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  fec.runFusionWithInputs({in_tensor});
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   const FusionProfile& profile = FusionProfiler::profile();
   // Expect a kernel launched for one of the two segments but not the
@@ -1144,6 +1144,38 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
   }
+}
+
+TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
+  // A reproducer for #1943.
+  DebugDumpOptionsGuard options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::PerfDebugVerbose);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `add_out` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
