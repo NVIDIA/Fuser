@@ -121,6 +121,12 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
+  //! Computes fusion outputs through expression evaluator.
+  std::vector<at::Tensor> evaluateFusionOutputs(
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs,
+    ExpressionEvaluator& expr_eval);
+
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -195,6 +201,11 @@ class FusionExecutor : public NonCopyable {
   kir::Kernel* kernel() const {
     NVF_ERROR(lowered_);
     return lowered_->kernel();
+  }
+
+  Fusion* fusion() const {
+    NVF_ERROR(lowered_ || fusion_);
+    return lowered_? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -396,6 +407,16 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
+  //! Check if compilation was skipped (fusion segment marked for EE).
+  bool isCompilationSkipped() const{
+    if (!fusion_) {
+      NVF_ERROR(lowered_, "Expected a lowered kernel to be initialized.");
+      return false;
+    }
+    NVF_ERROR(!lowered_, "Expected GPU lowering to be skipped.");
+    return true;
+  }
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -536,8 +557,9 @@ class FusionExecutor : public NonCopyable {
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
-  // Copy of lowered_->kernel()
-  Fusion* fusion_ = nullptr;
+
+  // Initialized for non-compiled fusions
+  std::unique_ptr<Fusion> fusion_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
