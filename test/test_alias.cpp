@@ -1178,4 +1178,35 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
+TEST_F(AliasTest, NoKernelsAreLaunched) {
+  ProfilerOptionsGuard option_guard;
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  FusionProfiler::start();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = permute(in, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fec.runFusionWithInputs({in_tensor});
+
+  const FusionProfile& profile = FusionProfiler::profile();
+  // Expect a kernel launched for one of the two segments but not the
+  // other.
+  EXPECT_THAT(
+      profile.kernel_profiles,
+      UnorderedElementsAre(Field(&KernelProfile::name, IsEmpty())));
+
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
+}
+
 } // namespace nvfuser

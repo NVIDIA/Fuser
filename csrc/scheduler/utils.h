@@ -637,5 +637,11 @@ NVF_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
+//! Get the persistent buffer size of a tensor
+int64_t getPersistentBufferSizeOfTensor(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
