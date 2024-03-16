@@ -1211,7 +1211,10 @@ class UpdateLeafIndices : public IterVisitor {
 // Returns halo-extended extent if id has halo. Otherwise, just
 // returns id->extent.
 Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
-  if (normal_extent == nullptr) {
+  // If id is device dim, ignore the extent which holds the unsharded extent.
+  if (id->isDeviceDim()) {
+    normal_extent = GpuLower::current()->kernel()->oneVal();
+  } else if (normal_extent == nullptr) {
     normal_extent = id->extent();
   }
 

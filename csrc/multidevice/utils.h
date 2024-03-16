@@ -45,9 +45,4 @@ void unshard(TensorView*);
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
 
-// Returns the unsharded tensor size given sharded size and tv
-std::vector<int64_t> unshardedSize(
-    TensorView* tv,
-    c10::IntArrayRef sharded_sizes);
-
 } // namespace nvfuser
