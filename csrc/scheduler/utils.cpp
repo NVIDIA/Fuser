@@ -19,6 +19,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <algorithm>
 #include <queue>
 
@@ -2488,6 +2490,31 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     }
   }
   return tv_group;
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_threads_per_block = dev_prop->maxThreadsPerBlock;
+  // (1) part-1, space for the reduction broadcast.
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  // for welford, three arrays of type nvfuser_index_t are used to store var,
+  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // assumed as int64_t
+  int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
+  if (welford_factor == 3l) {
+    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+  }
+  int64_t reduction_broadcast_workspace =
+      max_threads_per_block * dtype_size * welford_factor;
+
+  // (2) part-2, space reserved by the CUDA driver
+  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
 } // namespace scheduler_utils

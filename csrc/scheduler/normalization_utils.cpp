@@ -739,8 +739,11 @@ getOptionalInnerOuterPersistentBufferBatches(
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
-  const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t threads_per_block_min = std::min(
+      after_vectorization,
+      InnerOuterPersistentKernelScheduler::threads_per_block_min);
+  const int64_t threads_per_block_max =
+      InnerOuterPersistentKernelScheduler::threads_per_block_max;
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
@@ -757,7 +760,6 @@ getOptionalInnerOuterPersistentBufferBatches(
     threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-
   // The maximum feature size can be processed without register spills and
   // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
   // avoid fusion segmentation by incrase maximum batch size by 3. This allows
