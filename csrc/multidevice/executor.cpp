@@ -19,15 +19,15 @@ namespace nvfuser {
 
 namespace {
 
-// copy the fusion and replace the original outputs to the ones given as
-// argument returns the copied fusion and a copy-to-original Vals map
-std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
-copyFusionAndChangeOutputs(Fusion* fusion, const std::vector<Val*>& outputs) {
+// returns a copied fusion where the original outputs have been replaced by
+// the ones given as argument
+std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
+    Fusion* fusion,
+    const std::vector<Val*>& outputs) {
   std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
 
-  auto original_inputs = fusion_copy->inputs();
   auto original_outputs = fusion_copy->outputs();
 
   // Remove original outputs
@@ -39,65 +39,12 @@ copyFusionAndChangeOutputs(Fusion* fusion, const std::vector<Val*>& outputs) {
   // Add new outputs
   std::for_each(outputs.begin(), outputs.end(), [&](Val* const& output) {
     fusion_copy->addOutput(original_to_copy_cloner.clone(output));
-    copy_to_original_map[original_to_copy_cloner.clone(output)] = output;
   });
 
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
-    tv->setMemoryType(MemoryType::Global);
-    for (auto i : c10::irange(tv->domain()->nDims())) {
-      if (!tv->axis(static_cast<int>(i))->isDeviceDim()) {
-        tv->axis(static_cast<int>(i))->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-
-  return std::
-      make_pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>(
-          std::move(fusion_copy), std::move(copy_to_original_map));
+  return fusion_copy;
 }
 
 } // namespace
-
-// TODO: use native allocator instead.
-// TODO: reimplement. The implementation here is very naive and wasteful since
-// we entirely copy the fusion, change the outputs to be the Vals we want to
-// allocate, and call allocOutputSpace which effectively compile and run the
-// Fusion. This function creates a potentially important overhead, it needs to
-// be reimplemented
-std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
-    std::vector<c10::IValue> global_inputs_IValues) {
-  std::vector<Val*> vals_to_allocate;
-  for (auto group : staged_fusion_->groups()) {
-    if (is_resharding_[group]) {
-      NVF_ERROR(group->exprs().size() == 1);
-      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
-      auto val = group->exprs().at(0)->outputs().at(0);
-      NVF_ERROR(val->isA<TensorView>());
-      auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh());
-      if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate.push_back(val);
-      }
-    }
-  }
-
-  auto [fusion_copy, copy_to_original_map] =
-      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate);
-  if (fusion_copy->outputs().empty()) {
-    return {};
-  }
-
-  FusionExecutorCache fec(std::move(fusion_copy), 0, false);
-  auto buffers = fec.allocOutputSpace(global_inputs_IValues);
-
-  std::unordered_map<Val*, c10::IValue> allocations;
-  for (auto i : c10::irange(buffers.size())) {
-    allocations.emplace(
-        copy_to_original_map[fec.fusion()->outputs().at(i)], buffers.at(i));
-  }
-
-  return allocations;
-}
 
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
@@ -129,6 +76,26 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   }
   // prepare the order in which to launch the kernels/comms
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
+
+  // Allocator setup
+  // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
+  // which correspond to the destination buffers of interdevice communications.
+  // TODO: reuse allocated buffers and support inplace collectives
+  for (SegmentedGroup* group : staged_fusion_->groups()) {
+    if (is_resharding_[group]) {
+      NVF_ERROR(group->exprs().size() == 1);
+      NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
+      auto val = group->exprs().at(0)->outputs().at(0);
+      NVF_ERROR(val->isA<TensorView>());
+      auto tv = val->as<TensorView>();
+      NVF_ERROR(tv->hasDeviceMesh());
+      if (tv->getDeviceMesh().has(comm_.deviceId())) {
+        vals_to_allocate_.push_back(val);
+      }
+    }
+  }
+  allocator_fusion_ =
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -224,7 +191,12 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       inputs.size() == staged_fusion_->inputs().size(),
       "Wrong number of inputs");
 
-  val_to_IValue_ = allocateRecvBuffers(inputs);
+  auto allocations =
+      allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
+  NVF_ERROR(vals_to_allocate_.size() == allocations.size());
+  for (auto i : c10::irange(allocations.size())) {
+    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
+  }
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {

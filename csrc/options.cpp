@@ -114,6 +114,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
       {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},
+      {"ftrace", DebugDumpOption::FunctionTrace},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir_original", DebugDumpOption::FusionIrOriginal},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
@@ -215,18 +216,13 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-// These may need to be thread local, or their modifications may need to
-// be protected by mutual exclusion for thread safety. At this
-// moment, the correctness of modifying option values has to be
-// guaranteed by the modifying code.
+thread_local DebugDumpOptions active_dump_options;
 
-DebugDumpOptions active_dump_options;
+thread_local EnableOptions active_enable_options;
 
-EnableOptions active_enable_options;
+thread_local DisableOptions active_disable_options;
 
-DisableOptions active_disable_options;
-
-ProfilerOptions active_profiler_options;
+thread_local ProfilerOptions active_profiler_options;
 
 } // namespace
 
