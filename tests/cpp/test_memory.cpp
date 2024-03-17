@@ -233,6 +233,8 @@ class XorFinder : private kir::IrVisitor {
   }
 };
 
+// Begin TMA tests
+
 using TMATestParams = std::tuple<MmaInputSmemSwizzle, DataType>;
 
 class TMALdstTest : public TMATest,
@@ -243,10 +245,6 @@ class TMALdstTest : public TMATest,
 
   int64_t innerDimSize() const {
     return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
-  }
-
-  int64_t swizzleSize() const {
-    return getBytesFromSwizzle(swizzle) / 16;
   }
 
   void SetUp() override {
@@ -270,11 +268,72 @@ void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
   tv->swizzle(SwizzleType::XOR, -4, -2);
 }
 
+void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
+  bool skip = true;
+  for (auto id : tv->getLeafDomain()) {
+    if (skip) {
+      skip = false;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+}
+
+// Complete tensor load/store tests:
+//
+// These tests launches a <<<1, 1>>> copy kernel to copy a complete tensor
+// global -> smem -> global. This is a simple test to check that the the very
+// basic functionality of TMA is working. These tests are simple in the sense
+// that:
+// 1. Because the kernel is <<<1, 1>>>, there is no need to worry about thread
+//    predicate and block synchronization.
+// 2. Because the copy is for a complete tensor, the indices are just naive 0s.
+
+void scheduleTile(
+    std::vector<TensorView*> tvs,
+    std::vector<int64_t> tile_sizes,
+    MmaInputSmemSwizzle swizzle) {
+  const int64_t dim = tile_sizes.size();
+  const int64_t swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+
+  for (auto tv : tvs) {
+    NVF_ERROR(
+        dim == (int64_t)tv->nDims(), "Tile sizes must match tensor dimensions");
+    // [M, N, ...]
+    for (int64_t i = dim - 1; i >= 0; i--) {
+      tv->split(i, tile_sizes[i]);
+    }
+    // [M/tile_sizes[0], tile_sizes[0], N/tile_sizes[1], tile_sizes[1], ...]
+    std::unordered_map<int, int> old2new;
+    for (int64_t i = 0; i < dim; i++) {
+      old2new[2 * i] = i;
+      old2new[2 * i + 1] = i + dim;
+    }
+    tv->reorder(old2new);
+    // [M/tile_sizes[0], N/tile_sizes[1], ..., tile_sizes[0], tile_sizes[1],
+    // ...]
+    for (int64_t i = 0; i < dim - 1; i++) {
+      tv->merge(0);
+    }
+    for (int64_t i = 0; i < dim - 1; i++) {
+      tv->merge(1);
+    }
+    // [M/tile_sizes[0] * N/tile_sizes[1] * ..., tile_sizes[0] * tile_sizes[1] *
+    // ...]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      scheduleTMASwizzle(tv, swizzle_size);
+    }
+  }
+}
+
 TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {innerDimSize()};
+
+  auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -284,13 +343,20 @@ TEST_P(TMALdstTest, LoadCompleteTensor1D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -299,7 +365,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {32, innerDimSize()};
+
+  auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -309,24 +377,20 @@ TEST_P(TMALdstTest, LoadCompleteTensor2D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv1->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({32, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -335,7 +399,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 8, innerDimSize()};
+
+  auto tv0 = makeContigTensor(3, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -345,25 +411,20 @@ TEST_P(TMALdstTest, LoadCompleteTensor3D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv1->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 8, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -372,7 +433,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 4, 4, innerDimSize()};
+
+  auto tv0 = makeContigTensor(4, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -382,26 +445,20 @@ TEST_P(TMALdstTest, LoadCompleteTensor4D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv1->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -410,7 +467,9 @@ TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, -1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 4, 4, 4, innerDimSize()};
+
+  auto tv0 = makeContigTensor(5, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -420,27 +479,20 @@ TEST_P(TMALdstTest, LoadCompleteTensor5D) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv1->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -449,7 +501,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {innerDimSize()};
+
+  auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -459,13 +513,20 @@ TEST_P(TMALdstTest, StoreCompleteTensor1D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv2);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv2, fe.kernel()));
+  ASSERT_EQ(
+      XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -474,7 +535,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {32, innerDimSize()};
+
+  auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -484,24 +547,20 @@ TEST_P(TMALdstTest, StoreCompleteTensor2D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv2->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv2);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({32, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv2, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -510,7 +569,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 8, innerDimSize()};
+
+  auto tv0 = makeContigTensor(3, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -520,25 +581,20 @@ TEST_P(TMALdstTest, StoreCompleteTensor3D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv2->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv2);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 8, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv2, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -547,7 +603,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 4, 4, innerDimSize()};
+
+  auto tv0 = makeContigTensor(4, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -557,26 +615,20 @@ TEST_P(TMALdstTest, StoreCompleteTensor4D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv2->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv2);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv2, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -585,7 +637,9 @@ TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, -1, -1, innerDimSize()}, dtype);
+  const std::vector<int64_t> shape = {4, 4, 4, 4, innerDimSize()};
+
+  auto tv0 = makeContigTensor(5, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -595,27 +649,20 @@ TEST_P(TMALdstTest, StoreCompleteTensor5D) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  if (swizzle != MmaInputSmemSwizzle::None) {
-    for (auto tv : {tv1, tv2}) {
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      tv->merge(0);
-      scheduleTMASwizzle(tv, swizzleSize());
-    }
-    tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  }
-  for (auto id : tv2->getLeafDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  scheduleTile({tv1, tv2}, shape, swizzle);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv2);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 4, 4, 4, innerDimSize()}, options);
+  auto t0 = at::randn(shape, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv2, fe.kernel()));
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -669,6 +716,8 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+// End TMA tests
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
 

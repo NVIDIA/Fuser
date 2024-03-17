@@ -61,34 +61,9 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
       : std::min(
             persistent_buffer_size_info.persistent_buffer_size,
             persistent_buffer_size_info.projected_persistent_buffer_size);
-
-  // Init to register file size, which is half of the full register file size
-  int64_t available_persistent_buffer_size =
-      scheduler_utils::register_file_size;
-
-  // Check available shared memory
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t max_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerBlockOptin;
-  // Some shared memories are reserved for kernel launch overhead and
-  // reduction_broadcast_workspace. Estimation is conservative, but should
-  // be good enough. The actual threads per block is set in the heuristics
-  // and it may be smaller than maxThreadsPerBlock.
-  // TODO: More accurate estimation of available shared memory size.
-  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
-  int64_t max_buffer_dtype_size = 1;
-  for (auto tv : persistent_buffer_info.persistent_buffers) {
-    max_buffer_dtype_size = std::max(
-        max_buffer_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-  }
-  const int64_t reduction_broadcast_workspace =
-      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-  const int64_t available_shared_memory_size =
-      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
-  available_persistent_buffer_size =
-      std::max(available_persistent_buffer_size, available_shared_memory_size);
-
+  int64_t available_persistent_buffer_size = normalization_scheduler_utils::
+      getMaxRegOrSharedMemorySizeForPersistentBuffer(
+          runtime_info, persistent_buffer_info.persistent_buffers);
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
