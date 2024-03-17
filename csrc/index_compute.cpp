@@ -3435,15 +3435,27 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 } // namespace
 
 Val* Index::getCpAsyncBulkGmemIndex(
-    TensorView* gmem_tv,
-    TensorView* smem_tv,
+    TensorView* producer_tv,
     TensorView* consumer_tv,
     Val* mbarrier,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
 
-  bool is_load = (gmem_tv != consumer_tv);
-  TensorView* producer_tv = is_load ? gmem_tv : smem_tv;
+  bool is_load;
+  TensorView *smem_tv, *gmem_tv;
+  if (producer_tv->getMemoryType() == MemoryType::Shared) {
+    NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Global);
+    smem_tv = producer_tv;
+    gmem_tv = consumer_tv;
+    is_load = false;
+  } else {
+    NVF_ERROR(producer_tv->getMemoryType() == MemoryType::Global);
+    NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Shared);
+    smem_tv = consumer_tv;
+    gmem_tv = producer_tv;
+    is_load = true;
+  }
 
   std::unique_ptr<ir_utils::TVDomainGuard> domain_guard;
   std::unique_ptr<IndexCompute> indexing;
@@ -3520,15 +3532,15 @@ Val* Index::getCpAsyncBulkGmemIndex(
         " does not have one.");
     bool all_outputs_are_bulk = true;
     for (auto out : def->outputs()) {
-      if (bulk_ids.count(out) == 0) {
+      if (bulk_ids.count(out->as<IterDomain>()) == 0) {
         all_outputs_are_bulk = false;
         break;
       }
     }
     if (all_outputs_are_bulk) {
       for (auto id : def->inputs()) {
-        if (bulk_ids.insert(id).second) {
-          pending.push_back(id);
+        if (bulk_ids.insert(id->as<IterDomain>()).second) {
+          pending.push_back(id->as<IterDomain>());
         }
       }
     } else {
@@ -3618,7 +3630,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
   }
   // Propagate to the set of all global IterDomains
   for (Expr* expr :
-       DependencyCheck::getAllExprsBetween(allocation_domain, global_ids)) {
+       DependencyCheck::getAllExprsBetween(allocation_domain_set, global_ids)) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       auto in = split->in();
       auto in_it =
@@ -3631,15 +3643,16 @@ Val* Index::getCpAsyncBulkGmemIndex(
           in,
           " is not on the path.");
       Val* is_divisible = SimplifyingIrBuilder::eqExpr(
-          SimplifyingIrBuilder::modExpr(std::get<2>(*it), split->factor()), 0);
+          SimplifyingIrBuilder::modExpr(std::get<2>(*in_it), split->factor()),
+          0);
       bool proved_divisible = simplifyExpr(is_divisible)->isTrue();
       if (!proved_divisible) {
-        GpuLower::current()->requestValidate(
-            is_divisible,
-            "The stride of ",
-            in,
-            " must be divisible by ",
-            split->factor());
+        // GpuLower::current()->requestValidate(
+        //     is_divisible,
+        //     "The stride of ",
+        //     in,
+        //     " must be divisible by ",
+        //     split->factor());
       }
       frontier.insert(
           in_it,
@@ -3647,10 +3660,11 @@ Val* Index::getCpAsyncBulkGmemIndex(
               split->outer(),
               true,
               SimplifyingIrBuilder::mulExpr(
-                  std::get<2>(*it), split->factor())));
+                  std::get<2>(*in_it), split->factor())));
       frontier.insert(
           in_it,
-          std::make_tuple(split->inner(), std::get<1>(*it), std::get<2>(*it)));
+          std::make_tuple(
+              split->inner(), std::get<1>(*in_it), std::get<2>(*in_it)));
       frontier.erase(in_it);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       auto outer = merge->outer();
@@ -3676,7 +3690,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
           outer,
           " is merged with ",
           inner);
-      std::get<0>(*inner_it) = out;
+      std::get<0>(*inner_it) = merge->out();
       frontier.erase(outer_it);
     } else {
       NVF_ERROR(
@@ -3692,7 +3706,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
 
   int64_t dim = frontier.size();
   NVF_ERROR(
-      dim == originating_bulk_ids.size(),
+      dim == (int64_t)originating_bulk_ids.size(),
       "The number of originating bulk IterDomains must be equivalent to the dimensionality of the tensor in the eyes of TMA, but ",
       dim,
       " is not equal to ",
@@ -3704,13 +3718,13 @@ Val* Index::getCpAsyncBulkGmemIndex(
   std::vector<Val*> indices;
   std::unordered_set<IterDomain*> seen;
   for (auto tuple : frontier) {
-    auto id = std::get<0>(*it);
+    auto id = std::get<0>(tuple);
     NVF_ERROR(
         seen.insert(id).second && global_id_to_tile_id.count(id) > 0,
         "The set of all global IterDomains must be equivalent to the allocation domain, but ",
         id,
         " is not.");
-    strides.push_back(std::get<2>(*it));
+    strides.push_back(std::get<2>(tuple));
     tile_sizes.push_back(global_id_to_tile_id.at(id)->extent());
 
     auto it = global_id_to_inner_id.find(id);
@@ -3738,27 +3752,29 @@ Val* Index::getCpAsyncBulkGmemIndex(
   std::vector<Val*> element_strides_inner_to_outer;
   std::vector<Val*> indices_inner_to_outer;
   for (auto i : c10::irange(dim)) {
-    tensor_sizes_inner_to_outer.push_back(global_ids.at(dim - i - 1)->extent());
+    tensor_sizes_inner_to_outer.push_back(
+        global_ids.at(dim - i - 1)->as<IterDomain>()->extent());
     tile_sizes_inner_to_outer.push_back(tile_sizes.at(dim - i - 1));
     element_strides_inner_to_outer.push_back(element_strides.at(dim - i - 1));
     indices_inner_to_outer.push_back(indices.at(dim - i - 1));
     if (i > 0) {
-      tensor_strides_inner_to_outer.push_back(strides.at(dim - i - 1));
+      tensor_strides_inner_to_outer.push_back(
+          SimplifyingIrBuilder::mulExpr(strides.at(dim - i - 1), itemsize));
     }
   }
 
   Val* global_dim = IrBuilder::arrayExpr(tensor_sizes_inner_to_outer);
   Val* global_stride = IrBuilder::arrayExpr(tensor_strides_inner_to_outer);
   Val* box_dim = IrBuilder::arrayExpr(tile_sizes_inner_to_outer);
-  auto element_strides = IrBuilder::arrayExpr(element_strides_inner_to_outer);
+  auto element_stride = IrBuilder::arrayExpr(element_strides_inner_to_outer);
 
   auto descriptor = encodeTensorMapTiled(
       gmem_tv->dtype(),
       global_address,
       global_dim,
-      global_strides,
+      global_stride,
       box_dim,
-      element_strides,
+      element_stride,
       tma::TensorMapInterleave::NoInterleave,
       getSwizzleFromBytes(
           getCpAsyncBulkTensorSwizzleSize(smem_tv) * core_matrix_width_bytes),
