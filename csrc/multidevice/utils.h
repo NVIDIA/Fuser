@@ -32,7 +32,7 @@ bool isResharding(Expr* expr);
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
 
-// returns the number of device indices present accross all
+// Returns the number of device indices present accross all
 // device meshes in the Fusion
 int64_t requestedNumberOfDevices(Fusion*);
 

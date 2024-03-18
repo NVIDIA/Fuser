@@ -145,24 +145,24 @@ class ArgumentManager {
       // start from the 2nd group, since the input of the first group is always
       // the global input and its outputs are always used by at least one of the
       // following groups
-      for (auto group_id : c10::irange(1l, num_groups)) {
-        auto group_to_run = group_run_order.at(group_id);
+      for (auto run_order_id : c10::irange(1l, num_groups)) {
+        auto group_to_run = group_run_order.at(run_order_id);
         // set/update life of vals in inputs of this group
         for (auto val : group_to_run->inputs()) {
           // skip fusion inputs and outputs, they may be used by other fusions
           // or code
           if (!isFusionInputOrOutput(val)) {
-            last_used_segment_map[val] = group_id;
+            last_used_segment_map[val] = run_order_id;
           }
         }
         // set/update life of vals in outputs of this group
         // skip the last group since its outputs are always the global outputs
-        if (group_id < num_groups - 1) {
+        if (run_order_id < num_groups - 1) {
           for (auto val : group_to_run->outputs()) {
             // skip fusion inputs and outputs, they may be used by other fusions
             // or code
             if (!isFusionInputOrOutput(val)) {
-              last_used_segment_map[val] = group_id;
+              last_used_segment_map[val] = run_order_id;
             }
           }
         }
@@ -174,15 +174,17 @@ class ArgumentManager {
       }
     }
   }
-  void deleteUnusedArgs(int64_t group_id) {
+
+  void deleteUnusedArgs(int64_t run_order_id) {
     // erase args corresponding to vals lastly used in this segment
-    if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
-      for (auto val : vals_last_used_at_segment_[group_id]) {
+    if (run_order_id >= 1 && vals_last_used_at_segment_.count(run_order_id)) {
+      for (auto val : vals_last_used_at_segment_[run_order_id]) {
         fusion_args_.erase(tensor_map_.at(val));
         tensor_map_.erase(val);
       }
     }
   }
+
   template <typename T>
   void addOutputsToArgsAndTensorMap(
       const std::vector<Val*>& group_outputs,
@@ -423,8 +425,11 @@ void prepareRuntimeOrder(
 
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
-    int64_t fusion_id)
-    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
+    int64_t fusion_id,
+    bool auto_schedule)
+    : fusion_(std::move(fusion)),
+      fusion_id_{fusion_id},
+      auto_schedule_(auto_schedule) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -818,7 +823,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
-        kernel_runtimes.size()));
+        kernel_runtimes.size(),
+        auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -1014,10 +1020,12 @@ FusionKernelRuntime::FusionKernelRuntime(
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
-    int64_t runtime_id)
+    int64_t runtime_id,
+    bool auto_schedule)
     : fusion_id_{fusion_id},
       concrete_id_{concrete_id},
-      runtime_id_{runtime_id} {
+      runtime_id_{runtime_id},
+      auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -1261,8 +1269,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
-  for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
-    auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
+  for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
@@ -1307,7 +1315,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, group_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
@@ -1345,7 +1353,9 @@ void FusionKernelRuntime::compileKernel(
     fusion_to_run->printMath();
   }
   FusionGuard fg(fusion_to_run.get());
-  scheduler_entry->schedule(fusion_to_run.get());
+  if (auto_schedule_) {
+    scheduler_entry->schedule(fusion_to_run.get());
+  }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
@@ -1433,10 +1443,10 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
   kernel_time_ms_ = 0;
-  for (auto group_id : c10::irange(num_groups)) {
+  for (auto run_order_id : c10::irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
+    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
     KernelArgumentHolder group_runtime_inputs;
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
@@ -1453,11 +1463,11 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     std::vector<at::Tensor> group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, group_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
 
     if (compute_overall_bw) {
-      const auto& executor = executors_.at(group_id);
+      const auto& executor = executors_.at(group_to_run->groupId());
       for (auto bytes : executor.bytesInputsProcessed()) {
         total_bytes_processed += bytes;
       }
