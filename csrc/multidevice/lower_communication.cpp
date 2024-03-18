@@ -397,15 +397,15 @@ void lowerToReduceScatter(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
-  // TODO: detect whether it is DIDx or DIDy.
-  auto out_shard_dim = dimWithParallelType(output_tv, ParallelType::DIDx, true);
-  auto input_red_dim = dimWithParallelType(input_tv, ParallelType::DIDx, true);
+  auto shard_dim = dimWithParallelType(output_tv, ParallelType::DIDx, true);
+  auto red_dim = output_tv->getReductionAxis().value();
+  std::cout << "RS " << input_tv->toString() << " " << output_tv->toString() << std::endl;
+  std::cout << "ReduceScatter " << red_dim << " " << shard_dim << std::endl;
   for (auto i : c10::irange(mesh.vector().size())) {
     std::vector<at::indexing::TensorIndex> indices(
         input_tensor.dim(), at::indexing::Slice());
-    indices[out_shard_dim] = at::indexing::Slice(i, i + 1);
-    indices[input_red_dim] = at::indexing::Slice(0, 1);
-    auto slice = input_tensor.index(indices).squeeze(input_red_dim);
+    indices[shard_dim] = at::indexing::Slice(i, i + 1);
+    auto slice = input_tensor.index(indices).squeeze(red_dim);
     params.src_bufs.push_back(slice);
   }
 
@@ -454,19 +454,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       original_expr->toString(),
       " to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
-  auto in_sharded_axis = dimWithParallelType(input_tv, ParallelType::DIDx);
-  auto out_sharded_axis = dimWithParallelType(output_tv, ParallelType::DIDx);
 
-  NVF_ERROR(
-      !is_input_sharded || !input_tensor.numel() ||
-          static_cast<size_t>(input_tensor.size(in_sharded_axis)) == 1,
-      "Sharded dimension should have allocation size 1, but is ",
-      input_tensor.size(in_sharded_axis));
-  NVF_ERROR(
-      !is_output_sharded || !output_tensor.numel() || is_reduction ||
-          static_cast<size_t>(output_tensor.size(out_sharded_axis)) == 1,
-      "Sharded dimension should have allocation size 1, but is ",
-      output_tensor.size(out_sharded_axis));
+  // NVF_ERROR(
+  //     !is_input_sharded || !input_tensor.numel());
+  // NVF_ERROR(
+  //     !is_output_sharded || !output_tensor.numel() || is_reduction);
+
   if (is_reduction) {
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();

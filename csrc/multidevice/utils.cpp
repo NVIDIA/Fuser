@@ -8,62 +8,86 @@
 
 #include <compute_at_map.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <root_domain_map.h>
 #include <scheduler/utils.h>
+#include <val_graph.h>
 
 #include <c10/util/irange.h>
 
 namespace nvfuser {
 namespace {
-std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::vector<IterDomain*> sharded_ids;
+const std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
+  std::unordered_set<IterDomain*> sharded_ids;
   std::copy_if(
       tv->getLeafDomain().begin(),
       tv->getLeafDomain().end(),
-      std::back_inserter(sharded_ids),
+      std::inserter(sharded_ids, sharded_ids.begin()),
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-   shardMap(Expr* expr) {
+void print(const std::unordered_set<IterDomain*> ids) {
+  for (auto i : ids) {
+    std::cout << i->toString() << " ";
+  }
+  std::cout << std::endl;
+}
+
+// For a resharding expression, either a set or reduce, returns
+// (1) sharded IterDomains that are added by the expression
+// i.e. sharded IterDomains that are present in the output, but not the input.
+// (2) sharded IterDomains that are removed by the expression
+// i.e. sharded IterDomains that are present in the input, but not the output.
+// TODO: Analysis is on the root domain since sharding is not supported
+// on split/merged axes. Update to leaf domain analysis.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> shardMap(
+    Expr* expr) {
   NVF_ERROR(
-    expr->outputs().size() == 1,
-    "Resharding operations can only have one output");
+      expr->outputs().size() == 1,
+      "Resharding operations can only have one output");
   NVF_ERROR(
-    expr->inputs().size() == 1,
-    "Resharding operations can have only one input");
+      expr->inputs().size() == 1,
+      "Resharding operations can have only one input");
   auto output = expr->outputs().at(0)->as<TensorView>();
   auto input = expr->inputs().at(0)->as<TensorView>();
 
-  std::vector<int64_t> shard_additions;
-  std::vector<int64_t> shard_deletions;
-  auto input_ids = TensorDomain::noReductions(input->getLeafDomain());
-  auto output_ids = output->getLeafDomain();
-  NVF_ERROR(
-    input_ids.size() == output_ids.size());
-  for (size_t i : c10::irange(input_ids.size())) {
-    auto input_id = input_ids[i];
-    auto output_id = output_ids[i];
-    if (input_id->isDeviceDim() && !output_id->isDeviceDim() && !output_id->isReduction()) {
-      shard_deletions.push_back(i);
+  auto sharded_ids_input = getShardedIterDomains(input);
+  auto sharded_ids_output = getShardedIterDomains(output);
+  std::vector<IterDomain*> shard_additions;
+  std::vector<IterDomain*> shard_deletions;
+  auto rootmap = PairwiseRootDomainMap(input, output);
+
+  const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
+  for (auto [id1, id2] : c2p_map) {
+    if (id1 != id2) {
+      shard_additions.push_back(id1);
     }
-    if (!input_id->isDeviceDim() && output_id->isDeviceDim() && !output_id->isReduction()) {
-      shard_additions.push_back(i);
+  }
+
+  const auto p2c_map = rootmap.mapProducerToConsumer(&sharded_ids_input);
+  for (auto [id1, id2] : p2c_map) {
+    // TODO: temporarily don't push back reductions.
+    // DIDx(i0) -> r(i0) should be represented as DIDx(i0)->r(DIDx(i0))
+    if (id1 != id2 && !id2->isReduction()) {
+      shard_deletions.push_back(id1);
     }
   }
   return std::make_pair(shard_additions, shard_deletions);
 }
 
-// Returns whether a IterDomain in a TensorView can be read/written contiguously. 
-// e.g. [DIDx(i0), r1, i2, i3] 
+// Returns whether a IterDomain in a TensorView can be read/written
+// contiguously. when a IterDomain's sharding is flipped. This occurs when the
+// IterDomain being unsharded/sharded is the outermost in the allocation domain.
+// e.g. [DIDx(i0), r1, i2, i3]
 // i0 => true, outermost axis
-// i1 => true, reduction axis ignored
-// i2 => true, prior axes are not allocated
+// i1 => true, reduction axis are not allocated
+// i2 => true, reduction and device axis are not allocated
 // i3 => false, i2 is allocated.
 bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
   bool not_allocated = true;
@@ -73,7 +97,12 @@ bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
     }
     not_allocated = not_allocated && (id->isDeviceDim() || id->isReduction());
   }
-  NVF_ERROR(false, "Id", changed_id->toString(), " is not in TensorView ", tv->toString());
+  NVF_ERROR(
+      false,
+      "Id",
+      changed_id->toString(),
+      " is not in TensorView ",
+      tv->toString());
   return false;
 }
 
@@ -188,42 +217,43 @@ void insertReshardings(Fusion* fusion) {
   }
 }
 
-void insertPermutes(Fusion *fusion) {
+void insertPermutes(Fusion* fusion) {
   auto exprs = fusion->exprs();
   std::vector<Expr*> reshard_exprs;
   for (auto expr : exprs) {
-    if(isResharding(expr)) {
+    if (isResharding(expr)) {
       reshard_exprs.push_back(expr);
     }
   }
   for (auto expr : reshard_exprs) {
     NVF_ERROR(
-    ir_utils::isTvOp(expr),
-    "Non-tv op is not supported yet: ",
-    expr->toString());
+        ir_utils::isTvOp(expr),
+        "Non-tv op is not supported yet: ",
+        expr->toString());
     NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Resharding operations can only have one output");
+        expr->outputs().size() == 1,
+        "Resharding operations can only have one output");
     NVF_ERROR(
-      expr->inputs().size() == 1,
-      "Resharding operations can have only one input");
+        expr->inputs().size() == 1,
+        "Resharding operations can have only one input");
     auto output = expr->outputs().at(0)->as<TensorView>();
     auto input = expr->inputs().at(0)->as<TensorView>();
     auto [shard_additions, shard_deletions] = shardMap(expr);
-    NVF_ERROR(shard_additions.size() + shard_deletions.size() <= 1,
-      "Resharding expr can only support one axis")
+    NVF_ERROR(
+        shard_additions.size() + shard_deletions.size() <= 1,
+        "Resharding expr can only support one axis")
 
     // For gather operations i.e. rematerializing an axis
     // communication libraries can only read/write contiguous tensors.
     // Update expr's input to push the rematerialized axis to the front
-    // execute the expr then permute the rematerizlied axis to the proper location.
-    // Originally: [input] -> set -> [output]
-    // Replace with [input] -> permute -> [inpute_permute] -> set -> [output_permute] -> [output]
-    // Note: there are no reduction based collectives that materialize an axis
-    // so expr is guaranteed to be a set.
+    // execute the expr then permute the rematerizlied axis to the proper
+    // location. Originally: [input] -> set -> [output] Replace with [input] ->
+    // permute -> [inpute_permute] -> set -> [output_permute] -> [output] Note:
+    // there are no reduction based collectives that materialize an axis so expr
+    // is guaranteed to be a set.
     if (!shard_deletions.empty()) {
-      int idx = shard_deletions[0];
-      auto id = input->getLeafDomain()[idx];
+      auto id = shard_deletions[0];
+      auto idx = input->domain()->posOf(id);
       if (isContiguousShard(input, id)) {
         continue;
       }
@@ -250,8 +280,8 @@ void insertPermutes(Fusion *fusion) {
     // Replace with [input] -> permute -> [inpute_permute] -> set/reduce ->
     // [output_permute] -> permute-> [output]
     else if (!shard_additions.empty()) {
-      auto idx = shard_additions[0];
-      auto id = output->getLeafDomain()[idx];
+      auto id = shard_additions[0];
+      auto idx = output->domain()->posOf(id);
       if (isContiguousShard(output, id)) {
         continue;
       }
@@ -263,24 +293,28 @@ void insertPermutes(Fusion *fusion) {
       input_permute->setDeviceMesh(input->getDeviceMesh());
 
       TensorView* output_permute;
-      // For reduce scatter, determine if the reduction axis shifted to the right by 1.
+      // For reduce scatter, determine if the reduction axis shifted to the
+      // right by 1.
       auto red_axis = output->getReductionAxis();
       int offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
       if (expr->isA<ReductionOp>()) {
         int raxis = red_axis.value() + offset;
         input_permute->axis(raxis)->parallelize(ptype);
         auto red_expr = dynamic_cast<ReductionOp*>(expr);
-        output_permute = reductionOp(red_expr->getReductionOpType(),
-          {raxis}, red_expr->init(), input_permute);
+        output_permute = reductionOp(
+            red_expr->getReductionOpType(),
+            {raxis},
+            red_expr->init(),
+            input_permute);
       } else {
-        // Note: this is a no-op and is moving a device parallel axis
+        // TODO: this is a no-op and is moving a device parallel axis back
         output_permute = set(input_permute);
       }
 
       output_permute->axis(0)->parallelize(ptype);
       output_permute->setDeviceMesh(output->getDeviceMesh());
-      TensorView* new_output = permute(output_permute, {{0, idx-offset}});
-      new_output->axis(idx-offset)->parallelize(ptype);
+      TensorView* new_output = permute(output_permute, {{0, idx - offset}});
+      new_output->axis(idx - offset)->parallelize(ptype);
       new_output->setDeviceMesh(output->getDeviceMesh());
 
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);

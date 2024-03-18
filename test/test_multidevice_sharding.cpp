@@ -100,6 +100,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 
   tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  // tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   tv3->axis(sharded_dim+1)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
