@@ -244,6 +244,7 @@ class TMALdstTest : public TMATest,
   DataType dtype;
   int64_t dim;
   std::vector<int64_t> shape;
+  std::vector<int64_t> tile;
 
   int64_t innerDimSize() const {
     return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
@@ -257,19 +258,24 @@ class TMALdstTest : public TMATest,
 
     switch (dim) {
       case 1:
-        shape = {innerDimSize()};
+        tile = {innerDimSize()};
+        shape = {1024 * 1024};
         break;
       case 2:
-        shape = {32, innerDimSize()};
+        tile = {32, innerDimSize()};
+        shape = {1024, 1024};
         break;
       case 3:
-        shape = {4, 8, innerDimSize()};
+        tile = {4, 8, innerDimSize()};
+        shape = {32, 128, 1024};
         break;
       case 4:
-        shape = {4, 4, 4, innerDimSize()};
+        tile = {4, 4, 4, innerDimSize()};
+        shape = {32, 32, 32, 128};
         break;
       case 5:
-        shape = {4, 4, 4, 4, innerDimSize()};
+        tile = {4, 4, 4, 4, innerDimSize()};
+        shape = {32, 32, 32, 32, 128};
         break;
       default:
         NVF_ERROR(false, "Invalid dimension");
@@ -302,15 +308,11 @@ void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
   }
 }
 
-// Complete tensor load/store tests:
+// Simple load/store tests:
 //
-// These tests launches a <<<1, 1>>> copy kernel to copy a complete tensor
-// global -> smem -> global. This is a simple test to check that the the very
-// basic functionality of TMA is working. These tests are simple in the sense
-// that:
-// 1. Because the kernel is <<<1, 1>>>, there is no need to worry about thread
-//    predicate and block synchronization.
-// 2. Because the copy is for a complete tensor, the indices are just naive 0s.
+// These tests launches a <<<N, 1>>> copy kernel to do global -> smem -> global
+// copying. Because each block only have 1 thread, there is no need to worry
+// about thread predication and synchronization.
 
 void scheduleTile(
     std::vector<TensorView*> tvs,
@@ -350,7 +352,7 @@ void scheduleTile(
   }
 }
 
-TEST_P(TMALdstTest, LoadCompleteTensor) {
+TEST_P(TMALdstTest, SimpleLoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -364,7 +366,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  scheduleTile({tv1, tv2}, shape, swizzle);
+  scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   markAllDimsExceptFirstAsBulk(tv1);
 
@@ -382,7 +384,7 @@ TEST_P(TMALdstTest, LoadCompleteTensor) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_P(TMALdstTest, StoreCompleteTensor) {
+TEST_P(TMALdstTest, SimpleStore) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
