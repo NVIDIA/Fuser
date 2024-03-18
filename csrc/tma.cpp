@@ -222,13 +222,6 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   NVF_ERROR(inputs.at(4).is<std::vector>());
   auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
 
-  CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
-  CUtensorMapInterleave interleave =
-      getCUtensorMapInterleave(this->interleave());
-  CUtensorMapSwizzle swizzle = getCUtensorMapSwizzle(this->swizzle());
-  CUtensorMapL2promotion l2_promotion =
-      getCUtensorMapL2Promotion(l2Promotion());
-  CUtensorMapFloatOOBfill oob_fill = getCUtensorMapFloatOOBfill(oobFill());
   DEBUG_PRINT_SCOPE_NAME(
       "EncodeTensorMapTiled",
       "global_address=",
@@ -242,17 +235,25 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
       "element_strides=",
       element_strides,
       "data_type=",
-      data_type,
+      dataType(),
       "interleave=",
-      interleave,
+      this->interleave(),
       "swizzle=",
-      swizzle,
+      this->swizzle(),
       "l2_promotion=",
-      l2_promotion,
+      l2Promotion(),
       "oob_fill=",
-      oob_fill,
+      oobFill(),
       "tensor_rank=",
       tensor_rank);
+
+  CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
+  CUtensorMapInterleave interleave =
+      getCUtensorMapInterleave(this->interleave());
+  CUtensorMapSwizzle swizzle = getCUtensorMapSwizzle(this->swizzle());
+  CUtensorMapL2promotion l2_promotion =
+      getCUtensorMapL2Promotion(l2Promotion());
+  CUtensorMapFloatOOBfill oob_fill = getCUtensorMapFloatOOBfill(oobFill());
 
   // Checks based on the documentation of cuTensorMapEncodeTiled, error messages
   // are mostly directly copied from the doc
