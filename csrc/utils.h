@@ -461,7 +461,7 @@ class DebugPrintScope {
       std::regex re(pattern);                                             \
       if (std::regex_match(name, re)) {                                   \
         _debug_print_scope =                                              \
-            std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__);   \
+            std::make_unique<DebugPrintScope>(name, ##__VA_ARGS__);       \
         break;                                                            \
       }                                                                   \
     }                                                                     \
