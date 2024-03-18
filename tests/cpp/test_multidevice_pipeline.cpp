@@ -326,7 +326,7 @@ class PipelineTestStagedReduction
 
 // 1D staged reduction
 // Inputs: X[A,B,C]
-TEST_P(PipelineTestStagedReduction, staged_reduction) {
+TEST_P(PipelineTestStagedReduction, StagedReduction) {
   auto scheduling_mode = GetParam();
 
   int num_devices = communicator->size();
