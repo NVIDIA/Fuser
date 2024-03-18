@@ -438,10 +438,10 @@ INSTANTIATE_TEST_SUITE_P(
 
 class TMAMiscTest : public TMATest {};
 
-// Basically just StoreCompleteTensor1D, but with index hoisting disabled.
-// Because index hoisting is responsible making sure that tensor maps are
-// created on the host and passed as kernel argument, we need to make sure
-// that disabling index hoisting doesn't break this.
+// Basically just SimpleStore, but with index hoisting disabled. Because index
+// hoisting is responsible making sure that tensor maps are created on the host
+// and passed as kernel argument, we need to make sure that disabling index
+// hoisting doesn't break this.
 TEST_F(TMAMiscTest, DisableIndexHoisting) {
   DisableOptionsGuard opt_guard;
   opt_guard.getCurOptions().set(DisableOption::IndexHoist);
