@@ -283,7 +283,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // [output_permute] -> permute-> [output]
     else if (!shard_additions.empty()) {
       auto id = shard_additions[0];
-      auto idx = output->domain()->posOf(id);
+      int idx = static_cast<int<(output->domain()->posOf(id));
       if (isContiguousShard(output, id)) {
         continue;
       }
