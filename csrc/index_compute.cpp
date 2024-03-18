@@ -3677,6 +3677,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           split->factor());
       bool proved_divisible = is_divisible->isTrue();
       if (!proved_divisible) {
+        // TODO: enable this
         // GpuLower::current()->requestValidate(
         //     is_divisible,
         //     "The stride of ",
@@ -3773,6 +3774,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
+  // TODO: validate alignment of global_address
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
 
   // As required by the hardware, tensors used by TMA must be in column major
   // that is, stride[0] must be implicitly 1 (therefore omitted)
@@ -3846,6 +3849,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   }
   expected_bytes =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+  // TODO: validate expected_bytes
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
 
   return {IrBuilder::create<kir::TensorIndex>(gmem_tv, index), expected_bytes};
 }

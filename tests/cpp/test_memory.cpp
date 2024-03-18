@@ -436,6 +436,111 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(1, 2, 3, 4, 5)),
     testNameTMALdstTest);
 
+// Advanced indexing of TMA
+class TMAIndexingTest : public TMATest {};
+
+TEST_F(TMAIndexingTest, Load2DTensorWith1DTMA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->merge(0);
+    tv->split(0, 32);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024, 1024}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 1024);
+    tv->split(1, 32);
+    tv->split(0, 32);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024 * 1024}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonZeroElementStride) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 128);
+    tv->split(1, 3);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024 * 1024}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// TODO: improve validation of TMA, and add tests for invalid cases.
+
 class TMAMiscTest : public TMATest {};
 
 // Basically just SimpleStore, but with index hoisting disabled. Because index
