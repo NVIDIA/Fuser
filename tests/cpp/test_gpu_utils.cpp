@@ -35,6 +35,7 @@ int myFavoriteFunction(int a, int b) {
 }
 
 TEST_F(NVFuserTest, FunctionTrace1) {
+#ifdef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
   DebugDumpOptionsGuard gg;
@@ -46,9 +47,13 @@ TEST_F(NVFuserTest, FunctionTrace1) {
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
   EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:31"));
+#else
+  GTEST_SKIP() << "Test only runs in debug mode";
+#endif
 }
 
 TEST_F(NVFuserTest, FunctionTrace2) {
+#ifdef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
   DebugDumpOptionsGuard gg;
@@ -60,6 +65,9 @@ TEST_F(NVFuserTest, FunctionTrace2) {
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
   EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:33"));
+#else
+  GTEST_SKIP() << "Test only runs in debug mode";
+#endif
 }
 
 TEST_F(NVFuserTest, FusionSplitDims_CUDA) {

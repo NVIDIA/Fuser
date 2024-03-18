@@ -229,6 +229,30 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   CUtensorMapL2promotion l2_promotion =
       getCUtensorMapL2Promotion(l2Promotion());
   CUtensorMapFloatOOBfill oob_fill = getCUtensorMapFloatOOBfill(oobFill());
+  DEBUG_PRINT_SCOPE_NAME(
+      "EncodeTensorMapTiled",
+      "global_address=",
+      global_address,
+      "global_dim=",
+      global_dim,
+      "global_strides=",
+      global_strides,
+      "box_dim=",
+      box_dim,
+      "element_strides=",
+      element_strides,
+      "data_type=",
+      data_type,
+      "interleave=",
+      interleave,
+      "swizzle=",
+      swizzle,
+      "l2_promotion=",
+      l2_promotion,
+      "oob_fill=",
+      oob_fill,
+      "tensor_rank=",
+      tensor_rank);
 
   // Checks based on the documentation of cuTensorMapEncodeTiled, error messages
   // are mostly directly copied from the doc

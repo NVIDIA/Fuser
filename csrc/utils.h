@@ -432,6 +432,8 @@ class DebugPrintScope {
   int64_t line_ = -1;
 };
 
+#ifdef NDEBUG
+
 // Debug printing the entering and leaving of a function. The given arguments
 // will be printed when entering the function.
 //
@@ -461,6 +463,14 @@ class DebugPrintScope {
     _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
   }                                                         \
   return ret
+
+#else
+
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)
+#define DEBUG_PRINT_SCOPE(...)
+#define RECORD_AND_RETURN(ret) return ret
+
+#endif
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
