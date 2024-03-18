@@ -92,8 +92,8 @@ struct KernelSummary {
   //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
-  //! ceilDiv extents that must be divisible
-  std::vector<std::pair<const Val*, const Val*>> splits_to_validate;
+  //! Validations needed and information about them
+  std::vector<std::pair<const Val*, std::string>> validations;
 
   //! Effective ParallelTypes of broadcast ops
   std::unordered_map<const BroadcastOp*, ParallelTypeBitmap>
