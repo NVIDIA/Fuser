@@ -444,7 +444,7 @@ class DebugPrintScope {
   int64_t line_ = -1;
 };
 
-#ifdef NDEBUG
+#ifndef NDEBUG
 
 // Debug printing the entering and leaving of a function. The given arguments
 // will be printed when entering the function.

@@ -35,7 +35,7 @@ int myFavoriteFunction(int a, int b) {
 }
 
 TEST_F(NVFuserTest, FunctionTrace1) {
-#ifdef NDEBUG
+#ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
   DebugDumpOptionsGuard gg;
@@ -53,7 +53,7 @@ TEST_F(NVFuserTest, FunctionTrace1) {
 }
 
 TEST_F(NVFuserTest, FunctionTrace2) {
-#ifdef NDEBUG
+#ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
   DebugDumpOptionsGuard gg;
