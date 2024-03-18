@@ -289,18 +289,16 @@ void insertShardedAxisReordering(Fusion* fusion) {
       }
       auto ptype = id->getParallelType();
 
-      // TODO: This first permute doesn't change the underlying memory, it
-      // just moves the sharded axis to 0.
       TensorView* input_permute = permute(input, {{idx, 0}});
       input_permute->setDeviceMesh(input->getDeviceMesh());
 
-      TensorView* output_permute;
+      TensorView* output_permute = nullptr;
       // For reduce scatter, determine if the reduction axis shifted to the
       // right by 1.
       auto red_axis = output->getReductionAxis();
-      int offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
+      auto offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
       if (expr->isA<ReductionOp>()) {
-        int raxis = red_axis.value() + offset;
+        int raxis = static_cast<int>(red_axis.value()) + offset;
         input_permute->axis(raxis)->parallelize(ptype);
         auto red_expr = dynamic_cast<ReductionOp*>(expr);
         output_permute = reductionOp(
@@ -309,7 +307,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
             red_expr->init(),
             input_permute);
       } else {
-        // TODO: this is a no-op and is moving a device parallel axis back
+        // Note this is a no-op and is moving a device parallel axis back
         output_permute = set(input_permute);
       }
 

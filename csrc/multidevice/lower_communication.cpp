@@ -105,7 +105,7 @@ CommParams createParamsForGatherScatter(
     at::Tensor root_buf, // is_scatter? input buf : output buf
     at::Tensor buf, // is_scatter? output buf : input buf
     bool is_scatter) {
-  auto mesh = root_tv->getDeviceMesh();
+  const auto& mesh = root_tv->getDeviceMesh();
   CommParams params;
   params.root = root;
   params.team = mesh.vector();
@@ -189,7 +189,7 @@ void lowerToAllgather(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  auto mesh = input_tv->getDeviceMesh();
+  const auto& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
@@ -305,7 +305,7 @@ CommParams createParamsForReduce(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     BinaryOpType op_type) {
-  auto mesh = input_tv->getDeviceMesh();
+  const auto& mesh = input_tv->getDeviceMesh();
   CommParams params;
   params.root = root;
   params.redOp = getC10dReduceOpType(op_type);
@@ -386,7 +386,7 @@ void lowerToReduceScatter(
     at::Tensor output_tensor,
     BinaryOpType op_type,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  auto mesh = input_tv->getDeviceMesh();
+  const auto& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
