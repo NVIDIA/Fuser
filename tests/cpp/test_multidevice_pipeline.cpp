@@ -200,7 +200,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv2->axis(axis)->parallelize(ParallelType::DIDx);
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
-  // fusion->printKernel();
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 

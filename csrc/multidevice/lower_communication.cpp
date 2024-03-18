@@ -102,7 +102,6 @@ CommParams createParamsForGatherScatter(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
     TensorView* root_tv, // is_scatter ? input_tv : output_tv
-    // const DeviceMesh& mesh, // is_scatter? receivers : senders
     at::Tensor root_buf, // is_scatter? input buf : output buf
     at::Tensor buf, // is_scatter? output buf : input buf
     bool is_scatter) {
@@ -456,10 +455,18 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       " to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
 
-  // NVF_ERROR(
-  //     !is_input_sharded || !input_tensor.numel());
-  // NVF_ERROR(
-  //     !is_output_sharded || !output_tensor.numel() || is_reduction);
+  auto input_sharded_dim = getShardedAxis(input_tv);
+  auto output_sharded_dim = getShardedAxis(output_tv);
+  NVF_ERROR(
+      !is_input_sharded || !input_tensor.numel() ||
+          static_cast<size_t>(input_tensor.size(input_sharded_dim)) == 1,
+      "Sharded dimension should have allocation size 1, but is ",
+      input_tensor.size(input_sharded_dim));
+  NVF_ERROR(
+      !is_output_sharded || !output_tensor.numel() || is_reduction ||
+          static_cast<size_t>(output_tensor.size(output_sharded_dim)) == 1,
+      "Sharded dimension should have allocation size 1, but is ",
+      output_tensor.size(output_sharded_dim));
 
   if (is_reduction) {
     BinaryOpType op_type =
