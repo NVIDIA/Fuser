@@ -3789,7 +3789,12 @@ Val* Index::getCpAsyncBulkGmemIndex(
   }
 
   Val* global_dim = IrBuilder::arrayExpr(tensor_sizes_inner_to_outer);
-  Val* global_stride = IrBuilder::arrayExpr(tensor_strides_inner_to_outer);
+  Val* global_stride =
+      (dim > 1
+           ? IrBuilder::arrayExpr(tensor_strides_inner_to_outer)
+           : IrBuilder::create<Val>(
+                 std::vector<int64_t>{},
+                 ArrayType{std::make_shared<DataType>(DataType::Index), 0}));
   Val* box_dim = IrBuilder::arrayExpr(tile_sizes_inner_to_outer);
   auto element_stride = IrBuilder::arrayExpr(element_strides_inner_to_outer);
 
