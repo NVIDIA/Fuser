@@ -3442,8 +3442,8 @@ Val* Index::getCpAsyncBulkGmemIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
 
-  bool is_load;
-  TensorView *smem_tv, *gmem_tv;
+  bool is_load = false;
+  TensorView *smem_tv = nullptr, *gmem_tv = nullptr;
   if (producer_tv->getMemoryType() == MemoryType::Shared) {
     NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Global);
     smem_tv = producer_tv;
@@ -3491,7 +3491,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
         consumer_tv->getLeafDomain(),
         c2p_root_map);
 
-    auto c2p_map = replay_producer_as_consumer.getReplay();
+    const auto& c2p_map = replay_producer_as_consumer.getReplay();
 
     consumer_to_gmem = [=](IterDomain* id) -> IterDomain* {
       return c2p_map.at(id);
@@ -3506,8 +3506,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
     consumer_to_gmem = [](IterDomain* id) -> IterDomain* { return id; };
     auto index_from_id_graph =
         getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
-    indexing =
-        std::make_unique<IndexCompute>(std::move(index_from_id_graph.index));
+    indexing = std::make_unique<IndexCompute>(index_from_id_graph.index);
   }
 
   // Get all bulk IterDomains and originating bulk IterDomains
@@ -3667,10 +3666,16 @@ Val* Index::getCpAsyncBulkGmemIndex(
           "The set of all global IterDomains must be equivalent to the allocation domain, but ",
           in,
           " is not on the path.");
-      Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+      Val* is_divisible = simplifyExpr(SimplifyingIrBuilder::eqExpr(
           SimplifyingIrBuilder::modExpr(std::get<2>(*in_it), split->factor()),
-          0);
-      bool proved_divisible = simplifyExpr(is_divisible)->isTrue();
+          gmem_tv->fusion()->zeroVal()));
+      NVF_ERROR(
+          !is_divisible->isFalse(),
+          "The stride of ",
+          in,
+          " must be divisible by ",
+          split->factor());
+      bool proved_divisible = is_divisible->isTrue();
       if (!proved_divisible) {
         // GpuLower::current()->requestValidate(
         //     is_divisible,
@@ -3729,7 +3734,7 @@ Val* Index::getCpAsyncBulkGmemIndex(
       std::get<1>(frontier.back()),
       "The innermost IterDomain of the allocation domain must be contiguous");
 
-  int64_t dim = frontier.size();
+  int64_t dim = (int64_t)frontier.size();
   NVF_ERROR(
       dim == (int64_t)originating_bulk_ids.size(),
       "The number of originating bulk IterDomains must be equivalent to the dimensionality of the tensor in the eyes of TMA, but ",
