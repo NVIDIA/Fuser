@@ -256,9 +256,9 @@ MatmulParams getMatmulParams(
           gemm_tile,
           stage_number,
           {DataType::Half, DataType::Half, DataType::Float},
-          true,
-          true,
-          true);
+          /*smem_a_reuse_guaranteed=*/true,
+          /*smem_b_reuse_guaranteed=*/true,
+          /*ignore_occupancy_drop=*/true);
 
   return params;
 }
