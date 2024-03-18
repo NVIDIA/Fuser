@@ -1864,11 +1864,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   executor_utils::CudaKernelTimer timer(stream);
 
-  if (measure_kernel_time) {
-    timer.init();
-  }
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    if (measure_kernel_time) {
+      timer.init();
+    }
+
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1941,17 +1941,19 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
+    }
+  }
 
-      outputBytesProcessed(outputs);
+  if (measure_kernel_time) {
+    outputBytesProcessed(outputs);
 
-      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-          isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-        double gb_per_s =
-            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-            (double)1.0e9;
-        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-      }
+    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      double gb_per_s =
+          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
+          (double)1.0e9;
+      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
+              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
     }
   }
 
