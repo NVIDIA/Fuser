@@ -40,6 +40,10 @@ namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
  protected:
+  CombineMulSumAsMmaTest(){
+    disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -54,7 +58,6 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
                    << lower_minor << "and " << upper_major << "." << upper_minor
                    << " to run.\n";
     }
-    disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
     NVFuserTest::SetUp();
   }
   std::unique_ptr<DisableOptionsGuard> disable_options_ptr =

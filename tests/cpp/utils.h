@@ -25,7 +25,6 @@
 
 #include <gtest/gtest.h>
 
-#include <options.h>
 #include <chrono>
 #include <cstddef>
 #include <string>

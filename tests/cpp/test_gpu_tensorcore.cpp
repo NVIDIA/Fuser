@@ -55,10 +55,10 @@ namespace nvfuser {
 namespace {
 class GPUTTensorCoreTest : public NVFuserTest {
  protected:
-  void SetUp() override {
+  GPUTTensorCoreTest() {
     disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
-    NVFuserTest::SetUp();
   }
+
   std::unique_ptr<DisableOptionsGuard> disable_options_ptr =
       std::make_unique<DisableOptionsGuard>();
 };
