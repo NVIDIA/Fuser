@@ -3514,6 +3514,8 @@ Val* Index::getCpAsyncBulkGmemIndex(
   std::unordered_set<IterDomain*> bulk_ids;
   VectorOfUniqueEntries<IterDomain*> originating_bulk_ids;
   std::deque<IterDomain*> pending;
+  bool updated = true;
+  pending.push_back(nullptr); // use nullptr as a checkpoint
   for (auto id : consumer_tv->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
       id = consumer_to_gmem(id);
@@ -3521,15 +3523,28 @@ Val* Index::getCpAsyncBulkGmemIndex(
       pending.push_back(id);
     }
   }
-  while (!pending.empty()) { // BFS algorithm
+  while (true) { // BFS-like algorithm (not exactly BFS)
     auto id = pending.front();
     pending.pop_front();
+    if (id == nullptr) {
+      if (updated) {
+        pending.push_back(nullptr);
+        updated = false;
+        continue;
+      } else {
+        break;
+      }
+    }
     auto def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "A bulk IterDomain must have a definition, but ",
         id,
         " does not have one.");
+    if (bulk_ids.count(def->input(0)->as<IterDomain>()) > 0) {
+      // already processed from another path
+      continue;
+    }
     bool all_outputs_are_bulk = true;
     for (auto out : def->outputs()) {
       if (bulk_ids.count(out->as<IterDomain>()) == 0) {
@@ -3540,17 +3555,25 @@ Val* Index::getCpAsyncBulkGmemIndex(
     if (all_outputs_are_bulk) {
       for (auto id : def->inputs()) {
         if (bulk_ids.insert(id->as<IterDomain>()).second) {
+          updated = true;
           pending.push_back(id->as<IterDomain>());
         }
       }
     } else {
-      originating_bulk_ids.pushBack(id);
-      NVF_ERROR(
-          def->isA<Split>(),
-          "An originating bulk IterDomain must be the output of a split, but ",
-          id,
-          " is not.");
+      pending.push_back(id);
     }
+  }
+  for (auto id : pending) {
+    if (id == nullptr) {
+      continue;
+    }
+    originating_bulk_ids.pushBack(id);
+    auto def = id->definition();
+    NVF_ERROR(
+        def != nullptr && def->isA<Split>(),
+        "An originating bulk IterDomain must be the output of a split, but ",
+        id,
+        " is not.");
   }
 
   // Get tileId and globalId
