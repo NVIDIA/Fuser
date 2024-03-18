@@ -296,7 +296,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // For reduce scatter, determine if the reduction axis shifted to the
       // right by 1.
       auto red_axis = output->getReductionAxis();
-      auto offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
+      int offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
       if (expr->isA<ReductionOp>()) {
         int raxis = static_cast<int>(red_axis.value()) + offset;
         input_permute->axis(raxis)->parallelize(ptype);
@@ -313,8 +313,9 @@ void insertShardedAxisReordering(Fusion* fusion) {
 
       output_permute->axis(0)->parallelize(ptype);
       output_permute->setDeviceMesh(output->getDeviceMesh());
-      TensorView* new_output = permute(output_permute, {{0, idx - offset}});
-      new_output->axis(idx - offset)->parallelize(ptype);
+      int sharded_idx = idx - offset;
+      TensorView* new_output = permute(output_permute, {{0, sharded_idx}});
+      new_output->axis(sharded_idx)->parallelize(ptype);
       new_output->setDeviceMesh(output->getDeviceMesh());
 
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
