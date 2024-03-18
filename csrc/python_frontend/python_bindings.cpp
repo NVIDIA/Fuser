@@ -1121,6 +1121,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
+// Keeping this defintion for later use with the matmul API.
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
@@ -1142,10 +1143,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       },                                                                       \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
