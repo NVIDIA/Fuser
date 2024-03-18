@@ -1288,30 +1288,74 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
     // exprs.
     std::vector<Expr*> uses_to_modify;
 
+    // Insert only uses that belong to this consumer group edge->to
     for (auto edge_val_use_expr : edge_tv->uses()) {
+      // Some operations must operate on segment inputs, like pad, slice and
+      // select. We skip these ops and place the upcast deeper in the consumer
+      // segment. If there are no expressions in the consumer segment that
+      // require a cast, and if the corresponding consumer segment outputs also
+      // must be downcast, then we can skip casting in this segment altogether.
+      //
+      // NOTE: Other ops could operate on upcasted inputs but it's preferable to
+      // let them operate on half-precision. For example, UnaryOpType::Neg,
+      // UnaryOpType::Abs, and TernaryOpType::Where could operate on
+      // half-precision inputs without any loss of precision. We do not
+      // currently implement that, but if we add the proper support in those
+      // operations then we could enable it here, being careful to propagate
+      // dtypes appropriately.
       if (std::any_of(edges.begin(), edges.end(), [&](SegmentedEdge* edge) {
             return std::find(
                        edge->to->exprs().begin(),
                        edge->to->exprs().end(),
                        edge_val_use_expr) != edge->to->exprs().end();
           })) {
-        uses_to_modify.push_back(edge_val_use_expr);
+        // edge_val_use_expr is in the consumer group, so skip incompatible ops
+        // then find location for a cast
+        //
+        // To flow downstream and find cast locations, we use a stack-based
+        // approach. When we encounter an incompatible op (one that should work
+        // on half-precision), then we pop it from the stack and push all its
+        // outputs. When we find a compatible op (i.e. one that we should cast
+        // before), we add it to uses_to_modify.
+        std::vector<Expr*> use_stack;
+        use_stack.push_back(edge_val_use_expr);
+        while (!use_stack.empty()) {
+          Expr* use = use_stack.back();
+          use_stack.pop_back();
+
+          if (use->isOneOf<IndexSelectOp, SelectOp, SliceOp, TorchGatherOp>()) {
+            // Move downstream of this expression
+            for (Val* output : use->outputs()) {
+              if (auto out_tv = dynamic_cast<TensorView*>(output)) {
+                // Update the dtypes of outputs to reflect that this now takes
+                // in half-precision.
+                // TODO: If we add other ops besides select, then determining
+                // the reduced-precision output dtypes might not be as simple
+                // as this.
+                out_tv->setDataType(force_half_precision_type_);
+              }
+              for (auto output_use : output->uses()) {
+                if (std::find(
+                        edge->to->exprs().begin(),
+                        edge->to->exprs().end(),
+                        output_use) == edge->to->exprs().end()) {
+                  // output_use is not in consumer segment
+                  // TODO: do we need to mark this location for any reason?
+                  continue;
+                }
+                // Add uses to the stack, unless they are not in the consumer
+                // group
+                use_stack.push_back(output_use);
+              }
+            }
+          } else {
+            // This is an expression that requires its inputs not be half
+            // precision
+            uses_to_modify.push_back(use);
+          }
+        }
       }
     }
-
-    // Some of SelectOp-like expressions have the limitation that
-    // input tensors must be fusion inputs, so even just cast
-    // shouldn't be inserted.
-    uses_to_modify.erase(
-        std::remove_if(
-            uses_to_modify.begin(),
-            uses_to_modify.end(),
-            [&](Expr* edge_val_use_expr) {
-              return edge_val_use_expr
-                         ->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
-                  edge_val_use_expr->input(0) == edge_tv;
-            }),
-        uses_to_modify.end());
 
     if (uses_to_modify.empty()) {
       continue;
@@ -1370,6 +1414,8 @@ std::vector<SegmentedEdge*> SegmentedFusion::getEdgesByVal(Val* val) const {
 
 void SegmentedFusion::revertInputOutputPrecisionChanges(
     const std::vector<SegmentedEdge*>& edges) {
+  // TODO: We may need to update this to be able to properly undo all our
+  // changes
   std::unordered_set<Val*> lowered_tv_to_remove;
   std::unordered_set<Val*> same_precision_tv_to_remove;
   for (auto edge : edges) {
