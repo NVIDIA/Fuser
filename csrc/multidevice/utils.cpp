@@ -18,32 +18,6 @@
 #include <c10/util/irange.h>
 
 namespace nvfuser {
-
-bool isSharded(TensorView* tv) {
-  std::vector<bool> is_sharded;
-  for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
-    is_sharded.push_back(id->isDeviceDim());
-  }
-
-  for (auto i : c10::irange(1, is_sharded.size())) {
-    NVF_ERROR(
-        !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized",
-        "but axis ",
-        i,
-        " is sharded in tv ",
-        tv->toString());
-  }
-  // Currently, only the most external dim is allowed to be sharded and we don't
-  // allow split/merge if tv is sharded.
-  auto tensor_sharded = !is_sharded.empty() && is_sharded.at(0);
-  NVF_ERROR(
-      !tensor_sharded ||
-      (TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(0) ==
-       TensorDomain::noReductions(tv->getLeafDomain()).at(0)));
-  return tensor_sharded;
-}
-
 namespace {
 
 std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
@@ -55,8 +29,30 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
-
 } // namespace
+
+bool isSharded(TensorView* tv) {
+  bool is_sharded = false;
+  auto rids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto ids = TensorDomain::noReductions(tv->getLeafDomain());
+  for (auto i : c10::irange(ids.size())) {
+    // Only one axis can be sharded on DIDx.
+    NVF_ERROR(
+        !(is_sharded && ids[i]->isDeviceDim()),
+        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        tv->toString());
+
+    if (ids[i]->isDeviceDim()) {
+      // Currently do not support split/merge on a device dimension.
+      NVF_ERROR(
+          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
+          "Cannot parallelize DIDx on a split/merge axis ",
+          ids[i]->toString());
+      is_sharded = true;
+    }
+  }
+  return is_sharded;
+}
 
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -194,24 +190,6 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
     }
   }
   return ret;
-}
-
-// Current limitations:
-// 1. Assumes only the outermost dimension is sharded
-// 2. Extent of sharded dimension == number of devices in mesh
-std::vector<int64_t> unshardedSize(
-    TensorView* tv,
-    c10::IntArrayRef sharded_sizes) {
-  std::vector<int64_t> unsharded_sizes;
-  std::copy(
-      sharded_sizes.begin(),
-      sharded_sizes.end(),
-      std::back_inserter(unsharded_sizes));
-  if (isSharded(tv)) {
-    auto num_devices = tv->getDeviceMesh().vector().size();
-    unsharded_sizes[0] = static_cast<int64_t>(num_devices);
-  }
-  return unsharded_sizes;
 }
 
 } // namespace nvfuser
