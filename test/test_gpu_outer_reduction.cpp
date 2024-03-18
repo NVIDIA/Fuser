@@ -2311,7 +2311,6 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
   maybeClearAllocator(0);
   for (int dim0 = 1024; dim0 <= 32768; dim0 *= 2) {
     for (int dim1 = 1024; dim1 <= 32768; dim1 *= 2) {
-      std::cout << "Testing dim0: " << dim0 << " dim1: " << dim1 << std::endl;
       test(dim0, dim1);
     }
   }

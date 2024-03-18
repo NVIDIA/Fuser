@@ -513,10 +513,11 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 // load serial workload.
 // iter dim: vectorization, bdimx, gdimx (Dynamic)
 // redu dim: redu_unroll, bdimy, gdimy, thread local serial (Dynamic)
-// (1) Define free parameters:
+// (1) Define free parameters (magic numbers):
 //     register for unroll = 64 --> max unroll = 128 for fp16
-//     max allowed thread local serial redu = 16.
-//     max allowed redu unroll = 64
+//     max_serial_reduce_top_unroll = 16.
+//     max_redu_unroll = 64
+//     min_bdimx = 8
 // (2) split threads in block into bdimx (iter) and bidmy (redu)
 //     bdimx = 8, bdimy = left over threads (e.g. 64)
 // (3) split unroll into iter and redu:
@@ -526,19 +527,20 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 //     thread local workload = n_redu / (bdimy * redu_unroll)
 //     if thread local workload > 16, do grid reduce.
 //     the max n_redu for block redu is: 16 * 16 * 64 = 16K
-// (5) If block reduce:
-//     set grid dim for iter (x), gdimx = iter / (bdimx*vect)
-//     if gdimx < quarter wave, reduce iter_unroll
-// (6) If grid reduce:
-//     (a) set grid dim for iter (x), gdimx = iter / (bdimx*vect)
-//         if gdimx > half wave, increase bdimx (from 8 up to 64)
-//     (b) start grid dim for redu (y) from min:
-//         gdimy = redu / (bdimy * redu_unroll * max_serial)
-//     (c) adjust gdimy for better grid reduce and SM utilization:
-//         (c.1) ensure gdimy >= 4
-//         (c.2) ensure gdimx * gdimy close to one wave or more
-//         (c.3) adjust gdimy to power of 2 for better tree reduction
-//         (c.4) adjust gdimx * gdimy to avoid ragged waves
+
+//     (5_block) If block reduce:
+//         set grid dim for iter (x), gdimx = iter / (bdimx*vect)
+//         if gdimx < quarter wave, reduce iter_unroll
+//     (5_grid) If grid reduce:
+//         (a) set grid dim for iter (x), gdimx = iter / (bdimx*vect)
+//             if gdimx > half wave, increase bdimx (from 8 up to 64)
+//         (b) start grid dim for redu (y) from min:
+//             gdimy = redu / (bdimy * redu_unroll * max_serial)
+//         (c) adjust gdimy for better grid reduce and SM utilization:
+//             (c.1) ensure gdimy >= 4
+//             (c.2) ensure gdimx * gdimy close to one wave or more
+//             (c.3) adjust gdimy to power of 2 for better tree reduction
+//             (c.4) adjust gdimx * gdimy to avoid ragged waves
 
 std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
@@ -554,6 +556,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
+  // Definition of magic numbers used in this heuristic
   // when unroll in reduction dim and vect in iteration dim, needs to store
   // loaded data in registers, set a limit on register count we can use to store
   // unrolled and vectorized data. With 512 threads per block, each thread can
@@ -561,7 +564,35 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // iter and redu unroll, max_unroll can be up to 128 for fp16.
   // TODO: investigate why set to 128 registers won't cause register spill when
   // vectorized by 8 and unrolled by 32.
-  auto max_buffer_register = 64L;
+  constexpr int64_t max_buffer_register = 64L;
+
+  // avoid using very larege unroll in reduction dim, e.g. when iter dim is
+  // very small, iter_unroll = 1, don't let all unroll go to reduction dim.
+  constexpr int64_t max_redu_unroll = 64l;
+
+  // set max thread local serial reduction workload
+  // controls max elements block reduce can handle,
+  // which equals: bdimy * redu_unroll * serial
+  constexpr int64_t max_serial_reduce_top_unroll = 16L;
+
+  // [min_bdimx] is used to set [bdimx], which parallels the iteration dim.
+  // In CUDA, 32 threads are gouped as a warp, when we set bdimx = 8, the 32
+  // threads within a warp access 4 consecutive rows of data from gmem. Assume
+  // each row has Y bytes of data and after vectorization each thread accesses
+  // 16 bytes of data. So the gmem access pattern is:
+  // threads [ 0 to  7] access 128 bytes from address  0 + 0x.
+  // threads [ 8 to 15] access 128 bytes from address  Y + 0x.
+  // threads [16 to 23] access 128 bytes from address 2Y + 0x.
+  // threads [24 to 31] access 128 bytes from address 3Y + 0x.
+  // The data is spread into 4 segments, each with 128 bytes.
+  // The gmem access is done with 4 128-bytes transactions.
+  // If we further reduce [min_bdimx] to 4, the data is spread into 8 rows
+  // and we need 8 64-bytes transactions.
+  // If we further increase [min_bdimx] to 16, the data is spread into 2
+  // rows, each row has 16 x 16 = 256 bytes of data. Since the largest
+  // transaction is 128 btyes, we still needs 2 x 2 = 4 128-bytes transactions.
+  constexpr int64_t min_bdimx = 8;
+
   auto max_unroll = ceilDiv(
       // Available unrolling based on size of data type
       max_buffer_register * scheduler_utils::bytes_per_register /
@@ -569,32 +600,19 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
       scheduler_utils::lastPow2(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
-  max_unroll = scheduler_utils::lastPow2(max_unroll);
-
-  // avoid using very larege unroll in reduction dim, e.g. when iter dim is
-  // very small, iter_unroll = 1, don't let all unroll go to reduction dim.
-  auto const max_redu_unroll = 64l;
-
-  // set max thread local serial reduction workload
-  // controls max elements block reduce can handle,
-  // which equals: bdimy * redu_unroll * serial
-  auto const max_serial_reduce_top_unroll = 16L;
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   const int64_t n_waves = 8;
 
-  // start from small bimdx, leave more space for bdimy to use block reduce
-  const int64_t min_warp_size = 8;
-
   // Set some targets for parallelization
-  int64_t target_threads_in_block = min_warp_size;
+  int64_t target_threads_in_block = min_bdimx;
   int64_t max_target_threads_in_block =
       ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4);
   // Start target blocks at roughly a quarter wave if available
   const int64_t quarter_wave_blocks =
       ceilDiv(device_multiprocessor_count, (int64_t)4);
   int64_t target_blocks =
-      std::min(quarter_wave_blocks, ceilDiv(n_elems, min_warp_size));
+      std::min(quarter_wave_blocks, ceilDiv(n_elems, min_bdimx));
   int64_t target_unroll = 1;
 
   auto available_parallelism =
@@ -605,7 +623,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // If there's available parallelism, divide it between threads, blocks, and
   // vectorization
-  // Threads are currently at min_warp_size (8)
+  // Threads are currently at min_bdimx (8)
   // Blocks are currently at a quarter wave
   // Unroll is currently at 1
   while (
@@ -629,8 +647,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
 
     // delay increase until unroll is filled.
-    if (target_blocks * 2 <= device_multiprocessor_count * n_waves &&
-        available_parallelism() > 1 && target_unroll >= int64_t(max_unroll)) {
+    if (target_unroll >= int64_t(max_unroll) &&
+        target_blocks * 2 <= device_multiprocessor_count * n_waves &&
+        available_parallelism() > 1) {
       target_blocks *= 2;
     }
   }
@@ -678,7 +697,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   };
 
   // Start bdimx as a warp
-  bdimx = std::min(min_warp_size, total_iteration_numel);
+  bdimx = std::min(min_bdimx, total_iteration_numel);
 
   // Set iter_unroll_factor (vectorization) before increasing bdimx.
   // for block reduce: may be further decreased to use more blocks.
@@ -716,24 +735,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     return thread_local_redu > max_serial_reduce_top_unroll;
   }();
 
-  // If block reduce:
-  // ensure use at least a quarter wave of blocks, achieved by reducing
-  // iter_unroll_factor
-  int64_t min_iter_blocks = roundDownPow2OrMultipleOf(quarter_wave_blocks, 8);
-  if (!is_grid_reduce) {
-    while (iDimAvail() < min_iter_blocks && iter_unroll_factor >= 2) {
-      iter_unroll_factor /= 2;
-    }
-  }
-
   // If grid reduce:
   // avoid using more than half wave of blocks in iter dim (leave some for redu
   // dim), achieved by increasing bdimx but don't go over 64 since want to
   // leave at least 4 threads for redu dim.
-  const int64_t half_wave_blocks =
-      ceilDiv(device_multiprocessor_count, (int64_t)2);
-  int64_t max_iter_blocks = roundDownPow2OrMultipleOf(half_wave_blocks, 8);
   if (is_grid_reduce) {
+    const int64_t half_wave_blocks =
+        ceilDiv(device_multiprocessor_count, (int64_t)2);
+    int64_t max_iter_blocks = roundDownPow2OrMultipleOf(half_wave_blocks, 8);
     int64_t gdimx_tmp =
         ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
     if (gdimx_tmp > max_iter_blocks) {
@@ -742,7 +751,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           ceilDiv(total_iteration_numel, iter_unroll_factor * max_iter_blocks),
           max_bidmx);
     }
+  } else {
+    // If block reduce:
+    // ensure use at least a quarter wave of blocks, achieved by reducing
+    // iter_unroll_factor
+    int64_t min_iter_blocks = roundDownPow2OrMultipleOf(quarter_wave_blocks, 8);
+    while (iDimAvail() < min_iter_blocks && iter_unroll_factor >= 2) {
+      iter_unroll_factor /= 2;
+    }
   }
+
   // Round bdimx to a nice value
   int64_t niceValue = 8;
   if (n_elems >= device_multiprocessor_count *
@@ -750,17 +768,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     niceValue = 32;
   }
   bdimx = roundUpPow2OrMultipleOf(bdimx, niceValue);
-
-  if (char* user_vec_env = std::getenv("VEC")) {
-    iter_unroll_factor = atoi(user_vec_env);
-    std::cout << "VEC: " << iter_unroll_factor << std::endl;
-  }
-
-  if (char* user_bdimx_env = std::getenv("BDX")) {
-    int user_bdimx = atoi(user_bdimx_env);
-    std::cout << "BDX: " << user_bdimx << std::endl;
-    bdimx = user_bdimx;
-  }
 
   // set grid iteration dim before set grid reduction dim
   // at this point, parallelization of iteration dim is done
@@ -789,12 +796,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     grdim = scheduler_utils::roundUpPow2(grdim);
   }
 
-  if (char* user_unroll_env = std::getenv("UNROLL")) {
-    inner_reduction_unroll_factor = atoi(user_unroll_env);
-    grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
-    std::cout << "UNROLL: " << inner_reduction_unroll_factor << std::endl;
-  }
-
   // Try to do some cleanup of ragged waves on device
   if (
       // If we have less than 8 waves of blocks
@@ -803,7 +804,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       (grdim * gidim) % device_multiprocessor_count != 0 &&
       // And we have more than one wave
       grdim * gidim > device_multiprocessor_count) {
-    bool round_down = false;
     // try round waves down
     auto waves =
         std::max((gidim * grdim) / device_multiprocessor_count, (int64_t)1);
@@ -813,10 +813,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         new_grdim * gidim % device_multiprocessor_count >
             grdim * gidim % device_multiprocessor_count) {
       grdim = new_grdim;
-      round_down = true;
-    }
-    // if can't round down, try fill empty SM slots of the last wave
-    if (!round_down) {
+    } else {
+      // if can't round down, try fill empty SM slots of the last wave
       auto used_slots = (grdim * gidim) % device_multiprocessor_count;
       auto empty_slots =
           used_slots > 0 ? device_multiprocessor_count - used_slots : 0;
