@@ -12,7 +12,7 @@
 #include <ir/printer.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <host_ir.h>
+#include <ir/host_ir.h>
 
 namespace nvfuser {
 

@@ -25,6 +25,7 @@
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
+#include <host_ir_container.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>

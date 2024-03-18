@@ -15,6 +15,25 @@ namespace nvfuser {
 
 namespace hir {
 
+class NVF_API ExecutableUnit : public Expr {
+  ExecutableUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
+  ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner);
+
+  NVFUSER_DECLARE_CLONE
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  bool sameAs(const Statement* other) const override;
+
+  // returns the Val from which this PipelineVal has been created
+  Fusion* fusion() const {
+    return fusion_.get();
+  }
+
+ private:
+  std::unique_ptr<Fusion> fusion_;
+};
+
 class NVF_API FusionIr : public Val {
   FusionIr(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
   FusionIr(const FusionIr* src, IrCloner* ir_cloner);
@@ -38,7 +57,7 @@ class NVF_API FusionIr : public Val {
 class NVF_API ExecuteFusion : public Expr {
  public:
   using Expr::Expr;
-  ExecuteFusion(IrBuilderPasskey passkey, Fusion* fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
+  ExecuteFusion(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
 
   ExecuteFusion(const ExecuteFusion& other) = delete;
   ExecuteFusion& operator=(const ExecuteFusion& other) = delete;
@@ -62,7 +81,7 @@ class NVF_API ExecuteFusion : public Expr {
 class NVF_API ExecuteComm : public Expr {
  public:
   using Expr::Expr;
-  ExecuteComm(IrBuilderPasskey passkey, Fusion* fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
+  ExecuteComm(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
 
   ExecuteComm(const ExecuteComm& other) = delete;
   ExecuteComm& operator=(const ExecuteComm& other) = delete;

@@ -12,7 +12,7 @@
 #include <ir/printer.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <host_ir.h>
+#include <ir/host_ir.h>
 
 
 namespace nvfuser {
@@ -62,6 +62,30 @@ std::string ExecuteFusion::toInlineString(int indent_size) const {
 
 // TODO: implement
 bool ExecuteFusion::sameAs(const Statement* other) const {
+    return false;
+}
+
+ExecuteComm::ExecuteComm(IrBuilderPasskey passkey,
+                             std::unique_ptr<Fusion> fusion,
+                           std::vector<Val*> inputs,
+                           std::vector<Val*> outputs)
+    : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion))
+{}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ExecuteComm)
+
+std::string ExecuteComm::toString(int indent_size) const {
+    std::stringstream ss;
+    return ss.str();
+}
+
+// TODO: implement better ?
+std::string ExecuteComm::toInlineString(int indent_size) const {
+    return toString(indent_size);
+}
+
+// TODO: implement
+bool ExecuteComm::sameAs(const Statement* other) const {
     return false;
 }
 

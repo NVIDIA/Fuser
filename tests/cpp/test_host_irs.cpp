@@ -15,7 +15,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <test/utils.h>
+#include <tests/cpp/utils.h>
 
 #include <algorithm>
 #include <iostream>
@@ -96,9 +96,9 @@ TEST_F(CpuForLoopTest, kernelSingleIO) {
   c10::IValue input = at::randn({4,8}, options);
   auto ref_output = at::sum(input.toTensor() * 2, {1});
 
-  tv0->axis(0)->parallelize(ParallelType::CPU);
-  tv1->axis(0)->parallelize(ParallelType::CPU);
-  tv2->axis(0)->parallelize(ParallelType::CPU);
+  tv0->axis(0)->parallelize(ParallelType::Host);
+  tv1->axis(0)->parallelize(ParallelType::Host);
+  tv2->axis(0)->parallelize(ParallelType::Host);
   fusion->print();
 
   FusionExecutorWithExternalForLoop executor(std::move(fusion));

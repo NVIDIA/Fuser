@@ -15,6 +15,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>
+#include <host_ir_container.h>
 
 #include <iostream>
 

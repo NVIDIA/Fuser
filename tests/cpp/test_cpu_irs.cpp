@@ -9,7 +9,7 @@
 
 #include <executor_kernel_arg.h>
 #include <fusion.h>
-#include <host_ir.h>
+#include <ir/host_ir.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
