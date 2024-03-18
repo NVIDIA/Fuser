@@ -363,23 +363,23 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
       // inspired from NVFuserTest.FusionReduction1_CUDA
       // tv0[I0{A}, I1{B}, I2{C}]
       tv1->split(2, 32);
-      // tv1[I0{A}, I1{B}, R2o{C/128}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B}, R2o{C/32}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
       tv1->split(2, 4);
       // clang-format off
-      // tv1[I0{A}, I1{B}, R2oo{C/128/4)}, R2oi{4}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B}, R2oo{C/32/4)}, R2oi{4}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
       // clang-format on
 
       TensorView* tv2 = tv1->rFactor({2});
       // clang-format off
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
-      // tv1[I0{A}, I1{B},                 R2oi{4}, R2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
+      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B},                R2oi{4}, R2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
       // clang-format on
 
       TensorView* tv3 = tv1->rFactor({2});
       // clang-format off
-      // tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
-      // tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}] = tv2[I0{A}, I1{B}, R2oo{C/128/4)}, I2oi{4}, I2i{128}]
-      // tv1[I0{A}, I1{B},                          R2i{128}] = tv3[I0{A}, I1{B},                 R2oi{4}, I2i{128}]
+      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
+      // tv1[I0{A}, I1{B},                         R2i{32}] = tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}]
       // clang-format on
 
       // Incrementally, can print in between for debugging
