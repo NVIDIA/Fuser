@@ -305,37 +305,35 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Bool()));
 
 enum class SchedulingMode {
-  noIntraDeviceScheduling,
-  manualScheduling,
+  InterDeviceOnly,
+  Manual,
 };
 
 std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
   switch (mode) {
-    case SchedulingMode::noIntraDeviceScheduling:
-      return out << "noIntraDeviceScheduling";
-    case SchedulingMode::manualScheduling:
-      return out << "manualScheduling";
+    case SchedulingMode::InterDeviceOnly:
+      return out << "InterDeviceOnly";
+    case SchedulingMode::Manual:
+      return out << "Manual";
     default:
       NVF_ERROR(false);
   }
   return out;
 }
-
-using PipelineTestStagedReductionParams = std::tuple<SchedulingMode>;
 class PipelineTestStagedReduction
     : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestStagedReductionParams> {
+      public ::testing::WithParamInterface<SchedulingMode> {
 };
 
 // 1D staged reduction
 // Inputs: X[A,B,C]
 TEST_P(PipelineTestStagedReduction, staged_reduction) {
-  auto [scheduling_mode] = GetParam();
+  auto scheduling_mode = GetParam();
 
   int num_devices = communicator->size();
   int A = num_devices;
   int B = 8;
-  int C = 32;
+  int C = 64;
   std::vector<int64_t> unsharded_input_sizes = {A, B, C};
   std::vector<int64_t> input_sizes(unsharded_input_sizes);
   input_sizes[0] = 1;
@@ -360,12 +358,12 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
 
   // Intra-device reduction scheduling for the first reduction:
   switch (scheduling_mode) {
-    case SchedulingMode::noIntraDeviceScheduling:
+    case SchedulingMode::InterDeviceOnly:
       break;
-    case SchedulingMode::manualScheduling: {
+    case SchedulingMode::Manual: {
       // inspired from NVFuserTest.FusionReduction1_CUDA
       // tv0[I0{A}, I1{B}, I2{C}]
-      tv1->split(2, 128);
+      tv1->split(2, 32);
       // tv1[I0{A}, I1{B}, R2o{C/128}, R2i{128}] = tv0[I0{A}, I1{B}, I2{C}]
       tv1->split(2, 4);
       // clang-format off
@@ -416,9 +414,9 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
 INSTANTIATE_TEST_SUITE_P(
     SchedulingModes,
     PipelineTestStagedReduction,
-    ::testing::Combine(::testing::Values(
-        SchedulingMode::noIntraDeviceScheduling,
-        SchedulingMode::manualScheduling)));
+    ::testing::Values(
+        SchedulingMode::InterDeviceOnly,
+        SchedulingMode::Manual));
 
 } // namespace nvfuser
 
