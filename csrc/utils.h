@@ -279,7 +279,11 @@ SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
 using ConstCharStar = const char*;
 SPECIALIZE_PRINTER(ConstCharStar);
+using VoidStar = void*;
+SPECIALIZE_PRINTER(VoidStar);
+SPECIALIZE_PRINTER(uint32_t);
 SPECIALIZE_PRINTER(int64_t);
+SPECIALIZE_PRINTER(uint64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
 SPECIALIZE_PRINTER(UnaryOpType);
@@ -291,7 +295,9 @@ SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
+SPECIALIZE_PRINTER(std::vector<uint32_t>);
 SPECIALIZE_PRINTER(std::vector<int64_t>);
+SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
