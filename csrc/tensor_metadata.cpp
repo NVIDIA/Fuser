@@ -315,8 +315,11 @@ inferAndValidateAllocationSizesAndStrides(
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);
   }
-  // Validate final sizes and strides
-  validateAllocationSizesAndStrides(alloc, tv->getContiguity(), sizes, strides);
+  // Only validate final sizes and strides when we have a non-empty tensor.
+  if (tensor.numel() != 0) {
+    validateAllocationSizesAndStrides(
+        alloc, tv->getContiguity(), sizes, strides);
+  }
   return {std::move(sizes), std::move(strides)};
 }
 
@@ -340,14 +343,9 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
-  // If tensor is sharded then the input holds the sharded sizes.
-  // Initialize logical size with unsharded size.
-  if (isSharded(tv)) {
-    metadata->logical_size_data = unshardedSize(tv, input.sizes());
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-  } else {
-    metadata->logical_size = input.sizes();
-  }
+  // If tensor is sharded then logical_size and logical_stride will
+  // refer to size and stride of the sharded tensor.
+  metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
   if (tv->hasAllocation()) {
     auto allocation_data =
