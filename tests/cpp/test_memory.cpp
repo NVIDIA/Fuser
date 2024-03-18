@@ -457,7 +457,8 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->split(0, 32);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
