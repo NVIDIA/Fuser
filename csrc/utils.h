@@ -14,6 +14,8 @@
 #include <visibility.h>
 
 #include <debug.h>
+#include <mma_type.h>
+#include <tma.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
@@ -291,6 +293,10 @@ SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
 SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(tma::TensorMapInterleave);
+SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
+SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
 SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
