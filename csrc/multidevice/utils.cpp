@@ -32,13 +32,6 @@ const std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
   return sharded_ids;
 }
 
-void print(const std::unordered_set<IterDomain*> ids) {
-  for (auto i : ids) {
-    std::cout << i->toString() << " ";
-  }
-  std::cout << std::endl;
-}
-
 // For a resharding expression, either a set or reduce, returns
 // (1) sharded IterDomains that are added by the expression
 // i.e. sharded IterDomains that are present in the output, but not the input.
@@ -109,15 +102,26 @@ bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
 } // namespace
 
 bool isSharded(TensorView* tv) {
-  auto sharded_domains = getShardedIterDomains(tv);
-  NVF_ERROR(
-      sharded_domains.size() <= 1,
-      "Cannot shard multiple tensorview axes on the same mesh axis");
-  // Currently, we do not allow split/merge if tv is sharded.
-  NVF_ERROR(
-      sharded_domains.empty() ||
-      tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  return !sharded_domains.empty();
+  bool is_sharded = false;
+  auto rids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto ids = TensorDomain::noReductions(tv->getLeafDomain());
+  for (auto i : c10::irange(ids.size())) {
+    // Only one axis can be sharded on DIDx.
+    NVF_ERROR(
+        !(is_sharded && ids[i]->isDeviceDim()),
+        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        tv->toString());
+
+    if (ids[i]->isDeviceDim()) {
+      // Currently do not support split/merge on a device dimension.
+      NVF_ERROR(
+          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
+          "Cannot parallelize DIDx on a split/merge axis ",
+          ids[i]->toString());
+      is_sharded = true;
+    }
+  }
+  return is_sharded;
 }
 
 template <typename TvIterator>
@@ -217,7 +221,7 @@ void insertReshardings(Fusion* fusion) {
   }
 }
 
-void insertPermutes(Fusion* fusion) {
+void insertShardedAxisReordering(Fusion* fusion) {
   auto exprs = fusion->exprs();
   std::vector<Expr*> reshard_exprs;
   for (auto expr : exprs) {
@@ -364,15 +368,10 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-int64_t dimWithParallelType(
-    TensorView* tv,
-    ParallelType pt,
-    bool withReductions) {
-  auto ids = withReductions
-      ? tv->getMaybeRFactorDomain()
-      : TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+int64_t getShardedAxis(TensorView* tv) {
+  auto ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   for (size_t i = 0; i < ids.size(); ++i) {
-    if (ids[i]->getParallelType() == pt) {
+    if (ids[i]->getParallelType() == ParallelType::DIDx) {
       return static_cast<int64_t>(i);
     }
   }

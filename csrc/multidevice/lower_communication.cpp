@@ -397,15 +397,18 @@ void lowerToReduceScatter(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
-  auto shard_dim = dimWithParallelType(output_tv, ParallelType::DIDx, true);
-  auto red_dim = output_tv->getReductionAxis().value();
+  auto red_axis = output_tv->getReductionAxis().value();
+  auto shard_axis = getShardedAxis(output_tv);
+  if (red_axis <= shard_axis) {
+    shard_axis++;
+  }
   std::cout << "RS " << input_tv->toString() << " " << output_tv->toString() << std::endl;
-  std::cout << "ReduceScatter " << red_dim << " " << shard_dim << std::endl;
+  std::cout << "ReduceScatter " << red_axis << " " << shard_axis << std::endl;
   for (auto i : c10::irange(mesh.vector().size())) {
     std::vector<at::indexing::TensorIndex> indices(
         input_tensor.dim(), at::indexing::Slice());
-    indices[shard_dim] = at::indexing::Slice(i, i + 1);
-    auto slice = input_tensor.index(indices).squeeze(red_dim);
+    indices[shard_axis] = at::indexing::Slice(i, i + 1);
+    auto slice = input_tensor.index(indices).squeeze(red_axis);
     params.src_bufs.push_back(slice);
   }
 

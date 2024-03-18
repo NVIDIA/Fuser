@@ -45,18 +45,15 @@ void unshard(TensorView*);
 void insertReshardings(Fusion* fusion);
 
 // This can only run after the insertResharding pass.
-// Expects all resharding ops are either a set or reduction.
+// Assumes all resharding ops are either a set or reduction.
 // For each resharding operation that requires communication
 // over a noncontiguous slices of the tensor, this pass
 // inserts permutations necessary to push the device parallel axis
 // to the front so that communication operations are contiguous.
-void insertPermutes(Fusion* fusion);
+void insertShardedAxisReordering(Fusion* fusion);
 
-// Returns the index of the axis with ParallelType
-// if none return -1.
-int64_t dimWithParallelType(
-    TensorView*,
-    ParallelType,
-    bool withReductions = false);
+// Returns the index of the a sharded axis if none return -1.
+// TODO: Assumes no merges/splits on sharded axis.
+int64_t getShardedAxis(TensorView*);
 
 } // namespace nvfuser
