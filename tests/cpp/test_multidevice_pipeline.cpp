@@ -322,8 +322,7 @@ std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
 }
 class PipelineTestStagedReduction
     : public PipelineTest,
-      public ::testing::WithParamInterface<SchedulingMode> {
-};
+      public ::testing::WithParamInterface<SchedulingMode> {};
 
 // 1D staged reduction
 // Inputs: X[A,B,C]
@@ -414,9 +413,7 @@ TEST_P(PipelineTestStagedReduction, staged_reduction) {
 INSTANTIATE_TEST_SUITE_P(
     SchedulingModes,
     PipelineTestStagedReduction,
-    ::testing::Values(
-        SchedulingMode::InterDeviceOnly,
-        SchedulingMode::Manual));
+    ::testing::Values(SchedulingMode::InterDeviceOnly, SchedulingMode::Manual));
 
 } // namespace nvfuser
 

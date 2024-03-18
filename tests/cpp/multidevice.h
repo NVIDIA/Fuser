@@ -102,7 +102,8 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<at::Tensor> ref_unsharded_outputs;
   MultiDeviceExecutorParams multi_device_executor_params;
   // if true, the validation is performed with prescribed reference data stored
-  // in ref_unsharded_outputs. Otherwise, the expected output is computed automatically
+  // in ref_unsharded_outputs. Otherwise, the expected output is computed
+  // automatically
   bool validate_with_prescribed_values = false;
 };
 
