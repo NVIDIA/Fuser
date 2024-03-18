@@ -3434,7 +3434,7 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 
 } // namespace
 
-Val* Index::getCpAsyncBulkGmemIndex(
+std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     TensorView* producer_tv,
     TensorView* consumer_tv,
     Val* mbarrier,
@@ -3500,8 +3500,8 @@ Val* Index::getCpAsyncBulkGmemIndex(
     const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
         loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
 
-    indexing = std::make_unique<IndexCompute>(
-        std::move(producer_indexing_from_idgraph.index));
+    indexing =
+        std::make_unique<IndexCompute>(producer_indexing_from_idgraph.index);
   } else {
     consumer_to_gmem = [](IterDomain* id) -> IterDomain* { return id; };
     auto index_from_id_graph =
@@ -3839,7 +3839,15 @@ Val* Index::getCpAsyncBulkGmemIndex(
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
-  return IrBuilder::create<kir::TensorIndex>(gmem_tv, index);
+  // get expected bytes for the complete_tx mechanism
+  Val* expected_bytes = IrBuilder::create<Val>(itemsize, DataType::Index);
+  for (auto v : tile_sizes) {
+    expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, v);
+  }
+  expected_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+
+  return {IrBuilder::create<kir::TensorIndex>(gmem_tv, index), expected_bytes};
 }
 
 } // namespace nvfuser

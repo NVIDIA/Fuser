@@ -586,9 +586,9 @@ class Index {
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       DataType dtype);
 
-  //! Compute the global index for isCpAsyncBulk, currently just generate naive
-  //! zeros
-  static Val* getCpAsyncBulkGmemIndex(
+  //! Compute the global index and the expected bytes for complete_tx mechanism
+  //! for CpAsyncBulk.
+  static std::pair<Val*, Val*> getCpAsyncBulkGmemIndex(
       TensorView* producer_tv,
       TensorView* consumer_tv,
       Val* mbarrier,
