@@ -72,7 +72,6 @@ NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
-PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
@@ -135,9 +134,6 @@ for i, arg in enumerate(sys.argv):
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         BUILD_SETUP = False
-    if arg in ["bdist_wheel"]:
-        # bdist_wheel doesn't install entry-points, so we can't really patch it yet
-        PATCH_NVFUSER = False
     forward_args.append(arg)
 sys.argv = forward_args
 
@@ -407,7 +403,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser", "nvfuser_python_utils"],
+            packages=["nvfuser"],
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
@@ -423,19 +419,8 @@ def main():
                 "test": ["numpy", "expecttest", "pytest"],
                 **EXTRAS_REQUIRE,
             },
-            entry_points={
-                "console_scripts": [
-                    "patch-nvfuser = nvfuser_python_utils:patch_installation",
-                ],
-            },
             license="BSD-3-Clause",
         )
-
-        if BUILD_SETUP and PATCH_NVFUSER:
-            sys.path.append("./nvfuser_python_utils")
-            from patch_nvfuser import patch_installation
-
-            patch_installation()
 
 
 if __name__ == "__main__":

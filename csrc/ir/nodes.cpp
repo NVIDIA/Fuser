@@ -4459,14 +4459,20 @@ Val* CatOp::getPred(int input_idx) const {
 
 std::vector<PolymorphicValue> CatOp::evaluate(
     const ExpressionEvaluator& ee,
-    const std::vector<PolymorphicValue>& inputs) const {
-  std::vector<at::Tensor> in;
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  // CatOp is preceded by a PadOp internally.
+  // For ATen evaluation, directly compute the unpadded inputs.
+  std::vector<at::Tensor> unpadded_inputs;
+  unpadded_inputs.reserve(inputs().size());
   int64_t concat_dim = concatenatedDim();
-  for (auto i : c10::irange(inputs.size())) {
-    auto unpadded_inp = ee.evaluate(input(i)->definition()->input(0));
-    in.push_back(unpadded_inp.as<at::Tensor>());
+  for (Val* inp : inputs()) {
+    NVF_CHECK(
+        inp->definition() != nullptr && inp->definition()->isA<PadOp>(),
+        "Expected CatOp to be preceded by a PadOp.");
+    auto eval_i = ee.evaluate(inp->definition()->input(0), known_values);
+    unpadded_inputs.push_back(eval_i.as<at::Tensor>());
   }
-  return {at::cat(in, concat_dim)};
+  return {at::cat(unpadded_inputs, concat_dim)};
 }
 
 } // namespace nvfuser
