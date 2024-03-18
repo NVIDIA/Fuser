@@ -255,7 +255,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // is guaranteed to be a set.
     if (!shard_deletions.empty()) {
       auto id = shard_deletions[0];
-      auto idx = input->domain()->posOf(id);
+      int idx = static_cast<int>(input->domain()->posOf(id));
       if (isContiguousShard(input, id)) {
         continue;
       }
@@ -296,9 +296,9 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // For reduce scatter, determine if the reduction axis shifted to the
       // right by 1.
       auto red_axis = output->getReductionAxis();
-      int64_t offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
+      int offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
       if (expr->isA<ReductionOp>()) {
-        int64_t raxis = static_cast<int64_t>(red_axis.value()) + offset;
+        int raxis = static_cast<int>(red_axis.value()) + offset;
         input_permute->axis(raxis)->parallelize(ptype);
         auto red_expr = dynamic_cast<ReductionOp*>(expr);
         output_permute = reductionOp(
@@ -313,7 +313,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
 
       output_permute->axis(0)->parallelize(ptype);
       output_permute->setDeviceMesh(output->getDeviceMesh());
-      int64_t sharded_idx = idx - offset;
+      int sharded_idx = idx - offset;
       TensorView* new_output = permute(output_permute, {{0, sharded_idx}});
       new_output->axis(sharded_idx)->parallelize(ptype);
       new_output->setDeviceMesh(output->getDeviceMesh());
