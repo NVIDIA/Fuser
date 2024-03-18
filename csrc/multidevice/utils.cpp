@@ -8,7 +8,6 @@
 
 #include <compute_at_map.h>
 #include <device_lower/utils.h>
-#include <id_model/id_model.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <multidevice/lower_communication.h>
@@ -16,7 +15,6 @@
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/utils.h>
-#include <val_graph.h>
 
 #include <c10/util/irange.h>
 
@@ -58,7 +56,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> shardMap(
 
   const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
   for (auto [id1, id2] : c2p_map) {
-    if (id1 != id2) {
+    if (!id1->sameAs(id2)) {
       shard_additions.push_back(id1);
     }
   }
@@ -67,7 +65,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> shardMap(
   for (auto [id1, id2] : p2c_map) {
     // TODO: temporarily don't push back reductions.
     // DIDx(i0) -> r(i0) should be represented as DIDx(i0)->r(DIDx(i0))
-    if (id1 != id2 && !id2->isReduction()) {
+    if (!id1->sameAs(id2) && !id2->isReduction()) {
       shard_deletions.push_back(id1);
     }
   }

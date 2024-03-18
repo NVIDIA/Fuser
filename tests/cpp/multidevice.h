@@ -51,7 +51,7 @@ class MultiDeviceTest : public NVFuserTest {
       at::Tensor tensor,
       TensorView* tv,
       DeviceIdxType deviceId) {
-  if (isSharded(tv)) {
+    if (isSharded(tv)) {
       auto sharded_dim = getShardedAxis(tv);
       int i = 0;
       auto devices = tv->getDeviceMesh().vector();
@@ -62,7 +62,7 @@ class MultiDeviceTest : public NVFuserTest {
       std::vector<at::indexing::TensorIndex> indices(
           tensor.dim(), at::indexing::Slice());
       indices[sharded_dim] = at::indexing::Slice(i, i + 1);
-      auto x =  tensor.index(indices).contiguous();
+      auto x = tensor.index(indices).contiguous();
       return x;
     } else {
       return tensor;

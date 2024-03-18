@@ -2183,6 +2183,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
     alloc_inds.at(i) = alloc_ind;
   }
+
   return alloc_inds;
 }
 

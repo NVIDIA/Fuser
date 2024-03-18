@@ -141,8 +141,6 @@ CommParams createParamsForGatherScatter(
 // Adds one or zero Scatter communication to the vector 'comms'
 void lowerToScatter(
     DeviceIdxType my_device_index,
-    // const DeviceMesh& sender_mesh,
-    // const DeviceMesh& receiver_mesh,
     TensorView* input_tv,
     TensorView* output_tv,
     at::Tensor input_tensor,
@@ -318,7 +316,7 @@ CommParams createParamsForReduce(
     params.team.push_back(root);
   }
 
-  auto sharded_dim =output_tv->getReductionAxis().value();
+  auto sharded_dim = output_tv->getReductionAxis().value();
   if (mesh.has(my_device_index)) {
     params.src_bufs = {input_tensor.squeeze(sharded_dim)};
   }
@@ -338,7 +336,7 @@ CommParams createParamsForReduce(
 
 void lowerToReduce(
     DeviceIdxType my_device_index,
-    TensorView* input_tv, 
+    TensorView* input_tv,
     TensorView* output_tv,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
@@ -397,13 +395,13 @@ void lowerToReduceScatter(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
+  // TODO: Clean up once allocation domain for sharded tensors is
+  // better supported.
   auto red_axis = output_tv->getReductionAxis().value();
   auto shard_axis = getShardedAxis(output_tv);
   if (red_axis <= shard_axis) {
     shard_axis++;
   }
-  std::cout << "RS " << input_tv->toString() << " " << output_tv->toString() << std::endl;
-  std::cout << "ReduceScatter " << red_axis << " " << shard_axis << std::endl;
   for (auto i : c10::irange(mesh.vector().size())) {
     std::vector<at::indexing::TensorIndex> indices(
         input_tensor.dim(), at::indexing::Slice());
@@ -515,11 +513,16 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
         lowerToAllgather(
-            my_device_index, input_tv, output_tv, input_tensor, output_tensor, comms);
+            my_device_index,
+            input_tv,
+            output_tv,
+            input_tensor,
+            output_tensor,
+            comms);
       } else {
         lowerToGather(
             my_device_index,
-            input_tv, 
+            input_tv,
             output_tv,
             input_tensor,
             output_tensor,
