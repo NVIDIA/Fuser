@@ -3642,7 +3642,9 @@ Val* Index::getCpAsyncBulkGmemIndex(
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  for (auto i : c10::irange(gmem_tv->getMaybeAllocationDomain().size())) {
+  auto allocation_domain =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  for (auto i : c10::irange((int64_t)allocation_domain.size())) {
     auto id = gmem_tv->getMaybeAllocationDomain()[i];
     if (id->isBroadcast() || id->isReduction()) {
       continue;
