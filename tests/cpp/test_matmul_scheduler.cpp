@@ -25,11 +25,16 @@ class MatmulSchedulerTest : public NVFuserTest {
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  MatmulSchedulerTest() : optimization_guard_(false) {}
+  MatmulSchedulerTest() : optimization_guard_(false) {
+    disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
+  }
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
+
+  std::unique_ptr<DisableOptionsGuard> disable_options_ptr =
+      std::make_unique<DisableOptionsGuard>();
 };
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
@@ -43,11 +48,16 @@ class PrecisionParametrizedTest
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  PrecisionParametrizedTest() : optimization_guard_(false) {}
+  PrecisionParametrizedTest() : optimization_guard_(false) {
+    disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
+  }
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
+
+  std::unique_ptr<DisableOptionsGuard> disable_options_ptr =
+      std::make_unique<DisableOptionsGuard>();
 };
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
