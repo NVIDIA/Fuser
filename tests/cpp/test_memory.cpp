@@ -398,7 +398,7 @@ TEST_P(TMALdstTest, SimpleStore) {
   tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  scheduleTile({tv1, tv2}, shape, swizzle);
+  scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   markAllDimsExceptFirstAsBulk(tv2);
 
