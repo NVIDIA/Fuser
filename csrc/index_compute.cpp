@@ -3607,29 +3607,30 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           def->inner(),
           " is.");
       IterDomain* tile_id = def->in();
-      auto def = dynamic_cast<Split*>(tile_id->definition());
+      auto def2 = dynamic_cast<Split*>(tile_id->definition());
       NVF_ERROR(
-          def != nullptr,
+          def2 != nullptr,
           "When an originating bulk IterDomain is an outer of a split, ",
           "The parent of an originating bulk IterDomain must be the output of a split, but ",
           tile_id,
           " is not.");
       NVF_ERROR(
-          def->inner() == tile_id,
+          def2->inner() == tile_id,
           "When an originating bulk IterDomain is an outer of a split, ",
           "the parent of this originating bulk IterDomain must an inner of a split, but ",
           tile_id,
           " is not.");
       NVF_ERROR(
-          bulk_ids.count(def->outer()) == 0,
+          bulk_ids.count(def2->outer()) == 0,
           "When an originating bulk IterDomain is an outer of a split, ",
           "the outer of its parent's definition must not be a bulk IterDomain, but ",
-          def->outer(),
+          def2->outer(),
           " is.");
-      IterDomain* global_id = def->in();
+      IterDomain* global_id = def2->in();
       global_ids.push_back(global_id);
       global_id_to_tile_id[global_id] = tile_id;
       global_id_to_orig_bulk_id[global_id] = id;
+      global_id_to_inner_id[global_id] = def->inner();
     }
   }
 
@@ -3799,8 +3800,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     element_strides_inner_to_outer.push_back(element_strides.at(dim - i - 1));
     indices_inner_to_outer.push_back(indices.at(dim - i - 1));
     if (i > 0) {
+      // TODO: validate stride
       tensor_strides_inner_to_outer.push_back(
           SimplifyingIrBuilder::mulExpr(strides.at(dim - i - 1), itemsize));
+    } else {
+      // TODO: validate stride is 1
     }
   }
 
