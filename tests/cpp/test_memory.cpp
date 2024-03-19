@@ -547,6 +547,72 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TMAIndexingTest, Advanced) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(8)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false, true, true, false, true, true})
+                 .build();
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [I1, I2, I3, I4, I5, I6, I7, I8]
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(1);
+    tv->merge(1);
+    tv->merge(2);
+    // [I1*I2*I3, I4*I5*I6, I7*I8]
+    tv->split(2, 32);
+    tv->split(0, 16);
+    // [I1*I2*I3/16, 16, I4*I5*I6, I7*I8/32, 32]
+    tv->split(4, 8);
+    tv->split(3, 2);
+    tv->split(2, 32);
+    tv->split(3, 4);
+    tv->split(1, 2);
+    tv->split(0, 4);
+    // [I1*I2*I3/16/4, 4, 16/2, 2, I4*I5*I6/32, 32/4, 4',
+    //  I7*I8/32/2, 2', 32/8, 8]
+    tv->reorder({{1, 6}, {3, 7}, {5, 8}, {8, 9}});
+    // [I1*I2*I3/16/4, 16/2, I4*I5*I6/32, 4', I7*I8/32/2, 32/8,
+    //  4, 2, 32/4, 2', 8]
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(1);
+    tv->merge(1);
+    tv->merge(1);
+    tv->merge(1);
+    // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 4' * I7*I8/32/2 * 32/8,
+    //  4 * 2 * 32/4 * 2' * 8]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 // TODO: improve validation of TMA, and add tests for invalid cases.
 
 class TMAMiscTest : public TMATest {};
