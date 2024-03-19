@@ -456,9 +456,9 @@ TEST_F(TMAIndexingTest, Load2DTensorWith1DTMA) {
   for (auto tv : {tv1, tv2}) {
     tv->merge(0);
     tv->split(0, 32);
-    tv->axis(1)->parallelize(ParallelType::Bulk);
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024, 1024}, options);
@@ -489,11 +489,11 @@ TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
     tv->split(0, 1024);
     tv->split(1, 32);
     tv->split(0, 4);
-    tv->axis(1)->parallelize(ParallelType::Bulk);
-    tv->axis(3)->parallelize(ParallelType::Bulk);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
   }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024 * 1024}, options);
@@ -523,10 +523,10 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
     tv->split(1, 2);
-    tv->axis(1)->parallelize(ParallelType::Bulk);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
   }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024 * 1024}, options);
