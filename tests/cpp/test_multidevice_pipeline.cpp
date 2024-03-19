@@ -134,21 +134,40 @@ TEST_F(PipelineTest, Pipeline) {
   executeAndValidate();
 }
 
-//(backend type, first stage's mesh, second stage's mesh (if not null), is first
-// stage sharded?, is second
-// stage sharded?, do_reduction?, sharded dimension, use_fusion_executor_cache?)
-using PipelineTestTwoStagesParams = std::tuple<
-    CommunicatorBackend,
-    DeviceMesh,
-    DeviceMesh,
-    bool,
-    bool,
-    bool,
-    int,
-    bool>;
-class PipelineTestTwoStages
-    : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
+struct PipelineTestTwoStagesParams {
+  CommunicatorBackend backend;
+  DeviceMesh first_stage_mesh;
+  DeviceMesh second_stage_mesh;
+  bool first_stage_sharded;
+  bool second_stage_sharded;
+  bool do_reduction;
+  int sharded_dim;
+  bool use_fusion_executor_cache;
+
+  using TestTuple = std::tuple<
+      CommunicatorBackend,
+      DeviceMesh,
+      DeviceMesh,
+      bool,
+      bool,
+      bool,
+      int,
+      bool>;
+
+  PipelineTestTwoStagesParams(const TestTuple& tuple)
+      : backend(std::get<0>(tuple)),
+        first_stage_mesh(std::get<1>(tuple)),
+        second_stage_mesh(std::get<2>(tuple)),
+        first_stage_sharded(std::get<3>(tuple)),
+        second_stage_sharded(std::get<4>(tuple)),
+        do_reduction(std::get<5>(tuple)),
+        sharded_dim(std::get<6>(tuple)),
+        use_fusion_executor_cache(std::get<7>(tuple)) {}
+};
+
+class PipelineTestTwoStages : public PipelineTest,
+                              public testing::WithParamInterface<
+                                  PipelineTestTwoStagesParams::TestTuple> {};
 
 TEST_P(PipelineTestTwoStages, Communication) {
   auto
@@ -220,7 +239,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
 namespace {
 auto all_backends =
-    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -228,101 +247,108 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = ::testing::Values(mesh2, mesh3, mesh4);
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
 
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        all_meshes,
-        all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            all_meshes,
+            all_meshes,
+            testing::Values(true),
+            testing::Values(false),
+            testing::Values(false),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        all_meshes,
-        all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            all_meshes,
+            all_meshes,
+            testing::Values(false),
+            testing::Values(true),
+            testing::Values(false),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        all_meshes,
-        all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            all_meshes,
+            all_meshes,
+            testing::Values(false),
+            testing::Values(false),
+            testing::Values(false),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            testing::Values(mesh3, mesh4),
+            testing::Values(mesh3, mesh4),
+            testing::Values(true),
+            testing::Values(true),
+            testing::Values(false),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        ::testing::Values(mesh0, mesh1),
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            testing::Values(mesh0, mesh1),
+            testing::Values(mesh_null), // the same mesh is used for all tensors
+            testing::Values(true),
+            testing::Values(true),
+            testing::Values(false),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        all_nontrivial_meshes,
-        all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            all_nontrivial_meshes,
+            all_meshes,
+            testing::Values(true),
+            testing::Values(false),
+            testing::Values(true),
+            testing::Values(0),
+            testing::Bool())));
 
 INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        all_nontrivial_meshes,
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(0),
-        ::testing::Bool()));
+    testing::ConvertGenerator<PipelineTestTwoStagesParams::TestTuple>(
+        testing::Combine(
+            all_backends,
+            all_nontrivial_meshes,
+            testing::Values(mesh_null), // the same mesh is used for all tensors
+            testing::Values(true),
+            testing::Values(true),
+            testing::Values(true),
+            testing::Values(0),
+            testing::Bool())));
 
 } // namespace nvfuser
 

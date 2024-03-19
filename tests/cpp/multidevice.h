@@ -47,6 +47,11 @@ class MultiDeviceEnvironment : public testing::Environment {
 
 class MultiDeviceTest : public NVFuserTest {
  public:
+  // Given an aten tensor, TensorView the tensor is bound to, and deviceId
+  // returns a shard of the tensor according the sharding annotation in tv
+  // for the deviceId. If tensor is not sharded returns the original tensor.
+  // TODO: If deviceId is not part of the mesh this should return an empty
+  // tensor currently, we don't support this, so for now it returns a slice.
   static at::Tensor shardTensor(
       at::Tensor tensor,
       TensorView* tv,
@@ -54,7 +59,7 @@ class MultiDeviceTest : public NVFuserTest {
     if (isSharded(tv)) {
       auto sharded_dim = 0;
       int i = 0;
-      auto devices = tv->getDeviceMesh().vector();
+      const auto& devices = tv->getDeviceMesh().vector();
       auto it = std::find(devices.begin(), devices.end(), deviceId);
       if (it != devices.end()) {
         i = std::distance(devices.begin(), it);

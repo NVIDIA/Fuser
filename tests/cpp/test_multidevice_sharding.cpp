@@ -41,7 +41,7 @@ TEST_F(NVFuserTest, TestIsSharded) {
 }
 
 class ShardedComputeTest : public NVFuserTest,
-                           public ::testing::WithParamInterface<bool> {};
+                           public testing::WithParamInterface<bool> {};
 
 TEST_P(ShardedComputeTest, ComputeIndex) {
   auto concreteTv = GetParam();
@@ -82,12 +82,12 @@ TEST_P(ShardedComputeTest, ComputeIndex) {
   testValidate(fusion.get(), outputs, {a_}, outputs_, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(InputType, ShardedComputeTest, ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(InputType, ShardedComputeTest, testing::Bool());
 
 // params: concrete vs symbolic input, sharded axis
-class ShardingTest
-    : public MultiDeviceTest,
-      public ::testing::WithParamInterface<std::tuple<bool, int>> {};
+class ShardingTest : public MultiDeviceTest,
+                     public testing::WithParamInterface<std::tuple<bool, int>> {
+};
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
@@ -182,7 +182,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 INSTANTIATE_TEST_SUITE_P(
     OutermostShard,
     ShardingTest,
-    ::testing::Combine(::testing::Bool(), ::testing::Values(0)));
+    testing::Combine(testing::Bool(), testing::Values(0)));
 
 } // namespace nvfuser
 #endif
