@@ -1326,8 +1326,11 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
             uses_to_modify.begin(),
             uses_to_modify.end(),
             [&](Expr* edge_val_use_expr) {
-              return edge_val_use_expr
-                         ->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
+              return edge_val_use_expr->isOneOf<
+                         SelectOp,
+                         SliceOp,
+                         IndexSelectOp,
+                         TorchGatherOp>() &&
                   edge_val_use_expr->input(0) == edge_tv;
             }),
         uses_to_modify.end());

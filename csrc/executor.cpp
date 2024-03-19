@@ -1572,6 +1572,10 @@ void FusionExecutor::initializeExecutorEntry(
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
+  for (const auto& entry : kernel()->summary().validations) {
+    NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
+  }
+
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
