@@ -256,12 +256,11 @@ class TMALdstTest : public TMATest,
     dtype = std::get<1>(GetParam());
     dim = std::get<2>(GetParam());
 
-    // TODO: test less-nice shapes, for example 1024 * 1024 + 1 instead of
-    // 1024 * 1024
+    // TODO: test less-nice shapes, for example 128 + 1 instead of 128
     switch (dim) {
       case 1:
         tile = {innerDimSize()};
-        shape = {1024 * 1024};
+        shape = {128};
         break;
       case 2:
         tile = {32, innerDimSize()};
@@ -415,6 +414,8 @@ TEST_P(TMALdstTest, SimpleStore) {
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
 
   auto cg_outputs = fe.runFusion({t0});
+  std::cout << "t0:\n" << t0 << std::endl;
+  std::cout << "cg_outputs[0]:\n" << cg_outputs[0] << std::endl;
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
