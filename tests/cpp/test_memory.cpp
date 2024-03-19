@@ -256,6 +256,8 @@ class TMALdstTest : public TMATest,
     dtype = std::get<1>(GetParam());
     dim = std::get<2>(GetParam());
 
+    // TODO: test less-nice shapes, for example 1024 * 1024 + 1 instead of
+    // 1024 * 1024
     switch (dim) {
       case 1:
         tile = {innerDimSize()};

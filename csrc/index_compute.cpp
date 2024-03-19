@@ -3749,6 +3749,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   std::vector<Val*> strides;
   std::vector<Val*> tile_sizes;
+  std::vector<Val*> orig_bulk_ids_extents;
   std::vector<Val*> element_strides;
   std::vector<Val*> indices;
   std::unordered_set<IterDomain*> seen;
@@ -3764,11 +3765,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
     auto it = global_id_to_inner_id.find(id);
     if (it != global_id_to_inner_id.end()) {
-      // TODO: validate that when interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, the first element of this array is one.
+      // TODO: validate that when interleave is CU_TENSOR_MAP_INTERLEAVE_NONE,
+      // the first element of this array is one.
       element_strides.push_back(it->second->extent());
     } else {
       element_strides.push_back(gmem_tv->fusion()->oneVal());
     }
+    orig_bulk_ids_extents.push_back(global_id_to_orig_bulk_id.at(id)->extent());
 
     auto index_it = indexing->indexMap().find(id);
     NVF_ERROR(
@@ -3852,7 +3855,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // get expected bytes for the complete_tx mechanism
   Val* expected_bytes = IrBuilder::create<Val>(itemsize, DataType::Index);
-  for (auto v : tile_sizes) {
+  for (auto v : orig_bulk_ids_extents) {
     expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, v);
   }
   expected_bytes =
