@@ -3630,7 +3630,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       global_ids.push_back(global_id);
       global_id_to_tile_id[global_id] = tile_id;
       global_id_to_orig_bulk_id[global_id] = id;
-      global_id_to_inner_id[global_id] = def->inner();
+      global_id_to_inner_id[global_id] = def2->inner();
     }
   }
 
