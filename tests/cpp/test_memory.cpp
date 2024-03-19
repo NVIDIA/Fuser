@@ -526,7 +526,7 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
     tv->split(1, 2);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
-    tv->axis(2)->parallelize(ParallelType::BIDz);
+    tv->axis(3)->parallelize(ParallelType::BIDz);
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(4)->parallelize(ParallelType::Bulk);
