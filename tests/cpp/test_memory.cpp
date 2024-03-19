@@ -263,20 +263,20 @@ class TMALdstTest : public TMATest,
         shape = {128};
         break;
       case 2:
-        tile = {32, innerDimSize()};
-        shape = {1024, 1024};
+        tile = {2, innerDimSize()};
+        shape = {4, 128};
         break;
       case 3:
-        tile = {4, 8, innerDimSize()};
-        shape = {32, 128, 1024};
+        tile = {2, 4, innerDimSize()};
+        shape = {4, 8, 128};
         break;
       case 4:
-        tile = {4, 4, 4, innerDimSize()};
-        shape = {32, 32, 32, 128};
+        tile = {2, 4, 8, innerDimSize()};
+        shape = {4, 8, 16, 128};
         break;
       case 5:
-        tile = {4, 4, 4, 4, innerDimSize()};
-        shape = {32, 32, 32, 32, 128};
+        tile = {2, 4, 8, 16, innerDimSize()};
+        shape = {4, 8, 16, 32, 128};
         break;
       default:
         NVF_ERROR(false, "Invalid dimension");
