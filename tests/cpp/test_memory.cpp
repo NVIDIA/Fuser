@@ -260,7 +260,7 @@ class TMALdstTest : public TMATest,
     switch (dim) {
       case 1:
         tile = {innerDimSize()};
-        shape = {128};
+        shape = {1024 * 1024};
         break;
       case 2:
         tile = {2, innerDimSize()};

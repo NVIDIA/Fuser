@@ -637,7 +637,7 @@ const char* AsyncWait::ptx() const {
         return "cp.async.wait_group";
       }
     case AsyncOpType::CpAsyncBulk:
-      return "cp.async.bulk.wait_group.read";
+      return "cp.async.bulk.wait_group";
     case AsyncOpType::WgMma:
       return "wgmma.wait_group.sync.aligned";
     default:
