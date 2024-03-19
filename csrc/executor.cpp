@@ -328,6 +328,9 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  for (const auto& hook : lowering_hooks_) {
+    hook(lowered_.get());
+  }
   lowered_->run();
 
   kir::Kernel* kernel = lowered_->kernel();
@@ -1024,10 +1027,10 @@ at::Tensor allocateOutput(
   }
 }
 
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
+// Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocateOutputs(
-    const kir::Kernel* kernel,
+    const Fusion* fusion,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -1051,23 +1054,23 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<std::pair<int64_t, Val*>> sorted_outs;
   sorted_outs.reserve(num_outs);
   for (const auto out_index : c10::irange(num_outs)) {
-    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
+    sorted_outs.emplace_back(out_index, fusion->outputs()[out_index]);
   }
   std::sort(
       sorted_outs.begin(),
       sorted_outs.end(),
-      [kernel](
+      [fusion](
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type == AllocationType::New &&
-            kernel->getOutputAlias(rhs.second).type != AllocationType::New);
+            fusion->getOutputAlias(lhs.second).type == AllocationType::New &&
+            fusion->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
     at::Tensor out_tensor = allocateOutput(
-        output_info[out_index], kernel->getOutputAlias(out), device, ee);
+        output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via
@@ -1342,46 +1345,53 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+namespace {
 
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
-
-  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
-}
-
-std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getOutputBufferInfo(
-        const KernelArgumentHolder& args,
-        ExpressionEvaluator& expr_eval,
-        DataType index_dtype) {
+//! Return information necessary for allocating output tensors. Input
+//! and output tensors are allowed to alias each other, which is
+//! specified by the list of int pairs of input and output indices
+std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
+    const KernelArgumentHolder& args,
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    const Fusion* fusion) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
-  const auto kernel = lowered_->kernel();
-  std::vector<GlobalBufferInfo> outputs;
+  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
+  outputs.reserve(fusion->outputs().size());
   NVF_ERROR(
-      args.size() == kernel->inputs().size(),
-      "kernel arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    auto out_val = kernel->outputs()[out_i];
-    auto output = out_val->as<TensorView>();
-
-    GlobalBufferInfo info;
-    info.tv = dynamic_cast<TensorView*>(out_val);
+      args.size() == fusion->inputs().size(),
+      "fusion arguments length does not match runtime arguments.");
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+    auto out_val = fusion->outputs()[out_i];
     NVF_ERROR(
-        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+        out_val->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
 
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    FusionExecutor::GlobalBufferInfo info;
+    info.tv = out_val->as<TensorView>();
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
     auto dtype =
-        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
     info.type = data_type_to_aten(dtype);
 
     outputs.emplace_back(info);
   }
   return outputs;
+}
+
+} // namespace
+
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device) {
+  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
+
+  auto output_info =
+      getOutputBufferInfo(fusion_inputs, expr_eval, PrimDataType::Int, fusion);
+
+  return allocateOutputs(fusion, output_info, device, expr_eval);
 }
 
 void FusionExecutor::setUsedTVs() {
@@ -1556,13 +1566,18 @@ void FusionExecutor::initializeExecutorEntry(
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
+  for (const auto& entry : kernel()->summary().validations) {
+    NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
+  }
+
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(args, expr_eval, index_type);
+    output_info =
+        getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
@@ -1853,11 +1868,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   executor_utils::CudaKernelTimer timer(stream);
 
-  if (measure_kernel_time) {
-    timer.init();
-  }
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    if (measure_kernel_time) {
+      timer.init();
+    }
+
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1874,21 +1889,25 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           compiled_kernel_->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
+
       const int64_t device_id =
           static_cast<unsigned char>(options_.device.index());
       const auto prop =
           at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
           ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
+
       const int hw_max_warps =
           prop->maxThreadsPerMultiProcessor / prop->warpSize;
       const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
       setKernelOccupancy(occupancy);
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(2) << occupancy << "%";
-      debug() << "blocks_per_sm= " << blocks_per_sm
-              << ", warps_per_sm= " << warps_per_sm
-              << ", occupancy= " << oss.str() << std::endl;
+
+      debug() << "num_sms=" << prop->multiProcessorCount
+              << ", blocks_per_sm=" << blocks_per_sm
+              << ", warps_per_sm=" << warps_per_sm
+              << ", occupancy=" << oss.str() << std::endl;
     }
 
     if (measure_kernel_time) {
@@ -1926,17 +1945,19 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
+    }
+  }
 
-      outputBytesProcessed(outputs);
+  if (measure_kernel_time) {
+    outputBytesProcessed(outputs);
 
-      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-          isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-        double gb_per_s =
-            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-            (double)1.0e9;
-        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-      }
+    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      double gb_per_s =
+          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
+          (double)1.0e9;
+      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
+              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
     }
   }
 

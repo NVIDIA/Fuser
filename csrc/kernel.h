@@ -92,8 +92,10 @@ struct KernelSummary {
   //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
-  //! ceilDiv extents that must be divisible
-  std::vector<std::pair<const Val*, const Val*>> splits_to_validate;
+  //! Validations needed and information about them. For example, a pair of
+  //! "extent mod split_factor == 0" and an error message for divisibility check
+  //! for vectorization.
+  std::vector<std::pair<const Val*, std::string>> validations;
 
   //! Effective ParallelTypes of broadcast ops
   std::unordered_map<const BroadcastOp*, ParallelTypeBitmap>
@@ -109,7 +111,7 @@ struct KernelSummary {
 
   // Parallel dimension map needed to set the correct properties of grid buffers
   // (is a dim inactive)
-  ParallelDimensionMap parallel_dimension_map_;
+  ParallelDimensionMap parallel_dimension_map;
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;

@@ -287,5 +287,10 @@ void schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams,
     ScheduleHeuristic schedule_heuristic);
+
+// Get max register or shared memory size for persistent buffer
+int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& persistent_buffers);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
