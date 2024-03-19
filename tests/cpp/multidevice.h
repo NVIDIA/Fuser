@@ -90,8 +90,11 @@ class PipelineTest : public MultiDeviceTest {
   void SetUp() override;
   // Run the multidevice fusion and stores the (sharded) results in "outputs"
   void execute();
-  // Utility function used for validation in the tests. It compares the (sharded) outputs with ref_unsharded_outputs.
-  // if validate_with_prescribed_values= true, ref_unsharded_outputs is assumed to be set manually in the test body. Otherwise, ref_unsharded_outputs is computed by running a Fusion on a single device with the unsharded_inputs
+  // Utility function used for validation in the tests. It compares the
+  // (sharded) outputs with ref_unsharded_outputs. if
+  // validate_with_prescribed_values= true, ref_unsharded_outputs is assumed to
+  // be set manually in the test body. Otherwise, ref_unsharded_outputs is
+  // computed by running a Fusion on a single device with the unsharded_inputs
   void validate(bool validate_with_prescribed_values = false);
   void executeAndValidate(bool validate_with_prescribed_values = false) {
     execute();
