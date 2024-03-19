@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
+#include <expr_simplifier.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -36,7 +37,16 @@ class KernelIrScanner : private IrVisitor {
     for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
       auto extent = split->in()->extent();
       auto factor = split->factor();
-      summary_.splits_to_validate.emplace_back(extent, factor);
+      auto is_divisible = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+          SimplifyingIrBuilder::modExpr(extent, factor),
+          extent->fusion()->zeroVal()));
+      NVF_ERROR(
+          !is_divisible->isFalse(), "Non-divisible split detected: ", split);
+      if (!is_divisible->isTrue()) {
+        std::stringstream ss;
+        ss << "Non-divisible split detected: " << split;
+        summary_.validations.emplace_back(is_divisible, ss.str());
+      }
     }
   }
 
