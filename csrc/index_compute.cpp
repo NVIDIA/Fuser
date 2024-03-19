@@ -3345,8 +3345,7 @@ Val* Index::eye(
 // In the above diagram, I4 and I7 are bulk IterDomains, but I1, I2, I3, I5, I6,
 // and I8 are not.
 //
-// Definition 2: A bulk IterDomain is "originating" if it has no parent or its
-// parents are not "bulk".
+// Definition 2: A bulk IterDomain is "originating" if its parents are not bulk.
 //
 // In the above diagram, I4 and I7 are originating bulk IterDomains.
 //
@@ -3601,13 +3600,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     if (id == nullptr) {
       continue;
     }
-    originating_bulk_ids.pushBack(id);
     auto def = id->definition();
     NVF_ERROR(
         def != nullptr && def->isA<Split>(),
         "An originating bulk IterDomain must be the output of a split, but ",
         id,
         " is not.");
+    originating_bulk_ids.pushBack(id);
   }
 
   // Step 2: Get tileId and globalId, and innerId for each originating bulk
