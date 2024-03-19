@@ -3717,7 +3717,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           outer,
           " is not on the path.");
       auto inner = merge->inner();
-      auto inner_it = outer_it++;
+      auto inner_it = outer_it + 1;
       NVF_ERROR(
           inner_it != frontier.end(),
           "The set of all global IterDomains must be equivalent to the allocation domain, but ",
@@ -3726,9 +3726,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       NVF_ERROR(
           std::get<0>(*inner_it) == inner && std::get<1>(*outer_it),
           "Can not merge discontiguous IterDomains, but ",
-          outer->toString(),
+          std::get<0>(*outer_it)->toString(),
           " is merged with ",
-          inner->toString());
+          std::get<0>(*inner_it)->toString());
       std::get<0>(*inner_it) = merge->out();
       frontier.erase(outer_it);
     } else {
