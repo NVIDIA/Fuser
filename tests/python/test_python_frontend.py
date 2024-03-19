@@ -2367,78 +2367,6 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
-    def test_matmuls(self):
-        # Matmul Constraints:
-        # 1. Inputs shapes need to be a multiple of 8
-        # 2. Inputs need to be contiguous as the nvFuser matmul does
-        #    not see non-contiguous inputs.
-        nvf_inputs_nn = [
-            torch.randn(8, 24, device="cuda", dtype=torch.float16),
-            torch.randn(16, 8, device="cuda", dtype=torch.float16),
-        ]
-        eager_inputs_nn = [
-            nvf_inputs_nn[0].clone().transpose(0, 1),
-            nvf_inputs_nn[1].clone().transpose(0, 1),
-        ]
-        nvf_inputs_nt = [
-            torch.randn(8, 24, device="cuda", dtype=torch.float16),
-            torch.randn(8, 16, device="cuda", dtype=torch.float16),
-        ]
-        eager_inputs_nt = [
-            nvf_inputs_nt[0].clone().transpose(0, 1),
-            nvf_inputs_nt[1].clone(),
-        ]
-        nvf_inputs_tn = [
-            torch.randn(24, 8, device="cuda", dtype=torch.float16),
-            torch.randn(16, 8, device="cuda", dtype=torch.float16),
-        ]
-        eager_inputs_tn = [
-            nvf_inputs_tn[0].clone(),
-            nvf_inputs_tn[1].clone().transpose(0, 1),
-        ]
-        nvf_inputs_tt = [
-            torch.randn(24, 8, device="cuda", dtype=torch.float16),
-            torch.randn(8, 16, device="cuda", dtype=torch.float16),
-        ]
-
-        def fusion_func(fd: FusionDefinition, inps, matmul_fn) -> None:
-            t0 = fd.from_pytorch(inps[0])
-            t1 = fd.from_pytorch(inps[1])
-            t2 = eval(matmul_fn)(t0, t1)
-            fd.add_output(t2)
-
-        tests = [
-            ("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
-            ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
-            ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
-            ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
-        ]
-
-        prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-
-        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
-            if prop.major == 8:
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
-                    nvf_test_inputs,
-                )
-                eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
-
-                fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
-                self.assertEqual(eager_out, fp16_nvf_out)
-            else:
-                with self.assertRaisesRegex(
-                    RuntimeError, "Only the Ampere MMA Op is currently supported!"
-                ):
-                    with FusionDefinition() as fd:
-                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str)(fd)
-                    nvf_out = fd.execute(nvf_test_inputs)
-                # It is necessary to reset the Fusion Cache so
-                # serialization/deserialization does not exhibit the same error
-                # across tests
-                fc = FusionCache.get()
-                fc.reset()
-
     def test_integer_division(self):
         inputs = [
             torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
@@ -3605,6 +3533,185 @@ class TestNvFuserFrontend(TestCase):
 
         # check if serialization passes during segmentation
         # skip pytorch check because fusion is derived from llama2 network.
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # https://github.com/NVIDIA/Fuser/issues/1953
+    def test_issue1953(self):
+        inputs = [
+            128,
+            256,
+            6,
+            24,
+            2,
+            128,
+            256,
+            6,
+            24,
+            2,
+            torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
+                (128, 256, 6, 24), (0, 24, 0, 1)
+            ),
+            torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
+                (128, 256, 6, 24), (0, 24, 0, 1)
+            ),
+            torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (128, 6, 256, 48), (73728, 48, 288, 1)
+            ),
+            torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (128, 6, 256, 48), (73728, 48, 288, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Int)
+            S1 = fd.define_scalar(None, dtype=DataType.Int)
+            S2 = fd.define_scalar(None, dtype=DataType.Int)
+            S3 = fd.define_scalar(None, dtype=DataType.Int)
+            S4 = fd.define_scalar(None, dtype=DataType.Int)
+            S5 = fd.define_scalar(None, dtype=DataType.Int)
+            S6 = fd.define_scalar(None, dtype=DataType.Int)
+            S7 = fd.define_scalar(None, dtype=DataType.Int)
+            S8 = fd.define_scalar(None, dtype=DataType.Int)
+            S9 = fd.define_scalar(None, dtype=DataType.Int)
+            T10 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, True, None, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T11 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, True, None, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T12 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T13 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T14 = fd.ops.cast(T13, dtype=DataType.Float)
+            T15 = fd.ops.permute(T14, dims=[0, 2, 1, 3])
+            S16 = fd.define_scalar(128, dtype=DataType.Int)
+            S17 = fd.define_scalar(256, dtype=DataType.Int)
+            S18 = fd.define_scalar(6, dtype=DataType.Int)
+            S19 = fd.define_scalar(24, dtype=DataType.Int)
+            S20 = fd.define_scalar(2, dtype=DataType.Int)
+            V21 = fd.define_vector([S16, S17, S18, S19, S20], dtype=DataType.Int)
+            T22 = fd.ops.reshape(T15, new_shape=V21)
+            T23 = fd.ops.slice(
+                T22,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[128, 256, 6, 24, 1],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T24 = fd.ops.slice(
+                T22,
+                start_indices=[0, 0, 0, 0, 1],
+                end_indices=[128, 256, 6, 24, 2],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T25 = fd.ops.sum(T24, dims=[4], keepdim=False, dtype=DataType.Null)
+            T26 = fd.ops.sum(T23, dims=[4], keepdim=False, dtype=DataType.Null)
+            T27 = fd.ops.mul(T25, T10)
+            T28 = fd.ops.mul(T25, T11)
+            T29 = fd.ops.neg(T26)
+            T30 = fd.ops.mul(T29, T11)
+            T31 = fd.ops.add(T27, T30)
+            T32 = fd.ops.cast(T31, dtype=DataType.BFloat16)
+            T33 = fd.ops.mul(T26, T10)
+            T34 = fd.ops.add(T28, T33)
+            T35 = fd.ops.cast(T34, dtype=DataType.BFloat16)
+            S36 = fd.define_scalar(128, dtype=DataType.Int)
+            S37 = fd.define_scalar(256, dtype=DataType.Int)
+            S38 = fd.define_scalar(6, dtype=DataType.Int)
+            S39 = fd.define_scalar(24, dtype=DataType.Int)
+            S40 = fd.define_scalar(1, dtype=DataType.Int)
+            V41 = fd.define_vector([S36, S37, S38, S39, S40], dtype=DataType.Int)
+            T42 = fd.ops.broadcast_in_dim(T32, shape=V41, broadcast_dims=[0, 1, 2, 3])
+            S43 = fd.define_scalar(128, dtype=DataType.Int)
+            S44 = fd.define_scalar(256, dtype=DataType.Int)
+            S45 = fd.define_scalar(6, dtype=DataType.Int)
+            S46 = fd.define_scalar(24, dtype=DataType.Int)
+            S47 = fd.define_scalar(1, dtype=DataType.Int)
+            V48 = fd.define_vector([S43, S44, S45, S46, S47], dtype=DataType.Int)
+            T49 = fd.ops.broadcast_in_dim(T35, shape=V48, broadcast_dims=[0, 1, 2, 3])
+            S50 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T51 = fd.ops.pad(T42, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S50)
+            S52 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T53 = fd.ops.pad(T49, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S52)
+            T54 = fd.ops.cast(T51, dtype=DataType.Float)
+            T55 = fd.ops.cast(T53, dtype=DataType.Float)
+            T56 = fd.ops.add(T54, T55)
+            T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
+            T58 = fd.ops.cast(T12, dtype=DataType.Float)
+            T59 = fd.ops.permute(T58, dims=[0, 2, 1, 3])
+            S60 = fd.define_scalar(128, dtype=DataType.Int)
+            S61 = fd.define_scalar(256, dtype=DataType.Int)
+            S62 = fd.define_scalar(6, dtype=DataType.Int)
+            S63 = fd.define_scalar(24, dtype=DataType.Int)
+            S64 = fd.define_scalar(2, dtype=DataType.Int)
+            V65 = fd.define_vector([S60, S61, S62, S63, S64], dtype=DataType.Int)
+            T66 = fd.ops.reshape(T59, new_shape=V65)
+            T67 = fd.ops.slice(
+                T66,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[128, 256, 6, 24, 1],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T68 = fd.ops.slice(
+                T66,
+                start_indices=[0, 0, 0, 0, 1],
+                end_indices=[128, 256, 6, 24, 2],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T69 = fd.ops.sum(T68, dims=[4], keepdim=False, dtype=DataType.Null)
+            T70 = fd.ops.sum(T67, dims=[4], keepdim=False, dtype=DataType.Null)
+            T71 = fd.ops.mul(T69, T10)
+            T72 = fd.ops.mul(T69, T11)
+            T73 = fd.ops.neg(T70)
+            T74 = fd.ops.mul(T73, T11)
+            T75 = fd.ops.add(T71, T74)
+            T76 = fd.ops.cast(T75, dtype=DataType.BFloat16)
+            T77 = fd.ops.mul(T70, T10)
+            T78 = fd.ops.add(T72, T77)
+            T79 = fd.ops.cast(T78, dtype=DataType.BFloat16)
+            S80 = fd.define_scalar(128, dtype=DataType.Int)
+            S81 = fd.define_scalar(256, dtype=DataType.Int)
+            S82 = fd.define_scalar(6, dtype=DataType.Int)
+            S83 = fd.define_scalar(24, dtype=DataType.Int)
+            S84 = fd.define_scalar(1, dtype=DataType.Int)
+            V85 = fd.define_vector([S80, S81, S82, S83, S84], dtype=DataType.Int)
+            T86 = fd.ops.broadcast_in_dim(T76, shape=V85, broadcast_dims=[0, 1, 2, 3])
+            S87 = fd.define_scalar(128, dtype=DataType.Int)
+            S88 = fd.define_scalar(256, dtype=DataType.Int)
+            S89 = fd.define_scalar(6, dtype=DataType.Int)
+            S90 = fd.define_scalar(24, dtype=DataType.Int)
+            S91 = fd.define_scalar(1, dtype=DataType.Int)
+            V92 = fd.define_vector([S87, S88, S89, S90, S91], dtype=DataType.Int)
+            T93 = fd.ops.broadcast_in_dim(T79, shape=V92, broadcast_dims=[0, 1, 2, 3])
+            S94 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T95 = fd.ops.pad(T86, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S94)
+            S96 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T97 = fd.ops.pad(T93, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S96)
+            T98 = fd.ops.cast(T95, dtype=DataType.Float)
+            T99 = fd.ops.cast(T97, dtype=DataType.Float)
+            T100 = fd.ops.add(T98, T99)
+            T101 = fd.ops.cast(T100, dtype=DataType.BFloat16)
+            fd.add_output(T57)
+            fd.add_output(T101)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 

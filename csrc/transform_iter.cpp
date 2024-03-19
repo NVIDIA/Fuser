@@ -172,14 +172,12 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
-  if (replay_swizzle_) {
-    // Replay the swizzle onto mapped
-    outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
+  // Replay the swizzle onto mapped
+  outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
 
-    // Remove mapped from the leaf IDs
-    leaf_ids_.erase(mapped_x);
-    leaf_ids_.erase(mapped_y);
-  }
+  // Remove mapped from the leaf IDs
+  leaf_ids_.erase(mapped_x);
+  leaf_ids_.erase(mapped_y);
 
   // Add outputs to leaf IDs
   leaf_ids_[outs.first] = newCounter();
