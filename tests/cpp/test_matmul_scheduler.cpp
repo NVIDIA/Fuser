@@ -32,6 +32,8 @@ class MatmulSchedulerTest : public NVFuserTest {
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
   DisableOptionsGuard option_guard_;
 };
 

@@ -29,6 +29,8 @@ class MatmulSASSTest : public NVFuserTest {
   }
 
  private:
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
   DisableOptionsGuard opt_guard_;
 };
 
