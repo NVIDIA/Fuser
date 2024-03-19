@@ -488,7 +488,7 @@ TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 1024);
     tv->split(1, 32);
-    tv->split(0, 32);
+    tv->split(0, 4);
     tv->axis(1)->parallelize(ParallelType::Bulk);
     tv->axis(3)->parallelize(ParallelType::Bulk);
     tv->axis(0)->parallelize(ParallelType::BIDx);
