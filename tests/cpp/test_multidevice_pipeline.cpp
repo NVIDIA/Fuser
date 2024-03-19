@@ -403,11 +403,10 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
   }
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
-  validate_with_prescribed_values = true;
   ref_unsharded_outputs = {at::sum(
       unsharded_inputs.at(0).toTensor(), at::OptionalIntArrayRef({0, 2}))};
 
-  executeAndValidate();
+  executeAndValidate(/* validate_with_prescribed_values */ true);
 }
 
 INSTANTIATE_TEST_SUITE_P(

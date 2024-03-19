@@ -89,10 +89,7 @@ void CommunicationTest::resetDstBuffers() {
   }
 }
 
-// Utility function used for validation in the tests
-// It compares the given (possibly sharded) output with the result of the Fusion
-// run on a single device with the given (possibly sharded) inputs
-void PipelineTest::validate() {
+void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
     auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
@@ -136,8 +133,6 @@ void PipelineTest::validate() {
   }
 }
 
-// Run and validate a pipeline
-// with given (possibly sharded) inputs
 void PipelineTest::execute() {
   GTEST_ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
   for (int i : c10::irange(fusion->inputs().size())) {
