@@ -797,14 +797,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Setup accumulator register.
   auto mma_result = mma->out()->as<TensorView>();
 
-  // Unswizzle mma result in shared memory
-  // Note that if we are using split-K, we will set up this buffer after
-  // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
-  // take advantage of unswizzling during the grid reduction
-  auto smem_epilogue = (params.use_smem_epilogue && params.splitk_factor == 1)
-      ? mma_result->cacheAfter()
-      : mma_result;
-
   // TODO:
   //  Significant build out needed here
   //   for more flexibility and data type support.
@@ -873,6 +865,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
   // [..., Mo, No, Ko, Mi, Ni, Ki]
 
+  // Unswizzle mma result in shared memory
+  // Note that if we are using split-K, we will set up this buffer after
+  // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
+  // take advantage of unswizzling during the grid reduction
+  TensorView* smem_epilogue = mma_result;
+
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
@@ -914,19 +912,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // mma_result = [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
     // splitk_sum = [..., iMo, iNo, rKf, iMi, iNi]
 
-    if (params.use_smem_epilogue) {
-      //   splitk_sum = sum(mma_result)
-      // becomes
-      //   smem_epilogue = set(mma_result)
-      //   splitk_sum = sum(smem_epilogue)
-      smem_epilogue = mma_result->cacheAfter();
-
-      // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
-    }
-
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
 
     num_splitk_dims = 1;
+  }
+
+  if (params.use_smem_epilogue) {
+    // For split-K
+    //   splitk_sum = sum(mma_result)
+    // becomes
+    //   smem_epilogue = set(mma_result)
+    //   splitk_sum = sum(smem_epilogue)
+    smem_epilogue = mma_result->cacheAfter();
+    // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
   }
 
   // No split-K, smem_epilogue = false
