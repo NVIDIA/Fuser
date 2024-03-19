@@ -40,7 +40,7 @@ namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
  protected:
-  CombineMulSumAsMmaTest(){
+  CombineMulSumAsMmaTest() {
     disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
   }
 

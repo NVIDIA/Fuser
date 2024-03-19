@@ -24,12 +24,8 @@ namespace nvfuser {
 
 class MatmulSASSTest : public NVFuserTest {
  protected:
-  MatmulSASSTest(){
+  MatmulSASSTest() {
     disable_options_ptr->getCurOptions().set(DisableOption::MatmulExprEval);
-  }
-
-  void SetUp() override {
-    NVFuserTest::SetUp();
   }
 
   std::unique_ptr<DisableOptionsGuard> disable_options_ptr =

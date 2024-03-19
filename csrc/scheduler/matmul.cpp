@@ -716,7 +716,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Skip scheduling if Matmul will be expression evaluated.
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    std::cout << "We should not be hitting this " << std::endl;
     NVF_CHECK(fusion->outputs().size() == 1)
     fusion->aliasOutputToInput(
         fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
