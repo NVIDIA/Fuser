@@ -521,8 +521,8 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   for (auto tv : {tv1, tv2}) {
-    tv->split(0, 128);
-    tv->split(1, 3);
+    tv->split(0, 32);
+    tv->split(1, 2);
     tv->axis(1)->parallelize(ParallelType::Bulk);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
