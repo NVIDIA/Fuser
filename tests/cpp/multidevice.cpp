@@ -167,13 +167,11 @@ void PipelineTest::execute() {
     GTEST_SKIP() << error_msg;
   }
   outputs = runtime->runWithInput(inputs);
+
   if (debug_print) {
     if (!communicator->deviceId()) {
       runtime->print();
     }
-  }
-
-  if (debug_print) {
     std::stringstream ss;
     std::string indent = "  ";
     ss << "Device " << communicator->deviceId() << "'s outputs:{\n";
