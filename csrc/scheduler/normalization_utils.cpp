@@ -845,15 +845,18 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   return available_persistent_buffer_size;
 }
 
-//  Evaluates whether to project a persistent buffer to inputs.
-//  1. Rejects projection if it doesn't reduce buffer size.
-//  2. Requires projection if the unprojected buffer size exceeds
-//     available register/shared memory.
-//  3. Checks operations between inputs and buffer:
-//     - if recompute requires RNG operations, reject projection.
-//     - if recompute requires Exp operations, reject if buffer size is lower
-//       than a threshold.
-//     - allow project for all other cases.
+// Returns true if persistent buffers are projected to inputs, meaning the
+// inputs are cached instead of the persistent buffers. The decision of
+// projection is primarily based on the required sizes of the two cases --
+// projection is done if projecting to the inputs results in a smaller size.
+// However, we experimentally found that certain relatively expensive operations
+// should not be projected even when that would require a larger buffer size.
+// Specifically,
+// - rng: should never be projected no matter how much larger the buffer would
+// consume
+// - exp in inner normalization: only allowed to get projected if the buffer is
+// smaller than a certain size Otherwise, as long as the projected inputs are
+// smaller than the original persistent buffers, this function returns true.
 bool projectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
