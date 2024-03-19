@@ -257,6 +257,8 @@ class TMALdstTest : public TMATest,
     dim = std::get<2>(GetParam());
 
     // TODO: test less-nice shapes, for example 128 + 1 instead of 128
+    // TODO: When shapes are large, I see failures in the SimpleStore test.
+    // Needs to investigate why.
     switch (dim) {
       case 1:
         tile = {innerDimSize()};
