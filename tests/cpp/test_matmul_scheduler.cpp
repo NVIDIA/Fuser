@@ -32,7 +32,7 @@ class MatmulSchedulerTest : public NVFuserTest {
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-  DisableOptionsGuard opt_guard_;
+  DisableOptionsGuard option_guard_;
 };
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
@@ -54,8 +54,7 @@ class PrecisionParametrizedTest
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 
- private:
-  DisableOptionsGuard opt_guard_;
+  DisableOptionsGuard option_guard_;
 };
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
