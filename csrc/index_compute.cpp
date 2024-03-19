@@ -3643,14 +3643,22 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   auto allocation_domain =
       TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  int64_t nob_i = 0;
   for (auto i : c10::irange((int64_t)allocation_domain.size())) {
-    auto id = gmem_tv->getMaybeAllocationDomain()[i];
-    if (id->isBroadcast() || id->isReduction()) {
+    auto id = allocation_domain.at(i);
+    if (id->isBroadcast()) {
       continue;
     }
     auto stride = IrBuilder::getItemExpr(global_strides, i);
-    frontier.emplace_back(id, gmem_tv->getContiguity()[i].value(), stride);
+    frontier.emplace_back(
+        id, gmem_tv->getContiguity().at(nob_i).value(), stride);
     allocation_domain_set.insert(id);
+    nob_i++;
+  }
+  std::cout << "frontier:" << std::endl;
+  for (auto entry : frontier) {
+    std::cout << std::get<0>(entry)->toString() << ", " << std::get<1>(entry)
+              << ", " << std::get<0>(entry)->toString() << std::endl;
   }
   // Propagate to the set of all global IterDomains
   for (Expr* expr :
