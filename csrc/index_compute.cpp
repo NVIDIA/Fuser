@@ -3717,7 +3717,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           outer,
           " is not on the path.");
       auto inner = merge->inner();
-      auto inner_it = outer_it + 1;
+      auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
           "The set of all global IterDomains must be equivalent to the allocation domain, but ",
