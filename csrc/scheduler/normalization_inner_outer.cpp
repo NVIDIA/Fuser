@@ -445,7 +445,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
-  int64_t available_regs = scheduler_utils::register_file_size_full;
+  int64_t available_regs = scheduler_utils::register_file_size_inner_outer;
   buffer_params.smem_overhead = smem_overhead;
 
   // Put all the persistent tensors in registers
@@ -485,22 +485,42 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           acc_smem_buffer_sizes[i - 1] + tv_buffer_size_smem;
     }
 
-    // Determine the least number of buffers to transfer to shared memory
-    // to ensure the register buffer size doesn't exceed the available limit.
+    // check if we have enough shared memory and registers for the buffers.
+    // start with an optimal register size, if it's not enough, try the full
+    // size. Test shows using full size leads to severe register spills but it
+    // is still faster than segmenting the fusion into multiple kernels.
     int64_t n_smem_buffer = -1;
-    for (int i = 1; i <= n_buffers; i++) {
-      if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
-          available_regs) {
-        n_smem_buffer = i;
+    for (auto tmp_ava_regs :
+         {available_regs, scheduler_utils::register_file_size_full}) {
+      bool can_schedule = true;
+      int64_t n_smem_buffer_tmp = -1;
+      // Determine the least number of buffers to transfer to shared memory
+      // to ensure the register buffer size doesn't exceed the available limit.
+      for (int i = 1; i <= n_buffers; i++) {
+        if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
+            tmp_ava_regs) {
+          n_smem_buffer_tmp = i;
+          break;
+        }
+      }
+
+      // Can't be scheduled if n_smem_buffer is not set or requested shared
+      // memory is larger than available.
+      if (n_smem_buffer_tmp == -1 ||
+          acc_smem_buffer_sizes[n_smem_buffer_tmp] > tmp_ava_regs) {
+        can_schedule = false;
+      }
+
+      // no need to try the other tmp_ava_regs
+      // mark can_schedule as true and break from the loop
+      if (can_schedule) {
+        available_regs = tmp_ava_regs;
+        n_smem_buffer = n_smem_buffer_tmp;
+        buffer_params.has_enough_regs_and_smem = true;
         break;
       }
     }
-
-    // Can't be scheduled if n_smem_buffer is not set or requested shared memory
-    // is larger than available.
-    if (n_smem_buffer == -1 ||
-        acc_smem_buffer_sizes[n_smem_buffer] > available_smem) {
-      buffer_params.has_enough_regs_and_smem = false;
+    if (!buffer_params.has_enough_regs_and_smem) {
       return buffer_params;
     }
 
@@ -512,6 +532,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
   }
 
+  // Double check
   buffer_params.has_enough_regs_and_smem =
       (buffer_params.smem_buffer_size <= available_smem) &&
       (buffer_params.regs_buffer_size <= available_regs);
