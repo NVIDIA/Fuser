@@ -3760,7 +3760,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         id,
         " is not.");
     strides.push_back(std::get<2>(tuple));
-    tile_sizes.push_back(global_id_to_orig_bulk_id.at(id)->extent());
+    tile_sizes.push_back(global_id_to_tile_id.at(id)->extent());
 
     auto it = global_id_to_inner_id.find(id);
     if (it != global_id_to_inner_id.end()) {
