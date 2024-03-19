@@ -1022,7 +1022,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     int64_t concrete_id,
     int64_t runtime_id,
     bool auto_schedule)
-    : args_metadata_{args},
+    : args_metadata_{copyMetadataArg(args)},
       fusion_id_{fusion_id},
       concrete_id_{concrete_id},
       runtime_id_{runtime_id},
