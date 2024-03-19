@@ -544,4 +544,6 @@ V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
   return i == map.end() ? V() : i->second;
 }
 
+size_t deviceAvailableSharedMemory();
+
 } // namespace nvfuser

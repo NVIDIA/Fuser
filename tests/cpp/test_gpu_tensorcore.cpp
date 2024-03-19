@@ -40,6 +40,7 @@
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 // fuser and IR parser
 #include <ATen/cuda/CUDAContext.h>
@@ -54,6 +55,17 @@
 namespace nvfuser {
 
 using namespace at::indexing;
+
+#define SKIP_IF_INSUFFICIENT_SMEM(params, data_types)                     \
+  {                                                                       \
+    int64_t estim = mma_utils::computeExpectedSharedMemoryUsage(          \
+        params, data_types, true, true);                                  \
+    int64_t avail = (int64_t)deviceAvailableSharedMemory();               \
+    if (avail < estim) {                                                  \
+      GTEST_SKIP() << "Insufficient shared memory to run test (" << estim \
+                   << "B required but only " << avail << "B available)."; \
+    }                                                                     \
+  }
 
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
@@ -2549,6 +2561,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
           /*ignore_occupancy_drop=*/false);
   scheduleMatmul(&fusion, params);
 
+  SKIP_IF_INSUFFICIENT_SMEM(params, data_types);
+
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2581,6 +2595,10 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
   if (!params.use_smem_epilogue) {
     GTEST_SKIP()
         << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+  }
+  if (!params.promote_prologue_smem_reuse) {
+    GTEST_SKIP()
+        << "Test conducted with shared memory epilogue but without promoting prologue smem re-use.";
   }
 }
 
