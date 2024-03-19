@@ -510,7 +510,7 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(1);
+  auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -521,15 +521,18 @@ TEST_F(TMAIndexingTest, NonZeroElementStride) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   for (auto tv : {tv1, tv2}) {
+    tv->split(1, 32);
     tv->split(0, 32);
     tv->split(1, 2);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDz);
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1024 * 1024}, options);
+  auto t0 = at::randn({1024, 1024}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 

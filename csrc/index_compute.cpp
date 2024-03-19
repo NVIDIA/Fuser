@@ -3764,6 +3764,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
     auto it = global_id_to_inner_id.find(id);
     if (it != global_id_to_inner_id.end()) {
+      // TODO: validate that when interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, the first element of this array is one.
       element_strides.push_back(it->second->extent());
     } else {
       element_strides.push_back(gmem_tv->fusion()->oneVal());
