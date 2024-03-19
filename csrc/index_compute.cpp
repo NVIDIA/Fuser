@@ -3656,11 +3656,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     allocation_domain_set.insert(id);
     nob_i++;
   }
-  std::cout << "frontier:" << std::endl;
-  for (auto entry : frontier) {
-    std::cout << std::get<0>(entry)->toString() << ", " << std::get<1>(entry)
-              << ", " << std::get<0>(entry)->toString() << std::endl;
-  }
   // Propagate to the set of all global IterDomains
   for (Expr* expr :
        DependencyCheck::getAllExprsBetween(allocation_domain_set, global_ids)) {
