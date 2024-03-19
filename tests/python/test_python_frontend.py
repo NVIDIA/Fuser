@@ -3536,6 +3536,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/1953
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1953(self):
         inputs = [
             128,
