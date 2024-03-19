@@ -937,13 +937,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // [..., Mo, No, Ko, Mi, Ni, Ki]
+  // [..., iMo, iNo, rKo, iMi, iNi, rKi]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
   if (params.splitk_factor != 1) {
     // Split Ko -> [rKf, rKg]
     mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-    // After split [..., Mo, No, Kf, Kg, Mi, Ni, Ki]
+    // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
     // rFactor converts
     //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
     // to
@@ -954,14 +954,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
-    // mma_result = [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-    // splitk_sum = [..., iMo, iNo, rKf, iMi, iNi]
-
     num_splitk_dims = 1;
   }
 
+  // At this point we have the following schedule:
+  //   No split-K
+  //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  //   Split-K
+  //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
   if (params.use_smem_epilogue) {
-    // For split-K
+    // Note that for split-K
     //   splitk_sum = sum(mma_result)
     // becomes
     //   smem_epilogue = set(mma_result)
@@ -969,21 +973,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     smem_epilogue = mma_result->cacheAfter();
     // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
   }
-
-  // No split-K, smem_epilogue = false or true
-  //   mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
-  //   smem_epilogue   (unscheduled, same as original mma_result)
-  //   splitk_sum      (nullptr)
-  //
-  // With split-K & no smem epilogue
-  //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-  //   smem_epilogue   (mma_result)
-  //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-
-  // With split-K & smem epilogue
-  //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-  //   smem_epilogue   [..., iMo, iNo, iKf, iMi, iNi]
-  //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
