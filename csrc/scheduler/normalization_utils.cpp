@@ -845,8 +845,15 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   return available_persistent_buffer_size;
 }
 
-// Returns true if the gains of reducing buffer size is larger than the pains of
-// recalculations. We don't know the real answer until we run it.
+//  Evaluates whether to project a persistent buffer to inputs.
+//  1. Rejects projection if it doesn't reduce buffer size.
+//  2. Requires projection if the unprojected buffer size exceeds
+//     available register/shared memory.
+//  3. Checks operations between inputs and buffer:
+//     - if recompute requires RNG operations, reject projection.
+//     - if recompute requires Exp operations, reject if buffer size is lower
+//       than a threshold.
+//     - allow project for all other cases.
 bool projectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -864,6 +871,14 @@ bool projectBufferToInputs(
   // memory to store the buffers
   int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
       runtime_info, persistent_buffer_info.persistent_buffers);
+  NVF_ERROR(
+      max_available_buffer >=
+          persistent_buffer_size_info.projected_persistent_buffer_size,
+      "There is not enough register/shared memory to store the projected buffer!",
+      " max_available_space: ",
+      max_available_buffer,
+      " projected_buffer_size: ",
+      persistent_buffer_size_info.projected_persistent_buffer_size);
   if (max_available_buffer <
       persistent_buffer_size_info.persistent_buffer_size) {
     return true;
