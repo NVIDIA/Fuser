@@ -3726,9 +3726,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       NVF_ERROR(
           std::get<0>(*inner_it) == inner && std::get<1>(*outer_it),
           "Can not merge discontiguous IterDomains, but ",
-          outer,
+          outer->toString(),
           " is merged with ",
-          inner);
+          inner->toString());
       std::get<0>(*inner_it) = merge->out();
       frontier.erase(outer_it);
     } else {
