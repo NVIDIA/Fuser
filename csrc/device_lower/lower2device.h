@@ -238,6 +238,14 @@ class GpuLower : public NonCopyable {
     return passes_;
   }
 
+  const std::vector<std::pair<const Val*, std::string>>& validations() const {
+    return validations_;
+  }
+
+  std::vector<std::pair<const Val*, std::string>>& validations() {
+    return validations_;
+  }
+
  private:
   void analysis(Fusion* fusion);
 
@@ -292,8 +300,13 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // keep track of the mbarrier used for each load/store operation
+  // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // Keep track of validations needed at runtime. For example, a pair of
+  //! "extent mod split_factor == 0" and an error message for divisibility check
+  //! for vectorization.
+  std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
 };
