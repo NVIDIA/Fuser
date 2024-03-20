@@ -283,11 +283,6 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
       empty_extents_.push_back(i);
     }
   }
-
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-    debug() << initial_info->toString() << std::endl;
-    debug() << toString() << std::endl;
-  }
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
