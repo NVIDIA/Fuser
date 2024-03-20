@@ -725,7 +725,7 @@ void scheduleSplitKSum(
     }
     splitk_sum->reorder({{-2, -1}});
   } else { // no smem epilogue
-    // Reorder to place the split-K reduction innermost [... rBz iS]
+    // Reorder to place the split-K reduction next to innermost [... rBz iS]
     splitk_sum->reorder({{-9, -2}});
   }
   // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
