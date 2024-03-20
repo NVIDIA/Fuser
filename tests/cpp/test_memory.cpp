@@ -606,7 +606,7 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
   // According to the CUDA programming guide, the size of the transfer must be
   // a multiple of 16 bytes:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
-  // GTEST_SKIP() << "Validation for this test is not yet implemented";
+  GTEST_SKIP() << "Validation for this test is not yet implemented";
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -646,7 +646,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   // According to the CUDA programming guide, the size of the transfer must be
   // a multiple of 16 bytes:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
-  // GTEST_SKIP() << "Validation for this test is not yet implemented";
+  GTEST_SKIP() << "Validation for this test is not yet implemented";
   Fusion fusion;
   FusionGuard fg(&fusion);
 
