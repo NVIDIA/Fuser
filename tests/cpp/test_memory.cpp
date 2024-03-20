@@ -467,6 +467,37 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// Testing invalid cases are correctly detected and reported.
+
+// It is not required to run invalid case tests on Hopper or newer GPUs.
+// Detecting invalid cases does not even require a GPU.
+
+class TMAInvalidTest : public NVFuserTest {};
+
+TEST_F(TMAInvalidTest, BulkNotInTMA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // There is a Bulk parallel axis, but there is no TMA
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+
+  EXPECT_THAT(
+      [&]() {
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto t0 = at::randn({32}, options);
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "ParallelType::Bulk is only supported for cp.async.bulk.")));
+}
+
 // End TMA tests
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
