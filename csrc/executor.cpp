@@ -1885,6 +1885,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
+      std::cout << "Run fusion " << launch_params_.gdimx() << " " <<
+          launch_params_.gdimy() << " " <<
+          launch_params_.gdimz() << " " <<
+          launch_params_.bdimx() << " " <<
+          launch_params_.bdimy() << " " <<
+          launch_params_.bdimz() << " " << std::endl;
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->function,
           launch_params_.gdimx(),

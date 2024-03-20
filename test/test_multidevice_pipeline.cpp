@@ -331,7 +331,7 @@ TEST_P(DistributedMatmul, LayoutTN) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
 
-  int64_t M = 64, N = 64, K = 64;
+  int64_t M = 64, N = 32, K = 64;
   // TODO: until we support split, manually split axes
   int64_t Mo = num_devices;
   int64_t Mi = M / Mo;
@@ -378,8 +378,8 @@ TEST_P(DistributedMatmul, LayoutTN) {
   auto expected_output =
       is_output_sharded ? shardTensor(c_, mesh, communicator->deviceId()) : c_;
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
-  // auto outputs = runtime.runWithInput(inputs);
-  auto outputs = executeAndTime(runtime, inputs);
+  auto outputs = runtime.runWithInput(inputs);
+  // auto outputs = executeAndTime(runtime, inputs);
   testValidate(
       runtime.completeFusion(),
       outputs,
@@ -475,7 +475,7 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   DeviceMesh mesh(devices);
 
   // Note: Manually split K and M
-  int64_t M = 64, N = 32, K = 64;
+  int64_t M = 48, N = 8, K = 32;
   int64_t Ko = num_devices, Ki = K / Ko;
   int64_t Mo = num_devices, Mi = M / Mo;
   std::vector<int64_t> a_shape = {Ko, Ki, M};
@@ -492,11 +492,10 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  std::vector<int64_t> orig_size = {
-      1, M, N}; // Note: {Ko,M,N}, but Ko is sharded.
-  std::vector<int64_t> new_size = {1, Mo, Mi, N};
-  TensorView* c1 = reshape(c0, orig_size, new_size); // (Ko,Mo,Mi,N)
-  TensorView* c = sum(c1, {0}); // (r,Mo,Mi,N)
+  std::vector<int64_t> orig_size = {1, M, N}; // Note: {Ko,M,N}, but Ko is sharded. 48, 24
+  std::vector<int64_t> new_size = {1, Mo, Mi, N}; 
+  TensorView* c1 = reshape(c0, orig_size, new_size); 
+  TensorView* c = sum(c1, {0}); 
 
   fusion->addInput(a);
   fusion->addInput(b);
@@ -531,8 +530,8 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
           .view({1, Mi, N}); // TODO: hacked because split is manual
   
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
-  // auto outputs = runtime.runWithInput(inputs);
-  auto outputs = executeAndTime(runtime, inputs);
+  auto outputs = runtime.runWithInput(inputs);
+  // auto outputs = executeAndTime(runtime, inputs);
   testValidate(
       runtime.completeFusion(),
       outputs,
