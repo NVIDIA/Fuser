@@ -578,4 +578,33 @@ TEST_F(SegmentationTest, SliceSegmentCasts) {
   testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
 }
 
+TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3, DataType::Half);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Half);
+  fusion->addInput(tv1);
+
+  auto* tv1 = castOp(DataType::Float, tv0);
+  auto* tv2 = sum(tv1, {0, 2});
+  auto* tv3 = castOp(DataType::Float, tv1);
+  auto* tv4 = add(tv2, tv3);
+  auto* tv5 = castOp(DataType::Half, tv4);
+  fusion->addOutput(tv5);
+  auto* tv6 = add(tv5, tv5);
+  auto* tv7 = castOp(DataType::Half, tv6);
+  fusion->addOutput(tv7);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto in0 = at::randn({3, 4, 3}, options);
+  auto in1 = at::randn({4}, options);
+  auto outputs = fec.runFusionWithInputs({in0, in1});
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
