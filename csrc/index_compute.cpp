@@ -3335,8 +3335,27 @@ Val* Index::eye(
 //                          |    |    |    |    |
 //                         Bulk Bulk Bulk Bulk Bulk
 //
-// Before we go into the details of the schedule, let's first define some
-// terminologies:
+// To schedule TMA, the overall process is:
+//
+// First, we need to specify how TMA should view the tensor. In the above
+// diagram, TMA view the tensor as a 2D tensor [I1, I2]. Note that the
+// IterDomain expressions between the allocation domain and [I1, I2] must be
+// compatible with the allocation domain, for example, we can not merge
+// discontiguous IterDomains, and we can not have indivisible splits either.
+//
+// Second, we need to tile each dimension of TMA's view of the tensor. If we
+// want a contiguous box dim (to be described below), then we do one split to
+// get the box. If we want a strided box dim, then we do two splits, the first
+// split is to get the box, and the second split is to get the stride. In the
+// above diagram, I1 has a contiguous box dim, and I2 has a strided box dim.
+//
+// Third, we can schedule the "bulk" IterDomains (to be defined below) and
+// "non-bulk" IterDomains separately in whatever way we want. However, the
+// "bulk" IterDomains and "non-bulk" IterDomains can not be mixed together, just
+// like we not merge a IterType::Iteration IterDomain with a IterType::Reduction
+// IterDomain.
+//
+// Before further explain the schedule, let's define some terminologies:
 //
 // Definition 1: An IterDomain is "bulk" if any of the following is true:
 //  - It has parallel type "Bulk"
