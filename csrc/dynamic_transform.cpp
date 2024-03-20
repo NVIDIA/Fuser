@@ -486,7 +486,9 @@ bool DynamicTransformConcretizationInfo::operator==(
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
       resize_itertypes_.size() != other.resize_itertypes_.size() ||
-      empty_extents_.size() != other.empty_extents_.size()) {
+      empty_extents_.size() != other.empty_extents_.size() ||
+      factory_output_itertypes_.size() !=
+          other.factory_output_itertypes_.size()) {
     return false;
   }
 
@@ -539,33 +541,27 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << ext->toString() << " is zero\n";
   }
   ss << indent << "Reshape:\n";
+  NVF_ERROR(
+      reshape_transforms_.size() ==
+      initial_info_->getDynamicReshapedTensorViews().size());
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
     auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
     ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
        << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
-  for (const auto& [id_index, iter_type] : resize_itertypes_) {
-    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
-       << iter_type << "\n";
-  }
-  ss << indent << "Factory Output IterTypes:\n";
-  for (size_t i : c10::irange(factory_output_itertypes_.size())) {
-    TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
-    ss << indent << indent << tv->toString() << std::endl;
-    for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
-      ss << indent << indent << indent
-         << tv->getMaybeRFactorDomain().at(pos)->toString() << " => "
-         << iter_type << std::endl;
-    }
-  }
+  NVF_ERROR(
+      resize_itertypes_.size() ==
+      initial_info_->getDynamicResizedIterDomains().size());
   for (const auto& [id_index, iter_type] : resize_itertypes_) {
     auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
        << iter_type << "\n";
   }
   ss << indent << "Expand:\n";
+  NVF_ERROR(
+      expand_axes_.size() ==
+      initial_info_->getDynamicExpandedTensorViews().size());
   for (const auto& [tv_index, expand_axes] : expand_axes_) {
     auto tv = initial_info_->getDynamicExpandedTensorViews().at(tv_index);
     ss << indent << indent << tv->toString() << " (index=" << tv_index
@@ -579,6 +575,19 @@ std::string DynamicTransformConcretizationInfo::toString() const {
       ss << (e ? "true" : "false");
     }
     ss << "}\n";
+  }
+  ss << indent << "Factory Output IterTypes:\n";
+  NVF_ERROR(
+      factory_output_itertypes_.size() ==
+      initial_info_->getDynamicFactoryOutputs().size());
+  for (size_t i : c10::irange(factory_output_itertypes_.size())) {
+    TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
+    ss << indent << indent << tv->toString() << std::endl;
+    for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
+      ss << indent << indent << indent
+         << tv->getMaybeRFactorDomain().at(pos)->toString() << " => "
+         << iter_type << std::endl;
+    }
   }
   return ss.str();
 }
