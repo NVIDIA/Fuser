@@ -411,9 +411,9 @@ class VectorizeValidator : public OptInDispatch {
           ", allocation domain: ",
           ir_utils::toString(tv->getMaybeAllocationDomain()),
           ", vectorized id: ",
-          validator.vectorized_id_,
+          validator.vectorized_id_->toString(),
           ", innermost id: ",
-          last_alloc_dim,
+          last_alloc_dim->toString(),
           ", contiguity: ",
           contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }

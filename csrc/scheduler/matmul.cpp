@@ -703,6 +703,8 @@ void scheduleSplitKSum(
     // Now that transforms are propagated backward to smem_epilogue, which is
     // before splitk_sum, we can vectorize the inner-most non-trivial
     // dimension of splitk_sum
+    //
+    // Note that the split-K reduction is the inner-most dimension.
     Val* vec_ext = splitk_sum->axis(-2)->extent();
     NVF_ERROR(vec_ext->isConstInt());
     int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
@@ -719,17 +721,16 @@ void scheduleSplitKSum(
       splitk_sum->split(
           -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
       splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
-      splitk_sum->axis(-2)->parallelize(ParallelType::Vectorize);
       splitk_sum->reorder({{-4, -3}});
-      // In this case, we have [... UR Tx V Bz]
+      // In this case, we have [... iUR iTx rBz iS]
     }
-    splitk_sum->axis(-2)->parallelize(ParallelType::Vectorize);
+    splitk_sum->reorder({{-2, -1}});
   } else { // no smem epilogue
-    // Reorder to become [... rBz V]
-    splitk_sum->reorder({{-8, -2}});
-    // Vectorize inner-most dimension
-    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+    // Reorder to place the split-K reduction innermost [... rBz iS]
+    splitk_sum->reorder({{-9, -2}});
   }
+  // Vectorize inner-most dimension [... (iUR iTx) rBz iS]
+  splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
 } // namespace
@@ -1106,14 +1107,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //
   // With split-K:
   //   mma_result
-  //     nbatch +   1    2    3    4    5    6   7   8     9    10    11    12
-  //     13    14    15
-  //              -15  -14  -13  -12  -11  -10  -9  -8    -7    -6    -5    -4
-  //              -3    -2    -1
-  //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMino iNino iMin2 iNin2
-  //     rKino rKin4 rKin2]
-  //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS  iTx   iMMA  iMMA  iMMA
-  //          rMMA  rMMA  rMMA
+  //     nbatch +   1    2    3    4    5    6   7   8
+  //              -15  -14  -13  -12  -11  -10  -9  -8
+  //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
+  //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+  //                              9    10    11    12    13    14    15
+  //                             -7    -6    -5    -4    -3    -2    -1
+  //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+  //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
   //   smem_epilogue   (unscheduled, same as original mma_result)
   //   splitk_sum      (nullptr)
   //
