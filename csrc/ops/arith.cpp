@@ -242,14 +242,17 @@ TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
-  std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
-  }
-  return randn(
-      shape, tv->dtype(), philox_seed, philox_offset, /*maybe_symbolic=*/false);
+  // Create a new output TV manually so that we carry over IterTypes, instead
+  // of inferring them from the shape as we would if we used randn().
+  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+  IrBuilder::create<RNGOp>(
+      RNGOpType::NormalStandard,
+      out,
+      tv->dtype(),
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
+  return out;
 }
 TensorView* randn_like(TensorView* tv) {
   return randn_like(tv, nullptr, nullptr);
@@ -266,14 +269,17 @@ TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
-  std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
-  }
-  return rand(
-      shape, tv->dtype(), philox_seed, philox_offset, /*maybe_symbolic=*/false);
+  // Create a new output TV manually so that we carry over IterTypes, instead
+  // of inferring them from the shape as we would if we used rand().
+  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+  IrBuilder::create<RNGOp>(
+      RNGOpType::Uniform,
+      out,
+      tv->dtype(),
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
+  return out;
 }
 TensorView* rand_like(TensorView* tv) {
   return rand_like(tv, nullptr, nullptr);
@@ -291,19 +297,17 @@ TensorView* full(
     DataType dtype,
     bool maybe_symbolic) {
   fill_value = maybeCastOp(dtype, fill_value);
+  // Create a new output TV manually so that we carry over IterTypes, instead
+  // of inferring them from the shape as we would if we used full().
   TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<FullOp>(out, fill_value);
   return out;
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
-  std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
-  }
-  return full(shape, fill_value, dtype, /*maybeSymbolic=*/false);
+  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+  IrBuilder::create<FullOp>(out, fill_value);
+  return out;
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value) {
