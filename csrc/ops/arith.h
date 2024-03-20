@@ -209,10 +209,16 @@ NVF_API TensorView* full(
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
-NVF_API TensorView* zeros(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* zeros(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* zeros_like(TensorView*);
 Val* zeros_like(Val*);
-NVF_API TensorView* ones(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* ones(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* ones_like(TensorView*);
 Val* ones_like(Val*);
 NVF_API TensorView* iota(

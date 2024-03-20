@@ -308,8 +308,15 @@ Val* full_like(Val* v, Val* fill_value) {
   return full_like(v->as<TensorView>(), fill_value);
 }
 
-TensorView* zeros(const std::vector<Val*>& shape, DataType dtype) {
-  return full(shape, FusionGuard::getCurFusion()->zeroVal(dtype), dtype);
+TensorView* zeros(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic) {
+  return full(
+      shape,
+      FusionGuard::getCurFusion()->zeroVal(dtype),
+      dtype,
+      maybe_symbolic);
 }
 
 TensorView* zeros_like(TensorView* tv) {
@@ -320,8 +327,12 @@ Val* zeros_like(Val* v) {
   return zeros_like(v->as<TensorView>());
 }
 
-TensorView* ones(const std::vector<Val*>& shape, DataType dtype) {
-  return full(shape, FusionGuard::getCurFusion()->oneVal(dtype), dtype);
+TensorView* ones(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic) {
+  return full(
+      shape, FusionGuard::getCurFusion()->oneVal(dtype), dtype, maybe_symbolic);
 }
 
 TensorView* ones_like(TensorView* tv) {
@@ -424,12 +435,7 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
 TensorView* eye(Val* rows, Val* cols, DataType dtype) {
   NVF_CHECK(rows->getDataType() == DataType::Int, "rows must have type Int");
   NVF_CHECK(cols->getDataType() == DataType::Int, "cols must have type Int");
-  auto out = TensorViewBuilder()
-                 .ndims(2)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(std::vector<Val*>{rows, cols})
-                 .build();
+  TensorView* out = factoryOutput({rows, cols}, dtype);
   IrBuilder::create<EyeOp>(out, dtype);
   return out;
 }
