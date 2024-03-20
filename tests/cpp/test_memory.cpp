@@ -519,7 +519,6 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   tv1->split(0, 128);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -568,9 +567,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
 
   tv1->split(1, 128);
   tv1->split(0, 128);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::BIDy);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -620,7 +617,6 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   tv1->split(0, items_of_16_bytes / 2);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -660,7 +656,6 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   tv1->split(0, tile_size);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
