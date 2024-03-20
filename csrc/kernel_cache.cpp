@@ -1281,14 +1281,26 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
+      DisableOptions disableOpts = DisableOptionsGuard::getCurOptions();
+      EnableOptions enableOpts = EnableOptionsGuard::getCurOptions();
+      ProfilerOptions profilerOpts = ProfilerOptionsGuard::getCurOptions();
+      DebugDumpOptions debugDumpOpts = DebugDumpOptionsGuard::getCurOptions();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
                             group_runtime_inputs,
                             group_to_run,
-                            &detect_exception_in_thread_pool]() {
+                            &detect_exception_in_thread_pool,
+                            disableOpts,
+                            enableOpts,
+                            profilerOpts,
+                            debugDumpOpts] {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
+          DisableOptionsGuard disableOptsGuard(disableOpts);
+          EnableOptionsGuard enableOptsGuard(enableOpts);
+          ProfilerOptionsGuard profilerOptsGuard(profilerOpts);
+          DebugDumpOptionsGuard debugDumpOptsGuard(debugDumpOpts);
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
           compileKernel(group_runtime_inputs, group_to_run);

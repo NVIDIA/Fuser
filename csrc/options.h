@@ -192,6 +192,12 @@ class NVF_API OptionsGuard {
  public:
   OptionsGuard() : prev_options_(getCurOptions()) {}
 
+  // This creates a new OptionsGuard with a fresh set of Options.
+  // Previous options are still restored on destruction of object.
+  OptionsGuard(Options<OptionEnum> options) : prev_options_(getCurOptions()) {
+    getCurOptions() = options;
+  }
+
   ~OptionsGuard() {
     getCurOptions() = prev_options_;
   }
