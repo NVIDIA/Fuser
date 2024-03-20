@@ -146,7 +146,7 @@ void lowerToScatter(
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
-  auto receiver_mesh = output_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
   auto root = input_tv->getDeviceMesh().vector().at(0);
   if (!isDeviceInvolved(my_device_index, root, receiver_mesh)) {
     return;
