@@ -1436,6 +1436,11 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 }
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
+  pushBack(IrBuilder::create<kir::Asm>(
+      "fence.proxy.async",
+      std::vector<Val*>{},
+      std::vector<Val*>{},
+      kir::Asm::Options{/*volatile=*/true}));
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
   auto in_tv = ldst->in()->as<TensorView>();
   auto out_tv = ldst->out()->as<TensorView>();
