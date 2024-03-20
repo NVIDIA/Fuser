@@ -584,12 +584,12 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
 
   auto tv0 = makeSymbolicTensor(3, DataType::Half);
   fusion->addInput(tv0);
-  auto tv1 = makeSymbolicTensor(1, DataType::Half);
-  fusion->addInput(tv1);
+  auto tv_bias = makeSymbolicTensor(1, DataType::Half);
+  fusion->addInput(tv_bias);
 
   auto* tv1 = castOp(DataType::Float, tv0);
   auto* tv2 = sum(tv1, {0, 2});
-  auto* tv3 = castOp(DataType::Float, tv1);
+  auto* tv3 = castOp(DataType::Float, tv_bias);
   auto* tv4 = add(tv2, tv3);
   auto* tv5 = castOp(DataType::Half, tv4);
   fusion->addOutput(tv5);
