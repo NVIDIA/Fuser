@@ -3373,35 +3373,37 @@ Val* Index::eye(
 //
 // Note that an originating bulk IterDomains must be the output of a split from
 // another IterDomain. Most commonly, we load/store tiles "contiguously", that
-// is, for example, when we have a tile size (8, 8), we want all the 8*8=64
+// is, for example, when we have a tile/box size (8, 8), we want all the 8*8=64
 // elements to to be transfered. If this is the case, then the originating bulk
 // IterDomains must be the inner of the split that defines it, and the outer of
 // the split must be non-bulk. For this case, the extents of the originating
-// bulk IterDomains are the tile sizes (the `boxDim` parameter in
+// bulk IterDomains are the tile/box sizes (the `boxDim` parameter in
 // `cuTensorMapEncodeTiled`).
-
+//
 // However, it is also possible to load/store tiles in a strided manner, that
-// is, for example, when we have a tile size (8, 8), we want every other element
-// to be transfered, that is, the items at (0, 0), (0, 2), (0, 4), ..., (2, 0),
-// (2, 2), (2, 4), ..., (6, 6). In this senario, the `elementStrides` in
-// `cuTensorMapEncodeTiled` will have a value other than 1. For this case, the
+// is, for example, if we consider a box dim of (8, 8), and we want
+// every other element from it to be transferred, that is, items at (0, 0),
+// (0, 2), (0, 4), ..., (2, 0), (2, 2), (2, 4), ..., (6, 6). We will transfer
+// data as (4, 4) dense tile of elements. In this scenario, the `elementStrides`
+// in  `cuTensorMapEncodeTiled` will have a value [2, 2]. For this case, the
 // originating bulk IterDomains must be the outer of the split that defines it,
 // where the inner of this split must be non-bulk. The parent of the originating
 // bulk IterDomains must also be an output of a split and it must be the inner
 // of the split that defines it, and similarly, the outer of this split must be
-// non-bulk. For this case, the extents of parents of the originating bulk
-// IterDomains are the tile sizes (the `boxDim` parameter in
+// non-bulk. For this case, the extents of the originating bulk IterDomains are
+// the tile sizes, and the extents of parents of the originating bulk
+// IterDomains are the box sizes (the `boxDim` parameter in
 // `cuTensorMapEncodeTiled`).
 //
 // With this understanding, we can now define more terminologies:
 //
-// Definition 3: "tileId" is a function that takes an originating bulk
-// IterDomain as its input, and returns another IterDomain. Given an originating
-// bulk IterDomain I1, the return value, tileId(I1) is:
+// Definition 3: "boxId" is a function that takes an originating bulk IterDomain
+// as its input, and returns an IterDomain. Given an originating bulk IterDomain
+// I1, the return value, boxId(I1) is:
 //   - I1 if I1 is the inner of the split that defines it
 //   - The parent of I1 if I1 is the outer of the split that defines it
 //
-// In the above diagram, tileId(I4) is I4, and tileId(I7) is I6.
+// In the above diagram, boxId(I4) is I4, and boxId(I7) is I6.
 //
 // Definition 4: "globalId" is a function that takes an originating bulk
 // IterDomain as its input, and returns another IterDomain. Given an originating
@@ -3628,12 +3630,12 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     originating_bulk_ids.pushBack(id);
   }
 
-  // Step 2: Get tileId and globalId, and innerId for each originating bulk
+  // Step 2: Get boxId and globalId, and innerId for each originating bulk
   // IterDomain. Similarily, the order of the `global_ids` has no meaning.
   // We are using a std::vector<Val*> just to make the algorithm deterministic.
 
   std::vector<Val*> global_ids;
-  std::unordered_map<IterDomain*, IterDomain*> global_id_to_tile_id;
+  std::unordered_map<IterDomain*, IterDomain*> global_id_to_box_id;
   std::unordered_map<IterDomain*, IterDomain*> global_id_to_orig_bulk_id;
   std::unordered_map<IterDomain*, IterDomain*> global_id_to_inner_id;
   for (auto id : originating_bulk_ids) {
