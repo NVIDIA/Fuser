@@ -28,9 +28,6 @@ void MultiDeviceEnvironment::SetUp() {
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip_ = true;
-  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -46,9 +43,7 @@ void MultiDeviceTest::SetUp() {
   debug_print = multidevice_env->debugPrint();
   do_barrier_at_test =
       multidevice_env->doBarrierAtTest() && communicator->is_available();
-  disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip &&
-      (!communicator->is_available() || communicator->size() < 2 ||
+  if ((!communicator->is_available() || communicator->size() < 2 ||
        torch::cuda::device_count() < 2)) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
   }
@@ -112,10 +107,9 @@ void PipelineTest::validate() {
     std::cout << ss.str() << std::endl;
   }
 
-  GTEST_ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
+  ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
   for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
-    GTEST_ASSERT_TRUE(
-        runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
+    ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
     auto output_tv =
         runtime->completeFusion()->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
@@ -124,7 +118,7 @@ void PipelineTest::validate() {
     auto ref_output = shardTensor(
         ref_unsharded_outputs.at(i), output_tv, communicator->deviceId());
     auto obtained_output = outputs.at(i);
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
+    EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
         << ". Expected values: " << ref_output
@@ -134,10 +128,10 @@ void PipelineTest::validate() {
 
 // Run and validate a pipeline
 // with given (possibly sharded) inputs
-void PipelineTest::execute() {
-  GTEST_ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
+void PipelineTest::executeAndValidate() {
+  ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
   for (int i : c10::irange(fusion->inputs().size())) {
-    GTEST_ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
+    ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
     auto input_tv = fusion->inputs().at(i)->as<TensorView>();
     auto input = shardTensor(
         unsharded_inputs.at(i).toTensor(), input_tv, communicator->deviceId());
@@ -181,6 +175,7 @@ void PipelineTest::execute() {
     ss << "\n}";
     std::cout << ss.str() << std::endl;
   }
+  validate();
 }
 
 void PipelineTest::SetUp() {

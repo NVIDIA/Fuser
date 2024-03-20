@@ -27,30 +27,30 @@ TEST_F(NVFuserTest, TestIsSharded) {
   TensorView* a = makeSymbolicTensor(3);
   a->axis(2)->parallelize(ParallelType::DIDx);
   a->split(0, 4);
-  ASSERT_TRUE(isSharded(a));
+  EXPECT_TRUE(isSharded(a));
 
   TensorView* b = makeSymbolicTensor(3);
   b->split(1, 4);
   b->axis(1)->parallelize(ParallelType::DIDx);
-  ASSERT_ANY_THROW(isSharded(b));
+  EXPECT_ANY_THROW(isSharded(b));
 
   TensorView* c = makeSymbolicTensor(3);
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
-  ASSERT_ANY_THROW(isSharded(c));
+  EXPECT_ANY_THROW(isSharded(c));
 }
 
 class ShardedComputeTest : public NVFuserTest,
                            public testing::WithParamInterface<bool> {};
 
 TEST_P(ShardedComputeTest, ComputeIndex) {
-  auto concreteTv = GetParam();
+  auto creates_concrete_tensor = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh({0, 1, 2});
 
-  TensorView* a =
-      concreteTv ? makeConcreteTensor({4, 2, 3, 5}) : makeSymbolicTensor(4);
+  TensorView* a = creates_concrete_tensor ? makeConcreteTensor({4, 2, 3, 5})
+                                          : makeSymbolicTensor(4);
   TensorView* b = sum(a, {0});
   TensorView* c = add(a, a);
   TensorView* d = permute(a, {{2, 0}});
@@ -92,7 +92,7 @@ class ShardingTest : public MultiDeviceTest,
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
 TEST_P(ShardingTest, UnshardedGlobalInput) {
-  auto [concreteTv, sharded_dim] = GetParam();
+  auto [creates_concrete_tensor, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
@@ -103,8 +103,8 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   input_size[sharded_dim] = num_devices;
   input_size[sharded_dim + 1] = num_devices;
 
-  TensorView* tv0 =
-      concreteTv ? makeConcreteTensor(input_size) : makeSymbolicTensor(4);
+  TensorView* tv0 = creates_concrete_tensor ? makeConcreteTensor(input_size)
+                                            : makeSymbolicTensor(4);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   TensorView* tv3 = sum(tv2, {sharded_dim});
@@ -143,7 +143,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 // Test memory allocation of multidevice fusion with sharded input
 // and replicated intermediates and output.
 TEST_P(ShardingTest, ShardGlobalInput) {
-  auto [concreteTv, sharded_dim] = GetParam();
+  auto [creates_concrete_tensor, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
@@ -153,11 +153,11 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   std::vector<int64_t> unsharded_input_size = {3, 2, 5};
   unsharded_input_size[sharded_dim] = num_devices;
 
-  TensorView* tv0 = concreteTv
+  TensorView* tv0 = creates_concrete_tensor
       ? makeConcreteTensor(unsharded_input_size)
       : makeSymbolicTensor(unsharded_input_size.size());
   TensorView* tv1 = set(tv0);
-  TensorView* tv2 = sum(tv1, {1});
+  TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
@@ -172,7 +172,7 @@ TEST_P(ShardingTest, ShardGlobalInput) {
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
       shardTensor(x1, tv0, communicator->deviceId())};
-  auto x2 = at::sum(x1, {1});
+  auto x2 = x1 * 2;
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
