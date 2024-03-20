@@ -158,7 +158,7 @@ NVF_API TensorView* rand(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr,
-    bool maybe_symbolic = false);
+    bool maybe_symbolic = true);
 NVF_API TensorView* rand_like(
     TensorView*,
     Val* philox_seed,
@@ -178,7 +178,7 @@ NVF_API TensorView* randn(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr,
-    bool maybe_symbolic = false);
+    bool maybe_symbolic = true);
 NVF_API TensorView* randn_like(
     TensorView*,
     Val* philox_seed,
@@ -194,7 +194,7 @@ NVF_API TensorView* uniform(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr,
-    bool maybe_symbolic = false);
+    bool maybe_symbolic = true);
 NVF_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
@@ -202,7 +202,7 @@ NVF_API TensorView* normal(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr,
-    bool maybe_symbolic = false);
+    bool maybe_symbolic = true);
 
 // TENSOR FACTORIES
 NVF_API TensorView* full(
