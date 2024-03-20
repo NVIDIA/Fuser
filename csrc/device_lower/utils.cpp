@@ -813,7 +813,7 @@ bool isScalarExpr(Expr* expr) {
 
 bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.get(id->getParallelType());
+  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -850,6 +850,19 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
     buffer_size = SimplifyingIrBuilder::mulExpr(buffer_size, pt_dim);
   }
   return buffer_size;
+}
+
+std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
+  std::vector<Val*> outs_requiring_codegen;
+  outs_requiring_codegen.reserve(fusion->outputs().size());
+  std::copy_if(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      std::back_inserter(outs_requiring_codegen),
+      [&fusion](Val* out) {
+        return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
+      });
+  return outs_requiring_codegen;
 }
 
 } // namespace lower_utils

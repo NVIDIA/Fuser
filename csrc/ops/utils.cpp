@@ -180,9 +180,7 @@ IterType promoteIterType(IterType type1, IterType type2) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
-std::vector<IterDomain*> newOutputDomain(
-    const std::vector<Val*>& vals,
-    DataType dtype) {
+std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (val->getValType() == ValType::TensorView) {
@@ -280,7 +278,7 @@ std::vector<IterDomain*> newOutputDomain(
 #endif
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
-  auto out_domain = newOutputDomain(vals, dtype);
+  auto out_domain = newOutputDomain(vals);
   return IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
@@ -345,6 +343,15 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
@@ -380,6 +387,15 @@ Val* getMaximumValue(DataType v) {
     case DataType::BFloat16:
       return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
+      break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());

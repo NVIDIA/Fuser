@@ -18,27 +18,6 @@
 #include <c10/util/irange.h>
 
 namespace nvfuser {
-
-bool isSharded(TensorView* tv) {
-  std::vector<bool> is_sharded;
-  for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
-    is_sharded.push_back(id->isDeviceDim());
-  }
-  // Currently, only the most external dim is allowed to be sharded and we don't
-  // allow split/merge
-  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  for (auto i : c10::irange(1, is_sharded.size())) {
-    NVF_ERROR(
-        !is_sharded.at(i),
-        "only the outmost dimension can be device-parallelized",
-        "but axis ",
-        i,
-        " is sharded in tv ",
-        tv->toString());
-  }
-  return is_sharded.empty() ? false : is_sharded.at(0);
-}
-
 namespace {
 
 std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
@@ -50,8 +29,30 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
-
 } // namespace
+
+bool isSharded(TensorView* tv) {
+  bool is_sharded = false;
+  auto rids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto ids = TensorDomain::noReductions(tv->getLeafDomain());
+  for (auto i : c10::irange(ids.size())) {
+    // Only one axis can be sharded on DIDx.
+    NVF_ERROR(
+        !(is_sharded && ids[i]->isDeviceDim()),
+        "Multiple IterDomains parallelized on DIDx in TensorView ",
+        tv->toString());
+
+    if (ids[i]->isDeviceDim()) {
+      // Currently do not support split/merge on a device dimension.
+      NVF_ERROR(
+          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
+          "Cannot parallelize DIDx on a split/merge axis ",
+          ids[i]->toString());
+      is_sharded = true;
+    }
+  }
+  return is_sharded;
+}
 
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -199,16 +200,15 @@ void insertReshardings(Fusion* fusion) {
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
-  std::set<DeviceIdxType> device_indices;
+  DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
     if (tv->hasDeviceMesh()) {
-      std::copy(
-          tv->getDeviceMesh().vector().begin(),
-          tv->getDeviceMesh().vector().end(),
-          std::inserter(device_indices, device_indices.begin()));
+      for (auto d_id : tv->getDeviceMesh().vector()) {
+        max_index = std::max(max_index, d_id);
+      }
     }
   }
-  return static_cast<int64_t>(device_indices.size());
+  return static_cast<int64_t>(max_index + 1);
 }
 
 void unshard(TensorView* tv) {

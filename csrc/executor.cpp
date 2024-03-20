@@ -328,6 +328,9 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  for (const auto& hook : lowering_hooks_) {
+    hook(lowered_.get());
+  }
   lowered_->run();
 
   kir::Kernel* kernel = lowered_->kernel();
@@ -499,6 +502,8 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::Float:
     case at::ScalarType::Double:
     case at::ScalarType::BFloat16:
+    case at::ScalarType::Float8_e4m3fn:
+    case at::ScalarType::Float8_e5m2:
       t.fill_(std::nan(""));
       break;
     case at::ScalarType::ComplexHalf:
@@ -966,62 +971,66 @@ at::Tensor allocateOutput(
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
-  if (alias_info.type == AllocationType::NoAlias) {
-    auto alloc_tensor = at::native::empty_strided_cuda(
-        out_info.sizes,
-        out_info.strides,
-        out_info.type,
-        c10::nullopt,
-        device,
-        c10::nullopt);
-    if (shouldFillAllocationWithNan()) {
-      fillTensorWithNan(alloc_tensor);
-    }
-    return alloc_tensor;
-  }
-
+  std::optional<at::Tensor> aliased_io_tensor = std::nullopt;
   Val* aliased_io = alias_info.aliased_io;
-  NVF_ERROR(
-      aliased_io != nullptr,
-      "The other two AllocationTypes currently must have an `aliased_io`.");
-  NVF_ERROR(
-      aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
-      aliased_io->toInlineString(),
-      " is expected to be a fusion input/output. `ee.evaluate` ",
-      "an intermediate tensor may involve GPU computation to materialize it ",
-      "to global memory.");
-  const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
-  NVF_ERROR(
-      aliased_io_val.is<at::Tensor>(),
-      "Alias io only supports tensor. Found ",
-      PolymorphicValue_functions::toString(aliased_io_val));
-  auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
-
-  if (alias_info.type == AllocationType::InplaceUpdate) {
-    // Unlike for `AllocationType::PointerArithmetic`, don't use
-    // ExpressionEvaluator to compute the output tensor. This is because
-    // the output tensor may hold different data from the input, e.g., an
-    // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
-    // would trigger non-trivial host computation.
-    return aliased_io_tensor;
+  if (aliased_io != nullptr) {
+    NVF_ERROR(
+        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
+        aliased_io->toInlineString(),
+        " is expected to be a fusion input/output. `ee.evaluate` ",
+        "an intermediate tensor may involve GPU computation to materialize it ",
+        "to global memory.");
+    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
+    NVF_ERROR(
+        aliased_io_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(aliased_io_val));
+    aliased_io_tensor = aliased_io_val.as<at::Tensor>();
   }
 
-  NVF_ERROR(alias_info.type == AllocationType::PointerArithmetic);
-  at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
-  NVF_ERROR(
-      out_tensor.is_alias_of(aliased_io_tensor),
-      "ExpressionEvaluator failed to evaluate ",
-      out_tv->toString(),
-      " as an alias of ",
-      aliased_io->toString());
-  inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
-  return out_tensor;
+  switch (alias_info.type) {
+    case AllocationType::New: {
+      auto alloc_tensor = at::native::empty_strided_cuda(
+          out_info.sizes,
+          out_info.strides,
+          out_info.type,
+          c10::nullopt,
+          device,
+          c10::nullopt);
+      if (shouldFillAllocationWithNan()) {
+        fillTensorWithNan(alloc_tensor);
+      }
+      return alloc_tensor;
+    }
+    case AllocationType::ReuseBuffer:
+      // Unlike for `AllocationType::Evaluate`, don't use
+      // ExpressionEvaluator to compute the output tensor. This is because
+      // the output tensor may hold different data from the input, e.g., an
+      // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
+      // would trigger non-trivial host computation.
+      return aliased_io_tensor.value();
+    case AllocationType::Evaluate: {
+      auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
+      if (aliased_io_tensor.has_value()) {
+        NVF_ERROR(
+            out_tensor.is_alias_of(aliased_io_tensor.value()),
+            "ExpressionEvaluator failed to evaluate ",
+            out_tv->toString(),
+            " as an alias of ",
+            aliased_io->toString());
+        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+      }
+      return out_tensor;
+    }
+    default:
+      NVF_ERROR(false, "Unrecognized AllocationType.");
+  }
 }
 
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
+// Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocateOutputs(
-    const kir::Kernel* kernel,
+    const Fusion* fusion,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -1045,24 +1054,23 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<std::pair<int64_t, Val*>> sorted_outs;
   sorted_outs.reserve(num_outs);
   for (const auto out_index : c10::irange(num_outs)) {
-    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
+    sorted_outs.emplace_back(out_index, fusion->outputs()[out_index]);
   }
   std::sort(
       sorted_outs.begin(),
       sorted_outs.end(),
-      [kernel](
+      [fusion](
           const std::pair<int64_t, Val*>& lhs,
           const std::pair<int64_t, Val*>& rhs) {
         return (
-            kernel->getOutputAlias(lhs.second).type ==
-                AllocationType::NoAlias &&
-            kernel->getOutputAlias(rhs.second).type != AllocationType::NoAlias);
+            fusion->getOutputAlias(lhs.second).type == AllocationType::New &&
+            fusion->getOutputAlias(rhs.second).type != AllocationType::New);
       });
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
     at::Tensor out_tensor = allocateOutput(
-        output_info[out_index], kernel->getOutputAlias(out), device, ee);
+        output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
     // 2. an output that aliases another output can be evaluated via
@@ -1247,11 +1255,18 @@ LaunchParams FusionExecutor::computeLaunchParams(
     const int welford_factor =
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
+    // in outer reduction, may group iteration domain, e.g. when vectorized.
+    const int grouped_iter_factor = kernel_summary.num_grouped_iterations;
+
+    NVF_CHECK(
+        !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
+        "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
+
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        welford_factor * launch_params.bdimx() * launch_params.bdimy() *
-        launch_params.bdimz();
+        grouped_iter_factor * welford_factor * launch_params.bdimx() *
+        launch_params.bdimy() * launch_params.bdimz();
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
@@ -1330,46 +1345,53 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+namespace {
 
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
-
-  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
-}
-
-std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getOutputBufferInfo(
-        const KernelArgumentHolder& args,
-        ExpressionEvaluator& expr_eval,
-        DataType index_dtype) {
+//! Return information necessary for allocating output tensors. Input
+//! and output tensors are allowed to alias each other, which is
+//! specified by the list of int pairs of input and output indices
+std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
+    const KernelArgumentHolder& args,
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    const Fusion* fusion) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
-  const auto kernel = lowered_->kernel();
-  std::vector<GlobalBufferInfo> outputs;
+  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
+  outputs.reserve(fusion->outputs().size());
   NVF_ERROR(
-      args.size() == kernel->inputs().size(),
-      "kernel arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    auto out_val = kernel->outputs()[out_i];
-    auto output = out_val->as<TensorView>();
-
-    GlobalBufferInfo info;
-    info.tv = dynamic_cast<TensorView*>(out_val);
+      args.size() == fusion->inputs().size(),
+      "fusion arguments length does not match runtime arguments.");
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+    auto out_val = fusion->outputs()[out_i];
     NVF_ERROR(
-        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+        out_val->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
 
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    FusionExecutor::GlobalBufferInfo info;
+    info.tv = out_val->as<TensorView>();
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
     auto dtype =
-        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
     info.type = data_type_to_aten(dtype);
 
     outputs.emplace_back(info);
   }
   return outputs;
+}
+
+} // namespace
+
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device) {
+  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
+
+  auto output_info =
+      getOutputBufferInfo(fusion_inputs, expr_eval, PrimDataType::Int, fusion);
+
+  return allocateOutputs(fusion, output_info, device, expr_eval);
 }
 
 void FusionExecutor::setUsedTVs() {
@@ -1544,13 +1566,18 @@ void FusionExecutor::initializeExecutorEntry(
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
+  for (const auto& entry : kernel()->summary().validations) {
+    NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
+  }
+
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(args, expr_eval, index_type);
+    output_info =
+        getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
@@ -1841,11 +1868,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   executor_utils::CudaKernelTimer timer(stream);
 
-  if (measure_kernel_time) {
-    timer.init();
-  }
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    if (measure_kernel_time) {
+      timer.init();
+    }
+
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1862,21 +1889,25 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           compiled_kernel_->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
+
       const int64_t device_id =
           static_cast<unsigned char>(options_.device.index());
       const auto prop =
           at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
           ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
+
       const int hw_max_warps =
           prop->maxThreadsPerMultiProcessor / prop->warpSize;
       const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
       setKernelOccupancy(occupancy);
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(2) << occupancy << "%";
-      debug() << "blocks_per_sm= " << blocks_per_sm
-              << ", warps_per_sm= " << warps_per_sm
-              << ", occupancy= " << oss.str() << std::endl;
+
+      debug() << "num_sms=" << prop->multiProcessorCount
+              << ", blocks_per_sm=" << blocks_per_sm
+              << ", warps_per_sm=" << warps_per_sm
+              << ", occupancy=" << oss.str() << std::endl;
     }
 
     if (measure_kernel_time) {
@@ -1885,12 +1916,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      std::cout << "Run fusion " << launch_params_.gdimx() << " " <<
-          launch_params_.gdimy() << " " <<
-          launch_params_.gdimz() << " " <<
-          launch_params_.bdimx() << " " <<
-          launch_params_.bdimy() << " " <<
-          launch_params_.bdimz() << " " << std::endl;
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->function,
           launch_params_.gdimx(),
@@ -1920,17 +1945,19 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
+    }
+  }
 
-      outputBytesProcessed(outputs);
+  if (measure_kernel_time) {
+    outputBytesProcessed(outputs);
 
-      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-          isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-        double gb_per_s =
-            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-            (double)1.0e9;
-        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-      }
+    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      double gb_per_s =
+          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
+          (double)1.0e9;
+      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
+              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
     }
   }
 

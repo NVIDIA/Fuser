@@ -21,7 +21,7 @@ namespace nvfuser {
 
 namespace {
 
-// returned a copied fusion where the original outputs have been replaced by
+// returns a copied fusion where the original outputs have been replaced by
 // the ones given as argument
 std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
     Fusion* fusion,
@@ -30,7 +30,6 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
   std::unordered_map<Val*, Val*> copy_to_original_map;
   auto original_to_copy_cloner = Fusion::copy(fusion, fusion_copy.get());
 
-  auto original_inputs = fusion_copy->inputs();
   auto original_outputs = fusion_copy->outputs();
 
   // Remove original outputs
@@ -44,46 +43,16 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
     fusion_copy->addOutput(original_to_copy_cloner.clone(output));
   });
 
-  // for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
-  //   tv->setMemoryType(MemoryType::Global);
-  //   for (auto i : c10::irange(tv->domain()->nDims())) {
-  //     if (!tv->axis(static_cast<int>(i))->isDeviceDim()) {
-  //       tv->axis(static_cast<int>(i))->parallelize(ParallelType::Serial);
-  //     }
-  //   }
-  // }
   return fusion_copy;
 }
 
 } // namespace
 
-// TODO: use native allocator instead.
-// TODO: reimplement. The implementation here is very naive and wasteful since
-// we entirely copy the fusion, change the outputs to be the Vals we want to
-// allocate, and call allocOutputSpace which effectively compile and run the
-// Fusion. This function creates a potentially important overhead, it needs to
-// be reimplemented
-void MultiDeviceExecutor::allocateBuffers(
-    std::vector<c10::IValue> global_inputs_IValues) {
-  if (vals_to_allocate_.empty()) {
-    return;
-  }
-
-  auto buffers = allocator_->allocOutputSpace(global_inputs_IValues);
-
-  NVF_ERROR(
-      buffers.size() == vals_to_allocate_.size(),
-      "something went wrong with multidevice allocator");
-  for (auto i : c10::irange(buffers.size())) {
-    val_to_IValue_[vals_to_allocate_.at(i)] = buffers.at(i);
-  }
-}
-
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    bool auto_schedule)
-    : comm_(comm), auto_schedule_(auto_schedule) {
+    MultiDeviceExecutorParams params)
+    : comm_(comm), params_(params) {
   insertReshardings(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
@@ -111,8 +80,10 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
 
   // Allocator setup
-  // First, figure out what Vals need allocation at runtime
-  for (auto group : staged_fusion_->groups()) {
+  // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
+  // which correspond to the destination buffers of interdevice communications.
+  // TODO: reuse allocated buffers and support inplace collectives
+  for (SegmentedGroup* group : staged_fusion_->groups()) {
     if (is_resharding_[group]) {
       NVF_ERROR(group->exprs().size() == 1);
       NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
@@ -125,13 +96,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  // Then, instantiate the allocator
-  if (!vals_to_allocate_.empty()) {
-    allocator_ = std::make_unique<FusionExecutorCache>(
-        copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_),
-        0,
-        false);
-  }
+  allocator_fusion_ =
+      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
@@ -158,13 +124,25 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
-  if (fec_.find(group) == fec_.end()) {
-    fec_.emplace(
+  if (params_.use_fusion_executor_cache) {
+    fec_.try_emplace(
         group,
-        std::make_unique<FusionExecutorCache>(
-            staged_fusion_->makeFusion(group), 0, auto_schedule_));
+        staged_fusion_->makeFusion(group),
+        0,
+        !params_.skip_auto_scheduling);
+    outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
+  } else {
+    auto [it, has_emplaced] = fe_.try_emplace(group);
+    auto& fe = it->second;
+    if (has_emplaced) {
+      fe.compileFusion(
+          staged_fusion_->makeFusion(group).get(), group_input_IValues);
+    }
+    outputs = fe.runFusion(group_input_IValues);
+    if (!params_.cache_fusion_executor) {
+      fe_.erase(group);
+    }
   }
-  outputs = fec_[group]->runFusionWithInputs(group_input_IValues);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
@@ -218,11 +196,16 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       "Wrong number of inputs");
 
   auto start = std::chrono::high_resolution_clock::now();
-  allocateBuffers(inputs);
+  auto allocations =
+      allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
+  NVF_ERROR(vals_to_allocate_.size() == allocations.size());
+  for (auto i : c10::irange(allocations.size())) {
+    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
+  }
   auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> duration = end - start;
-  std::cout << "Allocate recv buffers: " << duration.count() << "seconds" << std::endl;
-  
+  auto duration = end - start;
+  std::cout << "Allocation: " << duration.count() << "seconds" << std::endl;
+
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
