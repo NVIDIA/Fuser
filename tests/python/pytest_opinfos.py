@@ -1110,7 +1110,7 @@ matmul_ops = []
 
 def matmul_wrapper(fd, data_type, a, b):
     t1 = fd.ops.matmul(a, b)
-    t2 = fd.ops.cast(t1, dtype=DataType.Half)
+    t2 = fd.ops.cast(t1, dtype=data_type)
     return t2
 
 

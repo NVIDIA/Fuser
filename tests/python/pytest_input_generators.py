@@ -1485,7 +1485,7 @@ def matmul_input_generator(
 ):
     make_arg = partial(
         make_tensor,
-        dtype=torch.float16,
+        dtype=dtype,
         device="cuda",
         low=None,
         high=None,
