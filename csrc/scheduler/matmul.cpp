@@ -708,7 +708,6 @@ void scheduleSplitKSum(
     Val* vec_ext = splitk_sum->axis(-2)->extent();
     NVF_ERROR(vec_ext->isConstInt());
     int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
-    // Parallelize as [... Tx V Bz]
     splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
     if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
@@ -729,7 +728,7 @@ void scheduleSplitKSum(
     // Reorder to place the split-K reduction innermost [... rBz iS]
     splitk_sum->reorder({{-9, -2}});
   }
-  // Vectorize inner-most dimension [... (iUR iTx) rBz iS]
+  // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
