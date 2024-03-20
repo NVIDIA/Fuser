@@ -2309,6 +2309,12 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           }
         }
       }
+      if (combo_xs.empty() || combo_other.empty()) {
+        // This can happen when combo_id = 2^k - 1 for some k >= xs.size(). In
+        // that case, ((combo_id >> i) & 1) == 1 for i = 0, ... , k - 1, and we
+        // will place all elements into combo_xs.
+        continue;
+      }
       // compute sum of combo_xs and sum of combo_other
       Val* sum_xs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(combo_xs));
       Val* sum_other =
