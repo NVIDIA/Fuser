@@ -89,16 +89,14 @@ void CommunicationTest::resetDstBuffers() {
   }
 }
 
-// Utility function used for validation in the tests
-// It compares the given (possibly sharded) output with the result of the Fusion
-// run on a single device with the given (possibly sharded) inputs
-void PipelineTest::validate() {
-  // execute the fusion on one device without pipeline scheduling
-  auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
-  unshard(fusion_copy.get());
-  FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-  auto ref_unsharded_outputs =
-      unsharded_fec.runFusionWithInputs(unsharded_inputs);
+void PipelineTest::validate(bool validate_with_prescribed_values) {
+  if (!validate_with_prescribed_values) {
+    // execute the fusion on one device without pipeline scheduling
+    auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
+    unshard(fusion_copy.get());
+    FusionExecutorCache unsharded_fec(std::move(fusion_copy));
+    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
+  }
 
   if (debug_print) {
     std::stringstream ss;
@@ -135,8 +133,6 @@ void PipelineTest::validate() {
   }
 }
 
-// Run and validate a pipeline
-// with given (possibly sharded) inputs
 void PipelineTest::execute() {
   GTEST_ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
   for (int i : c10::irange(fusion->inputs().size())) {
@@ -170,14 +166,12 @@ void PipelineTest::execute() {
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
+  outputs = runtime->runWithInput(inputs);
+
   if (debug_print) {
     if (!communicator->deviceId()) {
       runtime->print();
     }
-  }
-  outputs = runtime->runWithInput(inputs);
-
-  if (debug_print) {
     std::stringstream ss;
     std::string indent = "  ";
     ss << "Device " << communicator->deviceId() << "'s outputs:{\n";

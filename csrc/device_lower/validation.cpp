@@ -171,6 +171,18 @@ void validateIterDomainUsage(Fusion* fusion) {
   }
 }
 
+void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
+  for (auto tv : tvs) {
+    for (auto id : tv->getLeafDomain()) {
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            ir_utils::isCpAsyncBulk(tv->definition()),
+            "ParallelType::Bulk is only supported for cp.async.bulk.");
+      }
+    }
+  }
+}
+
 } // namespace
 
 void validateIr(Fusion* fusion) {
@@ -190,6 +202,9 @@ void validateIr(Fusion* fusion) {
       dynamic_tvs.empty(),
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
+
+  auto all_tvs = ir_utils::allTvs(fusion);
+  validateCpAsyncBulk(all_tvs);
 }
 
 namespace {

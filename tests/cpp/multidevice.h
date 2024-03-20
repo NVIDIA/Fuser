@@ -88,17 +88,24 @@ class CommunicationTest
 class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
-  void validate();
+  // Run the multidevice fusion and stores the (sharded) results in "outputs"
   void execute();
-  void executeAndValidate() {
+  // Utility function used for validation in the tests. It compares the
+  // (sharded) outputs with ref_unsharded_outputs. if
+  // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
+  // to be set manually in the test body. Otherwise, ref_unsharded_outputs is
+  // computed by running a Fusion on a single device with the unsharded_inputs
+  void validate(bool validate_with_prescribed_values = false);
+  void executeAndValidate(bool validate_with_prescribed_values = false) {
     execute();
-    validate();
+    validate(validate_with_prescribed_values);
   }
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
+  std::vector<at::Tensor> ref_unsharded_outputs;
   MultiDeviceExecutorParams multi_device_executor_params;
 };
 
