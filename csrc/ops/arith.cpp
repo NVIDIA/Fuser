@@ -168,8 +168,9 @@ TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
-  TensorView* out = factoryOutput(shape, dtype);
+    Val* philox_offset,
+    bool maybe_symbolic) {
+  TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<RNGOp>(
       RNGOpType::Uniform,
       out,
@@ -187,8 +188,9 @@ TensorView* uniform(
     Val* high,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
-  TensorView* out = factoryOutput(shape, dtype);
+    Val* philox_offset,
+    bool maybe_symbolic) {
+  TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<RNGOp>(
       RNGOpType::UniformRange,
       out,
@@ -205,8 +207,9 @@ TensorView* normal(
     Val* std,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
-  TensorView* out = factoryOutput(shape, dtype);
+    Val* philox_offset,
+    bool maybe_symbolic) {
+  TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalGeneral,
       out,
@@ -221,8 +224,9 @@ TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
-  TensorView* out = factoryOutput(shape, dtype);
+    Val* philox_offset,
+    bool maybe_symbolic) {
+  TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalStandard,
       out,
@@ -244,7 +248,8 @@ TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return randn(shape, tv->dtype(), philox_seed, philox_offset);
+  return randn(
+      shape, tv->dtype(), philox_seed, philox_offset, /*maybe_symbolic=*/false);
 }
 TensorView* randn_like(TensorView* tv) {
   return randn_like(tv, nullptr, nullptr);
@@ -267,7 +272,8 @@ TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return rand(shape, tv->dtype(), philox_seed, philox_offset);
+  return rand(
+      shape, tv->dtype(), philox_seed, philox_offset, /*maybe_symbolic=*/false);
 }
 TensorView* rand_like(TensorView* tv) {
   return rand_like(tv, nullptr, nullptr);
@@ -297,7 +303,7 @@ TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return full(shape, fill_value, dtype);
+  return full(shape, fill_value, dtype, /*maybeSymbolic=*/false);
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value) {
