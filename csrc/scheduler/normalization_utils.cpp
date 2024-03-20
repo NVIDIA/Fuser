@@ -846,24 +846,21 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 }
 
 // Returns true if persistent buffers are projected to inputs, meaning the
-// inputs are cached instead of the persistent buffers. The decision of
-// projection is primarily based on the required sizes of the two cases --
-// projection is done if projecting to the inputs results in a smaller size.
-// However, we experimentally found that certain relatively expensive operations
-// should not be projected even when that would require a larger buffer size.
-// Specifically,
-// - rng: should never be projected no matter how much larger the buffer would
-// consume
-// - exp in inner normalization: only allowed to get projected if the buffer is
-// smaller than a certain size Otherwise, as long as the projected inputs are
-// smaller than the original persistent buffers, this function returns true.
-bool projectBufferToInputs(
+// inputs are cached instead of the persistent buffers.
+bool isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const bool is_inner_reduction) {
+  // don't project if there are view ops and no buffer can be projected
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  if (!can_project) {
+    return false;
+  }
+
   // don't project if can't reduce buffer size
   if (persistent_buffer_size_info.projected_persistent_buffer_size >=
       persistent_buffer_size_info.persistent_buffer_size) {
@@ -871,17 +868,11 @@ bool projectBufferToInputs(
   }
 
   // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers
+  // memory to store the buffers. Even after projecting, may still not have
+  // enough register or shared memory, then canScheduleRunTime will return
+  // false.
   int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
       runtime_info, persistent_buffer_info.persistent_buffers);
-  NVF_ERROR(
-      max_available_buffer >=
-          persistent_buffer_size_info.projected_persistent_buffer_size,
-      "There is not enough register/shared memory to store the projected buffer!",
-      " max_available_space: ",
-      max_available_buffer,
-      " projected_buffer_size: ",
-      persistent_buffer_size_info.projected_persistent_buffer_size);
   if (max_available_buffer <
       persistent_buffer_size_info.persistent_buffer_size) {
     return true;
@@ -1011,19 +1002,16 @@ PersistentKernelProperties getPersistentKernelProperties(
   // which requires more advanced analysis is batch norm backwards.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
   bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
-  bool project_persistent_buffers = can_project &&
-      projectBufferToInputs(fusion,
-                            runtime_info,
-                            persistent_buffer_info,
-                            persistent_buffer_size_info,
-                            is_inner_reduction);
+  bool project_persistent_buffers = isProjectBufferToInputs(
+      fusion,
+      runtime_info,
+      persistent_buffer_info,
+      persistent_buffer_size_info,
+      is_inner_reduction);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
