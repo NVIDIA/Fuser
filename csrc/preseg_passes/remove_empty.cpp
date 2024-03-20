@@ -148,8 +148,11 @@ class EmptyTensorRemover : public DeadCodeRemover {
           rop->toString());
     }
 
-    auto new_tv =
-        full(noReductionShape(out), rop->init(), out->getDataType().value());
+    auto new_tv = full(
+        noReductionShape(out),
+        rop->init(),
+        out->getDataType().value(),
+        /*maybe_symbolic=*/false);
     registerReplacement(out, new_tv);
   }
 
@@ -189,14 +192,16 @@ class EmptyTensorRemover : public DeadCodeRemover {
     if (isLive(avg)) {
       auto nan = IrBuilder::create<Val>(
           std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
-      auto nan_tensor = full(shape, nan, avg->getDataType().value());
+      auto nan_tensor = full(
+          shape, nan, avg->getDataType().value(), /*maybe_symbolic=*/false);
       registerReplacement(avg, nan_tensor);
     }
     if (isLive(var_sum)) {
       auto new_var_sum = full(
           shape,
           fusion()->zeroVal(var_sum->getDataType().value()),
-          var_sum->getDataType().value());
+          var_sum->getDataType().value(),
+          /*maybe_symbolic=*/false);
       registerReplacement(var_sum, new_var_sum);
     }
     if (isLive(N)) {
@@ -289,7 +294,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto out = pop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
-      auto new_tv = full(shape, pop->value(), dtype);
+      auto new_tv = full(shape, pop->value(), dtype, /*maybe_symbolic=*/false);
       registerReplacement(out, new_tv);
     }
   }

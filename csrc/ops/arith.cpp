@@ -130,7 +130,8 @@ TensorView* unaryOp(
 
 static TensorView* factoryOutput(
     const std::vector<Val*>& shape,
-    DataType dtype) {
+    DataType dtype,
+    bool maybe_symbolic = true) {
   // For concrete dimensions, set IterType to Broadcast or Iteration. If we
   // cannot determine the IterType, set it to Symbolic so that it can be set
   // later during dynamic shape concretization.
@@ -138,7 +139,8 @@ static TensorView* factoryOutput(
   out_root.reserve(shape.size());
   ExpressionEvaluator ee;
   for (Val* shi : shape) {
-    IterType iter_type = IterType::Symbolic;
+    IterType iter_type =
+        maybe_symbolic ? IterType::Symbolic : IterType::Iteration;
     PolymorphicValue ext = ee.evaluate(shi);
     if (ext.hasValue()) {
       NVF_CHECK(
@@ -280,9 +282,10 @@ Val* rand_like(Val* v) {
 TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype) {
+    DataType dtype,
+    bool maybe_symbolic) {
   fill_value = maybeCastOp(dtype, fill_value);
-  TensorView* out = factoryOutput(shape, dtype);
+  TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
   IrBuilder::create<FullOp>(out, fill_value);
   return out;
 }

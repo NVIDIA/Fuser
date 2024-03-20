@@ -204,7 +204,8 @@ NVF_API TensorView* normal(
 NVF_API TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype);
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
