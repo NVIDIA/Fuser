@@ -26,6 +26,7 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -38,6 +39,11 @@
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
+ protected:
+  CombineMulSumAsMmaTest() {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -54,6 +60,11 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
     }
     NVFuserTest::SetUp();
   }
+
+ private:
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard opt_guard_;
 };
 
 // Test checks to see that the combiner can correctly replace
