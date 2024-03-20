@@ -1573,13 +1573,13 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
       return true;
     }
   }
+  if (depth >= max_recursion_depth) {
+    // Limit the recursion depth to avoid infinite recursion
+    // In practice only a few levels are usually enough transitivity to prove
+    // what is needed for index expressions.
+    return false;
+  }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
-    if (depth >= max_recursion_depth) {
-      // Limit the recursion depth to avoid infinite recursion
-      // In practice only a few levels are usually enough transitivity to prove
-      // what is needed for index expressions.
-      continue;
-    }
     bool lta = lessThan(x, a, context, depth);
     bool ltb = lessThan(b, y, context, depth);
     // x < a implies x <= b
