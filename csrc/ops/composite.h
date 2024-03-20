@@ -47,17 +47,6 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul functions are temporary internal functions for testing purposes only
-// NOTE: These functions have the following restrictions:
-// 1. M, N, and K dimensions must be multiples of 8
-// 2. Tensors must be contiguously defined.
-// 3. Inputs must be FP16/BF16
-// 4. Heuristic support only exists for Ampere
-NVF_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
-
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
 TensorView* softplus(TensorView* x, Val* beta, Val* threshold);

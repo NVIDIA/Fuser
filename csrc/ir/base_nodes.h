@@ -524,6 +524,17 @@ class NVF_API Expr : public Statement {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
 
+  // This version allows evaluation of multiple ops together instead of one op
+  // at a time by overriding and skipping computation of intermediate inputs
+  // that are not required. For example:
+  // 1. CatOp is internally preceded by PadOp but the ATen evaluation uses only
+  // the unpadded inputs and the evaluation of padded inputs can be skipped.
+  // 2. Evaluating patterns in matmul fallback such as MmaOp + Cast/ MmaOp +
+  // Bias + Cast
+  virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
+
   // Input/output accessors
   const auto& inputs() const {
     return inputs_;
