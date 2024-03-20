@@ -307,14 +307,20 @@ INSTANTIATE_TEST_SUITE_P(
 enum class SchedulingMode {
   InterDeviceOnly,
   Manual,
+  ReductionScheduler,
+  Automatic,
 };
 
 std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
   switch (mode) {
     case SchedulingMode::InterDeviceOnly:
-      return out << "InterDeviceOnly";
+      return out << "SchedulingMode::InterDeviceOnly";
     case SchedulingMode::Manual:
-      return out << "Manual";
+      return out << "SchedulingMode::Manual";
+    case SchedulingMode::ReductionScheduler:
+      return out << "SchedulingMode::ReductionScheduler";
+    case SchedulingMode::Automatic:
+      return out << "SchedulingMode::Automatic";
     default:
       NVF_ERROR(false);
   }
@@ -400,6 +406,17 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       tv3->axis(-1)->parallelize(ParallelType::TIDx);
       break;
     }
+    case SchedulingMode::ReductionScheduler: {
+      auto reduction_params = getReductionHeuristics(
+          fusion.get(), {at::empty(input_sizes, tensor_options)});
+      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+      l_params = reduction_params->lparams;
+      scheduleReduction(fusion.get(), *reduction_params);
+      break;
+    }
+    case SchedulingMode::Automatic:
+      multi_device_executor_params.use_fusion_executor_cache = true;
+      break;
   }
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
@@ -412,8 +429,11 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
 INSTANTIATE_TEST_SUITE_P(
     SchedulingModes,
     PipelineTestStagedReduction,
-    ::testing::Values(SchedulingMode::InterDeviceOnly, SchedulingMode::Manual));
-
+    testing::Values(
+        SchedulingMode::InterDeviceOnly,
+        SchedulingMode::Manual,
+        SchedulingMode::ReductionScheduler,
+        SchedulingMode::Automatic));
 } // namespace nvfuser
 
 #endif
