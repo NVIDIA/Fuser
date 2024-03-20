@@ -1108,20 +1108,29 @@ tensor_creation_ops.append(uniform_opinfo)
 matmul_ops = []
 
 
-def matmul_wrapper(fd, a, b):
+def matmul_wrapper(fd, data_type, a, b):
     t1 = fd.ops.matmul(a, b)
     t2 = fd.ops.cast(t1, dtype=DataType.Half)
     return t2
 
 
-matmul_opinfo = OpInfo(
-    lambda fd: partial(matmul_wrapper, fd),
-    "matmul",
+matmulfp16_opinfo = OpInfo(
+    lambda fd: partial(matmul_wrapper, fd, DataType.Half),
+    "matmul_float16",
     dtypes=(torch.float16,),
     sample_input_generator=matmul_input_generator,
     reference=torch.matmul,
 )
-matmul_ops.append(matmul_opinfo)
+matmul_ops.append(matmulfp16_opinfo)
+
+matmulbf16_opinfo = OpInfo(
+    lambda fd: partial(matmul_wrapper, fd, DataType.BFloat16),
+    "matmul_Bfloat16",
+    dtypes=(torch.bfloat16,),
+    sample_input_generator=matmul_input_generator,
+    reference=torch.matmul,
+)
+matmul_ops.append(matmulbf16_opinfo)
 
 """ End Tensor Creation """
 

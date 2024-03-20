@@ -1491,12 +1491,18 @@ def matmul_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    test_cases = (
-        ((256, 8), (8, 256)),
-        ((256, 128), (128, 128)),
-        ((1456, 8), (8, 256)),
-    )
-    for lhs_shape, rhs_shape in test_cases:
-        lhs = make_arg(lhs_shape)
-        rhs = make_arg(rhs_shape)
-        yield SampleInput(lhs, rhs)
+
+    def multiply_range(maximum, step):
+        assert maximum % step == 0
+        num_steps = int(math.log(maximum, step))
+        return tuple(
+            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
+        )
+
+    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768
+    # Use a Cartesian product to create a wide range of matrix shapes
+    M, N, K = itertools.repeat(multiply_range(32768, 8), 3)
+    for M, N, K in itertools.product(M, N, K):
+        lhs_shape = (M, K)
+        rhs_shape = (K, N)
+        yield SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))

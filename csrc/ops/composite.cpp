@@ -8,7 +8,6 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
-#include <options.h>
 #include <transform_view.h>
 
 namespace nvfuser {
