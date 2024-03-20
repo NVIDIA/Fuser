@@ -518,7 +518,10 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->split(0, 128);
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -565,8 +568,12 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->split(1, 128);
-  tv1->split(0, 128);
+  for (auto tv : {tv1, tv2}) {
+    tv->split(1, 128);
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+  }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
 
@@ -616,7 +623,10 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->split(0, items_of_16_bytes / 2);
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, items_of_16_bytes / 2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -655,7 +665,10 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->split(0, tile_size);
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, tile_size);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options =
@@ -675,8 +688,8 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       [&]() {
         fe.runFusion({t0, items_of_16_bytes / 2});
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Some error message")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Some error message")));
 }
 
 // End TMA tests
