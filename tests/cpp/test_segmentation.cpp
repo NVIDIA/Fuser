@@ -593,7 +593,7 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
   auto* tv4 = add(tv2, tv3);
   auto* tv5 = castOp(DataType::Half, tv4);
   fusion->addOutput(tv5);
-  auto* tv6 = add(tv4, tv4);
+  auto* tv6 = add(tv3, tv3);
   auto* tv7 = castOp(DataType::Half, tv6);
   fusion->addOutput(tv7);
 
