@@ -3646,10 +3646,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         id->toString(),
         " is not.");
     if (id == def->inner()) {
-      IterDomain* tile_id = id;
+      IterDomain* box_id = id;
       IterDomain* global_id = def->in();
       global_ids.push_back(global_id);
-      global_id_to_tile_id[global_id] = tile_id;
+      global_id_to_box_id[global_id] = box_id;
       global_id_to_orig_bulk_id[global_id] = id;
       NVF_ERROR(
           bulk_ids.count(def->outer()) == 0,
@@ -3664,13 +3664,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           "the inner of this split must not be a bulk IterDomain, but ",
           def->inner()->toString(),
           " is.");
-      IterDomain* tile_id = def->in();
-      auto def2 = dynamic_cast<Split*>(tile_id->definition());
+      IterDomain* box_id = def->in();
+      auto def2 = dynamic_cast<Split*>(box_id->definition());
       NVF_ERROR(
-          def2 != nullptr && def2->inner() == tile_id,
+          def2 != nullptr && def2->inner() == box_id,
           "When an originating bulk IterDomain is an outer of a split, ",
           "The parent of an originating bulk IterDomain must be an inner output of a split, but ",
-          tile_id->toString(),
+          box_id->toString(),
           " is not.");
       NVF_ERROR(
           bulk_ids.count(def2->outer()) == 0,
@@ -3680,7 +3680,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           " is.");
       IterDomain* global_id = def2->in();
       global_ids.push_back(global_id);
-      global_id_to_tile_id[global_id] = tile_id;
+      global_id_to_box_id[global_id] = box_id;
       global_id_to_orig_bulk_id[global_id] = id;
       global_id_to_inner_id[global_id] = def->inner();
     }
@@ -3802,7 +3802,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   for (auto tuple : frontier) {
     auto id = std::get<0>(tuple);
     NVF_ERROR(
-        seen.insert(id).second && global_id_to_tile_id.count(id) > 0,
+        seen.insert(id).second && global_id_to_box_id.count(id) > 0,
         "The set of all global IterDomains must be equivalent to the allocation domain, but ",
         id->toString(),
         " is either duplicate or not a global IterDomain.");
@@ -3815,7 +3815,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   std::vector<Val*> tensor_sizes_inner_to_outer;
   std::vector<Val*> tensor_strides_inner_to_outer;
-  std::vector<Val*> tile_sizes_inner_to_outer;
+  std::vector<Val*> box_sizes_inner_to_outer;
   std::vector<Val*> element_strides_inner_to_outer;
   std::vector<Val*> indices_inner_to_outer;
 
@@ -3828,7 +3828,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       tensor_strides_inner_to_outer.push_back(
           SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
     }
-    tile_sizes_inner_to_outer.push_back(global_id_to_tile_id.at(id)->extent());
+    box_sizes_inner_to_outer.push_back(global_id_to_box_id.at(id)->extent());
 
     auto inner_it = global_id_to_inner_id.find(id);
     if (it == frontier.rbegin()) {
@@ -3868,7 +3868,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       global_address,
       IrBuilder::arrayExpr(tensor_sizes_inner_to_outer),
       global_stride,
-      IrBuilder::arrayExpr(tile_sizes_inner_to_outer),
+      IrBuilder::arrayExpr(box_sizes_inner_to_outer),
       IrBuilder::arrayExpr(element_strides_inner_to_outer),
       tma::TensorMapInterleave::NoInterleave,
       getSwizzleFromBytes(
@@ -3903,7 +3903,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   Val* expected_bytes = IrBuilder::create<Val>(itemsize, DataType::Index);
   // Note that we need to use the extents of the originating bulk IterDomains
-  // to compute the expected bytes, not the extents of the tile IterDomains.
+  // to compute the expected bytes, not the extents of the box IterDomains.
   // They are different when element strides are not 1.
   for (auto id : originating_bulk_ids) {
     expected_bytes =
