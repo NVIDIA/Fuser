@@ -3362,7 +3362,13 @@ Val* Index::eye(
 //  - All its children are "bulk"
 //
 // In the above diagram, I4 and I7 are bulk IterDomains, but I1, I2, I3, I5, I6,
-// and I8 are not.
+// and I8 are not. Please note that the concept "bulk IterDomain" is different
+// from the concept "IterDomain parallelized as IterType::Bulk". Because we only
+// parallelize leaf domains, the set "IterDomain parallelized as IterType::Bulk"
+// and the set "bulk IterDomains" has the following relationship:
+// - IterDomains parallelized as IterType::Bulk <= bulk IterDomains
+// - bulk IterDomains = IterDomain parallelized as IterType::Bulk & leaf domain
+// where "<=" refers to subset, and "&" refers to set intersection.
 //
 // Definition 2: A bulk IterDomain is "originating" if its parents are not bulk.
 //
