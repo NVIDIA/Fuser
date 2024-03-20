@@ -121,9 +121,9 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-// TODO: Remove this once sharding propagation pass is added
+// TODO: Very simple sharding propagation pass.
 // Auto inserted ops like castOps don't propagate shardings
-// Note: cannot do this when the cast op is inserted into the fusion, because
+// Note: we cannot perform this when the Op is inserted into the fusion, because
 // the multidevice shcheduling hasn't been applied.
 void shardOpsWithoutMesh(Expr* expr) {
   auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
@@ -162,29 +162,19 @@ void insertReshardings(Fusion* fusion) {
     std::vector<TensorView*> new_inputs;
     auto inputs = getTvsWithDifferentSharding(
         output, ir_utils::filterByType<TensorView>(expr->inputs()));
-    // if number of inputs is 1 insert the set after expr
-    // input (expr) intermediate (set) output
-    if (inputs.size() == 1) {
+    // Insert resharding expression after the expr
+    // input [expr] output [set] new_output
+    if (!inputs.empty() && expr->inputs().size() == 1) {
       auto input = *inputs.begin();
-      // Create new_output and update output's consumers to use new_output
       TensorView* new_output = set(output);
-      for (auto use_of_old_val : output->uses()) {
-        ir_utils::replaceValInExprInputs(use_of_old_val, output, new_output);
-      }
-      // if output is a fusion's output, update it to new_output
-      auto fusion_outputs = fusion->outputs();
-      auto it = std::find(fusion_outputs.begin(), fusion_outputs.end(), output);
-      if (it != fusion_outputs.end()) {
-        fusion->removeOutput(output);
-        fusion->addOutput(new_output);
-      }
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       // Update shardings new_output takes output's sharding, output takes
       // input's sharding
       shardAllLike(output, {new_output});
       shardAllLike(input, {output});
     } else {
-      // if number of inputs is > 1 insert the set before the expr
-      // inputs (expr) new inputs (set) output
+      // For non-UnaryOps insert the set before the expr
+      // for each input (input [set] new input) [expr] output
       for (auto input : inputs) {
         // TODO: reuse cacheAfter?
         // TODO: here we should add a mechanism to potentially reuse the

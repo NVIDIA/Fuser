@@ -454,7 +454,7 @@ TEST_P(DistributedMatmul, LayoutTN) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
 
-  int64_t M = 64, N = 32, K = 64;
+  int64_t M = 1024, N = 512, K = 256;
   // TODO: until we support split, manually split axes
   int64_t Mo = num_devices;
   int64_t Mi = M / Mo;
@@ -601,7 +601,7 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   DeviceMesh mesh(devices);
 
   // Note: Manually split K and M
-  int64_t M = 64, N = 32, K = 64;
+  int64_t M = 1024, N = 256, K = 512;
   int64_t Ko = num_devices, Ki = K / Ko;
   int64_t Mo = num_devices, Mi = M / Mo;
   std::vector<int64_t> a_shape = {Ko, Ki, M};
