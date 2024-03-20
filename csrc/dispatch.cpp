@@ -315,12 +315,12 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
 
-void OptOutConstDispatch::handle(const hir::ExecuteFusion* stmt) {
+void OptOutConstDispatch::handle(const hir::PostOnStream* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const hir::ExecuteComm* stmt) {
-  unhandled(stmt);
-}
+// void OptOutConstDispatch::handle(const hir::ExecuteComm* stmt) {
+//   unhandled(stmt);
+// }
 
 void OptOutDispatch::unhandled(Statement*) {}
 
@@ -342,11 +342,11 @@ DISPATCH_FOR_ALL_KIR_VALS(M)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 
-void OptOutDispatch::handle(hir::ExecuteFusion* stmt) {
+void OptOutDispatch::handle(hir::PostOnStream* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(hir::ExecuteComm* stmt) {
-  unhandled(stmt);
-}
+// void OptOutDispatch::handle(hir::ExecuteComm* stmt) {
+//   unhandled(stmt);
+// }
 
 } // namespace nvfuser

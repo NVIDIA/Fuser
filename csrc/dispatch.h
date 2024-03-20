@@ -154,8 +154,8 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 } // namespace kir
 
 namespace hir {
-class ExecuteFusion;
-class ExecuteComm;
+class PostOnStream;
+// class ExecuteComm;
 } // namespace hir
 
 namespace assoc_comm {

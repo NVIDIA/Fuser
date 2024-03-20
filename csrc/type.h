@@ -36,7 +36,7 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
-  FusionIr,
+  StreamIr,
   Others
 };
 

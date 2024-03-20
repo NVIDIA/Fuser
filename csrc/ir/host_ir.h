@@ -16,16 +16,33 @@ namespace nvfuser {
 namespace hir {
 
 class NVF_API ExecutableUnit : public Expr {
+  public:
+  using Expr::Expr;
   ExecutableUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
   ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner);
 
-  NVFUSER_DECLARE_CLONE
+  ExecutableUnit(const ExecutableUnit& other) = delete;
+  ExecutableUnit& operator=(const ExecutableUnit& other) = delete;
+  ExecutableUnit(ExecutableUnit&& other) = delete;
+  ExecutableUnit& operator=(ExecutableUnit&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  virtual const char* getOpString() const override {
+    return "hir::ExecutableUnit";
+  }
 
   bool sameAs(const Statement* other) const override;
 
-  // returns the Val from which this PipelineVal has been created
+  const auto& inputs() const {
+    return fusion_->inputs();
+  }
+
+  const auto& outputs() const {
+    return fusion_->outputs();
+  }
+
   Fusion* fusion() const {
     return fusion_.get();
   }
@@ -34,73 +51,65 @@ class NVF_API ExecutableUnit : public Expr {
   std::unique_ptr<Fusion> fusion_;
 };
 
-class NVF_API FusionIr : public Val {
-  FusionIr(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
-  FusionIr(const FusionIr* src, IrCloner* ir_cloner);
+class NVF_API StreamIr : public Val {
+ public:
+  StreamIr(IrBuilderPasskey passkey);
+  StreamIr(const StreamIr* src, IrCloner* ir_cloner);
+  bool sameAs(const Statement* other) const override;
 
   NVFUSER_DECLARE_CLONE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  bool sameAs(const Statement* other) const override;
-
-  // returns the Val from which this PipelineVal has been created
-  Fusion* fusion() const {
-    return fusion_.get();
-  }
-
  private:
-  std::unique_ptr<Fusion> fusion_;
+  const int idx_;
+  static int running_counter_;
 };
 
-
-class NVF_API ExecuteFusion : public Expr {
+class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
-  ExecuteFusion(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
+  PostOnStream(IrBuilderPasskey passkey, ExecutableUnit* eu);
 
-  ExecuteFusion(const ExecuteFusion& other) = delete;
-  ExecuteFusion& operator=(const ExecuteFusion& other) = delete;
-  ExecuteFusion(ExecuteFusion&& other) = delete;
-  ExecuteFusion& operator=(ExecuteFusion&& other) = delete;
+  PostOnStream(const PostOnStream& other) = delete;
+  PostOnStream& operator=(const PostOnStream& other) = delete;
+  PostOnStream(PostOnStream&& other) = delete;
+  PostOnStream& operator=(PostOnStream&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   virtual const char* getOpString() const override {
-    return "ExecuteFusion";
+    return "hir::PostOnStream";
   }
 
   bool sameAs(const Statement* other) const override;
-
- private:
-  std::unique_ptr<Fusion> fusion_;
 };
 
-class NVF_API ExecuteComm : public Expr {
- public:
-  using Expr::Expr;
-  ExecuteComm(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
+// class NVF_API ExecuteComm : public Expr {
+//  public:
+//   using Expr::Expr;
+//   ExecuteComm(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
 
-  ExecuteComm(const ExecuteComm& other) = delete;
-  ExecuteComm& operator=(const ExecuteComm& other) = delete;
-  ExecuteComm(ExecuteComm&& other) = delete;
-  ExecuteComm& operator=(ExecuteComm&& other) = delete;
+//   ExecuteComm(const ExecuteComm& other) = delete;
+//   ExecuteComm& operator=(const ExecuteComm& other) = delete;
+//   ExecuteComm(ExecuteComm&& other) = delete;
+//   ExecuteComm& operator=(ExecuteComm&& other) = delete;
 
-  NVFUSER_DECLARE_CLONE_AND_CREATE
+//   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-  virtual const char* getOpString() const override {
-    return "ExecuteComm";
-  }
+//   std::string toString(int indent_size = 0) const override;
+//   std::string toInlineString(int indent_size = 0) const override;
+//   virtual const char* getOpString() const override {
+//     return "ExecuteComm";
+//   }
 
-  bool sameAs(const Statement* other) const override;
+//   bool sameAs(const Statement* other) const override;
 
- private:
-  std::unique_ptr<Fusion> fusion_;
-};
+//  private:
+//   std::unique_ptr<Fusion> fusion_;
+// };
 
 } // namespace hir
 
