@@ -34,10 +34,15 @@ class MultiDeviceEnvironment : public testing::Environment {
     return do_barrier_at_test_;
   }
 
+  bool disableSkip() const {
+    return disable_skip_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
+  bool disable_skip_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
@@ -46,25 +51,22 @@ class MultiDeviceTest : public NVFuserTest {
   // returns a shard of the tensor according the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
   // TODO: If deviceId is not part of the mesh this should return an empty
-  // tensor currently, we don't support this, so for now it returns a slice.
+  // tensor. Currently, we don't support this, so for now it returns a slice.
   static at::Tensor shardTensor(
       at::Tensor tensor,
       TensorView* tv,
       DeviceIdxType deviceId) {
-    if (isSharded(tv)) {
-      auto sharded_dim = 0;
-      int i = 0;
-      const auto& devices = tv->getDeviceMesh().vector();
-      auto it = std::find(devices.begin(), devices.end(), deviceId);
-      if (it != devices.end()) {
-        i = std::distance(devices.begin(), it);
-      }
-      std::vector<at::indexing::TensorIndex> indices(
-          tensor.dim(), at::indexing::Slice());
-      indices[sharded_dim] = at::indexing::Slice(i, i + 1);
-      return tensor.index(indices).contiguous();
+    if (!isSharded(tv)) {
+      return tensor;
     }
-    return tensor;
+    auto sharded_dim = 0;
+    int i = 0;
+    const auto& devices = tv->getDeviceMesh().vector();
+    auto it = std::find(devices.begin(), devices.end(), deviceId);
+    if (it != devices.end()) {
+      i = std::distance(devices.begin(), it);
+    }
+    return tensor.slice(sharded_dim, i, i + 1).contiguous();
   }
 
  protected:
@@ -74,6 +76,7 @@ class MultiDeviceTest : public NVFuserTest {
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool do_barrier_at_test;
+  bool disable_skip;
 };
 
 class CommunicationTest

@@ -28,6 +28,9 @@ void MultiDeviceEnvironment::SetUp() {
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
+  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
+    disable_skip_ = true;
+  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -43,7 +46,9 @@ void MultiDeviceTest::SetUp() {
   debug_print = multidevice_env->debugPrint();
   do_barrier_at_test =
       multidevice_env->doBarrierAtTest() && communicator->is_available();
-  if ((!communicator->is_available() || communicator->size() < 2 ||
+  disable_skip = multidevice_env->disableSkip();
+  if (!disable_skip &&
+      (!communicator->is_available() || communicator->size() < 2 ||
        torch::cuda::device_count() < 2)) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
   }
