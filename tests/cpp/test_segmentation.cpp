@@ -604,7 +604,7 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
   auto in1 = at::randn({4}, options);
   auto outputs = fec.runFusionWithInputs({in0, in1});
 
-  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+  testValidate(fec.fusion(), outputs, {in0, in1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
