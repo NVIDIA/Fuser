@@ -257,33 +257,26 @@ class TMALdstTest : public TMATest,
     dim = std::get<2>(GetParam());
 
     // TODO: test less-nice shapes, for example 128 + 1 instead of 128
-
-    // TODO: I was originally trying large shapes, but unfortunately I see
-    // silent wrong results in the SimpleStore test. Only store tests have such
-    // problem, load tests works fine. I have no idea why, but I guess it is a
-    // synchronization issue instead of an indexing issue, so I decide to cheat
-    // by using small shapes for now, and leave the investigation to future
-    // work.
     switch (dim) {
       case 1:
         tile = {innerDimSize()};
-        shape = {128};
+        shape = {1024 * 1024};
         break;
       case 2:
         tile = {2, innerDimSize()};
-        shape = {4, 128};
+        shape = {1024, 128};
         break;
       case 3:
         tile = {2, 4, innerDimSize()};
-        shape = {4, 8, 128};
+        shape = {1024, 8, 128};
         break;
       case 4:
         tile = {2, 4, 8, innerDimSize()};
-        shape = {4, 8, 16, 128};
+        shape = {4, 8, 1024, 1024};
         break;
       case 5:
         tile = {2, 4, 8, 16, innerDimSize()};
-        shape = {4, 8, 16, 32, 128};
+        shape = {4, 8, 1024, 32, 128};
         break;
       default:
         NVF_ERROR(false, "Invalid dimension");
