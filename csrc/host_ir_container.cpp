@@ -13,6 +13,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ir/host_ir.h>
+#include <host_ir_container.h>
 
 namespace nvfuser {
 
