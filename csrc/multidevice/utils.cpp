@@ -296,7 +296,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // For reduce scatter, determine if the reduction axis shifted to the
       // right by 1.
       auto red_axis = output->getReductionAxis();
-      int offset = (red_axis.has_value() && idx > red_axis.value()) ? 1 : 0;
+      int offset = (red_axis.has_value() && idx > static_cast<int>(red_axis.value())) ? 1 : 0;
       if (expr->isA<ReductionOp>()) {
         int raxis = static_cast<int>(red_axis.value()) + offset;
         input_permute->axis(raxis)->parallelize(ptype);
