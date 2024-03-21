@@ -1310,4 +1310,75 @@ MmaOpDetails getMmaOpDetails(
   return details;
 }
 
+// std::vector<PolymorphicValue> evaluate_matmul(
+//   MmaOp* mma_op, 
+//   DataType castop_out_dtype) {
+
+//   verifyMmaOpForEvaluation(mma_op, castop_out_dtype);
+//   // Squeeze the inputs to remove the broadcasted dimensions.
+
+//   std::vector<at::Tensor> mma_inputs;
+//   for (Val* inp: mma_op->inputs()) {
+//     auto eval_i = ee.evaluate(inp, known_values);
+//     mma_inputs.push_back(eval_i.as<at::Tensor>());
+//   }
+//   const auto a = mma_inputs.at(0).squeeze(-1);
+//   const auto b = mma_inputs.at(1).squeeze(0);
+
+//   // After removing the broadcast dimensions, the format should be
+//   // [M, K] x [K, N] compatible with aten::matmul format.
+//   at::Tensor output = a.matmul(b);
+//   return {output};
+// }
+
+// Verifies the assumptions made when evaluating a fusion containing MmaOp:
+// 1. MmaOp is preceded by a broadcast. 
+// 2. The inputs to MmaOp are broadcasted as the last dim for the first operand and the first dim for the second operand.
+// The inputs of MmaOp will be [M, K, 1] x [1, K, N].
+void verifyMmaOpForEvaluation(
+  MmaOp* mma_op,
+  DataType castop_out_dtype) {
+  const Val* in_a = mma_op->inA();
+  const Val* in_b = mma_op->inB();
+
+  NVF_CHECK(
+    in_a->as<TensorView>()->nDims() == in_b->as<TensorView>()->nDims(),
+    "Either both or none of A and B should be batch"
+  );
+  // Verify that the broadcasted size is 3.
+  NVF_CHECK(
+      in_a->as<TensorView>()->nDims() == 3,
+      "MmaOp::evaluate is not implemented for size: ",
+      in_a->as<TensorView>()->nDims());
+  
+  NVF_CHECK(
+      in_a->definition() != nullptr &&
+          in_a->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_CHECK(
+      in_b->definition() != nullptr &&
+          in_b->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_CHECK(
+      in_a->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+      "Expected last dimension to be broadcasted for first operand.");
+  NVF_CHECK(
+      in_b->as<TensorView>()->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
+
+  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
+  // outputs. To preserve numerical equivalence and precision, the output of
+  // ATen matmul should be the same as MmaOp out `eventually`. 
+  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
+  // Supported cases:
+  //  1. MmaOp->out() and MmaOp->input() are the same dtype. 
+  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
+  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) does not
+  // occur.
+  
+  NVF_CHECK(in_a->as<TensorView>()->getDataType().value() == castop_out_dtype,
+    "CastOp should cast to the same final datatype as the input datatype.");
+}
+
+
 } // namespace nvfuser::MmaOpUtils
