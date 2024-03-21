@@ -28,6 +28,18 @@
 #include <unordered_set>
 #include <vector>
 
+namespace std {
+template <typename X, typename Y>
+struct hash<std::pair<X, Y>> {
+  std::size_t operator()(const std::pair<X, Y>& pair) const {
+    std::size_t h1 = std::hash<X>()(pair.first);
+    std::size_t h2 = std::hash<Y>()(pair.second);
+    nvfuser::hashCombine(h1, h2);
+    return h1;
+  }
+};
+} // namespace std
+
 namespace nvfuser {
 
 namespace debug_print {
@@ -250,6 +262,9 @@ class Context {
   const std::vector<std::pair<Val*, Val*>>& getKnownLessEqual() const {
     return less_equal_;
   }
+
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_than_cache_;
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_equal_cache_;
 
  private:
   void assume(Val* a) {
@@ -1527,7 +1542,15 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
+#define CACHE_AND_RETURN_LT(value)                               \
+  context.less_than_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
 bool lessThan(Val* x, Val* y, const Context& context, int depth) {
+  auto cache_it = context.less_than_cache_.find({x, y});
+  if (cache_it != context.less_than_cache_.end()) {
+    return cache_it->second;
+  }
   // Max recursion depth of 2 levels was tested to be sufficient transitivity
   // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
   // that test, I observed the following test CPU runtimes (average of ten
@@ -1551,12 +1574,13 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
-    return x->value() < y->value();
+    bool result = x->value() < y->value();
+    CACHE_AND_RETURN_LT(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LT(true);
   }
   // i1 % i2 < i2
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
@@ -1564,13 +1588,13 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
     auto denominator = bop->rhs();
     if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
         isNonNegative(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LT(true);
     }
   }
   // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LT(true);
     }
   }
   if (depth >= max_recursion_depth) {
@@ -1593,51 +1617,63 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
       return true;
     }
   }
-  return false;
+  CACHE_AND_RETURN_LT(false);
 }
 
+#undef CACHE_AND_RETURN_LT
+
+#define CACHE_AND_RETURN_LE(value)                                \
+  context.less_equal_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
 bool lessEqual(Val* x, Val* y, const Context& context) {
+  auto cache_it = context.less_equal_cache_.find({x, y});
+  if (cache_it != context.less_equal_cache_.end()) {
+    return cache_it->second;
+  }
+
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
-    return x->value() <= y->value();
+    bool result = x->value() <= y->value();
+    CACHE_AND_RETURN_LE(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   // x == y -> x <= y
   if (x->sameAs(y)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     // x <= b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if a >= 0, b >= 1, then a <= a * b
@@ -1659,7 +1695,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
@@ -1683,13 +1719,15 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
   }
-  return false;
+  CACHE_AND_RETURN_LE(false);
 }
+
+#undef CACHE_AND_RETURN_LE
 
 } // namespace prove
 
