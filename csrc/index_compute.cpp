@@ -3645,12 +3645,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   std::unordered_map<IterDomain*, IterDomain*> global_id_to_orig_bulk_id;
   std::unordered_map<IterDomain*, IterDomain*> global_id_to_inner_id;
   for (auto id : originating_bulk_ids) {
-    auto def = dynamic_cast<Split*>(id->definition());
-    NVF_ERROR(
-        def != nullptr,
-        "An originating bulk IterDomain must be the output of a split, but ",
-        id->toString(),
-        " is not.");
+    auto def = id->definition()->as<Split>();
     if (id == def->inner()) {
       IterDomain* box_id = id;
       IterDomain* global_id = def->in();
