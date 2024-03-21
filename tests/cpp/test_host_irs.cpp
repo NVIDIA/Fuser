@@ -16,11 +16,38 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
+#include <host_ir_container.h>
+#include <host_ir_executor.h>
 
 #include <algorithm>
 #include <iostream>
 
 namespace nvfuser {
+
+namespace hir {
+
+TEST_F(NVFuserTest, HostIrExecutor1) {
+  auto hic = std::make_unique<HostIrContainer>();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  auto tv1 = add(tv0, tv0);
+  auto tv2 = sum(tv1, {0});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  auto eu = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  std::cout << "EU: " << eu << std::endl;
+  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu);
+  std::cout << "post: " << post << std::endl;
+
+  hic->top_level_exprs.push_back(post);
+
+  HostIrExecutor hie(std::move(hic));
+  hie.runWithInput({});
+}
+
 
 class FusionExecutorWithExternalForLoop {
 public:
@@ -106,5 +133,7 @@ TEST_F(CpuForLoopTest, kernelSingleIO) {
 
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, output));
 }
+
+} // namespace hir
 
 } // namespace nvfuser
