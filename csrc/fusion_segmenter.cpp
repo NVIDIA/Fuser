@@ -4243,10 +4243,11 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   SegmentedGroup* aux_group = input2group_.at(forwarded_input);
   NVF_ERROR(aux_group->producer_edges.empty());
 
-  std::vector<SegmentedGroup*> consumers;
+  // use unordered_set to avoid duplicated group in consumers.
+  std::unordered_set<SegmentedGroup*> consumers;
   consumers.reserve(aux_group->consumer_edges.size());
   for (SegmentedEdge* edge : aux_group->consumer_edges) {
-    consumers.push_back(edge->to);
+    consumers.insert(edge->to);
   }
   aux_group->consumer_edges.clear();
 
