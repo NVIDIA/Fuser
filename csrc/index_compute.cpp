@@ -3344,16 +3344,17 @@ Val* Index::eye(
 // discontiguous IterDomains, and we can not have indivisible splits either.
 //
 // Second, we need to tile each dimension of TMA's view of the tensor. If we
-// want a contiguous box dim (to be described below), then we do one split to
-// get the box. If we want a strided box dim, then we do two splits, the first
-// split is to get the box, and the second split is to get the stride. In the
-// above diagram, I1 has a contiguous box dim, and I2 has a strided box dim.
+// want a contiguous box dim (see Definition 3: "boxId" below), then we do one
+// split to get the box. If we want a strided box dim, then we do two splits,
+// the first split is to get the box, and the second split is to get the stride.
+// In the above diagram, I1 has a contiguous box dim, and I2 has a strided box
+// dim.
 //
-// Third, we can schedule the "bulk" IterDomains (to be defined below) and
-// "non-bulk" IterDomains separately in whatever way we want. However, the
-// "bulk" IterDomains and "non-bulk" IterDomains can not be mixed together, just
-// like we not merge a IterType::Iteration IterDomain with a IterType::Reduction
-// IterDomain.
+// Third, we can schedule the "bulk" IterDomains (see Definition 1: "bulk"
+// below) and "non-bulk" IterDomains separately in whatever way we want.
+// However, the "bulk" IterDomains and "non-bulk" IterDomains can not be mixed
+// together, just like we not merge a IterType::Iteration IterDomain with a
+// IterType::Reduction IterDomain.
 //
 // Before further explain the schedule, let's define some terminologies:
 //
