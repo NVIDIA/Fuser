@@ -89,6 +89,56 @@ class ShardingTest : public MultiDeviceTest,
                      public testing::WithParamInterface<std::tuple<bool, int>> {
 };
 
+TEST_F(MultiDeviceTest, TestSplit) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator->size();
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
+  std::vector<int64_t> input_size = {4, 3};
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = add(tv1, tv1);
+  // TensorView* tv3 = sum(tv2, {sharded_dim});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  // fusion->addOutput(tv3);
+
+  std::vector<TensorView*> sharded_tvs = {tv1, tv2};
+  for (auto tv : sharded_tvs) {
+    tv->split(0, num_devices, false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  // tv3->axis(sharded_dim + 1)->parallelize(ParallelType::DIDx);
+
+  std::vector<TensorView*> tvs = {tv0, tv1, tv2};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  auto x0 = at::randn(input_size, tensor_options);
+  std::vector<c10::IValue> inputs = {x0};
+  auto x1 = shardTensor(x0, tv1, communicator->deviceId());
+  auto x2 = x1 + x1;
+  std::cout << x0 << std::endl;
+  std::cout << x1 << std::endl;
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput(inputs);
+  std::cout << outputs[0] << std::endl;
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {x1, x2},
+      __LINE__,
+      __FILE__);
+}
+
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
 TEST_P(ShardingTest, UnshardedGlobalInput) {

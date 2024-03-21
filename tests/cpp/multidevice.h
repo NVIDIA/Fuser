@@ -62,11 +62,12 @@ class MultiDeviceTest : public NVFuserTest {
     auto sharded_dim = 0;
     int i = 0;
     const auto& devices = tv->getDeviceMesh().vector();
+    auto sharded_extent = tensor.size(sharded_dim) / devices.size();
     auto it = std::find(devices.begin(), devices.end(), deviceId);
     if (it != devices.end()) {
       i = std::distance(devices.begin(), it);
     }
-    return tensor.slice(sharded_dim, i, i + 1).contiguous();
+    return tensor.slice(sharded_dim, i, i*sharded_extent + (i+1)*sharded_extent).contiguous();
   }
 
  protected:

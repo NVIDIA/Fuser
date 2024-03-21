@@ -188,7 +188,7 @@ void lowerToAllgather(
   if (!mesh.has(my_device_index)) {
     return;
   }
-
+  std::cout << "Allgather!" << std::endl;
   CommParams params;
   params.team = mesh.vector();
   for (auto i : c10::irange(mesh.vector().size())) {
