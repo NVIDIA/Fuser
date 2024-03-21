@@ -1146,10 +1146,7 @@ TEST_F(ExprSimplifierTest, DivModLessThan) {
                   "( ( ( 8 * i0 ) + i1 ) % 128 ) / 8"_,
                   {},
                   {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
-                  ->sameAs("( i0 % 16 ) + ( i1 / 8 )"_));
-  // Note: the following would be ideal, but we are currently
-  // unable to achieve it
-  //->sameAs("i0 % 16"_));
+                  ->sameAs("i0 % 16"_));
   // i144
   EXPECT_TRUE(simplifyExpr(
                   "( ( 8 * i0 ) + i1 ) / 128"_,
@@ -1161,10 +1158,7 @@ TEST_F(ExprSimplifierTest, DivModLessThan) {
                   "( ( ( 8 * i0 ) + i1 ) % 128 ) % 8"_,
                   {},
                   {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
-                  ->sameAs("i1 % 8"_));
-  // Note: the following would be ideal, but we are currently
-  // unable to achieve it
-  //->sameAs("i1"_));
+                  ->sameAs("i1"_));
 }
 
 // See https://github.com/NVIDIA/Fuser/pull/1827
