@@ -394,23 +394,22 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 
   // If the UnaryOp is CastOp, check if the preceding pattern of 
   // operators matches with matmul (MmaOp(Broadcast (A), Broadcast(B)) -> Cast) or matmul + bias 
-  // (BinaryOp::Add (MmaOp(Broadcast (A), Broadcast(B), Broadcast(castOp(bias))) -> Cast)
+  // (BinaryOp::Add (MmaOp(Broadcast (A), Broadcast(B), Broadcast(bias)) -> Cast)
   // If not, evaluate UnaryOp::CastOp along with the other types by evaluating the immediate input. 
 
-  // bool has_matmul_and_bias = [](Val* in) {
-  //   if (auto* binary = dynamic_cast<BinaryOp*>(in->definition())) {
-  //     if (binary->getBinaryOpType() == BinaryOpType::Add) {
-  //       if (binary->input(0)->definition->isA<MmaOp>() || binary->input(1)->definition->isA<MmaOp>()) {
-  //         return true;
-  //       }
-  //     }
-  //   }
-  //   return false;
-  // };
+  auto has_matmul_and_bias = [](Val* in) -> bool {
+    if (auto* binary = dynamic_cast<BinaryOp*>(in->definition())) {
+      if (binary->getBinaryOpType() == BinaryOpType::Add) {
+        if (binary->input(0)->definition()->isA<MmaOp>()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
 
-  if ((getUnaryOpType() == UnaryOpType::Cast) && input(0)->definition() != nullptr){
-    
-    // Case 1: MmaOp + Cast
+  if ((getUnaryOpType() == UnaryOpType::Cast) && input(0)->definition() != nullptr){ 
+    // Case 1: MmaOp + Cast (Matmul)
     if (auto* mma = dynamic_cast<MmaOp*>(input(0)->definition())) {
       MmaOpUtils::verifyMmaOpForEvaluation(mma, out()->getDataType().value());
       
@@ -425,13 +424,32 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 
       // After removing the broadcast dimensions, the format should be
       // [M, K] x [K, N] compatible with aten::matmul format.
-      at::Tensor output = a.matmul(b);
-      return {output};
+      return {a.matmul(b)};
     }
 
-    // if (has_matmul_and_bias(input(0))) {
-    //   return 
-    // }
+    // Case 2: Matmul + Bias
+    if (has_matmul_and_bias(input(0))) {
+      BinaryOp* binary = input(0)->definition()->as<BinaryOp>();
+      MmaOp* mma = binary->input(0)->definition()->as<MmaOp>();
+
+      MmaOpUtils::verifyMmaOpForEvaluation(mma, out()->getDataType().value());
+      MmaOpUtils::verifyBiasForEvaluation(binary->input(1), out()->getDataType().value());
+      
+      // BinaryOp <- Broadcast <- CastOp <- Bias
+      const Val* bias = binary->input(1)->definition()->input(0)->definition()->input(0);
+      const auto bias_tensor = ee.evaluate(bias, known_values).as<at::Tensor>().unsqueeze(-1);
+
+      std::vector<at::Tensor> mma_inputs;
+      for (Val* inp: mma->inputs()) {
+        auto eval_i = ee.evaluate(inp, known_values);
+        mma_inputs.push_back(eval_i.as<at::Tensor>());
+      }
+      
+      const auto a = mma_inputs.at(0).squeeze(-1);
+      const auto b = mma_inputs.at(1).squeeze(0);
+
+      return {at::addmm(bias_tensor, a, b)};
+    }
   }
 
   const auto& in = ee.evaluate(inputs().at(0), known_values);

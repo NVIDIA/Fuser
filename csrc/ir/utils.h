@@ -63,6 +63,9 @@ MmaOpDetails getMmaOpDetails(
 void verifyMmaOpForEvaluation(
   MmaOp* mma_op, DataType castop_out_dtype
 );
+void verifyBiasForEvaluation(
+  Val* bias,
+  DataType final_out_dtype);
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {

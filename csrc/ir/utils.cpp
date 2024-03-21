@@ -1337,7 +1337,7 @@ MmaOpDetails getMmaOpDetails(
 // The inputs of MmaOp will be [M, K, 1] x [1, K, N].
 void verifyMmaOpForEvaluation(
   MmaOp* mma_op,
-  DataType castop_out_dtype) {
+  DataType final_out_dtype) {
   const Val* in_a = mma_op->inA();
   const Val* in_b = mma_op->inB();
 
@@ -1376,9 +1376,33 @@ void verifyMmaOpForEvaluation(
   // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) does not
   // occur.
   
-  NVF_CHECK(in_a->as<TensorView>()->getDataType().value() == castop_out_dtype,
+  NVF_CHECK(in_a->as<TensorView>()->getDataType().value() == final_out_dtype,
     "CastOp should cast to the same final datatype as the input datatype.");
 }
 
+void verifyBiasForEvaluation(
+  Val* bias,
+  DataType final_out_dtype) {
+  
+  NVF_CHECK(bias->definition() != nullptr && bias->definition()->isA<BroadcastOp>(), 
+        "Expected bias tensor to be broadcasted.");
+      
+  NVF_CHECK(
+    bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+    "Expected last dimension to be broadcasted for bias tensor.");
+  
+  Val* bcast_in = bias->definition()->as<BroadcastOp>()->input(0);
 
+  auto is_previous_castop = [](Val* in, DataType expected_dtype) -> bool {
+    if (auto* unary = dynamic_cast<UnaryOp*>(in->definition())) {
+      if (unary->getUnaryOpType() == UnaryOpType::Cast) {
+        return unary->input(0)->getDataType().value() == expected_dtype;
+      }
+    }
+    return false;
+  };
+
+  NVF_CHECK(is_previous_castop(bcast_in, final_out_dtype), 
+    "Expected the bias to be preceded by castOp before broadcasting and to be originally of the same type as the final output dtype.");
+  }
 } // namespace nvfuser::MmaOpUtils
