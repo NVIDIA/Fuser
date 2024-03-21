@@ -4248,7 +4248,6 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   // codeGenSupportedMerge(input_group, consumer) twice. Where the second time
   // the connection has already been severed by mergeNodes().
   GroupSet consumers;
-  consumers.reserve(aux_group->consumer_edges.size());
   for (SegmentedEdge* edge : aux_group->consumer_edges) {
     consumers.pushBack(edge->to);
   }
