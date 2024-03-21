@@ -3621,10 +3621,9 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
-  if (!areDirectlyConnected(group1, group2)) {
-    // un-connected producer-consumer groups cannot be merged yet
-    return false;
-  }
+  NVF_ERROR(
+      areDirectlyConnected(group1, group2),
+      "only support testing immediate producer-consumer groups");
   if (options_.only_segment_resharding_exprs) {
     for (auto group : {group1, group2}) {
       for (auto expr : group->exprs()) {
