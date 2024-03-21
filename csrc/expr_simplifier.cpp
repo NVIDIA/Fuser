@@ -1542,7 +1542,7 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-#define CACHE_AND_RETURN(value)                                  \
+#define CACHE_AND_RETURN_LT(value)                               \
   context.less_than_cache_.emplace(std::make_pair(x, y), value); \
   return value
 
@@ -1556,12 +1556,12 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
     bool result = x->value() < y->value();
-    CACHE_AND_RETURN(result);
+    CACHE_AND_RETURN_LT(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
-    CACHE_AND_RETURN(true);
+    CACHE_AND_RETURN_LT(true);
   }
   // i1 % i2 < i2
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
@@ -1569,21 +1569,21 @@ bool lessThan(Val* x, Val* y, const Context& context) {
     auto denominator = bop->rhs();
     if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
         isNonNegative(y, context)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LT(true);
     }
   }
   // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LT(true);
     }
   }
-  CACHE_AND_RETURN(false);
+  CACHE_AND_RETURN_LT(false);
 }
 
-#undef CACHE_AND_RETURN
+#undef CACHE_AND_RETURN_LT
 
-#define CACHE_AND_RETURN(value)                                   \
+#define CACHE_AND_RETURN_LE(value)                                \
   context.less_equal_cache_.emplace(std::make_pair(x, y), value); \
   return value
 
@@ -1597,44 +1597,44 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
     bool result = x->value() <= y->value();
-    CACHE_AND_RETURN(result);
+    CACHE_AND_RETURN_LE(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   // x == y -> x <= y
   if (x->sameAs(y)) {
-    CACHE_AND_RETURN(true);
+    CACHE_AND_RETURN_LE(true);
   }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
-    CACHE_AND_RETURN(true);
+    CACHE_AND_RETURN_LE(true);
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     if (a->sameAs(x) && b->sameAs(y)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     // x <= b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {
-      CACHE_AND_RETURN(true);
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if a >= 0, b >= 1, then a <= a * b
@@ -1656,7 +1656,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          CACHE_AND_RETURN(true);
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
@@ -1680,15 +1680,15 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          CACHE_AND_RETURN(true);
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
   }
-  CACHE_AND_RETURN(false);
+  CACHE_AND_RETURN_LE(false);
 }
 
-#undef CACHE_AND_RETURN
+#undef CACHE_AND_RETURN_LE
 
 } // namespace prove
 
