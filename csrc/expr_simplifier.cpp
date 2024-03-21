@@ -1958,6 +1958,21 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       if (rhs->isOneInt()) {
         return IrBuilder::create<Val>(0L, *value->getDataType());
       }
+      // a % b -> a  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return lhs;
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
+      // a / b -> 0  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return IrBuilder::create<Val>(0L, *value->getDataType());
+      }
     } else if (
         bop->getBinaryOpType() == BinaryOpType::Div ||
         bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
