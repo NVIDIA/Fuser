@@ -16,6 +16,9 @@
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
+#include <id_model/id_model.h>
+#include <val_graph.h>
+
 namespace nvfuser {
 
 // TODO: This test checks that isSharded generates an error when a split/merged
@@ -38,75 +41,6 @@ TEST_F(NVFuserTest, TestIsSharded) {
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
   EXPECT_ANY_THROW(isSharded(c));
-}
-
-TEST_F(NVFuserTest, TestInsertShardedAxisReordering_Scatter) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2});
-
-  TensorView* a = makeSymbolicTensor(3);
-  TensorView* b = set(a);
-  fusion->addInput(a);
-  fusion->addOutput(b);
-
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  b->axis(1)->parallelize(ParallelType::DIDx);
-
-  insertShardedAxisReordering(fusion.get());
-  auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
-    std::cout << expr->toString() << std::endl;
-  }
-  fusion->printKernel();
-
-}
-
-TEST_F(NVFuserTest, TestInsertShardedAxisReordering_Gather) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2});
-
-  TensorView* a = makeSymbolicTensor(3);
-  TensorView* b = set(a);
-  fusion->addInput(a);
-  fusion->addOutput(b);
-
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  a->axis(1)->parallelize(ParallelType::DIDx);
-
-  insertShardedAxisReordering(fusion.get());
-  auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
-    std::cout << expr->toString() << std::endl;
-  }
-  fusion->printKernel();
-
-}
-
-TEST_F(NVFuserTest, TestInsertShardedAxisReordering_ReduceScatter) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1, 2});
-
-  TensorView* a = makeSymbolicTensor(4);
-  TensorView* b = sum(a, {1});
-  fusion->addInput(a);
-  fusion->addOutput(b);
-
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
-
-  insertShardedAxisReordering(fusion.get());
-  auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
-    std::cout << expr->toString() << std::endl;
-  }
-
 }
 
 class ShardedComputeTest : public NVFuserTest,

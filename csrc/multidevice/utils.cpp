@@ -16,6 +16,9 @@
 #include <root_domain_map.h>
 #include <scheduler/utils.h>
 
+#include <id_model/id_model.h>
+#include <val_graph.h>
+
 #include <c10/util/irange.h>
 
 namespace nvfuser {
@@ -28,48 +31,6 @@ const std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
       std::inserter(sharded_ids, sharded_ids.begin()),
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
-}
-
-// For a resharding expression, either a set or reduce, returns
-// (1) sharded IterDomains that are added by the expression
-// i.e. sharded IterDomains that are present in the output, but not the input.
-// (2) sharded IterDomains that are removed by the expression
-// i.e. sharded IterDomains that are present in the input, but not the output.
-// TODO: Analysis is on the root domain since sharding is not supported
-// on split/merged axes. Update to leaf domain analysis.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> shardMap(
-    Expr* expr) {
-  NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Resharding operations can only have one output");
-  NVF_ERROR(
-      expr->inputs().size() == 1,
-      "Resharding operations can have only one input");
-  auto output = expr->outputs().at(0)->as<TensorView>();
-  auto input = expr->inputs().at(0)->as<TensorView>();
-
-  auto sharded_ids_input = getShardedIterDomains(input);
-  auto sharded_ids_output = getShardedIterDomains(output);
-  std::vector<IterDomain*> shard_additions;
-  std::vector<IterDomain*> shard_deletions;
-  auto rootmap = PairwiseRootDomainMap(input, output);
-
-  const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
-  for (auto [id1, id2] : c2p_map) {
-    if (!id1->sameAs(id2)) {
-      shard_additions.push_back(id1);
-    }
-  }
-
-  const auto p2c_map = rootmap.mapProducerToConsumer(&sharded_ids_input);
-  for (auto [id1, id2] : p2c_map) {
-    // TODO: temporarily don't push back reductions.
-    // DIDx(i0) -> r(i0) should be represented as DIDx(i0)->r(DIDx(i0))
-    if (!id1->sameAs(id2) && !id2->isReduction()) {
-      shard_deletions.push_back(id1);
-    }
-  }
-  return std::make_pair(shard_additions, shard_deletions);
 }
 
 // Returns whether a IterDomain in a TensorView can be read/written
@@ -95,6 +56,50 @@ bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
       " is not in TensorView ",
       tv->toString());
   return false;
+}
+
+// For a sharding expression, either a set or reduce, returns root IDs
+// that are sharded/unsharded.
+// (1) sharded root IterDomains that are added by the expression
+// i.e. sharded IterDomains that are present in the output, but not the input.
+// (2) sharded root IterDomains that are removed by the expression
+// i.e. sharded IterDomains that are present in the input, but not the output.
+// TODO: Analyze leaf domain for unsharded/sharded IDs and return their
+// parent root IDs.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+allocationShardings(Expr* expr) {
+  NVF_ERROR(
+      expr->outputs().size() == 1,
+      "Resharding operations can only have one output");
+  NVF_ERROR(
+      expr->inputs().size() == 1,
+      "Resharding operations can have only one input");
+  auto output = expr->outputs().at(0)->as<TensorView>();
+  auto input = expr->inputs().at(0)->as<TensorView>();
+
+  auto sharded_ids_input = getShardedIterDomains(input);
+  auto sharded_ids_output = getShardedIterDomains(output);
+  std::vector<IterDomain*> shard_additions;
+  std::vector<IterDomain*> shard_deletions;
+  auto rootmap = PairwiseRootDomainMap(input, output);
+
+  const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
+  for (auto [id1, id2] : c2p_map) {
+    if (!id1->sameAs(id2)) {
+      shard_additions.push_back(id1);
+    }
+  }
+
+  const auto p2c_map = rootmap.mapProducerToConsumer(&sharded_ids_input);
+  for (auto [id1, id2] : p2c_map) {
+    // Ignore sharded reductions i.e.
+    // DIDx(i0) -> r(i0) or DIDx(i0)->r(DIDx(i0))
+    // since they don't affect allocation.
+    if (!id1->sameAs(id2) && !id2->isReduction()) {
+      shard_deletions.push_back(id1);
+    }
+  }
+  return std::make_pair(shard_additions, shard_deletions);
 }
 
 } // namespace
@@ -240,19 +245,19 @@ void insertShardedAxisReordering(Fusion* fusion) {
         "Resharding operations can have only one input");
     auto output = expr->outputs().at(0)->as<TensorView>();
     auto input = expr->inputs().at(0)->as<TensorView>();
-    auto [shard_additions, shard_deletions] = shardMap(expr);
+    auto [shard_additions, shard_deletions] = allocationShardings(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
         "Resharding expr can only support one axis")
 
-    // For gather operations i.e. rematerializing an axis
-    // communication libraries can only read/write contiguous tensors.
-    // Update expr's input to push the rematerialized axis to the front
-    // execute the expr then permute the rematerizlied axis to the proper
-    // location. Originally: [input] -> set -> [output] Replace with [input] ->
-    // permute -> [inpute_permute] -> set -> [output_permute] -> [output] Note:
-    // there are no reduction based collectives that materialize an axis so expr
-    // is guaranteed to be a set.
+    // For gather operations i.e. ID goes from sharded to unsharded
+    // this will rematerialize a sharded axis.
+    // ProcessGroup expects contiguous tensors.
+    // Update input to push the rematerialized axis to the front -> collective
+    // -> permute the rematerizlied axis to the proper location Example: [i0
+    // DIDx(i1)] -> [i0 i1] Rewritten to: [DIDx(i1) i0] -> [i1 i0] -> [i0 i1]
+    // Note: there are no reduction based collectives that materializes an axis
+    // so expr is guaranteed to be a set.
     if (!shard_deletions.empty()) {
       auto id = shard_deletions[0];
       int idx = static_cast<int>(input->domain()->posOf(id));
@@ -271,12 +276,12 @@ void insertShardedAxisReordering(Fusion* fusion) {
       shardAllLike(new_output, {output_permute});
       fusion->removeExpr(expr);
     }
-    // For scatter operations i.e. sharding an axis
-    // Update expr's input to push the scattered axis to the front
-    // execute the expr then permute the scatter axis to the proper location.
-    // Originally: [input] -> set/reduce -> [output]
-    // Replace with [input] -> permute -> [inpute_permute] -> set/reduce ->
-    // [output_permute] -> permute-> [output]
+    // For scatter operations i.e. ID goes from unsharded to sharded
+    // Update input to push the scattered axis to the front -> collective ->
+    // permute the sharded axis to the proper location.
+    // Example: [i0 i1 DIDx(i2)] -> [i0 DIDx(i1) r(DIDx(i2))]
+    // Rewritten to: [i0 i1 DIDx(i2)] -> [i1 i0 DIDx(i2)] ->
+    //                    [DIDx(i1) i0 r(DIDx(i2))] -> [i0 DIDx(i1)]
     else if (!shard_additions.empty()) {
       auto id = shard_additions[0];
       int idx = static_cast<int>(output->domain()->posOf(id));
@@ -289,7 +294,10 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // For reduce scatter, determine if the reduction axis shifted to the
       // right by 1.
       auto red_axis = output->getReductionAxis();
-      int offset = (red_axis.has_value() && idx > static_cast<int>(red_axis.value())) ? 1 : 0;
+      int offset =
+          (red_axis.has_value() && idx > static_cast<int>(red_axis.value()))
+          ? 1
+          : 0;
       if (expr->isA<ReductionOp>()) {
         int raxis = static_cast<int>(red_axis.value()) + offset;
         auto red_expr = dynamic_cast<ReductionOp*>(expr);
@@ -306,7 +314,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* new_output = permute(output_permute, {{0, sharded_idx}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       auto i = 0;
-      for (auto id : TensorDomain::noReductions(output->getMaybeRFactorDomain())) {
+      for (auto id :
+           TensorDomain::noReductions(output->getMaybeRFactorDomain())) {
         new_output->axis(i++)->parallelize(id->getParallelType());
       }
       new_output->setDeviceMesh(output->getDeviceMesh());
