@@ -1023,7 +1023,12 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
         inner_dim_numel / iop.inner_vect, iop.bdimx);
 
     // iteration dim of inner reduction: gdimy x bdimy X S1
-    iop.bdimy = max_threads_in_block / iop.bdimx;
+    // assume we have at least one wave, calc bdimy
+    iop.gdimy = device_multiprocessor_count;
+    iop.bdimy = std::min(max_threads_in_block / iop.bdimx, ceilDiv(outer_dim_numel, iop.gdimy));
+
+    // use bdimx and bdimy, calculate occupancy
+    // check if we may further increase gdimy
     int64_t threads_per_block = iop.bdimx * iop.bdimy;
     int64_t persistent_buffer_size =
         regs_buffer_per_batch * iop.persistent_batch_size;
@@ -1045,21 +1050,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel,iop.bdimy);
     const int64_t outer_iter_min =
         std::max(8l, ceilDiv(outer_dim_after_bdimy, gdimy_occupancy));
-    iop.gdimy = ceilDiv(outer_dim_after_bdimy, outer_iter_min);
-    while(iop.gdimy * 2 <= device_multiprocessor_count && ceilDiv(outer_dim_after_bdimy, iop.gdimy) > 1){
-      iop.gdimy *= 2;
-    }
+    iop.gdimy = std::max(ceilDiv(outer_dim_after_bdimy, outer_iter_min), iop.gdimy);
 
-    // iteration dim of outer reduction: vect4 x bdimy x gdimy >=N
-    // we need vect4 x bdimy x gdimy >= vect8 x batch x bdimx
-    // it can be simplified to bdimy x gdimy >= 2 x bdimx
-    // so we can set gdimy >= 2 x bdimx / bdimy
-    iop.gdimy = std::max(2l * iop.bdimx / iop.bdimy, iop.gdimy);
+    // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
     iop.vectorization_factor_outer = std::min(4l, (int64_t)vectorize_factor);    
-    NVF_ERROR(
-        iop.vectorization_factor_outer * iop.bdimy * iop.gdimy >= inner_dim_numel,
-        "iteration dim of outer reduction is not fully parallelized.");
     // outer reduction outer dim: bdimx x S2
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
@@ -1324,6 +1319,8 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
+      std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString() << std::endl;
+
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     outer_reference_tvs.emplace_back(outer_reference_tv);
@@ -1470,6 +1467,8 @@ void scheduleInnerOuterPersistentKernel(
   std::cout << "inner_reference_tv: " << inner_reference_tv->toString() << std::endl;
   std::cout << "outer_reference_tv: " << outer_reduction_tvs.at(0)->toString() << std::endl;
 
+
+
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
   // boundaryNodesSet, the transformation from one outer reduction can't
@@ -1488,7 +1487,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i],
         unroll,
         vectorize,
-        is_outer_grid_persistence,
+        true,
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
@@ -1508,6 +1507,10 @@ void scheduleInnerOuterPersistentKernel(
         tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
       }
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      auto producer = ir_utils::getSoleProducerTv(tv);
+      producer->axis(-1)->parallelize(ParallelType::Group);
+
+      std::cout << "cached_gmem producer: " << producer->toString() << std::endl;
     }
   }
   // vectorization propagate through propagateParallelization only works for
@@ -1533,6 +1536,8 @@ void scheduleInnerOuterPersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
+  fusion->printMath();
+
   inlineMost();
 }
 
