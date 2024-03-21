@@ -3305,8 +3305,8 @@ Val* Index::eye(
 // However, the dimensionality of the tensor in the eyes of TMA can not be
 // smaller than the physical dimensionality of the tensor. For example, if the
 // user has a tensor of shape (128, 128, 128, 128, 128, 128), and the tensor is
-// fully discontiguous, then it is not possible to view it as a <5D tensor, thus
-// TMA can not be used to load/store a tile from it.
+// fully discontiguous, then it is not possible to view it as a <= 5D tensor,
+// thus TMA can not be used to load/store a tile from it.
 //
 // The gmem tensor of TMA store, or the gmem tensor of TMA load when replayed as
 // consumer, must be scheduled like this:
