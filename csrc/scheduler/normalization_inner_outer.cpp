@@ -592,23 +592,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     return false;
   }
 
-  // check if we can schedule the combined reductions with a reasonable
-  // batch size without register spills.
-  if (!normalization_scheduler_utils::
-           getOptionalInnerOuterPersistentBufferBatches(
-               properties.total_reduction_numel,
-               properties.total_iteration_numel,
-               buffer_params.regs_buffer_size,
-               (int64_t)vectorize_factor,
-               warp_size,
-               false)
-               .first.has_value()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Required batch number is larger than available batch number! Will cause register spills!");
-    return false;
-  }
-
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
@@ -654,6 +637,186 @@ void InnerOuterPersistentKernelScheduler::computeHeuristics(
 
 namespace {
 
+  // Parameters for inner reduction:
+  // Reduction dim: inner_vect, persistent_batch_size, bdimx and bdimy
+  // Iteration dim: gdimy
+
+  // Parameters for outer reduction:
+  // Reduction dim: bdimy
+  // Iteration dim: vectorization_factor_outer, bdimx, gdimy
+  struct InnerOuterParams {
+    int64_t inner_vect = -1;
+    int64_t persistent_batch_size = -1;
+    int64_t bdimx = -1;
+    int64_t bdimy = -1;
+    int64_t gdimy = -1;
+    int64_t occupancy = -1;
+    int64_t register_per_thread = -1;
+    int64_t n_persistent_tails = -1;
+    int64_t non_buffer_registers = -1;
+    
+    int64_t tmp_gmem_write_vect = -1;
+    int64_t vectorization_factor_outer = -1;
+  void print() const {
+    std::cout << "bdimx: " << bdimx << ", bdimy: " << bdimy
+              << ", persistent_batch_size: " << persistent_batch_size
+              << ", occupancy: " << occupancy
+              << ", register_per_thread: " << register_per_thread
+              << ", n_persistent_tails: " << n_persistent_tails
+              << ", non_buffer_registers: " << non_buffer_registers
+              << ", gdimy: " << gdimy << std::endl;
+  }
+  };
+  int64_t getMaxPersistentBatch(
+    const int64_t buffer_bytes_per_batch,
+    const int64_t target_threads_per_sm,
+    const int64_t register_overhead) {
+  // (1) calculate the maximum register count given the target occupancy.
+  int64_t total_register =
+      getRegPerThreadGivenThreadsPerSM(target_threads_per_sm);
+  int64_t register_for_buffer = total_register - register_overhead;
+
+  // (2) calculate the maximum persistent batch size using the register count.
+  int64_t batch_from_register = scheduler_utils::safeDiv(
+      register_for_buffer * scheduler_utils::bytes_per_register,
+      buffer_bytes_per_batch);
+
+  // (3) Avoid using very large persistent buffer size, which may lead to low
+  // occupancy due to the limitation of the current heuristics. TODO: remove
+  // this parameter when we have a better heuristic to select the best
+  // persistent batch size.
+  constexpr int64_t max_batches_per_block = 10l;
+  return std::min(max_batches_per_block, batch_from_register);
+}
+std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
+    const int64_t buffer_size_per_thread,
+    const int64_t threads_per_block,
+    const int64_t target_warps_per_sm,
+    const int64_t register_overhead) {
+  // convert [target_warps_per_sm] to [target_blocks_per_sm]
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t threads_per_warp = dev_prop->warpSize;
+  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
+  // ensure higher than target by round up
+  int64_t target_blocks_per_sm =
+      ceilDiv(target_warps_per_sm * threads_per_warp, threads_per_block);
+  // ensure lower than hardware limit by round down
+  if (threads_per_block * target_blocks_per_sm > max_threads_per_sm) {
+    target_blocks_per_sm = max_threads_per_sm / threads_per_block;
+  }
+  // minimum register each thread should use to avoid spills
+  const int64_t register_per_thread_min =
+      buffer_size_per_thread / scheduler_utils::bytes_per_register +
+      register_overhead;
+
+  // (1) use register calculated from target occupancy
+  int64_t threads_per_sm = threads_per_block * target_blocks_per_sm;
+  int64_t register_per_thread_target =
+      getRegPerThreadGivenThreadsPerSM(threads_per_sm);
+
+  if (register_per_thread_target >= register_per_thread_min) {
+    return {register_per_thread_target, threads_per_sm / threads_per_warp};
+  }
+
+  //(2) can't achieve target occupancy. Estimate occupancy from minimum register
+  // each thread should use, then derive register per thread from occupancy.
+  int64_t blocks_per_sm_max = scheduler_utils::safeDiv(
+      getThreadsPerSMGivenRegPerThread(register_per_thread_min),
+      threads_per_block);
+  threads_per_sm =
+      std::min(blocks_per_sm_max * threads_per_block, max_threads_per_sm);
+
+  return {
+      getRegPerThreadGivenThreadsPerSM(threads_per_sm),
+      threads_per_sm / threads_per_warp};
+}
+
+InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t max_multi_reduction_factor,
+    const int64_t min_threads_per_block,
+    const int64_t register_buffer_per_batch,
+    const int64_t smem_buffer_per_batch,
+    const int64_t target_warps_per_sm,
+    const int64_t register_overhead,
+    const int64_t smem_overhead,
+    const int64_t max_vectorize_factor,
+    const int64_t persistent_batch_size) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  auto device_warp_size = dev_prop->warpSize;
+  auto max_threads_per_block = dev_prop->maxThreadsPerBlock;
+  auto device_multiprocessor_count = dev_prop->multiProcessorCount;
+  
+  InnerOuterParams params;
+  params.inner_vect = max_vectorize_factor;
+
+  // Step-1, Calculate threads per block
+  params.persistent_batch_size = persistent_batch_size;
+  auto threads_per_block = scheduler_utils::safeDiv(
+      inner_dim_numel / params.inner_vect, persistent_batch_size);  
+  threads_per_block = scheduler_utils::roundUpToN(
+      threads_per_block, device_warp_size);
+
+  // Step-2, set InnerParams Iteration dim: gdimy.
+  int64_t persistent_buffer_size =
+      register_buffer_per_batch * persistent_batch_size; 
+  auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
+      persistent_buffer_size,
+      threads_per_block,
+      target_warps_per_sm,
+      register_overhead);
+  params.register_per_thread = reg_occ.first;
+  params.occupancy = reg_occ.second;      
+  int64_t warps_per_block = threads_per_block / device_warp_size;
+  int64_t blocks_per_sm_regs = reg_occ.second / warps_per_block;
+  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_per_batch * persistent_batch_size * threads_per_block);
+  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
+  params.gdimy = blocks_per_sm * device_multiprocessor_count;
+  const int64_t outer_iter_min = 8;
+  const int64_t gdimy_max = scheduler_utils::roundUpToN(
+      ceilDiv(outer_dim_numel, outer_iter_min), device_multiprocessor_count);
+  while (params.gdimy > gdimy_max && blocks_per_sm > 1) {
+    blocks_per_sm -= 1;
+    params.gdimy = blocks_per_sm * device_multiprocessor_count;
+  }
+
+  // inner dim: vect8 x batch x bdimx x bdimy >= N
+  // inner dim: vect4 x bdimx x gdimy >=N
+  // ---------> 2 x batch x bdimy ~=~ gdimy 
+  // thread serial reduction of the final outer reduction: ~= 2 x batch
+  // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
+  // gdimy (already done) The partial outer reduction result is stored in tmp
+  // gmem, set the vectorization factor for write and read
+  params.vectorization_factor_outer = std::min(4l, max_vectorize_factor);
+  // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
+  // increase the probability of bdimx * bdimy == threads_per_block.
+  params.bdimx = scheduler_utils::roundUpPow2Or8(
+      ceilDiv(outer_dim_numel / params.vectorization_factor_outer, params.gdimy));
+  // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
+  // increase bdimx to make it divisible. Under worst case, bdimx equals to
+  // threads_per_block.
+  while (threads_per_block % params.bdimx) {
+    params.bdimx = std::min(params.bdimx + 8, threads_per_block);
+  }
+  // Step-4, set OuterParams Reduction dim: bdimy.
+  params.bdimy = threads_per_block / params.bdimx;
+  NVF_ERROR(
+      params.bdimy * params.bdimx == threads_per_block,
+      " threads_per_block must be divisible by bdimx and bdimy.");
+
+  params.non_buffer_registers = params.register_per_thread -
+      persistent_buffer_size / scheduler_utils::bytes_per_register;
+  // (4) Calculate other quantities reflecting the quality of the heuristic.
+  // when [reduction_count_after_vectorize] is not divisible by
+  // [persistent_val], the last batch is not be fully utilized, the wasted
+  // threads in the last batch is quantified as [n_persistent_tails].
+  params.n_persistent_tails = threads_per_block * persistent_batch_size -
+      inner_dim_numel / params.inner_vect;
+  return params;
+}
+
 // The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
 // ======= Method if hidden_size > 1024 =======
 // (1) Inner reduction is one reduction per block. Reduction domain is
@@ -686,200 +849,85 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
-  // Parameters for inner reduction:
-  // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
-  // Iteration dim: gdimy
 
-  // Parameters for outer reduction:
-  // Reduction dim: bdimy
-  // Iteration dim: vectorization_factor_outer, bdimx, gdimy
-  struct InnerOuterParams {
-    int64_t inner_vect = -1;
-    int64_t inner_batch = -1;
-    int64_t bdimx = -1;
-    int64_t bdimy = -1;
-    int64_t gdimy = -1;
-    int64_t tmp_gmem_write_vect = -1;
-    int64_t vectorization_factor_outer = -1;
-
-    void verify() {
-      NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
-      NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
-      NVF_ERROR(bdimx != -1, "bdimx is not set.");
-      NVF_ERROR(bdimy != -1, "bdimy is not set.");
-      NVF_ERROR(gdimy != -1, "gdimy is not set.");
-      NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
-      NVF_ERROR(
-          vectorization_factor_outer != -1,
-          "vectorization_factor_outer is not set.");
-    }
-  };
-
-  InnerOuterParams iop;
-
-  // Estimate register per thread based on buffer size, since inner reduction
-  // dim is fully parallelized, the buffer size of each thread equals the total
-  // buffer size divide by inner_dim_numel.
-  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
-    constexpr int64_t bytes_per_register = 4;
-    const int64_t persistent_buffer_size =
-        regs_buffer_size / inner_dim_numel * batch_mul_vect;
-    const int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register +
-        scheduler_utils::register_overhead;
-    return std::min(
-        estimated_register_count, scheduler_utils::max_registers_per_thread);
-  };
-
-  auto getBlocksPerSM = [&](const int64_t threads_per_sm,
-                            const int64_t threads_per_block,
-                            const int64_t warp_size) {
-    constexpr int64_t warp_allocation_granularity = 4;
-    const int64_t allocated_warps_per_block =
-        ceilDiv(
-            ceilDiv(threads_per_block, warp_size),
-            warp_allocation_granularity) *
-        warp_allocation_granularity;
-    return scheduler_utils::safeDiv(
-        threads_per_sm / warp_size, allocated_warps_per_block);
-  };
-
+  const int64_t register_overhead = 32l;
+  const int64_t target_warps_per_sm = 32l;
+  // device properties
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
+  const int64_t max_threads_in_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  const int64_t max_threads_per_sm =
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor;
   const int64_t device_multiprocessor_count =
       (int64_t)dev_prop->multiProcessorCount;
 
-  // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
-  // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
-  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
-  // inner_dim_numel is dividable by the multiplication of a quarter warp and
-  // vectorize_factor.
-  iop.inner_vect = (int64_t)vectorize_factor;
+  // alwasy use [vectorize_factor]
+  const int64_t parallel_after_vectorize =
+      inner_dim_numel / (int64_t)vectorize_factor;
 
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // max_persistent_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size = normalization_scheduler_utils::
-      getOptionalInnerOuterPersistentBufferBatches(
-          inner_dim_numel,
-          outer_dim_numel,
-          regs_buffer_size,
-          iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  NVF_ERROR(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
+  // try to use at least 4 warps per block
+  const int64_t min_threads_per_block = 4l * threads_per_warp;
 
-  NVF_ERROR(
-      iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
-      " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
+  // set the min persistent buffer size to avoid requesting
+  // a block size larger than device limit
+  const int64_t batches_per_block_inner_reduction_min =
+      ceilDiv(parallel_after_vectorize, max_threads_in_block);
 
-  // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
-  // from buffer size, then it is used to calculate threads_per_sm and gdimy.
-  // gdimy_max ensures each block processes at least 8 rows to
-  // reduce the workload of the final outer reduction.
-  int64_t reg_per_thread =
-      getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
-  int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-  int64_t blocks_per_sm_regs =
-      getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
-  // check shared memory limitation on blocks per sm
-  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
-      (smem_overhead + smem_buffer_size);
-  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
-  iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-  const int64_t outer_iter_min = 8;
-  const int64_t gdimy_max = scheduler_utils::roundUpToN(
-      ceilDiv(outer_dim_numel, outer_iter_min), device_multiprocessor_count);
-  while (iop.gdimy > gdimy_max && blocks_per_sm > 1) {
-    blocks_per_sm -= 1;
-    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-  }
+  // set the max persistent batch size to avoid low occupancy
+  // (1) limitation set by min_threads_per_block
+  const int64_t pbs_max_1 =
+      ceilDiv(parallel_after_vectorize, min_threads_per_block);
+  // (2) derived the maximum persistent batch size from the target occupancy
+  const int64_t regs_buffer_per_batch = regs_buffer_size /
+      inner_dim_numel * (int64_t)vectorize_factor;
+  const int64_t smem_buffer_per_batch = smem_buffer_size /
+      inner_dim_numel * (int64_t)vectorize_factor;      
+      
+  const int64_t target_threads_per_sm =
+      std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
+  const int64_t pbs_max_2 = getMaxPersistentBatch(
+      regs_buffer_per_batch, target_threads_per_sm, register_overhead);
+  const int64_t batches_per_block_inner_reduction_max = std::max(
+      batches_per_block_inner_reduction_min, std::min(pbs_max_1, pbs_max_2));
 
-  // set the vectorization factor for the write to tmp gmem, may be different
-  // from inner_vect due to different data types, e.g. input is half and
-  // tmp_gmem is float
-  constexpr int64_t max_gmem_vect_access_bytes = 16;
-  const int64_t max_tmp_gmem_vect_factor = std::min(
-      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size,
-      iop.inner_vect);
-  iop.tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
+  // Compute maximum number of reductions we could do in the same kernel based
+  // on persistent buffer size. Bounded by the wave count for utilization of
+  // SMs.
+  const int64_t max_multi_reduction_factor = std::min(
+      scheduler_utils::safeDiv(
+          scheduler_utils::register_file_size, regs_buffer_size),
+      ceilDiv(outer_dim_numel, device_multiprocessor_count));
 
-  // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
-  // gdimy (already done) The partial outer reduction result is stored in tmp
-  // gmem, set the vectorization factor for write and read
-  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
-  iop.vectorization_factor_outer =
-      std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-  // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
-  // increase the probability of bdimx * bdimy == threads_per_block.
-  iop.bdimx = scheduler_utils::roundUpPow2Or8(
-      ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
-  // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
-  // increase bdimx to make it divisible. Under worst case, bdimx equals to
-  // threads_per_block.
-  while (threads_per_block % iop.bdimx) {
-    iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
-  }
-  // Step-4, set OuterParams Reduction dim: bdimy.
-  iop.bdimy = threads_per_block / iop.bdimx;
-  NVF_ERROR(
-      iop.bdimy * iop.bdimx == threads_per_block,
-      " threads_per_block must be divisible by bdimx and bdimy.");
-  // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
-  // after divide by inner_vect and inner_batch. In this case, bdimy is used to
-  // parallelize outer_dim instead of inner_dim. This pattern is named multi
-  // reductions per block (mrpb).
-  if (inner_dim_numel <= 1024) {
-    rparams->multiple_reds_per_blk = true;
-    rparams->tidx_for_outer_reduction = true;
-    constexpr int64_t threads_per_block_mrpb = 512;
-
-    // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
-    // inner_batch(reuse), bdimx
-    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
-
-    // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    reg_per_thread =
-        getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
-    threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-    blocks_per_sm = getBlocksPerSM(
-        threads_per_sm, threads_per_block_mrpb, dev_prop->warpSize);
-    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-
-    // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
-    // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
-    // cover what is left in both the outer_dim and inner_dim. However, it
-    // should not exceed the limitation set by threads_per_block_mrpb.
-    int64_t bdimy_tmp = std::max(
-        ceilDiv(outer_dim_numel, iop.gdimy),
-        ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
-    iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
-
-    // Step-4, OuterParams, Reduction dim: bdimx (already done)
-
-    if (iop.bdimx % dev_prop->warpSize == 0) {
-      rparams->pad_inner_reduction_to_warp = true;
-      rparams->pad_outer_reduction_to_warp = true;
+  // Generate a heuristic for each possible persistent batch size.
+  // record which persistent batch size has the highest occupancy.
+  int64_t idx_max_occupancy = -1;
+  int64_t current_max_occupancy = -1;
+  std::vector<InnerOuterParams> all_heuristics;
+  all_heuristics.reserve(
+      batches_per_block_inner_reduction_max -
+      batches_per_block_inner_reduction_min + 1);
+  for (int64_t pbs = batches_per_block_inner_reduction_min;
+       pbs <= batches_per_block_inner_reduction_max;
+       pbs++) {
+    all_heuristics.push_back(getHeuristicParamsGivenPerisisentBatchSize(
+        inner_dim_numel,
+        outer_dim_numel,
+        max_multi_reduction_factor,
+        min_threads_per_block,
+        regs_buffer_per_batch,
+        smem_buffer_per_batch,
+        target_warps_per_sm,
+        register_overhead,
+        smem_overhead,
+        vectorize_factor,
+        pbs));
+    if (all_heuristics.back().occupancy > current_max_occupancy) {
+      current_max_occupancy = all_heuristics.back().occupancy;
+      idx_max_occupancy = (int64_t)all_heuristics.size() - 1;
     }
-    rparams->block_dim_iter_dom = ParallelType::TIDy;
-  } else {
-    rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
   }
-
-  // check all the parameters in InnerOuterParams are set.
-  iop.verify();
-
+  
+  rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   rparams->combined_inner_outer = true;
