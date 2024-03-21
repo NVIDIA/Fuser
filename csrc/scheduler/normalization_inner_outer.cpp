@@ -830,8 +830,12 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   std::cout << "gdimy_occupancy: " << gdimy_occupancy
             << ", params.gdimy: " << params.gdimy << std::endl;
 
-  // inner dim: vect8 x batch x bdimx x bdimy >= N
-  // inner dim: vect4 x bdimx x gdimy >=N
+  // inner reduction inner dim: vect8 x batch x bdimx x bdimy >= N
+  // inner reduction outer dim: gdimy x S1
+
+  // outer reduction inner dim: vect4 x bdimx x gdimy >=N
+  // outer reduction outer dim: bdimy x S2
+
   // ---------> 2 x batch x bdimy ~=~ gdimy
   // thread serial reduction of the final outer reduction: ~= 2 x batch
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
@@ -854,6 +858,15 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   NVF_ERROR(
       params.bdimy * params.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
+
+  // if(inner_dim_numel <=1024){
+  //   // inner reduction inner dim: vect8 x batch x bdimx >= N
+  //   // inner reduction outer dim: gdimy x bdimy X S1
+
+  //   // outer reduction inner dim: vect4 x bdimx x gdimy >=N
+  //   // outer reduction outer dim: bdimy x S2
+  // }
+
 
   params.non_buffer_registers = params.register_per_thread -
       persistent_buffer_size / scheduler_utils::bytes_per_register;
@@ -949,6 +962,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           scheduler_utils::register_file_size, regs_buffer_size),
       ceilDiv(outer_dim_numel, device_multiprocessor_count));
 
+
+
   // Generate a heuristic for each possible persistent batch size.
   // record which persistent batch size has the highest occupancy.
   int64_t idx_max_occupancy = -1;
@@ -995,7 +1010,67 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     heuristic.print();
   }
 
-  rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+// Step-5, special case, when inner_dim_numel <= 1024, bdimx is used to parallel
+// the outer dim.
+  if (inner_dim_numel <= 1024) {
+    rparams->multiple_reds_per_blk = true;
+    rparams->tidx_for_outer_reduction = true;
+
+    // reduction dim of inner reduction: vect8 x batch x bdimx >= N
+    iop.inner_vect = vectorize_factor;
+    iop.bdimx = std::min(min_threads_per_block, inner_dim_numel / iop.inner_vect);
+    iop.persistent_batch_size  = ceilDiv(
+        inner_dim_numel / iop.inner_vect, iop.bdimx);
+
+    // iteration dim of inner reduction: gdimy x bdimy X S1
+    iop.bdimy = max_threads_in_block / iop.bdimx;
+    int64_t threads_per_block = iop.bdimx * iop.bdimy;
+    int64_t persistent_buffer_size =
+        regs_buffer_per_batch * iop.persistent_batch_size;
+    auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
+        persistent_buffer_size,
+        threads_per_block,
+        target_warps_per_sm,
+        register_overhead);
+    iop.register_per_thread = reg_occ.first;
+    iop.occupancy = reg_occ.second;
+    int64_t warps_per_block = threads_per_block / threads_per_warp;
+    int64_t blocks_per_sm_regs = reg_occ.second / warps_per_block;
+    int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+        (smem_overhead +
+        smem_buffer_per_batch * iop.persistent_batch_size * threads_per_block);
+    int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
+    int64_t gdimy_occupancy = blocks_per_sm * device_multiprocessor_count;
+    // round down to a divisible value
+    int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel,iop.bdimy);
+    const int64_t outer_iter_min =
+        std::max(8l, ceilDiv(outer_dim_after_bdimy, gdimy_occupancy));
+    iop.gdimy = ceilDiv(outer_dim_after_bdimy, outer_iter_min);
+    while(iop.gdimy * 2 <= device_multiprocessor_count && ceilDiv(outer_dim_after_bdimy, iop.gdimy) > 1){
+      iop.gdimy *= 2;
+    }
+
+    // iteration dim of outer reduction: vect4 x bdimy x gdimy >=N
+    // we need vect4 x bdimy x gdimy >= vect8 x batch x bdimx
+    // it can be simplified to bdimy x gdimy >= 2 x bdimx
+    // so we can set gdimy >= 2 x bdimx / bdimy
+    iop.gdimy = std::max(2l * iop.bdimx / iop.bdimy, iop.gdimy);
+    iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
+    iop.vectorization_factor_outer = std::min(4l, (int64_t)vectorize_factor);    
+    NVF_ERROR(
+        iop.vectorization_factor_outer * iop.bdimy * iop.gdimy >= inner_dim_numel,
+        "iteration dim of outer reduction is not fully parallelized.");
+    // outer reduction outer dim: bdimx x S2
+
+    if (iop.bdimx % dev_prop->warpSize == 0) {
+      rparams->pad_inner_reduction_to_warp = true;
+      rparams->pad_outer_reduction_to_warp = true;
+    }
+    rparams->block_dim_iter_dom = ParallelType::TIDy;
+  } else {
+    rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+  }
+
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   rparams->combined_inner_outer = true;
@@ -1378,7 +1453,6 @@ void scheduleInnerOuterPersistentKernel(
       inner_reference_tv, boundaryNodesSet);
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
-
   // Don't allow parallelization propagation goes through boundaryNodesSet
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
@@ -1393,6 +1467,8 @@ void scheduleInnerOuterPersistentKernel(
       cached_inputs,
       cached_outputs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+  std::cout << "inner_reference_tv: " << inner_reference_tv->toString() << std::endl;
+  std::cout << "outer_reference_tv: " << outer_reduction_tvs.at(0)->toString() << std::endl;
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
