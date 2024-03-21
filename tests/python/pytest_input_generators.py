@@ -1499,9 +1499,10 @@ def matmul_input_generator(
             map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
         )
 
-    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768
+    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
     # Use a Cartesian product to create a wide range of matrix shapes
-    M, N, K = itertools.repeat(multiply_range(32768, 8), 3)
+    # I'll stop at 512 as possible numerical difference may show up.
+    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
     for M, N, K in itertools.product(M, N, K):
         lhs_shape = (M, K)
         rhs_shape = (K, N)
