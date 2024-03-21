@@ -1009,8 +1009,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   splitk_sum      (nullptr)
   //
   // With split-K
-  //   mma_result      [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin
-  //   rKin] splitk_sum      [... iMo iNo rKf  iMi  iNi]
+  //   mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //   splitk_sum   [... iMo iNo rKf  iMi  iNi]
 
   // Schedule prolog:
   //   TODO: this section needs more configurability.
