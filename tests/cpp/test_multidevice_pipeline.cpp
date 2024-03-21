@@ -304,10 +304,15 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Bool()));
 
+// Different scheduling modes used in PipelineTestStagedReduction.StagedReduction
 enum class SchedulingMode {
+  // Manual interdevice scheduling, no intra-device scheduling
   InterDeviceOnly,
+  // Manual inter-/intra-device scheduling
   Manual,
+  // Manual inter-device scheduling, composed with ReductionScheduler intra-device schedule
   ReductionScheduler,
+  // Manual inter-device scheduling, composed with fully automated intra-device scheduling (through FusionExecutorCache)
   Automatic,
 };
 
