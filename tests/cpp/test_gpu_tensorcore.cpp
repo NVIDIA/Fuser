@@ -52,11 +52,24 @@
 #include "c10/core/ScalarType.h"
 
 namespace nvfuser {
+namespace {
+class GPUTTensorCoreTest : public NVFuserTest {
+ protected:
+  GPUTTensorCoreTest() {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
+ private:
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard opt_guard_;
+};
+} // namespace
 
 using namespace at::indexing;
 
 // Matmul test for Ampere MMA: across supported layouts
-TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -119,7 +132,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmperePrologueFusionBroadcast_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmperePrologueFusionBroadcast_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -179,7 +192,7 @@ TEST_F(NVFuserTest, FusionAmperePrologueFusionBroadcast_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereProloguePointwise_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereProloguePointwise_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -246,7 +259,7 @@ TEST_F(NVFuserTest, FusionAmpereProloguePointwise_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBFloat16_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -310,7 +323,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
 }
 
 // Matmul test for Ampere MMA: with pipelined gmem load
-TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulPipelineGmem_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
@@ -378,7 +391,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
 }
 
 // Matmul test for Ampere MMA: checking CTA Swizzles
-TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int dim = 8192;
   int M = dim, N = dim, K = dim;
@@ -509,7 +522,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
@@ -577,7 +590,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
 }
 
 // Matmul-Matmul fusion test on Ampere
-TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionMatmulMatmulAmpere_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   Fusion fusion;
@@ -838,7 +851,7 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
 // Simplified Matmul-Softmax-Matmul test on Ampere
 //   (To be extended in follow ups)
-TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   Fusion fusion;
@@ -1201,7 +1214,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 }
 
 // Matmul test for Turing MMA: across supported layouts
-TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionTuringMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -1255,7 +1268,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
 }
 
 // Matmul test on ampere, using ampere memory ops
-TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1390,7 +1403,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   Fusion fusion;
@@ -1560,7 +1573,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
 }
 
 // Matmul test on Ampere with a reshape on prolog
-TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereViewMatmulTN_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   Fusion fusion;
@@ -1715,7 +1728,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
 
 // Test an end-to-end matmul case with swizzled smem
 // data layout.
-TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   Fusion fusion;
@@ -1886,7 +1899,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 }
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
-TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoad_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -1949,7 +1962,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
 }
 
 // Matmul test for Turing MMA: across supported layouts
-TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionTuringMatmulLargeLoad_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -2009,7 +2022,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
 }
 
 // Tile layout check for symmetric 4-warp recipes
-TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2090,7 +2103,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2168,7 +2181,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -2239,7 +2252,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 }
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
-TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 2048;
   for (auto layout : kAllSupportedMmaLayout) {
@@ -2294,7 +2307,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
 }
 
 // Matmul test for Ampere MMA: across supported layouts
-TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int B = 2, M = 504, N = 136, K = 248;
 
@@ -2345,7 +2358,7 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
@@ -2498,7 +2511,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 // On A100, this problem is able to make use of smem epilogue but only if we
 // promote use.
 // See https://github.com/NVIDIA/Fuser/pull/1834
-TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
+TEST_F(
+    GPUTTensorCoreTest,
+    FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 4096, N = 4096, K = 4096;
@@ -2584,7 +2599,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpiloguePromotionRequiredA100_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
@@ -2684,7 +2699,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   constexpr bool ignore_occupancy_drop = true;
   // Keep multiples of 8 to keep vectorizable.
@@ -2786,7 +2801,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
 }
 
 // Test the matmul scheduler's single-kernel split-K support
-TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitK_CUDA) {
   // requires Ampere or higher GPU
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -2870,7 +2885,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
 }
 
 // Test splitk with bias epilogue
-TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitKBias_CUDA) {
   // requires Ampere or higher GPU
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -2945,7 +2960,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
 }
 
 // Same as above but has a batch dimension and splitk
-TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitK_CUDA) {
   // requires Ampere or higher GPU
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -3021,7 +3036,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
 }
 
 // Test batch splitk with bias epilogue
-TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
   // requires Ampere or higher GPU
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
