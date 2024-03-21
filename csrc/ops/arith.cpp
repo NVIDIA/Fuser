@@ -306,7 +306,7 @@ TensorView* full(
 
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
   fill_value = maybeCastOp(dtype, fill_value);
-  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+  TensorView* out = ops::newOutputTV({tv}, dtype);
   IrBuilder::create<FullOp>(out, fill_value);
   return out;
 }
