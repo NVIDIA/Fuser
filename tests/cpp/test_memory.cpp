@@ -498,6 +498,38 @@ TEST_F(TMAInvalidTest, BulkNotInTMA) {
           "ParallelType::Bulk is only supported for cp.async.bulk.")));
 }
 
+TEST_F(TMAInvalidTest, Repro) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(
+      &fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 // End TMA tests
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
