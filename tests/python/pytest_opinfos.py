@@ -1134,7 +1134,10 @@ matmulbf16_opinfo = OpInfo(
     sample_input_generator=matmul_input_generator,
     reference=torch.matmul,
 )
-matmul_ops.append(matmulbf16_opinfo)
+
+# bf16 needs Ampere or newer.
+if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8:
+    matmul_ops.append(matmulbf16_opinfo)
 
 """ End Tensor Creation """
 
