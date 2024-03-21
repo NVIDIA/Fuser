@@ -469,12 +469,12 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
 
 // Testing invalid cases are correctly detected and reported.
 
-// It is not required to run invalid case tests on Hopper or newer GPUs.
-// Detecting invalid cases does not even require a GPU.
+// It is not required to run compile-time invalid case tests on Hopper or newer
+// GPUs. Detecting invalid cases does not even require a GPU.
+class TMACompileTimeInvalidTest : public NVFuserTest {};
+class TMARuntimeInvalidTest : public TMATest {};
 
-class TMAInvalidTest : public NVFuserTest {};
-
-TEST_F(TMAInvalidTest, BulkNotInTMA) {
+TEST_F(TMACompileTimeInvalidTest, BulkNotInTMA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -496,6 +496,200 @@ TEST_F(TMAInvalidTest, BulkNotInTMA) {
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "ParallelType::Bulk is only supported for cp.async.bulk.")));
+}
+
+TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
+  // According to the CUDA programming guide, the global address must be
+  // aligned 16 byte:
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0_aligned = at::randn({128 + items_of_16_bytes}, options)
+                        .narrow(0, items_of_16_bytes, 128);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0_aligned}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0_aligned});
+  testValidate(
+      &fusion, cg_outputs, {t0_aligned}, {t0_aligned}, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      [&]() {
+        auto t0_misaligned = at::randn({128 + items_of_16_bytes / 2}, options)
+                                 .narrow(0, items_of_16_bytes / 2, 128);
+        fe.runFusion({t0_misaligned});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "globalAddress, which specifies the starting address of the memory region described, "
+          "must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.")));
+}
+
+TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
+  // According to the CUDA programming guide, the global strides must be
+  // aligned 16 byte:
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(1, 128);
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(3)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0_aligned =
+      at::randn({128, 128 + items_of_16_bytes}, options).narrow(1, 0, 128);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0_aligned}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0_aligned});
+  testValidate(
+      &fusion, cg_outputs, {t0_aligned}, {t0_aligned}, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      [&]() {
+        auto t0_misaligned =
+            at::randn({128, 128 + items_of_16_bytes / 2}, options)
+                .narrow(1, 0, 128);
+        fe.runFusion({t0_misaligned});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, "
+          "must be a multiple of 16 and less than 2^40.")));
+}
+
+TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
+  // According to the CUDA programming guide, the size of the transfer must be
+  // a multiple of 16 bytes:
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  GTEST_SKIP() << "Validation for this test is not yet implemented";
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, items_of_16_bytes / 2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+
+  EXPECT_THAT(
+      [&]() {
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Some error message")));
+}
+
+TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
+  // According to the CUDA programming guide, the size of the transfer must be
+  // a multiple of 16 bytes:
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  GTEST_SKIP() << "Validation for this test is not yet implemented";
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tile_size = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(tile_size);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, tile_size);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, items_of_16_bytes}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0, items_of_16_bytes});
+  testValidate(
+      &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      [&]() {
+        fe.runFusion({t0, items_of_16_bytes / 2});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Some error message")));
 }
 
 // End TMA tests
