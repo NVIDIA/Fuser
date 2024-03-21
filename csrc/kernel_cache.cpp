@@ -376,14 +376,10 @@ void prepareRuntimeOrder(
     available_input.insert(input_val);
 
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
-      auto leaf_dom = TensorDomain::noReductions(input_tv->getLeafDomain());
-      for (const auto& dom : {root_dom, leaf_dom}) {
-        for (auto id : dom) {
-          const auto extent = id->getMaybeExpandedExtent();
-          available_input.insert(extent);
-          runtime_workspace.group_extent_binding_order.push_back(extent);
-        }
+      for (auto id : TensorDomain::noReductions(input_tv->getLeafDomain())) {
+        const auto extent = id->getMaybeExpandedExtent();
+        available_input.insert(extent);
+        runtime_workspace.group_extent_binding_order.push_back(extent);
       }
     }
   }
