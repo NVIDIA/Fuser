@@ -1965,7 +1965,9 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           prove::lessThan(negabsrhs, lhs, context)) {
         return lhs;
       }
-    } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
+    } else if (
+        bop->getBinaryOpType() == BinaryOpType::Div ||
+        bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // a / b -> 0  if -|b| < a < |b|
       Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
       Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
@@ -1973,9 +1975,6 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           prove::lessThan(negabsrhs, lhs, context)) {
         return IrBuilder::create<Val>(0L, *value->getDataType());
       }
-    } else if (
-        bop->getBinaryOpType() == BinaryOpType::Div ||
-        bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // a / 1 -> a
       // 0 / a -> 0
       if (rhs->isOne() ||
