@@ -1113,7 +1113,10 @@ def matmul_wrapper(fd, data_type, a, b):
     t2 = fd.ops.cast(t1, dtype=data_type)
     return t2
 
-
+# We can't access nvFuser.Tensor's dtype as yet, thus we
+# need to create two OpInfos based on whether we cast back
+# to fp16 or bf16. Ideally we'd just need one OpInfo and in 
+# the wrapper cast to the input dtype.
 matmulfp16_opinfo = OpInfo(
     lambda fd: partial(matmul_wrapper, fd, DataType.Half),
     "matmul_float16",
