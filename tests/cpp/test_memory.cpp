@@ -580,18 +580,18 @@ TEST_F(TMAIndexingTest, Advanced) {
 
     // Create tiles
     tv->split(4, 8);
-    tv->split(3, 2);
+    tv->split(3, 1);
     tv->split(2, 32);
     tv->split(3, 4);
     tv->split(1, 2);
     tv->split(0, 4);
     // [I1*I2*I3/16/4, 4, 16/2, 2, I4*I5*I6/32, 32/4, 4',
-    //  I7*I8/32/2, 2', 32/8, 8]
+    //  I7*I8/32/1, 1, 32/8, 8]
 
     // Reorder the axes as [non-tile..., tile...]
     tv->reorder({{1, 6}, {3, 7}, {5, 8}, {8, 9}});
-    // [I1*I2*I3/16/4, 16/2, I4*I5*I6/32, 4', I7*I8/32/2, 32/8,
-    //  4, 2, 32/4, 2', 8]
+    // [I1*I2*I3/16/4, 16/2, I4*I5*I6/32, 4', I7*I8/32/1, 32/8,
+    //  4, 2, 32/4, 1, 8]
 
     // Merge all non-tile axes together, and all tile axes together
     tv->merge(0);
@@ -603,8 +603,8 @@ TEST_F(TMAIndexingTest, Advanced) {
     tv->merge(1);
     tv->merge(1);
     tv->merge(1);
-    // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 4' * I7*I8/32/2 * 32/8,
-    //  4 * 2 * 32/4 * 2' * 8]
+    // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 4' * I7*I8/32/1 * 32/8,
+    //  4 * 2 * 32/4 * 1 * 8]
 
     // Parallelize the non-tile axes
     tv->axis(0)->parallelize(ParallelType::BIDx);
