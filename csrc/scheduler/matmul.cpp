@@ -1064,8 +1064,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Before
   //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
   // After
-  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMino iNino
-  //   iMin2 iNin2 rKino rKin4 rKin2]
+  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
+  //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
   mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Set parallelization:
@@ -1119,14 +1119,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //
   // Without split-K:
   //   mma_result
-  //     nbatch +   1    2    3    4    5   6   7    8      9    10    11    12
-  //     13    14
-  //              -14  -13  -12  -11  -10  -9  -8   -7     -6    -5    -4    -3
-  //              -2    -1
-  //     [... iMo iNo  rKg rKwo iMwo iNwo iMw iNw iMino iNino iMin2 iNin2 rKino
-  //     rKin4 rKin2]
-  //    (iBz) iBx iBy   rS   rS  iTz  iTy  iS  iS  iTx   iMMA  iMMA  iMMA  rMMA
-  //    rMMA  rMMA
+  //     nbatch +   1   2    3    4    5   6   7    8
+  //              -14 -13  -12  -11  -10  -9  -8   -7
+  //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
+  //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
+  //                                   9    10    11     12    13    14
+  //                                  -6    -5    -4     -3    -2    -1
+  //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
+  //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
   //   smem_epilogue   (unscheduled, same as original mma_result)
   //   splitk_sum
   //     [... iMo iNo rKf  iMi  iNi]
