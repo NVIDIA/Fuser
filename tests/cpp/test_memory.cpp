@@ -580,7 +580,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0_aligned =
-      at::randn({128 + items_of_16_bytes, 128}, options).narrow(0, 0, 128);
+      at::randn({128, 128 + items_of_16_bytes}, options).narrow(1, 0, 128);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_aligned}, {}, matmul_cparams);
 
@@ -593,8 +593,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   EXPECT_THAT(
       [&]() {
         auto t0_misaligned =
-            at::randn({128 + items_of_16_bytes / 2, 128}, options)
-                .narrow(0, 0, 128);
+            at::randn({128, 128 + items_of_16_bytes / 2}, options)
+                .narrow(1, 0, 128);
         fe.runFusion({t0_misaligned});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
