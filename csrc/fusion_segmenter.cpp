@@ -4244,10 +4244,13 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   NVF_ERROR(aux_group->producer_edges.empty());
 
   // use unordered_set to avoid duplicated group in consumers.
-  std::unordered_set<SegmentedGroup*> consumers;
+  // duplicated entry in consumer would make use call
+  // codeGenSupportedMerge(input_group, consumer) twice. Where the second time
+  // the connection has already been severed by mergeNodes().
+  GroupSet consumers;
   consumers.reserve(aux_group->consumer_edges.size());
   for (SegmentedEdge* edge : aux_group->consumer_edges) {
-    consumers.insert(edge->to);
+    consumers.pushBack(edge->to);
   }
   aux_group->consumer_edges.clear();
 
