@@ -68,6 +68,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   //! run time
   void removeRedundancy();
 
+  //! Add validations to GpuLower::current()->validations()
+  void addValidations();
+
  private:
   //! Split expressions whose input domain must be predicated
   std::unordered_map<TensorView*, std::vector<Split*>> splits_to_predicate_;

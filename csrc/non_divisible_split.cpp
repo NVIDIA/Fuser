@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <non_divisible_split.h>
@@ -32,6 +33,7 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
 
   if (GpuLower::current() != nullptr) {
     removeRedundancy();
+    addValidations();
   }
 }
 
@@ -176,6 +178,24 @@ void NonDivisibleSplitInfo::removeRedundancy() {
       } else {
         ++it;
       }
+    }
+  }
+}
+
+void NonDivisibleSplitInfo::addValidations() {
+  const auto gpu_lower = GpuLower::current();
+  for (auto split : splits_to_validate_) {
+    auto extent = split->in()->extent();
+    auto factor = split->factor();
+    auto is_divisible = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(extent, factor),
+        extent->fusion()->zeroVal()));
+    NVF_ERROR(
+        !is_divisible->isFalse(), "Non-divisible split detected: ", split);
+    if (!is_divisible->isTrue()) {
+      std::stringstream ss;
+      ss << "Non-divisible split detected: " << split;
+      gpu_lower->validations().emplace_back(is_divisible, ss.str());
     }
   }
 }

@@ -641,7 +641,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
          = T4[(i11 + i15)];
       float T2[1LL];
       T2[0LL]
-         = T1[(i15 % 2LL)];
+         = T1[i15];
       T3[(i12 + (i15 + nvfuser_zero))]
          = T2[0LL];
     }
