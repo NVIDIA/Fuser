@@ -825,7 +825,7 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   int64_t gdimy_occupancy = blocks_per_sm * device_multiprocessor_count;
   // round down to a divisible value
   const int64_t outer_iter_min =
-      std::max(8l, ceilDiv(outer_dim_numel, gdimy_occupancy));
+      std::max(2l, ceilDiv(outer_dim_numel, gdimy_occupancy));
   params.gdimy = ceilDiv(outer_dim_numel, outer_iter_min);
   std::cout << "gdimy_occupancy: " << gdimy_occupancy
             << ", params.gdimy: " << params.gdimy << std::endl;
@@ -917,7 +917,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // device properties
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
-  const int64_t max_threads_in_block = 256;
+  const int64_t max_threads_per_block = 256;
   const int64_t max_threads_per_sm =
       (int64_t)dev_prop->maxThreadsPerMultiProcessor;
   const int64_t device_multiprocessor_count =
@@ -933,7 +933,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // set the min persistent buffer size to avoid requesting
   // a block size larger than device limit
   const int64_t pbs_min =
-      ceilDiv(parallel_after_vectorize, max_threads_in_block);
+      ceilDiv(parallel_after_vectorize, max_threads_per_block);
 
   // set the max persistent batch size to avoid low occupancy
   // (1) limitation set by min_threads_per_block
@@ -1016,16 +1016,20 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
 
+    // with a small hidden size, persistent batch is set to 1
+    // register usage is low, allow more threads per block
+    constexpr int64_t max_threads_per_block = 512;
+
     // reduction dim of inner reduction: vect8 x batch x bdimx >= N
-    iop.inner_vect = vectorize_factor;
-    iop.bdimx = std::min(min_threads_per_block, inner_dim_numel / iop.inner_vect);
+    iop.inner_vect = std::min(8l, (int64_t)vectorize_factor);
+    iop.bdimx = std::min(max_threads_per_block, inner_dim_numel / iop.inner_vect);
     iop.persistent_batch_size  = ceilDiv(
         inner_dim_numel / iop.inner_vect, iop.bdimx);
 
     // iteration dim of inner reduction: gdimy x bdimy X S1
     // assume we have at least one wave, calc bdimy
-    iop.gdimy = device_multiprocessor_count;
-    iop.bdimy = std::min(max_threads_in_block / iop.bdimx, ceilDiv(outer_dim_numel, iop.gdimy));
+    int64_t tmp_gdimy = device_multiprocessor_count;
+    iop.bdimy = std::min(max_threads_per_block / iop.bdimx, ceilDiv(outer_dim_numel, tmp_gdimy));
 
     // use bdimx and bdimy, calculate occupancy
     // check if we may further increase gdimy
@@ -1048,9 +1052,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t gdimy_occupancy = blocks_per_sm * device_multiprocessor_count;
     // round down to a divisible value
     int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel,iop.bdimy);
-    const int64_t outer_iter_min =
-        std::max(8l, ceilDiv(outer_dim_after_bdimy, gdimy_occupancy));
-    iop.gdimy = std::max(ceilDiv(outer_dim_after_bdimy, outer_iter_min), iop.gdimy);
+    const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy, gdimy_occupancy);
+    iop.gdimy = ceilDiv(outer_dim_after_bdimy, outer_iter);
 
     // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
@@ -1118,6 +1121,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
 } // namespace
 
+
 std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1183,7 +1187,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     }
   }
 
-  std::shared_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
+  std::shared_ptr<ReductionParams>   rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
       buffer_params.regs_buffer_size,
@@ -1487,7 +1491,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i],
         unroll,
         vectorize,
-        true,
+        is_outer_grid_persistence,
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
@@ -1507,10 +1511,6 @@ void scheduleInnerOuterPersistentKernel(
         tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
       }
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      auto producer = ir_utils::getSoleProducerTv(tv);
-      producer->axis(-1)->parallelize(ParallelType::Group);
-
-      std::cout << "cached_gmem producer: " << producer->toString() << std::endl;
     }
   }
   // vectorization propagate through propagateParallelization only works for
@@ -1536,7 +1536,6 @@ void scheduleInnerOuterPersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  fusion->printMath();
 
   inlineMost();
 }
