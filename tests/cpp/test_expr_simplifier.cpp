@@ -217,6 +217,9 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
   } else if (name == "abs") {
     NVF_CHECK(args.size() == 1, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::absExpr(args.at(0));
+  } else if (name == "neg") {
+    NVF_CHECK(args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::negExpr(args.at(0));
   }
   NVF_CHECK(false, "Unknown function: ", name);
 }
@@ -1115,6 +1118,79 @@ TEST_F(ExprSimplifierTest, FactorizeGcd) {
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
   EXPECT_TRUE(
       simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
+}
+
+// See https://github.com/NVIDIA/Fuser/pull/1827
+TEST_F(ExprSimplifierTest, DivModLessThan) {
+  // Given these assumptions
+  //   0 <= TIDx < 32
+  //   0 <= i140 < 8
+  // and these definitions
+  //   i52 = 8 * TIDx
+  //   i141 = i52 + i140 = ( 8 * TIDx ) + i140
+  // we should make the following simplifications:
+  //   i142 = i141 % 128  // = ( TIDx % 16 ) * 8 + i140
+  //   i143 = i142 / 8    // = TIDx % 16
+  //   i144 = i141 / 128  // = TIDx / 16
+  //   i142 % 8           // = i140
+
+  // simplify i142, with i0 = TIDx, i1 = i140
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( 8 * i0 ) + i1 ) % 128"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("( i0 % 16 ) * 8 + i1"_));
+  // i143
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( ( 8 * i0 ) + i1 ) % 128 ) / 8"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i0 % 16"_));
+  // i144
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( 8 * i0 ) + i1 ) / 128"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i0 / 16"_));
+  // i142 % 8
+  EXPECT_TRUE(simplifyExpr(
+                  "( ( ( 8 * i0 ) + i1 ) % 128 ) % 8"_,
+                  {},
+                  {"0 <= i0 && i0 < 32 && 0 <= i1 && i1 < 8"_})
+                  ->sameAs("i1"_));
+}
+
+// See https://github.com/NVIDIA/Fuser/pull/1827
+TEST_F(ExprSimplifierTest, OrderTransitivity) {
+  // Macro is just for nicer error printing
+#define EXPECT_VALUE_TRUE(val)          \
+  EXPECT_TRUE(val->value().hasValue()); \
+  if (val->value().hasValue()) {        \
+    EXPECT_TRUE(val->value());          \
+  }
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {}));
+
+  // This doesn't simplify at all
+  // EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < neg( i0 )"_, {}, {"i0 < 8"_}));
+
+  // This doesn't simplify at all
+  // EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) < 0"_, {}, {"0 < i0"_}));
+
+  EXPECT_VALUE_TRUE(simplifyExpr("0 < abs( i0 )"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"i0 > 0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"0 < i0"_}));
+
+  // This simplifies to ( ( -i0 ) < 0 ) but doesn't go one more step to
+  // multiply both sides by -1 and check assumption
+  // EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( i0 ) ) < 0"_, {}, {"0 < i0"_}));
+
+  // This simplifies to ( ( -i0 ) < i1 ) using i0 > 0 => abs(i0) = i0, but
+  // misses the final step.
+  // EXPECT_VALUE_TRUE(
+  //    simplifyExpr("neg( abs( i0 ) ) < i1"_, {}, {"i1 >= 0 && i0 > 0"_}));
+
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( 8 ) ) < i0"_, {}, {"i0 >= 0"_}));
+#undef EXPECT_VALUE_TRUE
 }
 
 } // namespace nvfuser
