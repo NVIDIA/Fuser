@@ -108,10 +108,12 @@ at::Tensor contigZeroTensor(
     const c10::ScalarType& aten_dtype,
     const c10::Device& device) {
   NVF_ERROR(device.is_cuda(), "contigZeroTensor requires CUDA device");
-  int64_t device_num = device.index();
+  // Intermediate cast from int8_t to uint8_t for clarity:
+  // https://clang.llvm.org/extra/clang-tidy/checks/bugprone/signed-char-misuse.html
+  size_t device_num = (uint8_t)device.index();
 
   // get arena from device number, resizing arenas if needed
-  if ((size_t)device_num >= arenas.size()) {
+  if (device_num >= arenas.size()) {
     arenas.resize(device_num + 1);
   }
 
