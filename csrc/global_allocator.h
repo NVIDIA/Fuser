@@ -20,7 +20,8 @@ at::Tensor contigZeroTensor(
     const c10::Device& device);
 
 //! This should be called after each kernel launch to allow subsequent launches
-//! to re-use allocated memory.
+//! to re-use allocated memory. Note that it does not free allocated zeroed
+//! memory, but rather it marks all zeroed memory as available for re-use.
 void releaseZeroedMemory();
 
 } // namespace nvfuser

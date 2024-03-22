@@ -22,6 +22,8 @@ namespace {
 // high-water mark for their particular device until the thread terminates.
 class Arena {
  public:
+  // Mark allocated_bytes_ as 0, allowing all available zeroed memory to be
+  // reused on subsequent calls to getTensor().
   void reset() {
     if (isDebugDumpEnabled(DebugDumpOption::GlobalZeroedMemory)) {
       debug() << "[global zeroed memory] Resetting allocated bytes to 0"
@@ -121,6 +123,8 @@ at::Tensor contigZeroTensor(
   return arenas[device_num].getTensor(sizes, aten_dtype, device);
 }
 
+// Note that this does not free allocated zeroed memory, but rather it marks all
+// zeroed memory as available for re-use.
 void releaseZeroedMemory() {
   for (Arena& a : arenas) {
     a.reset();
