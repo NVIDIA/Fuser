@@ -495,8 +495,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
-  testValidate(
-      &fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 // Testing invalid cases are correctly detected and reported.
