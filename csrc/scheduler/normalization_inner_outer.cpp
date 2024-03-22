@@ -1179,6 +1179,11 @@ void scheduleInnerOuterPersistentKernel(
   // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
+  bool use_old = false;
+  if (std::getenv("USE_OLD") != nullptr) {
+    use_old = true;
+  }
+  const bool iter_grouped_outer_reduction = !use_old && !rparams.tidx_for_outer_reduction;
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
@@ -1190,7 +1195,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i],
         unroll,
         vectorize,
-        is_outer_grid_persistence,
+        iter_grouped_outer_reduction,
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
@@ -1200,6 +1205,12 @@ void scheduleInnerOuterPersistentKernel(
   // special vectorization of temp gmem, vectorization_factor_tmp_gmem_write
   // is guaranteed to be smaller or equal to input vectorization factor.
   if (rparams.vectorization_factor_tmp_gmem_write > 1) {
+    // when doing multiple reductions per block, the first stage of outer
+    // reduction includes a block reduction, we can group the iteration dims of
+    // the block reduction.
+
+    bool iter_grouped_partial_outer_reduction =
+        !use_old && rparams.multiple_reds_per_blk;
     for (auto tv : cached_gmem) {
       NVF_ERROR(
           rparams.vectorization_factor_tmp_gmem_write <=
@@ -1210,6 +1221,13 @@ void scheduleInnerOuterPersistentKernel(
         tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
       }
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      if (iter_grouped_partial_outer_reduction) {
+        auto outer_block_reduction_tv = ir_utils::getSoleProducerTv(tv);
+        if(rparams.unroll_factor_inner_reduction > rparams.vectorization_factor_tmp_gmem_write){
+          outer_block_reduction_tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
+        }
+        outer_block_reduction_tv->axis(-1)->parallelize(ParallelType::Group);
+      }
     }
   }
   // vectorization propagate through propagateParallelization only works for
