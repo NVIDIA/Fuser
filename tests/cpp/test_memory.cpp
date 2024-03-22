@@ -642,7 +642,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
 
   for (auto tv : {tv0, tv1, tv2}) {
     tv->merge(0);
-    tv->reorder({{1, 2}});
+    tv->reorder({{0, 1}});
   }
   tv0->setAllocationDomain(tv0->getLeafDomain(), true);
   scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
@@ -658,6 +658,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+  ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
