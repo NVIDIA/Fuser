@@ -92,7 +92,7 @@ class MultiDeviceExecutor {
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(
       const std::vector<c10::IValue>& inputs,
-      LaunchParams l_params = LaunchParams());
+      const LaunchParams& launch_params = LaunchParams());
 
   // Returns the Communicator
   Communicator* comm() const {
@@ -115,7 +115,7 @@ class MultiDeviceExecutor {
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication. Launch Params are used only if
   // params_.use_fusion_executor_cache = true
-  void postKernel(SegmentedGroup* group, const LaunchParams& l_params);
+  void postKernel(SegmentedGroup* group, const LaunchParams& launch_params);
   // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);
 
