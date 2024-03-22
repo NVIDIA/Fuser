@@ -623,14 +623,14 @@ TEST_F(TMAIndexingTest, Advanced) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, 32BSwizzle) {
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
   const int64_t items_of_32_bytes = 32 / dataTypeSize(dtype);
 
-  auto tv0 = makeContigTensor(2, dtype);
+  auto tv0 = makeContigTensor(3, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -640,13 +640,18 @@ TEST_F(TMAIndexingTest, 32BSwizzle) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  scheduleTile({tv1, tv2}, {1024, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
+  for (auto tv : {tv0, tv1, tv2}) {
+    tv->merge(0);
+    tv->reorder({{1, 2}});
+  }
+  tv0->setAllocationDomain(tv0->getLeafDomain(), true);
+  scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
   tv1->setAllocationDomain(tv1->getLeafDomain(), true);
   markAllDimsExceptFirstAsBulk(tv1);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({1024, 128}, options).narrow(1, 0, 128);
+  auto t0 = at::randn({128, 1024, 128}, options).narrow(1, 0, 128);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
