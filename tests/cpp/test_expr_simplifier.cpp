@@ -1170,27 +1170,16 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
     EXPECT_TRUE(val->value());          \
   }
   EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {"0 < 8"_}));
-
-  // This doesn't simplify at all
-  // EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < neg( i0 )"_, {}, {"i0 < 8"_}));
-
-  // This doesn't simplify at all
-  // EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) < 0"_, {}, {"0 < i0"_}));
-
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < neg( i0 )"_, {}, {"i0 < 8"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) < 0"_, {}, {"0 < i0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("0 < abs( i0 )"_, {}, {"0 < i0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"i0 > 0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("abs( i0 ) > 0"_, {}, {"0 < i0"_}));
-
-  // This simplifies to ( ( -i0 ) < 0 ) but doesn't go one more step to
-  // multiply both sides by -1 and check assumption
-  // EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( i0 ) ) < 0"_, {}, {"0 < i0"_}));
-
-  // This simplifies to ( ( -i0 ) < i1 ) using i0 > 0 => abs(i0) = i0, but
-  // misses the final step.
-  // EXPECT_VALUE_TRUE(
-  //    simplifyExpr("neg( abs( i0 ) ) < i1"_, {}, {"i1 >= 0 && i0 > 0"_}));
-
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( i0 ) ) < 0"_, {}, {"0 < i0"_}));
+  EXPECT_VALUE_TRUE(
+      simplifyExpr("neg( abs( i0 ) ) < i1"_, {}, {"i1 >= 0 && i0 > 0"_}));
   EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( 8 ) ) < i0"_, {}, {"i0 >= 0"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( i0 ) <= i1"_, {}, {"i0 >= neg( i1 )"_}));
 #undef EXPECT_VALUE_TRUE
 }
 
