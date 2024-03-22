@@ -651,7 +651,9 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({128, 1024, 128}, options).narrow(1, 0, 128);
+  auto t0 = at::randn({128, 1024 * 128}, options)
+                .transpose(0, 1)
+                .view({128, 1024, 128});
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
