@@ -222,6 +222,31 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   NVF_ERROR(inputs.at(4).is<std::vector>());
   auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
 
+  DEBUG_PRINT_SCOPE_NAME(
+      "EncodeTensorMapTiled",
+      "global_address=",
+      global_address,
+      "global_dim=",
+      global_dim,
+      "global_strides=",
+      global_strides,
+      "box_dim=",
+      box_dim,
+      "element_strides=",
+      element_strides,
+      "data_type=",
+      dataType(),
+      "interleave=",
+      this->interleave(),
+      "swizzle=",
+      this->swizzle(),
+      "l2_promotion=",
+      l2Promotion(),
+      "oob_fill=",
+      oobFill(),
+      "tensor_rank=",
+      tensor_rank);
+
   CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
   CUtensorMapInterleave interleave =
       getCUtensorMapInterleave(this->interleave());

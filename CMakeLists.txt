@@ -471,58 +471,58 @@ endif()
 
 set(JIT_TEST_SRCS)
 list(APPEND JIT_TEST_SRCS
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-  ${NVFUSER_ROOT}/test/test_alias.cpp
-  ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
-  ${NVFUSER_ROOT}/test/test_allocation_order_inference.cpp
-  ${NVFUSER_ROOT}/test/test_ca_root_domain_map.cpp
-  ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_double_buffering.cpp
-  ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
-  ${NVFUSER_ROOT}/test/test_evaluator.cpp
-  ${NVFUSER_ROOT}/test/test_exceptions.cpp
-  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-  ${NVFUSER_ROOT}/test/test_expr_sort.cpp
-  ${NVFUSER_ROOT}/test/test_gather.cpp
-  ${NVFUSER_ROOT}/test/test_gpu1.cpp
-  ${NVFUSER_ROOT}/test/test_gpu2.cpp
-  ${NVFUSER_ROOT}/test/test_gpu3.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-  ${NVFUSER_ROOT}/test/test_id_model.cpp
-  ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
-  ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
-  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_mbarrier.cpp
-  ${NVFUSER_ROOT}/test/test_memory.cpp
-  ${NVFUSER_ROOT}/test/test_move_split_cat.cpp
-  ${NVFUSER_ROOT}/test/test_no_op.cpp
-  ${NVFUSER_ROOT}/test/test_persistent_buffer.cpp
-  ${NVFUSER_ROOT}/test/test_pipeline.cpp
-  ${NVFUSER_ROOT}/test/test_pointwise.cpp
-  ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
-  ${NVFUSER_ROOT}/test/test_preseg_passes.cpp
-  ${NVFUSER_ROOT}/test/test_replay.cpp
-  ${NVFUSER_ROOT}/test/test_resize.cpp
-  ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
-  ${NVFUSER_ROOT}/test/test_segmentation.cpp
-  ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
-  ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-  ${NVFUSER_ROOT}/test/test_swizzle.cpp
-  ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
-  ${NVFUSER_ROOT}/test/test_unary.cpp
+  ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_open.cpp
+  ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_query.cpp
+  ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_alias.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_allocation_domain.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_allocation_order_inference.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gpu_utils.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
 )
 
 if(BUILD_TEST)
   set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
-  add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
+  add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/rng_kernels.cu)
 
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
@@ -531,7 +531,7 @@ if(BUILD_TEST)
 endif()
 
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
-  list(APPEND TEST_SRC ${NVFUSER_ROOT}/test/utils.cpp)
+  list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
@@ -564,49 +564,50 @@ if(BUILD_TEST)
   add_test(nvfuser_tests "${JIT_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES nvfuser_tests)
 
-  add_test(test_rng ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+  add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
-    ${NVFUSER_ROOT}/test/multidevice.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_resharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
-  add_test(test_view "${NVFUSER_ROOT}/test/test_gpu_view.cpp" "")
+  add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
   list(APPEND TEST_BINARIES test_view)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
-    ${NVFUSER_ROOT}/test/test_mma.cpp
-    ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_aten_evaluation.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_combine_mul_sum.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
 
-  add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+  add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 
-  add_test(test_shift "${NVFUSER_ROOT}/test/test_shift.cpp" "")
+  add_test(test_shift "${NVFUSER_ROOT}/tests/cpp/test_shift.cpp" "")
   list(APPEND TEST_BINARIES test_shift)
 
-  add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
+  add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
   list(APPEND TEST_BINARIES tutorial)
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
     list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
+      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
     list(APPEND TEST_BINARIES test_python_frontend)
@@ -614,7 +615,7 @@ if(BUILD_TEST)
 
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
-    add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
+    add_test(test_profiler "${NVFUSER_ROOT}/tests/cpp/test_fusion_profiler.cpp" "")
     list(APPEND TEST_BINARIES test_profiler)
   endif()
 
@@ -626,37 +627,37 @@ if(BUILD_NVFUSER_BENCHMARK)
   # nvfuser benchmark sources
   set(BENCHMARK_SRCS)
   list(APPEND BENCHMARK_SRCS
-    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first.cpp
-    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last.cpp
-    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/bert.cpp
-    ${NVFUSER_ROOT}/benchmark/broadcast.cpp
-    ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
-    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/heuristic_cache.cpp
-    ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
-    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
-    ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
-    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
-    ${NVFUSER_ROOT}/benchmark/main.cpp
-    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
-    ${NVFUSER_ROOT}/benchmark/matmul.cpp
-    ${NVFUSER_ROOT}/benchmark/reduction.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
-    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax_dropout.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax.cpp
-    ${NVFUSER_ROOT}/benchmark/timm.cpp
-    ${NVFUSER_ROOT}/benchmark/transpose.cpp
-    ${NVFUSER_ROOT}/benchmark/utils.cpp
-    ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/batch_norm_channels_first.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/batch_norm_channels_first_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/batch_norm_channels_last.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/batch_norm_channels_last_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/bert.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/broadcast.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/gelu_backward_reduction.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/gelu_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/heuristic_cache.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/heuristic_lookup.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/indexselect.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/instance_norm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm_fused.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/lstm_cell.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/main.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/many_pointwise_ops.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/matmul.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/reduction.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/rms_norm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/scale_bias_relu.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/softmax_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/softmax_dropout.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/softmax.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/timm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/transpose.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/utils.cpp
+    ${NVFUSER_ROOT}/tests/cpp/utils.cpp
   )
 
   add_executable(nvfuser_bench ${BENCHMARK_SRCS})
