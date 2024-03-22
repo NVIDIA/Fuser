@@ -39,7 +39,6 @@ bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(heuristicType(), msg);
     return false;
   }
-
   return true;
 }
 
@@ -859,11 +858,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  auto nLocalDims = mma_result->domain()->noDevices().size();
   NVF_ERROR(
-      mma_result->nDims() == 3 || mma_result->nDims() == 4,
+      nLocalDims == 3 || nLocalDims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
+  // TODO: Rename? num_batch_dims is technically the offset to M 
+  // Note: Assumes sharded axes are outermost.
   const int num_batch_dims = (int)mma_result->nDims() - 3;
+  const bool has_batch_dim = (nLocalDims - 3 == 1);
+  const int batch_dim = mma_result->nDims() - nLocalDims;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -1030,10 +1034,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
     mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDz);
-  } else if (num_batch_dims != 0 && !mma_result->axis(0)->isDeviceDim()) {
+  } else if (has_batch_dim) {
     // if outermost axis is already parallelized across devices
     // then it's not a batch dim.
-    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+    mma_result->axis(batch_dim)->parallelize(ParallelType::BIDz);
   }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
