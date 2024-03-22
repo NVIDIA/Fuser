@@ -14,6 +14,7 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -1809,9 +1810,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
-        intermediate_buffer = at::zeros(
-            unexpanded_sizes,
-            at::TensorOptions().dtype(buf_info.type).device(options_.device));
+        if (isOptionEnabled(EnableOption::ReuseZeroedMemory)) {
+          intermediate_buffer = contigZeroTensor(
+              unexpanded_sizes, buf_info.type, options_.device);
+        } else {
+          intermediate_buffer = at::zeros(
+              unexpanded_sizes,
+              at::TensorOptions().dtype(buf_info.type).device(options_.device));
+        }
       } else {
         intermediate_buffer = at::native::empty_cuda(
             unexpanded_sizes,
@@ -1959,6 +1965,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
               << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
     }
+  }
+
+  if (isOptionEnabled(EnableOption::ReuseZeroedMemory)) {
+    releaseZeroedMemory();
   }
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {

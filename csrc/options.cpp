@@ -157,6 +157,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},

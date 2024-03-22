@@ -95,6 +95,7 @@ enum class EnableOption {
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
