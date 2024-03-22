@@ -52,6 +52,7 @@ enum class DebugDumpOption {
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
+  GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth

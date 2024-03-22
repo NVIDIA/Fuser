@@ -6,7 +6,9 @@
  */
 // clang-format on
 
+#include <debug.h>
 #include <global_allocator.h>
+#include <options.h>
 #include <type.h>
 
 #include <ATen/ATen.h>
@@ -21,6 +23,10 @@ namespace {
 class Arena {
  public:
   void reset() {
+    if (isDebugDumpEnabled(DebugDumpOption::GlobalZeroedMemory)) {
+      debug() << "[global zeroed memory] Resetting allocated bytes to 0"
+              << std::endl;
+    }
     allocated_bytes_ = 0LL;
   }
 
@@ -35,21 +41,37 @@ class Arena {
     }
 
     // align at 16 bytes regardless of requested dtype
-    int64_t aligned_allocated_bytes = (allocated_bytes_ + 15) & (~ 15);
-    
+    int64_t aligned_allocated_bytes = (allocated_bytes_ + 15) & (~15);
+
     // after this function returns this will be the allocated size
     int64_t new_allocated_bytes = aligned_allocated_bytes + new_bytes;
 
-    // resize tensor_ if needed
-    int64_t new_used_bytes = tensor_.numel();
+    // resize tensor_ if needed. Minimum size is 128B.
+    int64_t new_used_bytes = std::max((int64_t)128LL, tensor_.numel());
     while (new_used_bytes < new_allocated_bytes) {
       new_used_bytes *= 2;
     }
     if (new_used_bytes > tensor_.numel()) {
+      if (isDebugDumpEnabled(DebugDumpOption::GlobalZeroedMemory)) {
+        debug() << "[global zeroed memory] Resizing arena to " << new_used_bytes
+                << " bytes" << std::endl;
+      }
       tensor_ = at::zeros(
           {new_used_bytes},
           at::TensorOptions().dtype(at::kByte).device(device));
     }
+
+    if (isDebugDumpEnabled(DebugDumpOption::GlobalZeroedMemory)) {
+      debug() << "[global zeroed memory] Allocating byte range: "
+              << aligned_allocated_bytes << " to " << new_used_bytes << " bytes"
+              << std::endl;
+    }
+
+    // Check that memory is zeroed before allocating. Note that this launches
+    // another kernel, so it is disabled for release builds.
+#ifndef NDEBUG
+    checkZeroed();
+#endif
 
     allocated_bytes_ = new_allocated_bytes;
 
@@ -58,6 +80,16 @@ class Arena {
         .index({at::indexing::Slice(
             aligned_allocated_bytes, new_allocated_bytes, 1)})
         .view(aten_dtype);
+  }
+
+ private:
+  void checkZeroed() const {
+    c10::Scalar nnz = at::count_nonzero(tensor_).item();
+    NVF_ERROR(
+        nnz.equal(0),
+        "Global memory arena was not properly zeroed. Found ",
+        nnz,
+        " bytes that are not zero");
   }
 
  private:
@@ -81,7 +113,7 @@ at::Tensor contigZeroTensor(
   if ((size_t)device_num >= arenas.size()) {
     arenas.resize(device_num + 1);
   }
- 
+
   // request tensor from arena
   return arenas[device_num].getTensor(sizes, aten_dtype, device);
 }
@@ -93,4 +125,3 @@ void releaseZeroedMemory() {
 }
 
 } // namespace nvfuser
-
