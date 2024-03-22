@@ -578,4 +578,27 @@ TEST_F(SegmentationTest, SliceSegmentCasts) {
   testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
 }
 
+TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = neg(tv0);
+  // two uses of forwarded non scalar input leads to duplicated merge of the
+  // same consumer
+  auto* tv2 = add(tv1, tv1);
+  auto* tv3 = segment_set(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({3, 4, 3}, options);
+  auto outputs = fec.runFusionWithInputs({in0});
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
