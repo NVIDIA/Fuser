@@ -57,7 +57,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
     // position of TensorView here, because the TensorView might be a special
     // purposed tensor view, like a mbarrier, whose IterDomains are unrelated to
     // the actual allocation.
-    for (int64_t pos = loops.size() - 1; pos >= 0; pos--) {
+    for (int64_t pos = (int64_t)loops.size() - 1; pos >= 0; pos--) {
       auto loop = loops.at(pos);
       for (auto expr : loop->body().exprs()) {
         if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
