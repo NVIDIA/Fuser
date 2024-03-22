@@ -1414,8 +1414,17 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(Val* x, Val* y, const Context& context, int depth = 0);
-bool lessEqual(Val* x, Val* y, const Context& context);
+bool lessThan(
+    Val* x,
+    Val* y,
+    const Context& context,
+    int depth = 0,
+    bool check_negative = true);
+bool lessEqual(
+    Val* x,
+    Val* y,
+    const Context& context,
+    bool check_negative = true);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
   return lessThan(y, x, context);
@@ -1546,7 +1555,12 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   context.less_than_cache_.emplace(std::make_pair(x, y), value); \
   return value
 
-bool lessThan(Val* x, Val* y, const Context& context, int depth) {
+bool lessThan(
+    Val* x,
+    Val* y,
+    const Context& context,
+    int depth,
+    bool check_negative) {
   auto cache_it = context.less_than_cache_.find({x, y});
   if (cache_it != context.less_than_cache_.end()) {
     return cache_it->second;
@@ -1576,6 +1590,24 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   if (x->value().hasValue() && y->value().hasValue()) {
     bool result = x->value() < y->value();
     CACHE_AND_RETURN_LT(result);
+  }
+  auto is_neg = [](Val* a) -> bool {
+    if (UnaryOp* uop = dynamic_cast<UnaryOp*>(a->definition());
+        uop && uop->getUnaryOpType() == UnaryOpType::Neg) {
+      return true;
+    }
+    return false;
+  };
+  // y < x => -x < -y
+  // We apply this whenever either y or x is a Neg expression
+  if (check_negative && (is_neg(x) || is_neg(y)) &&
+      lessThan(
+          SimplifyingIrBuilder::negExpr(y),
+          SimplifyingIrBuilder::negExpr(x),
+          context,
+          /*depth=*/0,
+          /*check_negative=*/false)) {
+    CACHE_AND_RETURN_LT(true);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
@@ -1626,7 +1658,7 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   context.less_equal_cache_.emplace(std::make_pair(x, y), value); \
   return value
 
-bool lessEqual(Val* x, Val* y, const Context& context) {
+bool lessEqual(Val* x, Val* y, const Context& context, bool check_negative) {
   auto cache_it = context.less_equal_cache_.find({x, y});
   if (cache_it != context.less_equal_cache_.end()) {
     return cache_it->second;
@@ -1637,6 +1669,25 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
   if (x->value().hasValue() && y->value().hasValue()) {
     bool result = x->value() <= y->value();
     CACHE_AND_RETURN_LE(result);
+  }
+  auto is_neg = [](Val* a) -> bool {
+    if (UnaryOp* uop = dynamic_cast<UnaryOp*>(a->definition());
+        uop && uop->getUnaryOpType() == UnaryOpType::Neg) {
+      return true;
+    }
+    return false;
+  };
+  // y <= x => -x <= -y
+  // We apply this whenever either y or x is a Neg expression
+  if (check_negative && (is_neg(x) || is_neg(y)) &&
+      // Increment depth to prevent infinite recursion in cases like -a < b
+      // where there is another neg in the negation.
+      lessEqual(
+          SimplifyingIrBuilder::negExpr(y),
+          SimplifyingIrBuilder::negExpr(x),
+          context,
+          /*check_negative=*/false)) {
+    CACHE_AND_RETURN_LE(true);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);

@@ -294,6 +294,10 @@ Val* SimplifyingIrBuilder::negExpr(Val* val) {
   } else if (val->isConst()) {
     return IrBuilder::create<Val>(-val->value(), val->dtype());
   }
+  if (UnaryOp* negop = dynamic_cast<UnaryOp*>(val->definition());
+      negop && negop->getUnaryOpType() == UnaryOpType::Neg) {
+    return negop->in();
+  }
   return IrBuilder::negExpr(val);
 }
 
