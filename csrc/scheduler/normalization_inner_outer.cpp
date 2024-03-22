@@ -1017,16 +1017,16 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.occupancy = reg_occ.second;
     int64_t gdimy_occupancy = iop.occupancy * device_multiprocessor_count;
     // round down to a divisible value
-    int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel, iop.bdimy);
-    const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy, gdimy_occupancy);
-    iop.gdimy = ceilDiv(outer_dim_after_bdimy, outer_iter);
-    std::cout << "outer_dim_after_bdimy: " << outer_dim_after_bdimy
-              << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;    
-    if(iop.gdimy > device_multiprocessor_count && iop.gdimy / 2 > iop.bdimx){
-      iop.gdimy /= 2;
+    // int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel, iop.bdimy);
+    // const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy, gdimy_occupancy);
+    iop.gdimy = gdimy_occupancy ; //ceilDiv(outer_dim_after_bdimy, outer_iter);
+    // std::cout << "outer_dim_after_bdimy: " << outer_dim_after_bdimy
+              // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;    
+    if(iop.gdimy > device_multiprocessor_count && iop.gdimy - device_multiprocessor_count > iop.bdimx){
+      iop.gdimy -= device_multiprocessor_count;
     }
-    std::cout << "gdimy_occupancy: " << gdimy_occupancy
-              << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;
+    // std::cout << "gdimy_occupancy: " << gdimy_occupancy
+              // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;
 
     // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
