@@ -1048,6 +1048,9 @@ void scheduleInnerOuterPersistentKernel(
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
       if (iter_grouped_partial_outer_reduction) {
         auto outer_block_reduction_tv = ir_utils::getSoleProducerTv(tv);
+        if(rparams.unroll_factor_inner_reduction > rparams.vectorization_factor_tmp_gmem_write){
+          outer_block_reduction_tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
+        }
         outer_block_reduction_tv->axis(-1)->parallelize(ParallelType::Group);
       }
     }
