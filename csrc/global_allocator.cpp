@@ -79,7 +79,8 @@ class Arena {
     return tensor_
         .index({at::indexing::Slice(
             aligned_allocated_bytes, new_allocated_bytes, 1)})
-        .view(aten_dtype);
+        .view(aten_dtype)
+        .view(sizes);
   }
 
  private:
