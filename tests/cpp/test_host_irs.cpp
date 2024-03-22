@@ -26,7 +26,15 @@ namespace nvfuser {
 
 namespace hir {
 
-TEST_F(NVFuserTest, HostIrExecutor1) {
+using HostIrTestParams = std::tuple<bool>;
+class HostIrTest:
+    public NVFuserTest,
+    public testing::WithParamInterface<HostIrTestParams> {};
+
+
+TEST_P(HostIrTest, SingleFusion) {
+  auto [use_fusion_executor_cache] = GetParam();
+
   auto hic = std::make_unique<HostIrContainer>();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -71,7 +79,9 @@ TEST_F(NVFuserTest, HostIrExecutor1) {
     hic->addOutput(output);
   }
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrExecutorParams params;
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrExecutor hie(std::move(hic), std::move(params));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   c10::IValue input = at::randn(input_sizes, options);
@@ -82,6 +92,10 @@ TEST_F(NVFuserTest, HostIrExecutor1) {
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
 }
 
+INSTANTIATE_TEST_SUITE_P(
+    Manual,
+    HostIrTest,
+    testing::Combine(testing::Bool()));
 
 class FusionExecutorWithExternalForLoop {
 public:
