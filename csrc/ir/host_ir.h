@@ -35,15 +35,7 @@ class NVF_API ExecutableUnit : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  const auto& inputs() const {
-    return fusion_->inputs();
-  }
-
-  const auto& outputs() const {
-    return fusion_->outputs();
-  }
-
-  Fusion* fusion() const {
+  Fusion* fusion_to_execute() const {
     return fusion_.get();
   }
 
@@ -69,7 +61,10 @@ class NVF_API StreamIr : public Val {
 class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
-  PostOnStream(IrBuilderPasskey passkey, ExecutableUnit* eu);
+  PostOnStream(IrBuilderPasskey passkey,
+               ExecutableUnit* eu,
+               std::vector<Val*> inputs,
+               std::vector<Val*> outputs);
 
   PostOnStream(const PostOnStream& other) = delete;
   PostOnStream& operator=(const PostOnStream& other) = delete;
@@ -85,6 +80,10 @@ class NVF_API PostOnStream : public Expr {
   }
 
   bool sameAs(const Statement* other) const override;
+
+  ExecutableUnit* executableUnit() {
+    return attributes_.at(0)->as<ExecutableUnit>();
+  }
 };
 
 // class NVF_API ExecuteComm : public Expr {

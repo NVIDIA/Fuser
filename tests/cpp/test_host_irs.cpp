@@ -31,21 +31,55 @@ TEST_F(NVFuserTest, HostIrExecutor1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeContigTensor(3);
+  std::vector<int64_t> input_sizes = {4, 8, 32};
+
+  auto tv0 = makeConcreteTensor(input_sizes);
   auto tv1 = add(tv0, tv0);
   auto tv2 = sum(tv1, {0});
   fusion->addInput(tv0);
   fusion->addOutput(tv2);
 
+  FusionGuard::setCurFusion(hic.get());
   auto eu = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
   std::cout << "EU: " << eu << std::endl;
-  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu);
-  std::cout << "post: " << post << std::endl;
+
+  IrCloner ir_cloner(hic.get());
+
+  std::vector<Val*> post_inputs;
+  post_inputs.reserve(eu->fusion_to_execute()->inputs().size());
+  for (auto input: eu->fusion_to_execute()->inputs()) {
+    auto post_input = ir_cloner.clone(input);
+    post_inputs.push_back(post_input);
+  }
+
+  std::vector<Val*> post_outputs;
+  post_outputs.reserve(eu->fusion_to_execute()->outputs().size());
+  for (auto output: eu->fusion_to_execute()->outputs()) {
+    auto post_output = ir_cloner.clone(output);
+    post_outputs.push_back(post_output);
+  }
+
+  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu, std::move(post_inputs), std::move(post_outputs));
 
   hic->top_level_exprs.push_back(post);
 
+  // add global IO to the HostIrContainer. This step could potentially be infered automatically
+  for (auto input: post->inputs()){
+    hic->addInput(input);
+  }
+  for (auto output: post->outputs()){
+    hic->addOutput(output);
+  }
+
   HostIrExecutor hie(std::move(hic));
-  hie.runWithInput({});
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  c10::IValue input = at::randn(input_sizes, options);
+  auto ref_output = at::sum(input.toTensor() * 2, {0});
+
+  auto outputs = hie.runWithInput({input});
+
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
 }
 
 

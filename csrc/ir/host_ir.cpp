@@ -34,7 +34,7 @@ ExecutableUnit::ExecutableUnit(IrBuilderPasskey passkey,
     //               [this](auto val) {this->addOutput(val);});
 }
 
-ExecutableUnit::ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner) : Expr(src, ir_cloner), fusion_(std::make_unique<Fusion>(*src->fusion())) {}
+ExecutableUnit::ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner) : Expr(src, ir_cloner), fusion_(std::make_unique<Fusion>(*src->fusion_to_execute())) {}
 
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExecutableUnit)
@@ -43,11 +43,11 @@ std::string ExecutableUnit::toString(int indent_size) const {
     int indent_increment = 2;
     std::stringstream ss;
     indent(ss, indent_size) << "Execute the following kernel, taking inputs :{\n";
-    for (auto input : inputs()) {
+    for (auto input : fusion_->inputs()) {
         indent(ss, indent_size + indent_increment) << input->toString(indent_size + indent_increment) << "\n";
     }
     indent(ss, indent_size) << "} and outputs: {\n";
-    for (auto output : outputs()) {
+    for (auto output : fusion_->outputs()) {
         indent(ss, indent_size + indent_increment) <<  output->toString(indent_size + indent_increment) << "\n";
     }
     indent(ss, indent_size) << "}. Kernel:{";
@@ -90,8 +90,24 @@ bool StreamIr::sameAs(const Statement* other) const {
 
 
 PostOnStream::PostOnStream(IrBuilderPasskey passkey,
-                            ExecutableUnit* eu)
-    : Expr(passkey) {}
+                            ExecutableUnit* eu,
+                            std::vector<Val*> inputs,
+                            std::vector<Val*> outputs)
+    : Expr(passkey, std::move(inputs), std::move(outputs), {eu}) {
+    NVF_ERROR(this->inputs().size() == eu->fusion_to_execute()->inputs().size());
+    NVF_ERROR(this->outputs().size() == eu->fusion_to_execute()->outputs().size());
+    // TODO: harden the assert checks
+    // for (int i : c10::irange(inputs.size())) {
+    //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
+    //     std::cout << "host input " << i << ": " << inputs.at(i) << std::endl;
+    //     std::cout << "fusion input " << i << ": " << executable_fusion->inputs().at(i) << std::endl;
+    // }
+    // for (int i : c10::irange(outputs.size())) {
+    //     // NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
+    //     std::cout << "host output " << i << ": " << outputs.at(i) << std::endl;
+    //     std::cout << "fusion output " << i << ": " << executable_fusion->outputs().at(i) << std::endl;
+    // }
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 
