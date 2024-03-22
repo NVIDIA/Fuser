@@ -1133,7 +1133,6 @@ TEST_F(ExprSimplifierTest, DivModLessThan) {
   //   i143 = i142 / 8    // = TIDx % 16
   //   i144 = i141 / 128  // = TIDx / 16
   //   i142 % 8           // = i140
-  //   i142 / 8           // = 0
 
   // simplify i142, with i0 = TIDx, i1 = i140
   EXPECT_TRUE(simplifyExpr(
@@ -1169,7 +1168,7 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
   if (val->value().hasValue()) {        \
     EXPECT_TRUE(val->value());          \
   }
-  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {"0 < 8"_}));
+  EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {}));
 
   // This doesn't simplify at all
   // EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < neg( i0 )"_, {}, {"i0 < 8"_}));
