@@ -284,8 +284,8 @@ class TMALdstTest : public TMATest,
   }
 };
 
-// Assuming tv is currently scheduled as a 1D flat tensor, schedule the TMA
-// swizzle for it.
+// Assuming the tile of tv is currently scheduled as a 1D flat dim placed at
+// position -1, schedule the TMA swizzle for it.
 void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
   // split as core matrices of 8 x 16B
   tv->split(-1, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
@@ -618,6 +618,47 @@ TEST_F(TMAIndexingTest, Advanced) {
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  const int64_t items_of_32_bytes = 32 / dataTypeSize(dtype);
+
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv0, tv1, tv2}) {
+    tv->merge(0);
+    tv->reorder({{0, 1}});
+  }
+  tv0->setAllocationDomain(tv0->getLeafDomain(), true);
+  scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128, 1024 * 128}, options)
+                .transpose(0, 1)
+                .view({128, 1024, 128});
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+  ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
