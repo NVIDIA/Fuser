@@ -74,8 +74,9 @@ class FusionDefinition(_C._FusionDefinition):
         inputs,
         *,
         device=None,
-        override_user_schedule=False,
+        disable: str | list[str] = [],
         capture_debug_output=False,
+        override_user_schedule=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -141,12 +142,16 @@ class FusionDefinition(_C._FusionDefinition):
             self.schedule()
             self._finalize_schedule(inputs)
 
+        if isinstance(disable, str):
+            disable = [disable]
+
         result = None
         try:
             result = self._execute(
                 inputs,
                 override_user_schedule,
                 device=device,
+                disable=disable,
                 capture_debug_output=capture_debug_output,
             )
         except Exception as err:

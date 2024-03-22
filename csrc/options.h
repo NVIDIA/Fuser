@@ -238,6 +238,8 @@ bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 
+std::optional<DisableOption> stringToDisableOption(const std::string& label);
+
 template <>
 NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
 

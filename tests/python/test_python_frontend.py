@@ -3572,13 +3572,13 @@ class TestNvFuserFrontend(TestCase):
         # skip pytorch check because fusion is derived from llama2 network.
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-    def test_options_guard(self):
+    def test_execute_options(self):
         inputs = [
             torch.ones(2, 4, 8, device="cuda"),
             torch.ones(2, 4, 8, device="cuda"),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             c0 = fd.define_scalar(3.0)
@@ -3589,9 +3589,21 @@ class TestNvFuserFrontend(TestCase):
 
             fd.add_output(t4)
 
-        with nvfuser.options(disable="parallel_compile") as opt:
-            print(opt)
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        fd.execute(inputs)
+        hoist_code = fd.last_cuda_code()
+
+        # now reset the FusionCache so that we create a new FusionDefinition,
+        # then execute with a different set of options.
+        # TODO: options should be taken into consideration in our Fusion caching system
+        FusionCache.reset()
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        fd.execute(inputs, disable="index_hoist")
+        no_hoist_code = fd.last_cuda_code()
+
+        assert no_hoist_code != hoist_code
 
     # https://github.com/NVIDIA/Fuser/issues/1953
     @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")

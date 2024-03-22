@@ -184,7 +184,9 @@ getDisableOptionDescriptions() {
           {"index_hoist",
            {DisableOption::IndexHoist, "Disable index hoisting"}},
           {"magic_zero", {DisableOption::MagicZero, "Disable nvfuser_zero"}},
-          {"matmul_expr_eval", DisableOption::MatmulExprEval, },
+          {"matmul_expr_eval",
+           {DisableOption::MatmulExprEval,
+            "Disable ATen evaluation for the entire fusion containing matmul"}},
           {"nvtx", {DisableOption::Nvtx, "Disable NVTX instrumentation"}},
           {"parallel_compile",
            {DisableOption::ParallelCompile,
@@ -208,6 +210,15 @@ getDisableOptionDescriptions() {
            {DisableOption::ReuseMismatchedTypeRegisters,
             "Disable explicitly re-using registers unless types match"}}};
   return available_options;
+}
+
+std::optional<DisableOption> stringToDisableOption(const std::string& label) {
+  const auto& opts = getDisableOptionDescriptions();
+  auto it = opts.find(label);
+  if (it != opts.end()) {
+    return it->second.first;
+  }
+  return std::nullopt;
 }
 
 template <>
