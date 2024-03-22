@@ -226,8 +226,7 @@ class FusionKernelRuntime {
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   NVF_API std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
-      std::optional<PrimDataType> forced_index_type = std::nullopt,
-      bool initial_heuristics = false);
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics

@@ -780,8 +780,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
         [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-          auto maybe_heuristics = kernel_runtime->getMaybeHeuristicsFor(
-              args, forced_index_type, /*initial_heuristics=*/false);
+          auto maybe_heuristics =
+              kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
           if (!maybe_heuristics.has_value()) {
             return false;
           }
@@ -1092,8 +1092,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   is_segmented_ = segmented_fusion_->groups().size() > 1;
 
   // Create Initial Heuristics for Segmented Fusion
-  auto maybe_heuristics = getMaybeHeuristicsFor(
-      args, forced_index_type, /*initial_heuristics=*/true);
+  auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
   NVF_CHECK(maybe_heuristics.has_value());
   heuristics_ = std::move(maybe_heuristics.value());
 }
@@ -1600,8 +1599,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
 std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     getMaybeHeuristicsFor(
         const KernelArgumentHolder& args,
-        std::optional<PrimDataType> forced_index_type,
-        bool initial_heuristics) {
+        std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
@@ -1655,7 +1653,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
         all_tvs_for_fusion_to_run,
         forced_index_type);
 
-    if (initial_heuristics) {
+    if (heuristics_ == nullptr) {
       // Add new scheduler entry for this segmented group
       heuristics->at(group_to_run->groupId()) =
           segmented_fusion_->makeInitialSchedulerEntry(
