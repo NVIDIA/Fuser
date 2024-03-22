@@ -256,26 +256,25 @@ class TMALdstTest : public TMATest,
     dtype = std::get<1>(GetParam());
     dim = std::get<2>(GetParam());
 
-    // TODO: test less-nice shapes, for example 128 + 1 instead of 128
     switch (dim) {
       case 1:
         tile = {innerDimSize()};
         shape = {1024 * 1024};
         break;
       case 2:
-        tile = {2, innerDimSize()};
+        tile = {3, innerDimSize()};
         shape = {1024, 128};
         break;
       case 3:
-        tile = {2, 4, innerDimSize()};
+        tile = {1, 5, innerDimSize()};
         shape = {1024, 8, 128};
         break;
       case 4:
-        tile = {2, 4, 8, innerDimSize()};
+        tile = {3, 5, 7, innerDimSize()};
         shape = {4, 8, 1024, 1024};
         break;
       case 5:
-        tile = {2, 4, 8, 16, innerDimSize()};
+        tile = {1, 3, 9, 17, innerDimSize()};
         shape = {4, 8, 1024, 32, 128};
         break;
       default:
@@ -582,16 +581,16 @@ TEST_F(TMAIndexingTest, Advanced) {
     tv->split(4, 8);
     tv->split(3, 1);
     tv->split(2, 32);
-    tv->split(3, 4);
+    tv->split(3, 3);
     tv->split(1, 2);
     tv->split(0, 4);
-    // [I1*I2*I3/16/4, 4, 16/2, 2, I4*I5*I6/32, 32/4, 4',
+    // [I1*I2*I3/16/4, 4, 16/2, 2, I4*I5*I6/32, 32/3, 3,
     //  I7*I8/32/1, 1, 32/8, 8]
 
     // Reorder the axes as [non-tile..., tile...]
     tv->reorder({{1, 6}, {3, 7}, {5, 8}, {8, 9}});
-    // [I1*I2*I3/16/4, 16/2, I4*I5*I6/32, 4', I7*I8/32/1, 32/8,
-    //  4, 2, 32/4, 1, 8]
+    // [I1*I2*I3/16/4, 16/2, I4*I5*I6/32, 3, I7*I8/32/1, 32/8,
+    //  4, 2, 32/3, 1, 8]
 
     // Merge all non-tile axes together, and all tile axes together
     tv->merge(0);
@@ -603,8 +602,8 @@ TEST_F(TMAIndexingTest, Advanced) {
     tv->merge(1);
     tv->merge(1);
     tv->merge(1);
-    // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 4' * I7*I8/32/1 * 32/8,
-    //  4 * 2 * 32/4 * 1 * 8]
+    // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 3 * I7*I8/32/1 * 32/8,
+    //  4 * 2 * 32/3 * 1 * 8]
 
     // Parallelize the non-tile axes
     tv->axis(0)->parallelize(ParallelType::BIDx);
