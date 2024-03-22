@@ -652,7 +652,8 @@ struct InnerOuterParams {
   int64_t gdimy = -1;
   int64_t occupancy = -1;
   int64_t register_per_thread = -1;
-  int64_t n_persistent_tails = -1;
+  int64_t inner_dim_tails = -1;
+  int64_t outer_dim_tails = -1;
   int64_t non_buffer_registers = -1;
 
   int64_t tmp_gmem_write_vect = -1;
@@ -662,7 +663,8 @@ struct InnerOuterParams {
               << ", persistent_batch_size: " << persistent_batch_size
               << ", occupancy: " << occupancy
               << ", register_per_thread: " << register_per_thread
-              << ", n_persistent_tails: " << n_persistent_tails
+              << ", inner_dim_tails: " << inner_dim_tails
+              << ", outer_dim_tails: " << outer_dim_tails
               << ", non_buffer_registers: " << non_buffer_registers
               << ", gdimy: " << gdimy << std::endl;
   }
@@ -688,53 +690,46 @@ int64_t getMaxPersistentBatch(
   constexpr int64_t max_batches_per_block = 10l;
   return std::min(max_batches_per_block, batch_from_register);
 }
-std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
-    const int64_t buffer_size_per_thread,
+std::pair<int64_t, int64_t> getRegPerThreadAndBlockPerSM(
+    const int64_t regs_buffer_size_per_thread,
+    const int64_t smem_buffer_size_per_thread,
     const int64_t threads_per_block,
-    const int64_t target_warps_per_sm,
-    const int64_t register_overhead) {
-  // convert [target_warps_per_sm] to [target_blocks_per_sm]
+    const int64_t target_blocks_per_sm,
+    const int64_t register_overhead,
+    const int64_t smem_overhead) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t threads_per_warp = dev_prop->warpSize;
-  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
-  // ensure higher than target by round up
-  int64_t target_blocks_per_sm =
-      ceilDiv(target_warps_per_sm * threads_per_warp, threads_per_block);
-  // ensure lower than hardware limit by round down
-  if (threads_per_block * target_blocks_per_sm > max_threads_per_sm) {
-    target_blocks_per_sm = max_threads_per_sm / threads_per_block;
-  }
-  // minimum register each thread should use to avoid spills
+
+  // block per sm is limited by shared memory
+  // if lower than target, use it as the achievable new target
+  int64_t limited_blocks_per_sm =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_size_per_thread * threads_per_block);
+  int64_t new_target_blocks_per_sm =
+      std::min(limited_blocks_per_sm, target_blocks_per_sm);
+
+  // check register usage if achieve this new target
   const int64_t register_per_thread_min =
-      buffer_size_per_thread / scheduler_utils::bytes_per_register +
+      regs_buffer_size_per_thread / scheduler_utils::bytes_per_register +
       register_overhead;
-
-  // (1) use register calculated from target occupancy
-  int64_t threads_per_sm = threads_per_block * target_blocks_per_sm;
-  int64_t register_per_thread_target =
-      getRegPerThreadGivenThreadsPerSM(threads_per_sm);
-
-  if (register_per_thread_target >= register_per_thread_min) {
-    return {register_per_thread_target, threads_per_sm / threads_per_warp};
+  int64_t register_per_thread = getRegPerThreadGivenThreadsPerSM(
+      threads_per_block * new_target_blocks_per_sm);
+  if (register_per_thread >= register_per_thread_min) {
+    return {register_per_thread, new_target_blocks_per_sm};
   }
 
-  //(2) can't achieve target occupancy. Estimate occupancy from minimum register
-  // each thread should use, then derive register per thread from occupancy.
-  int64_t blocks_per_sm_max = scheduler_utils::safeDiv(
+  // block per sm is limited by register
+  new_target_blocks_per_sm = scheduler_utils::safeDiv(
       getThreadsPerSMGivenRegPerThread(register_per_thread_min),
       threads_per_block);
-  threads_per_sm =
-      std::min(blocks_per_sm_max * threads_per_block, max_threads_per_sm);
-
-  return {
-      getRegPerThreadGivenThreadsPerSM(threads_per_sm),
-      threads_per_sm / threads_per_warp};
+  register_per_thread = getRegPerThreadGivenThreadsPerSM(
+      threads_per_block * new_target_blocks_per_sm);
+  return {register_per_thread, new_target_blocks_per_sm};
 }
+
 bool compareTwoHeuristics(
     const InnerOuterParams& ha,
     const InnerOuterParams& hb,
-    const int64_t min_non_buffer_registers,
-    const int64_t target_warps_per_sm) {
+    const int64_t target_blocks_per_sm) {
   auto compare = [](int64_t a, int64_t b) -> int {
     return a > b ? 1 : (a < b ? -1 : 0);
   };
@@ -742,33 +737,22 @@ bool compareTwoHeuristics(
 
   // prefer occupancy larger than target
   score = compare(
-      ha.occupancy >= target_warps_per_sm, hb.occupancy >= target_warps_per_sm);
+      ha.occupancy >= target_blocks_per_sm,
+      hb.occupancy >= target_blocks_per_sm);
   if (score != 0) {
     return score > 0;
   }
 
   // prefer reduction count after vectorization is divisible by persistent
   // batch size
-  score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
-  if (score != 0) {
-    return score > 0;
-  }
-
-  // Ensure the count of non buffer registers is larger than the min overhead.
-  // But don't want to achieve this goal at the cost of using a very large block
-  // size, it avoids using a small persistent batch with a large block size,
-  // which usually leads to 10% lower in performance.
-  constexpr int64_t opt_max_threads_per_block = 512;
   score = compare(
-      ha.non_buffer_registers > min_non_buffer_registers &&
-          ha.bdimx * ha.bdimy <= opt_max_threads_per_block,
-      hb.non_buffer_registers > min_non_buffer_registers &&
-          hb.bdimx * hb.bdimy <= opt_max_threads_per_block);
+      ha.inner_dim_tails * ha.outer_dim_tails == 0,
+      hb.inner_dim_tails * hb.outer_dim_tails == 0);
   if (score != 0) {
     return score > 0;
   }
 
-  // Prefer large occupancy
+  // Prefer large
   score = compare(ha.occupancy, hb.occupancy);
   if (score != 0) {
     return score > 0;
@@ -784,9 +768,9 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
     const int64_t outer_dim_numel,
     const int64_t max_multi_reduction_factor,
     const int64_t min_threads_per_block,
-    const int64_t register_buffer_per_batch,
+    const int64_t regs_buffer_per_batch,
     const int64_t smem_buffer_per_batch,
-    const int64_t target_warps_per_sm,
+    const int64_t target_blocks_per_sm,
     const int64_t register_overhead,
     const int64_t smem_overhead,
     const int64_t max_vectorize_factor,
@@ -807,25 +791,18 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
       scheduler_utils::roundUpToN(threads_per_block, device_warp_size);
 
   // Step-2, calc gdimy from occupancy
-  int64_t persistent_buffer_size =
-      register_buffer_per_batch * persistent_batch_size;
-  auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
-      persistent_buffer_size,
+  auto reg_occ = getRegPerThreadAndBlockPerSM(
+      regs_buffer_per_batch * persistent_batch_size,
+      smem_buffer_per_batch * persistent_batch_size,
       threads_per_block,
-      target_warps_per_sm,
-      register_overhead);
+      target_blocks_per_sm,
+      register_overhead,
+      smem_overhead);
   params.register_per_thread = reg_occ.first;
   params.occupancy = reg_occ.second;
-  int64_t warps_per_block = threads_per_block / device_warp_size;
-  int64_t blocks_per_sm_regs = reg_occ.second / warps_per_block;
-  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
-      (smem_overhead +
-       smem_buffer_per_batch * persistent_batch_size * threads_per_block);
-  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
-  int64_t gdimy_occupancy = blocks_per_sm * device_multiprocessor_count;
+  int64_t gdimy_occupancy = params.occupancy * device_multiprocessor_count;
   // round down to a divisible value
-  const int64_t outer_iter_min =
-      std::max(2l, ceilDiv(outer_dim_numel, gdimy_occupancy));
+  const int64_t outer_iter_min = ceilDiv(outer_dim_numel, gdimy_occupancy);
   params.gdimy = ceilDiv(outer_dim_numel, outer_iter_min);
   std::cout << "gdimy_occupancy: " << gdimy_occupancy
             << ", params.gdimy: " << params.gdimy << std::endl;
@@ -847,6 +824,7 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   // increase the probability of bdimx * bdimy == threads_per_block.
   params.bdimx = scheduler_utils::roundUpPow2Or8(ceilDiv(
       inner_dim_numel / params.vectorization_factor_outer, params.gdimy));
+  params.bdimx = std::max(4l, params.bdimx);
   // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
   // increase bdimx to make it divisible. Under worst case, bdimx equals to
   // threads_per_block.
@@ -859,23 +837,16 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
       params.bdimy * params.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
 
-  // if(inner_dim_numel <=1024){
-  //   // inner reduction inner dim: vect8 x batch x bdimx >= N
-  //   // inner reduction outer dim: gdimy x bdimy X S1
-
-  //   // outer reduction inner dim: vect4 x bdimx x gdimy >=N
-  //   // outer reduction outer dim: bdimy x S2
-  // }
-
-
   params.non_buffer_registers = params.register_per_thread -
-      persistent_buffer_size / scheduler_utils::bytes_per_register;
+      (regs_buffer_per_batch * persistent_batch_size) /
+          scheduler_utils::bytes_per_register;
   // (4) Calculate other quantities reflecting the quality of the heuristic.
   // when [reduction_count_after_vectorize] is not divisible by
   // [persistent_val], the last batch is not be fully utilized, the wasted
-  // threads in the last batch is quantified as [n_persistent_tails].
-  params.n_persistent_tails = threads_per_block * persistent_batch_size -
+  // threads in the last batch is quantified as [inner_dim_tails].
+  params.inner_dim_tails = threads_per_block * persistent_batch_size -
       inner_dim_numel / params.inner_vect;
+  params.outer_dim_tails = params.gdimy % params.bdimy;
   return params;
 }
 
@@ -911,9 +882,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
-
-  const int64_t register_overhead = 32;
-  const int64_t target_warps_per_sm = 8;
   // device properties
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
@@ -926,6 +894,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // alwasy use [vectorize_factor]
   const int64_t parallel_after_vectorize =
       inner_dim_numel / (int64_t)vectorize_factor;
+
+  const int64_t register_overhead = 16;
+  const int64_t target_blocks_per_sm = std::min(
+      4l, ceilDiv(ceilDiv(outer_dim_numel, 8), device_multiprocessor_count));
 
   // try to use at least 4 warps per block
   const int64_t min_threads_per_block = 4l * threads_per_warp;
@@ -945,8 +917,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   const int64_t smem_buffer_per_batch =
       smem_buffer_size / inner_dim_numel * (int64_t)vectorize_factor;
 
-  const int64_t target_threads_per_sm =
-      std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
+  const int64_t target_threads_per_sm = std::min(
+      target_blocks_per_sm * min_threads_per_block, max_threads_per_sm);
   const int64_t pbs_max_2 = getMaxPersistentBatch(
       regs_buffer_per_batch, target_threads_per_sm, register_overhead);
   std::cout << "pbs_max_2: " << pbs_max_2
@@ -962,8 +934,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           scheduler_utils::register_file_size, regs_buffer_size),
       ceilDiv(outer_dim_numel, device_multiprocessor_count));
 
-
-
   // Generate a heuristic for each possible persistent batch size.
   // record which persistent batch size has the highest occupancy.
   int64_t idx_max_occupancy = -1;
@@ -978,7 +948,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
         min_threads_per_block,
         regs_buffer_per_batch,
         smem_buffer_per_batch,
-        target_warps_per_sm,
+        target_blocks_per_sm,
         register_overhead,
         smem_overhead,
         vectorize_factor,
@@ -992,16 +962,16 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // Sort the heuristics and select the best one.
   // If no persistent batch size can achieve the target occupancy, and
   InnerOuterParams iop;
-  if (current_max_occupancy < target_warps_per_sm) {
+  if (current_max_occupancy < target_blocks_per_sm) {
     iop = all_heuristics.at(idx_max_occupancy);
   } else {
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        [&register_overhead](
+        [&target_blocks_per_sm](
             const InnerOuterParams& a, const InnerOuterParams& b) {
           return compareTwoHeuristics(
-              a, b, register_overhead, target_warps_per_sm);
+              a, b,  target_blocks_per_sm);
         });
     iop = all_heuristics.at(0);
   }
@@ -1010,8 +980,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     heuristic.print();
   }
 
-// Step-5, special case, when inner_dim_numel <= 1024, bdimx is used to parallel
-// the outer dim.
+  // Step-5, special case, when inner_dim_numel <= 1024, bdimx is used to
+  // parallel the outer dim.
   if (inner_dim_numel <= 1024) {
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
@@ -1022,42 +992,45 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
     // reduction dim of inner reduction: vect8 x batch x bdimx >= N
     iop.inner_vect = std::min(8l, (int64_t)vectorize_factor);
-    iop.bdimx = std::min(max_threads_per_block, inner_dim_numel / iop.inner_vect);
-    iop.persistent_batch_size  = ceilDiv(
-        inner_dim_numel / iop.inner_vect, iop.bdimx);
+    iop.bdimx =
+        std::min(max_threads_per_block, inner_dim_numel / iop.inner_vect);
+    iop.persistent_batch_size =
+        ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx);
 
     // iteration dim of inner reduction: gdimy x bdimy X S1
     // assume we have at least one wave, calc bdimy
     int64_t tmp_gdimy = device_multiprocessor_count;
-    iop.bdimy = std::min(max_threads_per_block / iop.bdimx, ceilDiv(outer_dim_numel, tmp_gdimy));
+    iop.bdimy = std::min(
+        max_threads_per_block / iop.bdimx, ceilDiv(outer_dim_numel, tmp_gdimy));
 
     // use bdimx and bdimy, calculate occupancy
     // check if we may further increase gdimy
     int64_t threads_per_block = iop.bdimx * iop.bdimy;
-    int64_t persistent_buffer_size =
-        regs_buffer_per_batch * iop.persistent_batch_size;
-    auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
-        persistent_buffer_size,
+    auto reg_occ = getRegPerThreadAndBlockPerSM(
+        regs_buffer_per_batch * iop.persistent_batch_size,
+        smem_buffer_per_batch * iop.persistent_batch_size,
         threads_per_block,
-        target_warps_per_sm,
-        register_overhead);
+        target_blocks_per_sm,
+        register_overhead,
+        smem_overhead);
     iop.register_per_thread = reg_occ.first;
     iop.occupancy = reg_occ.second;
-    int64_t warps_per_block = threads_per_block / threads_per_warp;
-    int64_t blocks_per_sm_regs = reg_occ.second / warps_per_block;
-    int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
-        (smem_overhead +
-        smem_buffer_per_batch * iop.persistent_batch_size * threads_per_block);
-    int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
-    int64_t gdimy_occupancy = blocks_per_sm * device_multiprocessor_count;
+    int64_t gdimy_occupancy = iop.occupancy * device_multiprocessor_count;
     // round down to a divisible value
-    int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel,iop.bdimy);
+    int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel, iop.bdimy);
     const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy, gdimy_occupancy);
     iop.gdimy = ceilDiv(outer_dim_after_bdimy, outer_iter);
+    std::cout << "outer_dim_after_bdimy: " << outer_dim_after_bdimy
+              << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;    
+    if(iop.gdimy > device_multiprocessor_count && iop.gdimy / 2 > iop.bdimx){
+      iop.gdimy /= 2;
+    }
+    std::cout << "gdimy_occupancy: " << gdimy_occupancy
+              << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;
 
     // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
-    iop.vectorization_factor_outer = std::min(4l, (int64_t)vectorize_factor);    
+    iop.vectorization_factor_outer = std::min(4l, (int64_t)vectorize_factor);
     // outer reduction outer dim: bdimx x S2
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
@@ -1120,7 +1093,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 }
 
 } // namespace
-
 
 std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
@@ -1187,7 +1159,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     }
   }
 
-  std::shared_ptr<ReductionParams>   rparams = innerOuterPersistentHeuristic(
+  std::shared_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
       buffer_params.regs_buffer_size,
@@ -1323,7 +1295,8 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
-      std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString() << std::endl;
+    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
+              << std::endl;
 
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
@@ -1468,10 +1441,10 @@ void scheduleInnerOuterPersistentKernel(
       cached_inputs,
       cached_outputs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
-  std::cout << "inner_reference_tv: " << inner_reference_tv->toString() << std::endl;
-  std::cout << "outer_reference_tv: " << outer_reduction_tvs.at(0)->toString() << std::endl;
-
-
+  std::cout << "inner_reference_tv: " << inner_reference_tv->toString()
+            << std::endl;
+  std::cout << "outer_reference_tv: " << outer_reduction_tvs.at(0)->toString()
+            << std::endl;
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
