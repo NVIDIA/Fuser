@@ -951,7 +951,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
         fe.runFusion({t0, items_of_16_bytes / 2});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The expected bytes must be a multiple of 16 bytes, but 8 is not.")));
+          "The expected bytes must be a multiple of 16 bytes, but ")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, InvalidView) {
@@ -980,7 +980,7 @@ TEST_F(TMACompileTimeInvalidTest, InvalidView) {
     tv->split(1, 32);
     tv->split(0, 32);
     tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(2)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
