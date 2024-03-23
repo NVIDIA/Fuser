@@ -987,12 +987,15 @@ TEST_F(TMACompileTimeInvalidTest, InvalidView) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({10249}, options);
+  auto t0_valid = at::randn({10240}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0_valid}, {}, matmul_cparams);
+  testValidate(&fusion, cg_outputs, {t0_valid}, {t0_valid}, __LINE__, __FILE__);
 
   EXPECT_THAT(
       [&]() {
-        FusionExecutor fe;
-        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+        auto t0_inval = at::randn({10249}, options);
+        fe.runFusion({t0_inval});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
