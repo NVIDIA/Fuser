@@ -21,7 +21,9 @@
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
+#include <exceptions.h>
 #include <executor_params.h>
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -236,6 +238,17 @@ class GpuLower : public NonCopyable {
 
   std::vector<Pass>& passes() {
     return passes_;
+  }
+
+  template <typename... Args>
+  void validate(Val* val, Args... args) {
+    auto sv = simplifyExpr(val);
+    if (sv->isTrue()) {
+      return;
+    }
+    std::string message = to_str(args...);
+    NVF_ERROR(!sv->isFalse(), message);
+    validations_.emplace_back(val, message);
   }
 
   const std::vector<std::pair<const Val*, std::string>>& validations() const {
