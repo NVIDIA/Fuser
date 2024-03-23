@@ -783,14 +783,19 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   auto device_multiprocessor_count = dev_prop->multiProcessorCount;
 
   InnerOuterParams params;
-  params.inner_vect = max_vectorize_factor;
-
+  params.inner_vect = std::min(max_vectorize_factor, inner_dim_numel / min_threads_per_block);
+  params.tmp_gmem_write_vect = std::min(4l, params.inner_vect);
+  params.vectorization_factor_outer = std::min(4l, params.inner_vect);
   // Step-1, calc threads per block from persistent batch size
   params.persistent_batch_size = persistent_batch_size;
   auto threads_per_block = scheduler_utils::safeDiv(
       inner_dim_numel / params.inner_vect, persistent_batch_size);
   threads_per_block =
       scheduler_utils::roundUpToN(threads_per_block, device_warp_size);
+
+  // assume bdimx_Mim = 8
+  // int64_t bdimx_target = 8;
+  // int64_t gdimy_target = std::max(ceilDiv(inner_dim_numel / params.vectorization_factor_outer, bdimx_target), (int64_t)device_multiprocessor_count);
 
   // Step-2, calc gdimy from occupancy
   auto reg_occ = getRegPerThreadAndBlockPerSM(
@@ -836,13 +841,12 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
   // gdimy (already done) The partial outer reduction result is stored in tmp
   // gmem, set the vectorization factor for write and read
-  params.tmp_gmem_write_vect = std::min(4l, max_vectorize_factor);
-  params.vectorization_factor_outer = std::min(4l, max_vectorize_factor);
+
   // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
   // increase the probability of bdimx * bdimy == threads_per_block.
   params.bdimx = scheduler_utils::roundUpPow2Or8(ceilDiv(
       inner_dim_numel / params.vectorization_factor_outer, params.gdimy));
-  // params.bdimx = std::max(4l, params.bdimx);
+  // params.bdimx = std::max(8l, params.bdimx);
   // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
   // increase bdimx to make it divisible. Under worst case, bdimx equals to
   // threads_per_block.
@@ -915,10 +919,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   const int64_t register_overhead = 16;
   const int64_t target_blocks_per_sm = std::min(
-      4l, ceilDiv(ceilDiv(outer_dim_numel, 8), device_multiprocessor_count));
+      4l, ceilDiv(ceilDiv(outer_dim_numel,2), device_multiprocessor_count));
 
   // try to use at least 4 warps per block
-  const int64_t min_threads_per_block = 4l * threads_per_warp;
+  const int64_t min_threads_per_block = 4*threads_per_warp;
 
   // set the min persistent buffer size to avoid requesting
   // a block size larger than device limit
@@ -940,6 +944,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   const int64_t pbs_max_2 = getMaxPersistentBatch(
       regs_buffer_per_batch, target_threads_per_sm, register_overhead);
   std::cout << "pbs_max_2: " << pbs_max_2
+            << " pbs_max_1: " << pbs_max_1
+            << " pbs_min: " << pbs_min
             << " regs_buffer_per_batch: " << regs_buffer_per_batch
             << " target_threads_per_sm: " << target_threads_per_sm << std::endl;
   const int64_t pbs_max = std::max(pbs_min, std::min(pbs_max_1, pbs_max_2));
@@ -1003,59 +1009,52 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
 
-    // with a small hidden size, persistent batch is set to 1
-    // register usage is low, allow more threads per block
-    constexpr int64_t max_threads_per_block = 512;
+    constexpr int64_t threads_per_block_mrpb = 512;
 
-    // reduction dim of inner reduction: vect8 x batch x bdimx >= N
-    iop.inner_vect = std::min(8l, (int64_t)vectorize_factor);
-    iop.bdimx =
-        std::min(max_threads_per_block, inner_dim_numel / iop.inner_vect);
-    iop.persistent_batch_size =
-        ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx);
+    // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
+    // inner_batch(reuse), bdimx
+    iop.inner_vect = (int64_t)vectorize_factor;
+    iop.persistent_batch_size = 1l;
+    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.persistent_batch_size);
 
-    // iteration dim of inner reduction: gdimy x bdimy X S1
-    // assume we have at least one wave, calc bdimy
-    int64_t tmp_gdimy = device_multiprocessor_count;
-    iop.bdimy = std::min(
-        max_threads_per_block / iop.bdimx, ceilDiv(outer_dim_numel, tmp_gdimy));
+    // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
+  // // Step-2, calc gdimy from occupancy
+  //   auto reg_occ = getRegPerThreadAndBlockPerSM(
+  //       regs_buffer_per_batch * iop.persistent_batch_size,
+  //       smem_buffer_per_batch * iop.persistent_batch_size,
+  //       threads_per_block_mrpb,
+  //       target_blocks_per_sm,
+  //       register_overhead,
+  //       smem_overhead);
+  //   iop.register_per_thread = reg_occ.first;
+  //   iop.occupancy = reg_occ.second;    
+    // iop.gdimy = iop.occupancy  * device_multiprocessor_count;
+    iop.gdimy = device_multiprocessor_count;
 
-    // use bdimx and bdimy, calculate occupancy
-    // check if we may further increase gdimy
-    int64_t threads_per_block = iop.bdimx * iop.bdimy;
-    auto reg_occ = getRegPerThreadAndBlockPerSM(
-        regs_buffer_per_batch * iop.persistent_batch_size,
-        smem_buffer_per_batch * iop.persistent_batch_size,
-        threads_per_block,
-        target_blocks_per_sm,
-        register_overhead,
-        smem_overhead);
-    iop.register_per_thread = reg_occ.first;
-    iop.occupancy = reg_occ.second;
-    int64_t gdimy_occupancy = iop.occupancy * device_multiprocessor_count;
-    // round down to a divisible value
-    // int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel, iop.bdimy);
-    // const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy,
-    // gdimy_occupancy);
-    iop.gdimy = gdimy_occupancy; // ceilDiv(outer_dim_after_bdimy, outer_iter);
-    // std::cout << "outer_dim_after_bdimy: " << outer_dim_after_bdimy
-    // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter <<
-    // std::endl;
-    if (iop.gdimy > device_multiprocessor_count &&
-        iop.gdimy - device_multiprocessor_count > iop.bdimx) {
-      iop.gdimy -= device_multiprocessor_count;
-    }
-    if (iop.gdimy != gdimy_occupancy) {
-      iop.register_per_thread = getRegPerThreadGivenThreadsPerSM(
-          threads_per_block * iop.gdimy / device_multiprocessor_count);
-    }
-    // std::cout << "gdimy_occupancy: " << gdimy_occupancy
-    // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter <<
-    // std::endl;
-
-    // iteration dim of outer reduction: vect4 x bdimy x gdimy
+    // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
+    // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
+    // cover what is left in both the outer_dim and inner_dim. However, it
+    // should not exceed the limitation set by threads_per_block_mrpb.
+        // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
-    iop.vectorization_factor_outer = std::min(4l, (int64_t)vectorize_factor);
+    iop.vectorization_factor_outer = std::min(2l, (int64_t)vectorize_factor);
+
+    int64_t bdimy_tmp = std::max(
+        ceilDiv(outer_dim_numel, iop.gdimy),
+        ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
+    iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
+
+    iop.register_per_thread = getRegPerThreadGivenThreadsPerSM(
+        iop.bdimy * iop.bdimx * ceilDiv(iop.gdimy, device_multiprocessor_count));
+
+    // Step-4, OuterParams, Reduction dim: bdimx (already done)
+    if (iop.bdimx % dev_prop->warpSize == 0) {
+      rparams->pad_inner_reduction_to_warp = true;
+      rparams->pad_outer_reduction_to_warp = true;
+    }
+    rparams->block_dim_iter_dom = ParallelType::TIDy;
+
+
     // outer reduction outer dim: bdimx x S2
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
