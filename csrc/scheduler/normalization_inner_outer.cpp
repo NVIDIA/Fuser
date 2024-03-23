@@ -745,9 +745,11 @@ bool compareTwoHeuristics(
 
   // prefer reduction count after vectorization is divisible by persistent
   // batch size
+  int ha_tail = (int)(ha.inner_dim_tails == 0) + (int)(ha.outer_dim_tails == 0);
+  int hb_tail = (int)(hb.inner_dim_tails == 0) + (int)(hb.outer_dim_tails == 0);
   score = compare(
-      ha.inner_dim_tails * ha.outer_dim_tails == 0,
-      hb.inner_dim_tails * hb.outer_dim_tails == 0);
+      ha_tail,
+      hb_tail);
   if (score != 0) {
     return score > 0;
   }
@@ -801,11 +803,27 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   params.register_per_thread = reg_occ.first;
   params.occupancy = reg_occ.second;
   int64_t gdimy_occupancy = params.occupancy * device_multiprocessor_count;
-  // round down to a divisible value
+  // Try to find pow2 in range [tmp_gdimy, gdimy_occupancy]
   const int64_t outer_iter_min = ceilDiv(outer_dim_numel, gdimy_occupancy);
-  params.gdimy = ceilDiv(outer_dim_numel, outer_iter_min);
-  std::cout << "gdimy_occupancy: " << gdimy_occupancy
-            << ", params.gdimy: " << params.gdimy << std::endl;
+  int64_t tmp_gdimy = ceilDiv(outer_dim_numel, outer_iter_min);
+  int64_t round_up_gdimy = scheduler_utils::roundUpPow2(tmp_gdimy);
+  if(round_up_gdimy <= gdimy_occupancy) {
+    params.gdimy = round_up_gdimy;
+  }else{
+    params.gdimy = tmp_gdimy;
+  }
+  // allow e.g. 528 --> 512, 132 --> 128, 108 --> 96
+  // won't increase number of iterations of the inner reduction loop but may reduce number
+  // of iterations of the outer reduction loop, e.g. 128 has more divisible factors than 132.
+  // if(tmp_gdimy % device_multiprocessor_count / (1.0*device_multiprocessor_count) > 0.85){
+  //   params.gdimy = tmp_gdimy;
+  // }else{
+  //   params.gdimy = gdimy_occupancy;
+  // }
+  // std::cout << "gdimy_occupancy: " << gdimy_occupancy
+  //            << ", tmp_gdimy: " << tmp_gdimy
+  //            << ", tmp_gdimy % device_multiprocessor_count / (1.0*device_multiprocessor_count): " << tmp_gdimy % device_multiprocessor_count / (1.0*device_multiprocessor_count)
+  //           << ", params.gdimy: " << params.gdimy << std::endl;
 
   // inner reduction inner dim: vect8 x batch x bdimx x bdimy >= N
   // inner reduction outer dim: gdimy x S1
@@ -824,7 +842,7 @@ InnerOuterParams getHeuristicParamsGivenPerisisentBatchSize(
   // increase the probability of bdimx * bdimy == threads_per_block.
   params.bdimx = scheduler_utils::roundUpPow2Or8(ceilDiv(
       inner_dim_numel / params.vectorization_factor_outer, params.gdimy));
-  params.bdimx = std::max(4l, params.bdimx);
+  // params.bdimx = std::max(4l, params.bdimx);
   // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
   // increase bdimx to make it divisible. Under worst case, bdimx equals to
   // threads_per_block.
@@ -970,8 +988,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
         all_heuristics.end(),
         [&target_blocks_per_sm](
             const InnerOuterParams& a, const InnerOuterParams& b) {
-          return compareTwoHeuristics(
-              a, b,  target_blocks_per_sm);
+          return compareTwoHeuristics(a, b, target_blocks_per_sm);
         });
     iop = all_heuristics.at(0);
   }
@@ -1018,15 +1035,23 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t gdimy_occupancy = iop.occupancy * device_multiprocessor_count;
     // round down to a divisible value
     // int64_t outer_dim_after_bdimy = ceilDiv(outer_dim_numel, iop.bdimy);
-    // const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy, gdimy_occupancy);
-    iop.gdimy = gdimy_occupancy ; //ceilDiv(outer_dim_after_bdimy, outer_iter);
+    // const int64_t outer_iter = ceilDiv(outer_dim_after_bdimy,
+    // gdimy_occupancy);
+    iop.gdimy = gdimy_occupancy; // ceilDiv(outer_dim_after_bdimy, outer_iter);
     // std::cout << "outer_dim_after_bdimy: " << outer_dim_after_bdimy
-              // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;    
-    if(iop.gdimy > device_multiprocessor_count && iop.gdimy - device_multiprocessor_count > iop.bdimx){
+    // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter <<
+    // std::endl;
+    if (iop.gdimy > device_multiprocessor_count &&
+        iop.gdimy - device_multiprocessor_count > iop.bdimx) {
       iop.gdimy -= device_multiprocessor_count;
     }
+    if (iop.gdimy != gdimy_occupancy) {
+      iop.register_per_thread = getRegPerThreadGivenThreadsPerSM(
+          threads_per_block * iop.gdimy / device_multiprocessor_count);
+    }
     // std::cout << "gdimy_occupancy: " << gdimy_occupancy
-              // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter << std::endl;
+    // << ", iop.gdimy: " << iop.gdimy << ", outer_iter: " << outer_iter <<
+    // std::endl;
 
     // iteration dim of outer reduction: vect4 x bdimy x gdimy
     iop.tmp_gmem_write_vect = std::min(4l, (int64_t)vectorize_factor);
@@ -1039,7 +1064,13 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     }
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   } else {
+    // use warp reduction, about 5% faster than block reduction
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+    if(iop.bdimx % dev_prop->warpSize == 0) {
+      rparams->pad_outer_reduction_to_warp = true;
+      rparams->tidx_for_outer_reduction = true;
+      std::swap(iop.bdimx, iop.bdimy);
+    }
   }
 
   rparams->persistent_kernel = true;
@@ -1272,9 +1303,16 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(ParallelType::TIDy));
-      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      if (rparams.tidx_for_outer_reduction){
+        outer_reduction_tv->split(
+            0, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
+      }else{
+        outer_reduction_tv->split(
+            0, NamedScalar::getParallelDim(ParallelType::TIDy));
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      }
+
 
       // iteration domain
       int axisID = -1;
@@ -1283,12 +1321,22 @@ void scheduleReductionCombinedOuter(
         outer_reduction_tv->axis(axisID--)->parallelize(
             ParallelType::Vectorize);
       }
-
-      if (rparams.lparams.bdimx() > 1) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
-        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+      if (rparams.tidx_for_outer_reduction){
+        if (rparams.lparams.bdimy() > 1) {
+          outer_reduction_tv->split(
+              axisID, NamedScalar::getParallelDim(ParallelType::TIDy));
+          outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDy);
+        }
+      }else{
+        if (rparams.lparams.bdimx() > 1) {
+          outer_reduction_tv->split(
+              axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
+          outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
+      }
+
+
+
 
       outer_reduction_tv->split(
           axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
