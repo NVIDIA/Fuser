@@ -4346,26 +4346,26 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
     makeInitialSchedulerEntry(
         SegmentedGroup* sg,
-        SchedulerRuntimeInfo& runtime_info) {
-  auto local_fusion = completeFusion();
+        std::optional<PrimDataType> forced_index_type) {
+  auto local_fusion = makeFusion(sg);
+  FusionGuard fg(local_fusion.get());
 
-  FusionSegmentGuard fsg(this, sg);
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      local_fusion, sg->heuristic(), runtime_info);
+      local_fusion.get(), sg->heuristic(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
   return SchedulerEntry::makeEntry(
-      sg->heuristic(), local_fusion, runtime_info, data_cache);
+      sg->heuristic(), local_fusion.get(), runtime_info, data_cache);
 }
 
 std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
     const KernelArgumentHolder& inputs,
-    SchedulerRuntimeInfo& runtime_info) {
+    std::optional<PrimDataType> forced_index_type) {
   auto ret = std::make_unique<FusionHeuristics>();
   for (auto g : groups()) {
-    ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
+    ret->emplaceBack(makeInitialSchedulerEntry(g, forced_index_type));
   }
   return ret;
 }

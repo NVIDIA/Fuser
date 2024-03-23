@@ -1042,11 +1042,10 @@ FusionKernelRuntime::FusionKernelRuntime(
   }
 
   // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(fusion.get(), args, forced_index_type);
-
   if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
+    SchedulerRuntimeInfo runtime_info(fusion.get(), args, forced_index_type);
     segmented_fusion_ =
         SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
   } else {
@@ -1073,7 +1072,8 @@ FusionKernelRuntime::FusionKernelRuntime(
     segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
   }
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
+  heuristics_ =
+      segmented_fusion_->makeInitialHeuristics(args, forced_index_type);
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
