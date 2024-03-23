@@ -990,6 +990,7 @@ TEST_F(TMACompileTimeInvalidTest, InvalidView) {
   auto t0_valid = at::randn({10240}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_valid}, {}, matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0_valid});
   testValidate(&fusion, cg_outputs, {t0_valid}, {t0_valid}, __LINE__, __FILE__);
 
   EXPECT_THAT(
