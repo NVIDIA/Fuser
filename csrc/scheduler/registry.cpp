@@ -20,8 +20,6 @@ namespace nvfuser {
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     KernelArgumentHolder args,
-    PrecomputedValues* precomputed_values,
-    const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
   NVF_ERROR(
@@ -32,14 +30,14 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       args.size(),
       " arguments were passed in.");
 
-  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
+  expression_evaluator_ = getExpressionEvaluator(args, nullptr);
 
   if (forced_index_type.has_value()) {
     index_type_ = forced_index_type.value();
   } else {
     index_type_ = registry_utils::getIndexTypeOfKernel(
         complete_fusion_,
-        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        ir_utils::allTvs(complete_fusion_),
         args,
         *expression_evaluator_);
   }

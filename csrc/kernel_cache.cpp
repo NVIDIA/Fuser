@@ -1041,14 +1041,8 @@ FusionKernelRuntime::FusionKernelRuntime(
     fusion->printMath();
   }
 
-  all_tvs_ = ir_utils::allTvs(fusion.get());
-
   // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(
-      fusion.get(), args, nullptr, all_tvs_, forced_index_type);
-
-  // Initialize the evaluator simplifer
-  precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
+  SchedulerRuntimeInfo runtime_info(fusion.get(), args, forced_index_type);
 
   if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
@@ -1599,14 +1593,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
         std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
   auto complete_fusion = segmented_fusion_->completeFusion();
-  precomputed_values_->bindInputs(args);
-  precomputed_values_->evaluate();
-  SchedulerRuntimeInfo runtime_info(
-      complete_fusion,
-      args,
-      precomputed_values_.get(),
-      all_tvs_,
-      forced_index_type);
+  SchedulerRuntimeInfo runtime_info(complete_fusion, args, forced_index_type);
 
   std::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();

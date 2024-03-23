@@ -55,8 +55,6 @@ class SchedulerRuntimeInfo : public NonCopyable {
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       KernelArgumentHolder args,
-      PrecomputedValues* precomputed_values = nullptr,
-      const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   NVF_API SchedulerRuntimeInfo(
