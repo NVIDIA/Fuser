@@ -954,7 +954,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, InvalidView) {
+TEST_F(TMARuntimeInvalidTest, InvalidView) {
   // According to the CUDA programming guide, the size of the transfer must be
   // a multiple of 16 bytes:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
