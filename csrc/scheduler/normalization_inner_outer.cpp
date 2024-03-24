@@ -729,19 +729,13 @@ std::pair<int64_t, int64_t> getRegPerThreadAndBlockPerSM(
 bool compareTwoHeuristics(
     const InnerOuterParams& ha,
     const InnerOuterParams& hb,
+    const int64_t min_non_buffer_registers,
     const int64_t target_blocks_per_sm) {
   auto compare = [](int64_t a, int64_t b) -> int {
     return a > b ? 1 : (a < b ? -1 : 0);
   };
   int score = 0;
 
-  // prefer occupancy larger than target
-  score = compare(
-      ha.occupancy >= target_blocks_per_sm,
-      hb.occupancy >= target_blocks_per_sm);
-  if (score != 0) {
-    return score > 0;
-  }
 
   // prefer reduction count after vectorization is divisible by persistent
   // batch size
@@ -750,6 +744,14 @@ bool compareTwoHeuristics(
   score = compare(
       ha_tail,
       hb_tail);
+  if (score != 0) {
+    return score > 0;
+  }
+
+  // prefer occupancy larger than target
+  score = compare(
+      ha.non_buffer_registers > min_non_buffer_registers,
+      hb.non_buffer_registers > min_non_buffer_registers);
   if (score != 0) {
     return score > 0;
   }
@@ -992,9 +994,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     std::stable_sort(
         all_heuristics.begin(),
         all_heuristics.end(),
-        [&target_blocks_per_sm](
+        [&register_overhead, &target_blocks_per_sm](
             const InnerOuterParams& a, const InnerOuterParams& b) {
-          return compareTwoHeuristics(a, b, target_blocks_per_sm);
+          return compareTwoHeuristics(a, b, register_overhead, target_blocks_per_sm);
         });
     iop = all_heuristics.at(0);
   }
