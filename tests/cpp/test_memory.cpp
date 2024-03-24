@@ -622,6 +622,57 @@ TEST_F(TMAIndexingTest, Advanced) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TMAIndexingTest, AutoBulkOne) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(8)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false, true, false, true, true, true})
+                 .build();
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [I1, I2, I3, I4, I5, I6, I7, I8]
+    tv->merge(6);
+    tv->split(6, 32);
+    // [I1, I2, I3, I4, I5, I6, I7*I8/32, 32]
+    // Will use 4D TMA:
+    // [ I1, I2, I3,
+    //   I4, I5,
+    //   I6,
+    //   I7*I8/32, 32]
+    // Where the first 3 dims are implicitly tiled 1x1x1
+    for (auto _ : c10::irange(6)) {
+      (void)_;
+      tv->merge(0);
+    }
+    // [I1*I2*I3*I4*I5*I6*(I7*I8/32), 32]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  // Parallelize the tile axes
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  // tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);

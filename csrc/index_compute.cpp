@@ -3311,17 +3311,17 @@ Val* Index::eye(
 // The gmem tensor of TMA store, or the gmem tensor of TMA load when replayed as
 // consumer, must be scheduled like this:
 //
-//                         ---------------------
-//                         | Allocation Domain |
-//                         ---------------------
-//                           | | | | | | | | |
-//                         IterDomain Expressions
-//                             | | | | | | |
-//                         ---------------------
-//                         |  I1           I2  |
-//                         ---------------------
-//                            |            |
-//                          split        split
+//                  ---------------------
+//                  | Allocation Domain |
+//                  ---------------------
+//                    | | | | | | | | |
+//                  IterDomain Expressions
+//                    | | | | | | | | |
+//            ----------------------------------
+//            |  I0           I1           I2  |
+//            ----------------------------------
+//               |            |            |
+//              ...         split        split
 //                          /   \        /   |
 //                         I3   I4      I5   I6
 //                         |    |       |    |
@@ -3338,18 +3338,19 @@ Val* Index::eye(
 // To schedule TMA, the overall process is:
 //
 // First, we need to specify how TMA should view the tensor. In the above
-// diagram, TMA view the tensor as a 2D tensor [I1, I2]. Note that the
-// IterDomain expressions between the allocation domain and [I1, I2] must be
+// diagram, TMA view the tensor as a 3D tensor [I0, I1, I2]. Note that the
+// IterDomain expressions between the allocation domain and [I0, I1, I2] must be
 // compatible with the allocation domain, for example, we can not merge
 // discontiguous IterDomains, and we can not have indivisible splits either.
-// We call [I1, I2] the "TMA domain" of the tensor.
+// We call [I0, I1, I2] the "TMA domain" of the tensor.
 //
 // Second, we need to tile each dimension of the TMA domain of the tensor. If we
 // want a contiguous box dim (see Definition 3: "boxId" below), then we do one
 // split to get the box. If we want a strided box dim, then we do two splits,
 // the first split is to get the box, and the second split is to get the stride.
-// In the above diagram, I1 has a contiguous box dim, and I2 has a strided box
-// dim.
+// Note that if the tile size is 1, we can skip tiling, for this case, we call
+// it "implicitly tiled 1". In the above diagram, I0 is implicitly tiled 1, I1
+// has a contiguous box dim, and I2 has a strided box dim.
 //
 // Third, we can schedule the "bulk" IterDomains (see Definition 1: "bulk"
 // below) and "non-bulk" IterDomains separately in whatever way we want.
@@ -3363,11 +3364,12 @@ Val* Index::eye(
 //  - It has parallel type "Bulk"
 //  - All its children are "bulk"
 //
-// In the above diagram, I4 and I7 are bulk IterDomains, but I1, I2, I3, I5, I6,
-// and I8 are not. Please note that the concept "bulk IterDomain" is different
-// from the concept "IterDomain parallelized as IterType::Bulk". Because we only
-// parallelize leaf domains, the set "IterDomain parallelized as IterType::Bulk"
-// and the set "bulk IterDomains" has the following relationship:
+// In the above diagram, I4 and I7 are bulk IterDomains, but I0, I1, I2, I3, I5,
+// I6, and I8 are not. Please note that the concept "bulk IterDomain" is
+// different from the concept "IterDomain parallelized as IterType::Bulk".
+// Because we only parallelize leaf domains, the set "IterDomain parallelized as
+// IterType::Bulk" and the set "bulk IterDomains" has the following
+// relationship:
 // - IterDomains parallelized as IterType::Bulk <= bulk IterDomains
 // - bulk IterDomains = IterDomain parallelized as IterType::Bulk & leaf domain
 // where "<=" refers to subset, and "&" refers to set intersection.
@@ -3376,8 +3378,8 @@ Val* Index::eye(
 //
 // In the above diagram, I4 and I7 are originating bulk IterDomains.
 //
-// The number of originating bulk IterDomains is the dimensionality of the
-// tensor in the eyes of TMA.
+// When there is no implicit tile 1 dimensions, the number of originating bulk
+// IterDomains is the dimensionality of the tensor in the eyes of TMA.
 //
 // Note that an originating bulk IterDomains must be the output of a split from
 // another IterDomain. Most commonly, we load/store tiles "contiguously", that
@@ -3429,11 +3431,13 @@ Val* Index::eye(
 // Definition 6: An IterDomain I1 is "TMA-global" if there exists an originating
 // bulk IterDomain I2 such that I1 == tmaGlobalId(I2).
 //
-// In the above diagram, I1 and I2 are TMA-global IterDomains.
+// In the above diagram, I1 and I2 are TMA-global IterDomains. We do not
+// consider I0 as a TMA-global IterDomain.
 //
 // Note that the number of TMA-global IterDomains should always be equal to the
 // number of originating bulk IterDomains, which should always be equal to the
-// dimensionality of the tensor in the eyes of TMA.
+// dimensionality of the tensor in the eyes of TMA if there is no implicit tile
+// 1 dimensions.
 //
 // Also note that TMA-global IterDomains can not have dependencies between each
 // other, that is, no one TMA-global IterDomains can be an ancestor or
@@ -3442,14 +3446,14 @@ Val* Index::eye(
 //   I1 -> split -> Bulk (inner)
 //              \-> I2 (outer) -> split -> Bulk (inner)
 //                                     \-> I3 (outer)
-// Also note that the set of all TMA-global IterDomains must be "equivalent" to
-// the allocation domain of the tensor (ignoring unrelated IterTypes like
-// broadcast and reduction), as defined in
+// Also note that the set of all TMA-global IterDomains plus implicitly tiled 1
+// IterDomains must be "equivalent" to the allocation domain of the tensor
+// (ignoring unrelated IterTypes like broadcast and reduction), as defined in
 // `ir_utils::validateDomainEquivalence`.
 //
 // Definition 7: The "TMA domain" of a tensor is the set of all TMA-global
-// IterDomains with a specific order. The order is determined by the order of
-// the allocation domain of the tensor.
+// IterDomains plus implicitly tiled 1 IterDomains, with a specific order. The
+// order is determined by the order of the allocation domain of the tensor.
 //
 //
 // Examples: (upper are inner)
@@ -3460,12 +3464,14 @@ Val* Index::eye(
 //           \               \-> I4
 //            \-> I2 -> split -> I5 (Bulk)
 //                           \-> I6
+// I7
 //
 // Originating bulk IterDomains: { I3, I5 }
 // Box IterDomains: { I3, I5 }
 // Inner IterDomains: {}
 // TMA-global IterDomains: { I1, I2 }
 // TMA domain: [I2, I1].
+// Implicitly tiled 1 dimensions: { I7 }
 //
 // Example 2:
 //
@@ -3479,6 +3485,7 @@ Val* Index::eye(
 // Inner IterDomains: { I7 }
 // TMA-global IterDomains: { I1, I2 }
 // TMA domain: [I2, I1].
+// Implicitly tiled 1 dimensions: {}
 //
 // Example 3:
 //
@@ -3490,6 +3497,7 @@ Val* Index::eye(
 // Inner IterDomains: {}
 // TMA-global IterDomains: { I2 }
 // TMA domain: [I2].
+// Implicitly tiled 1 dimensions: {}
 namespace {
 
 int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
@@ -3845,25 +3853,24 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       std::get<1>(frontier.back()),
       "The innermost IterDomain of the allocation domain must be contiguous");
 
-  int64_t dim = (int64_t)frontier.size();
-  NVF_ERROR(
-      dim == (int64_t)originating_bulk_ids.size(),
-      "The number of originating bulk IterDomains must be equivalent to the dimensionality of the tensor in the eyes of TMA, but ",
-      dim,
-      " is not equal to ",
-      originating_bulk_ids.size());
-
   // Validate that frontier contains exactly the same IterDomains as
   // tma_global_ids, otherwise there is something wrong in the schedule.
   std::unordered_set<IterDomain*> seen;
+  std::unordered_set<Val*> pending_tma_global_ids(
+      tma_global_ids.begin(), tma_global_ids.end());
   for (auto tuple : frontier) {
     auto id = std::get<0>(tuple);
     NVF_ERROR(
-        seen.insert(id).second && tma_global_id_to_box_id.count(id) > 0,
-        "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
-        id->toString(),
-        " is either duplicate or not a TMA-global IterDomain.");
+        seen.insert(id).second,
+        "Mistake in schedule. Duplicate IterDomain found: ",
+        id->toString());
+    pending_tma_global_ids.erase(id);
   }
+  NVF_ERROR(
+      pending_tma_global_ids.empty(),
+      "The set of all TMA-global IterDomains must a subset of the TMA domain, but ",
+      ir_utils::toString(pending_tma_global_ids),
+      " is not in the TMA domain.");
 
   // Step 4: Compute the tensor map descriptor and the index
 
@@ -3878,38 +3885,98 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
+  // Loop through the frontier from inner to outer, handle TMA-global ID and
+  // non-TMA-global ID separately. Each TMA-global ID will be treated as a
+  // separate tensor dimension. Non-TMA-global ID will be treated as if they
+  // are merged together with respect to their contiguity.
+  //
+  // Use the following 2-state machine to track when we need to create a new
+  // dimension and when we need to merge the current non-TMA-global ID with its
+  // next dimension:
+  //
+  //                TMA-global ID
+  //               .-------------.
+  //               |             |
+  //               '-> [START] --'
+  //                   /    ^
+  //   non-TMA-global /      \ TMA-global
+  //        ID       |        |   ID
+  //                  \      /
+  //                   v    /
+  //              .-> [PENDING] --.
+  //              |               |
+  //              '---------------'
+  //              non-TMA-global ID
+  enum { START, PENDING } state = START;
   for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
     auto id = std::get<0>(*it);
-    tensor_sizes_inner_to_outer.push_back(id->extent());
-    if (it != frontier.rbegin()) {
-      tensor_strides_inner_to_outer.push_back(
-          SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
-    }
-    box_sizes_inner_to_outer.push_back(
-        tma_global_id_to_box_id.at(id)->extent());
+    bool contiguous = std::get<1>(*it);
+    auto box_id_it = tma_global_id_to_box_id.find(id);
+    if (box_id_it == tma_global_id_to_box_id.end()) {
+      // non-TMA-global ID
+      if (state == START || !contiguous) {
+        tensor_sizes_inner_to_outer.push_back(id->extent());
+        if (it != frontier.rbegin()) {
+          tensor_strides_inner_to_outer.push_back(
+              SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
+        }
+        box_sizes_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+        element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
 
-    auto inner_it = tma_global_id_to_inner_id.find(id);
-    if (it == frontier.rbegin()) {
-      NVF_ERROR(
-          inner_it == tma_global_id_to_inner_id.end(),
-          "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
-          "(this is always the case for nvFuser now)",
-          ", the first element of elementStrides must be one");
-    }
-    if (inner_it != tma_global_id_to_inner_id.end()) {
-      element_strides_inner_to_outer.push_back(inner_it->second->extent());
+        auto index_it = indexing->indexMap().find(id);
+        NVF_ERROR(
+            index_it != indexing->indexMap().end(),
+            "Can not find index for ",
+            id->toString());
+        indices_inner_to_outer.push_back(index_it->second);
+      } else {
+        auto index_it = indexing->indexMap().find(id);
+        NVF_ERROR(
+            index_it != indexing->indexMap().end(),
+            "Can not find index for ",
+            id->toString());
+        indices_inner_to_outer.back() = SimplifyingIrBuilder::addExpr(
+            indices_inner_to_outer.back(),
+            SimplifyingIrBuilder::mulExpr(
+                tensor_sizes_inner_to_outer.back(), index_it->second));
+        tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
+            tensor_sizes_inner_to_outer.back(), id->extent());
+      }
+      state = PENDING;
     } else {
-      element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
-    }
+      // TMA-global ID
+      tensor_sizes_inner_to_outer.push_back(id->extent());
+      if (it != frontier.rbegin()) {
+        tensor_strides_inner_to_outer.push_back(
+            SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
+      }
+      box_sizes_inner_to_outer.push_back(box_id_it->second->extent());
 
-    auto index_it = indexing->indexMap().find(id);
-    NVF_ERROR(
-        index_it != indexing->indexMap().end(),
-        "Can not find index for ",
-        id->toString());
-    indices_inner_to_outer.push_back(index_it->second);
+      auto inner_it = tma_global_id_to_inner_id.find(id);
+      if (it == frontier.rbegin()) {
+        NVF_ERROR(
+            inner_it == tma_global_id_to_inner_id.end(),
+            "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
+            "(this is always the case for nvFuser now)",
+            ", the first element of elementStrides must be one");
+      }
+      if (inner_it != tma_global_id_to_inner_id.end()) {
+        element_strides_inner_to_outer.push_back(inner_it->second->extent());
+      } else {
+        element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+      }
+
+      auto index_it = indexing->indexMap().find(id);
+      NVF_ERROR(
+          index_it != indexing->indexMap().end(),
+          "Can not find index for ",
+          id->toString());
+      indices_inner_to_outer.push_back(index_it->second);
+      state = START;
+    }
   }
 
+  int64_t dim = (int64_t)tensor_sizes_inner_to_outer.size();
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
 
   Val* global_stride =
