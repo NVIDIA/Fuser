@@ -120,6 +120,8 @@ TEST_F(MultiDeviceTest, TestSplit) {
     tv->setDeviceMesh(mesh);
   }
 
+  fusion->printKernel();
+
   auto x0 = at::randn(input_size, tensor_options);
   std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1, communicator->deviceId());

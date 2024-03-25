@@ -53,11 +53,18 @@ bool isSharded(TensorView* tv) {
   }
   return is_sharded;
 }
+void print(std::vector<IterDomain*> ids) {
+  for (auto i : ids) {
+    std::cout << i->toString() << " ";
+  }
+  std::cout << std::endl;
+}
 
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     TvIterator tvs) {
+  print(ref->getLeafDomain());
   std::unordered_set<TensorView*> ret;
   // isSharded asserts that there are no split/merge and that only the outmost
   // dimension is possibly sharded
@@ -78,6 +85,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
       ret.insert(tv);
       continue;
     }
+    print(tv->getLeafDomain());
     for (auto id : tv->getLeafDomain()) {
       auto ca_id =
           ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
@@ -91,6 +99,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
       }
     }
   }
+  std::cout << "Is resharding?" << ret.size() << std::endl;
   return ret;
 }
 

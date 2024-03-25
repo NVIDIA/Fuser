@@ -193,12 +193,15 @@ void lowerToAllgather(
   if (!mesh.has(my_device_index)) {
     return;
   }
-  std::cout << "Allgather!" << std::endl;
+  std::cout << "Allgather! " << input_tensor.sizes() << " " << output_tensor.sizes() << std::endl;
+  std::cout << input_tv->toString() << std::endl;
+  std::cout << output_tv->toString() << std::endl;
   CommParams params;
   params.team = mesh.vector();
+  int extent = 2;
   for (auto i : c10::irange(mesh.vector().size())) {
     params.dst_bufs.push_back(
-        output_tensor.index({at::indexing::Slice(i, i + 1), "..."}));
+        output_tensor.index({at::indexing::Slice(i*extent, (i+1)*extent), "..."}));
   }
   params.src_bufs = {input_tensor};
 
