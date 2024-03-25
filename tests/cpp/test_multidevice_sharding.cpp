@@ -16,9 +16,6 @@
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
-#include <id_model/id_model.h>
-#include <val_graph.h>
-
 namespace nvfuser {
 
 // TODO: This test checks that isSharded generates an error when a split/merged
@@ -62,6 +59,7 @@ TEST_P(ShardedComputeTest, ComputeIndex) {
   fusion->addOutput(b);
   fusion->addOutput(c);
   fusion->addOutput(d);
+  
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);

@@ -272,13 +272,6 @@ void lowerToBroadcastOrP2P(
       NVF_ERROR(
           sender_mesh.vector().size() == receiver_mesh.vector().size(),
           "the receiver and sender meshes have different sizes");
-      at::Tensor input, output;
-      if (input_tensor.numel()) {
-        input = input_tensor.index({static_cast<int>(0), "..."});
-      }
-      if (output_tensor.numel()) {
-        output = output_tensor.index({static_cast<int>(0), "..."});
-      }
       lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
@@ -343,9 +336,9 @@ void lowerToReduce(
     at::Tensor output_tensor,
     BinaryOpType op_type,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  // we create as many Reduces as there are devices in the receiver mesh
   const auto& receiver_mesh = output_tv->getDeviceMesh();
   const auto& sender_mesh = input_tv->getDeviceMesh();
+  // we create as many Reduces as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;

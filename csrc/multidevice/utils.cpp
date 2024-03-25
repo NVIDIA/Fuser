@@ -16,13 +16,11 @@
 #include <root_domain_map.h>
 #include <scheduler/utils.h>
 
-#include <id_model/id_model.h>
-#include <val_graph.h>
-
 #include <c10/util/irange.h>
 
 namespace nvfuser {
 namespace {
+  
 const std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
   std::unordered_set<IterDomain*> sharded_ids;
   std::copy_if(
