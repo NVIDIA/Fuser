@@ -687,6 +687,51 @@ void scheduleFusionInputsForEpilogue(
   }
 }
 
+void scheduleSplitKSum(
+    TensorView* splitk_sum,
+    const int num_batch_dims, // TODO: this should not be needed
+    bool use_smem_epilogue) {
+  if (splitk_sum == nullptr) {
+    // This indicates no split-K was used
+    return;
+  }
+
+  // Always use serial grid reduction for split-K sum
+  splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
+
+  if (use_smem_epilogue) {
+    // Now that transforms are propagated backward to smem_epilogue, which is
+    // before splitk_sum, we can vectorize the inner-most non-trivial
+    // dimension of splitk_sum
+    //
+    // Note that the split-K reduction is the inner-most dimension.
+    Val* vec_ext = splitk_sum->axis(-2)->extent();
+    NVF_ERROR(vec_ext->isConstInt());
+    int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
+    splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
+    splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
+    if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
+      // NOTE: We might encounter an illegal vectorization size if we are
+      // using Float for this reduction and Half for output. So here we first
+      // check whether the vectorize size is at most 16 bytes. If not, then we
+      // split into an unrolled loop that will do multiple vectorized
+      // reads/writes instead. Note that we reorder such that the axes are in
+      // order UR TIDx V.
+      splitk_sum->split(
+          -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
+      splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
+      splitk_sum->reorder({{-4, -3}});
+      // In this case, we have [... iUR iTx rBz iS]
+    }
+    splitk_sum->reorder({{-2, -1}});
+  } else { // no smem epilogue
+    // Reorder to place the split-K reduction next to innermost [... rBz iS]
+    splitk_sum->reorder({{-9, -2}});
+  }
+  // Vectorize inner-most dimension [... (iUR iTx) rBz iV]
+  splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+}
+
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
@@ -797,10 +842,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Setup accumulator register.
   auto mma_result = mma->out()->as<TensorView>();
 
-  // Unswizzle mma result in shared memory
-  auto smem_epilogue =
-      params.use_smem_epilogue ? mma_result->cacheAfter() : mma_result;
-
   // TODO:
   //  Significant build out needed here
   //   for more flexibility and data type support.
@@ -867,6 +908,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
+  // [..., Mo, No, Ko, Mi, Ni, Ki]
+
+  // Unswizzle mma result in shared memory
+  // Note that if we are using split-K, we will set up this buffer after
+  // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
+  // take advantage of unswizzling during the grid reduction
+  TensorView* smem_epilogue = mma_result;
 
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
@@ -889,15 +937,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // [..., Mo, No, Koo, Mi, Ni, Ki]
+  // [..., iMo, iNo, rKo, iMi, iNi, rKi]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
   if (params.splitk_factor != 1) {
-    // Split Koo -> [Kf, Ko]
+    // Split Ko -> [rKf, rKg]
     mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-    // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
+    // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
     // rFactor converts
-    //   mma_result = mma(A, B, {/*Kf*/-5, /*Ko*/-4, /*Ki*/-1});
+    //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
     // to
     //   intermediate = mma(A, B, {-4, -1});
     //   final_sum = sum(intermediate, {/*Kf*/-3});
@@ -906,9 +954,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
-    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-
     num_splitk_dims = 1;
+  }
+
+  // At this point we have the following schedule:
+  //   No split-K
+  //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  //   Split-K
+  //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+  if (params.use_smem_epilogue) {
+    // Note that for split-K
+    //   splitk_sum = sum(mma_result)
+    // becomes
+    //   smem_epilogue = set(mma_result)
+    //   splitk_sum = sum(smem_epilogue)
+    smem_epilogue = mma_result->cacheAfter();
+    // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
   }
 
   // Propagate tiling globally
@@ -922,19 +985,38 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // Schedule warp tile
+  // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  // [..., Mo, No, (Kf,) Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
+  // After scheduling warp tile, the last three dimensions are split and
+  // rearranged:
+  //        -3 -2 -1
+  //   [...  M  N  K]
+  // maps to
+  //         -8  -7 -6  -5 -4 -3 -2 -1
+  //   [... Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+  // so now
+  //                   -12 -11  -10   -9   -8   -7   -6  -5  -4   -3   -2   -1
+  // mma_result = [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  // splitk_sum = [... iMo iNo  rKf  iMi  iNi]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
       mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
+
+  // No (cross-CTA) split-K
+  //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //   smem_epilogue   (unscheduled, same as original or current mma_result)
+  //   splitk_sum      (nullptr)
+  //
+  // With split-K
+  //   mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //   splitk_sum   [... iMo iNo rKf  iMi  iNi]
 
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
-  // [..., Mo, No, (Kf,) Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();
@@ -976,6 +1058,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   };
   propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
+  // This does a split-reorder-merge swizzle of the last two M and N dimensions
+  // (and a possible final reduction dim).
+  // eg. [M64, N24, R]  -> [WarpGroup128, N3, M2, N2, Ro, R4, R2]
+  // Before
+  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  // After
+  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
+  //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
   mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Set parallelization:
@@ -1011,20 +1101,35 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   - B: block
   //   - T: thread
   //   - S: serial. This will become a for loop in the generated kernel
-  //   - iMMA: unconracted axis in an MMA tensor core operation.
+  //   - iMMA: uncontracted axis in an MMA tensor core operation.
   //   - rMMA: contract in an MMA tensor core operation.
   //
-  //  with splitk:
-  // nbatch +   1   2   3   4    5    6    7    8     9    10    11   12
-  //      -13 -12 -11 -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
-  // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
-  //  (iS) iBx iBy rBz rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
+  // With split-K:
+  //   mma_result
+  //     nbatch +   1    2    3    4    5    6   7   8
+  //              -15  -14  -13  -12  -11  -10  -9  -8
+  //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
+  //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+  //                              9    10    11    12    13    14    15
+  //                             -7    -6    -5    -4    -3    -2    -1
+  //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+  //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
+  //   smem_epilogue   (unscheduled, same as original mma_result)
+  //   splitk_sum      (nullptr)
   //
-  //  without splitk:
-  // nbatch +   1       2   3    4    5    6    7     8     9    10   11
-  //      -12 -11     -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
-  // [..., Mo, No,     Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
-  // (iBz) iBx iBy     rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
+  // Without split-K:
+  //   mma_result
+  //     nbatch +   1   2    3    4    5   6   7    8
+  //              -14 -13  -12  -11  -10  -9  -8   -7
+  //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
+  //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
+  //                                   9    10    11     12    13    14
+  //                                  -6    -5    -4     -3    -2    -1
+  //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
+  //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
+  //   smem_epilogue   (unscheduled, same as original mma_result)
+  //   splitk_sum
+  //     [... iMo iNo rKf  iMi  iNi]
 
   // When we have both batch dims and splitk, parallelize splitk only.
   // If we only have batch dim, parallelize the batch dim.
@@ -1101,45 +1206,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  if (num_splitk_dims) {
-    // Here we reorder splitk_sum so that the grid reduction in the z dimension
-    // is placed last, ensuring that we can inline it with downstream tensors.
-    //
-    // Epilogue tensors:
-    // nbatch +   1    2   3     4    5     6     7     8
-    // [...  Mo  No  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3]
-    //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iV
-    //
-    // Before reordering, splitk_sum is similar to mma_result but with the
-    // reduction axes removed. The Kf dimension causes inlining between nbatch
-    // + 1 and nbatch + 2.
-    // nbatch +   1    2    3    4    5    6     7     8     9
-    // [...  Mo  No   Kf  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3]
-    //  (iS) iBx iBy rBz  iTz  iTy   iS   iS    iS   iTx    iS
-    //
-    // splitk_sum (after the reordering below)
-    // nbatch +   1    2    3    4    5     6     7     8    9
-    // [...  Mo  No  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3   Kf]
-    //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iS  rBz
-    //
-    // This reordering step lets us inline all but the last dim MNi3 (position
-    // nbatch + 7) which might be vectorized.
-    //
-    // NOTE: we need to do this reorder after the propagation above so that it
-    // doesn't get reset.
-    splitk_sum->reorder({
-        {num_batch_dims + 2, num_batch_dims + 9},
-        {num_batch_dims + 3, num_batch_dims + 2},
-        {num_batch_dims + 4, num_batch_dims + 3},
-        {num_batch_dims + 5, num_batch_dims + 4},
-        {num_batch_dims + 6, num_batch_dims + 5},
-        {num_batch_dims + 7, num_batch_dims + 6},
-        {num_batch_dims + 8, num_batch_dims + 7},
-        {num_batch_dims + 9, num_batch_dims + 8},
-    });
-    // Vectorize inner-most dimension
-    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
+  scheduleSplitKSum(splitk_sum, num_batch_dims, params.use_smem_epilogue);
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
@@ -1172,7 +1239,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    // rotate Ko loop
+    // rotate Kg loop
     scheduler_utils::rotateLoop(
         mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
