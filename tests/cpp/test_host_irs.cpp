@@ -31,7 +31,6 @@ class HostIrTest:
     public NVFuserTest,
     public testing::WithParamInterface<HostIrTestParams> {};
 
-
 TEST_P(HostIrTest, SingleFusion) {
   auto [use_fusion_executor_cache] = GetParam();
 
@@ -49,35 +48,18 @@ TEST_P(HostIrTest, SingleFusion) {
 
   FusionGuard::setCurFusion(hic.get());
   auto eu = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
-  std::cout << "EU: " << eu << std::endl;
 
   IrCloner ir_cloner(hic.get());
 
-  std::vector<Val*> post_inputs;
-  post_inputs.reserve(eu->fusion_to_execute()->inputs().size());
-  for (auto input: eu->fusion_to_execute()->inputs()) {
-    auto post_input = ir_cloner.clone(input);
-    post_inputs.push_back(post_input);
-  }
-
-  std::vector<Val*> post_outputs;
-  post_outputs.reserve(eu->fusion_to_execute()->outputs().size());
-  for (auto output: eu->fusion_to_execute()->outputs()) {
-    auto post_output = ir_cloner.clone(output);
-    post_outputs.push_back(post_output);
-  }
-
+  std::vector<Val*> post_inputs = {ir_cloner.clone(eu->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs = {ir_cloner.clone(eu->fusion_to_execute()->outputs().at(0))};
   auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu, std::move(post_inputs), std::move(post_outputs));
 
   hic->top_level_exprs.push_back(post);
 
   // add global IO to the HostIrContainer. This step could potentially be infered automatically
-  for (auto input: post->inputs()){
-    hic->addInput(input);
-  }
-  for (auto output: post->outputs()){
-    hic->addOutput(output);
-  }
+  hic->addInput(post->inputs().at(0));
+  hic->addOutput(post->outputs().at(0));
 
   HostIrExecutorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
@@ -99,10 +81,7 @@ TEST_P(HostIrTest, TwoFusions) {
   Fusion fusion_0, fusion_1;
 
   std::vector<int64_t> input_sizes_0 = {4, 8, 32};
-  std::vector<int64_t> input_sizes_1;
-  for (int i = 1; i<3; i++) {
-    input_sizes_1.push_back(input_sizes_0[i]);
-  }
+  std::vector<int64_t> input_sizes_1 = {input_sizes_0[1], input_sizes_0[2]};
 
   FusionGuard fg(&fusion_0);
   auto tv0_0 = makeConcreteTensor(input_sizes_0);
@@ -123,38 +102,22 @@ TEST_P(HostIrTest, TwoFusions) {
   IrCloner ir_cloner(hic.get());
 
   auto eu_0 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
-  std::cout << "EU_0: " << eu_0 << std::endl;
   auto eu_1 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
-  std::cout << "EU_1: " << eu_1 << std::endl;
 
-  std::vector<Val*> post_inputs_0;
-  for (auto input: eu_0->fusion_to_execute()->inputs()) {
-    post_inputs_0.push_back(ir_cloner.clone(input));
-  }
-  std::vector<Val*> post_outputs_0;
-  for (auto output: eu_0->fusion_to_execute()->outputs()) {
-    post_outputs_0.push_back(ir_cloner.clone(output));
-  }
+  std::vector<Val*> post_inputs_0 = {ir_cloner.clone(eu_0->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs_0 = {ir_cloner.clone(eu_0->fusion_to_execute()->outputs().at(0))};
   auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_0, std::move(post_inputs_0), post_outputs_0);
 
   auto& post_inputs_1 = post_outputs_0;
-  std::vector<Val*> post_outputs_1;
-  for (auto output: eu_1->fusion_to_execute()->outputs()) {
-    post_outputs_1.push_back(ir_cloner.clone(output));
-  }
+  std::vector<Val*> post_outputs_1 = {ir_cloner.clone(eu_1->fusion_to_execute()->outputs().at(0))};
   auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_1, std::move(post_inputs_1), post_outputs_1);
 
 
   hic->top_level_exprs.push_back(post_0);
   hic->top_level_exprs.push_back(post_1);
 
-  // add global IO to the HostIrContainer. This step could potentially be infered automatically
-  for (auto input: post_0->inputs()){
-    hic->addInput(input);
-  }
-  for (auto output: post_1->outputs()){
-    hic->addOutput(output);
-  }
+  hic->addInput(post_0->inputs().at(0));
+  hic->addOutput( post_1->outputs().at(0));
 
   HostIrExecutorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
@@ -176,10 +139,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   Fusion fusion_0, fusion_1, fusion_2;
 
   std::vector<int64_t> input_sizes_0 = {4, 8, 32};
-  std::vector<int64_t> input_sizes_1;
-  for (int i = 1; i<3; i++) {
-    input_sizes_1.push_back(input_sizes_0[i]);
-  }
+  std::vector<int64_t> input_sizes_1 = {input_sizes_0[1], input_sizes_0[2]};
 
   FusionGuard fg(&fusion_0);
   auto tv0_0 = makeConcreteTensor(input_sizes_0);
