@@ -1458,6 +1458,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
         old_alloc->memoryType(),
         old_alloc->shape(),
         old_alloc->zeroInit(),
+        /*reset_to_zero=*/false,
         alloc_expr_to);
 
     registerReplace(old_alloc, new_alloc);
