@@ -14,6 +14,8 @@
 #include <visibility.h>
 
 #include <debug.h>
+#include <mma_type.h>
+#include <tma.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
@@ -279,7 +281,11 @@ SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
 using ConstCharStar = const char*;
 SPECIALIZE_PRINTER(ConstCharStar);
+using VoidStar = void*;
+SPECIALIZE_PRINTER(VoidStar);
+SPECIALIZE_PRINTER(uint32_t);
 SPECIALIZE_PRINTER(int64_t);
+SPECIALIZE_PRINTER(uint64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
 SPECIALIZE_PRINTER(UnaryOpType);
@@ -287,11 +293,17 @@ SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
 SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(tma::TensorMapInterleave);
+SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
+SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
 SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
+SPECIALIZE_PRINTER(std::vector<uint32_t>);
 SPECIALIZE_PRINTER(std::vector<int64_t>);
+SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
@@ -432,6 +444,8 @@ class DebugPrintScope {
   int64_t line_ = -1;
 };
 
+#ifndef NDEBUG
+
 // Debug printing the entering and leaving of a function. The given arguments
 // will be printed when entering the function.
 //
@@ -447,7 +461,7 @@ class DebugPrintScope {
       std::regex re(pattern);                                             \
       if (std::regex_match(name, re)) {                                   \
         _debug_print_scope =                                              \
-            std::make_unique<DebugPrintScope>(__func__, ##__VA_ARGS__);   \
+            std::make_unique<DebugPrintScope>(name, ##__VA_ARGS__);       \
         break;                                                            \
       }                                                                   \
     }                                                                     \
@@ -455,12 +469,27 @@ class DebugPrintScope {
 
 #define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
 
+#define DEBUG_LOG(...)                                    \
+  if (_debug_print_scope) {                               \
+    debug() << "[" << __FILE__ << ":" << __LINE__ << "] " \
+            << to_str("", ##__VA_ARGS__) << std::endl;    \
+  }
+
 // Record the return value and return it.
 #define RECORD_AND_RETURN(ret)                              \
   if (_debug_print_scope) {                                 \
     _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
   }                                                         \
   return ret
+
+#else
+
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)
+#define DEBUG_PRINT_SCOPE(...)
+#define DEBUG_LOG(...)
+#define RECORD_AND_RETURN(ret) return ret
+
+#endif
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with

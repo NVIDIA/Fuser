@@ -533,4 +533,72 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
   }
 }
 
+// Test that a segment with a slice does not introduce a cast
+// See https://github.com/NVIDIA/Fuser/pull/1936
+TEST_F(SegmentationTest, SliceSegmentCasts) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+
+  fusion->addInput(tv0);
+
+  // Group 1
+  auto tv1 = mul(tv0, tv0);
+  // Group 2
+  auto tv2 = slice(tv1, {0}, {3}, {1});
+  auto tv3 = add(tv2, tv2);
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto in0 = at::randn({5}, options);
+  auto outputs = fec.runFusionWithInputs({in0});
+
+  SegmentedFusion* segmented_fusion =
+      fec.getMostRecentKernelRuntime()->fusionSegments();
+
+  ASSERT_EQ(segmented_fusion->edges().size(), 1);
+
+  SegmentedEdge* slice_edge = segmented_fusion->edges().at(0);
+
+  // Expect edge to be half-precision
+  // TODO: Change this rhs to DataType::Half once we have addressed
+  // https://github.com/NVIDIA/Fuser/issues/1902
+  EXPECT_EQ(slice_edge->val->getDataType(), DataType::Float);
+
+  // There should be no cast before the slice
+  EXPECT_TRUE(slice_edge->val->uses().at(0)->isA<SliceOp>());
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = neg(tv0);
+  // two uses of forwarded non scalar input leads to duplicated merge of the
+  // same consumer
+  auto* tv2 = add(tv1, tv1);
+  auto* tv3 = segment_set(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({3, 4, 3}, options);
+  auto outputs = fec.runFusionWithInputs({in0});
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

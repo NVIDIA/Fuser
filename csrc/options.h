@@ -52,6 +52,7 @@ enum class DebugDumpOption {
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
+  GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
@@ -95,9 +96,8 @@ enum class EnableOption {
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill
-  MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
-                  //! matmul
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
@@ -117,6 +117,8 @@ enum class DisableOption {
                               //! grouped grid welford kernel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
+  MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
+                  //! matmul
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
