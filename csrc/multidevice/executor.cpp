@@ -106,9 +106,14 @@ void MultiDeviceExecutor::postKernel(
   }
 
   if (!params_.use_fusion_executor_cache) {
-    // erase from group's input extent corresponding to grid and block dims. Set
-    // them through launch_params.
-    std::vector<Val*> group_input_vals;
+    // Erase from group's input extent corresponding to grid and block dims. Set
+    // them through launchparams. When use_fusion_executor_cache is off, we
+    // schedule before segmentation. The segmenter treats `blockDim` and
+    // `gridDim` as group's I/O, and add them in the group's `input_vals`. So
+    // the group's `input_vals` are `{input 1, ..., input n, blockDim,
+    // gridDim}`. However, `FusionExecutor::runFusion` expects `inputs` to be
+    // `{input 1, ..., input n}` and `launch_constraints` to contain `blockDim`
+    // and `gridDim`.     std::vector<Val*> group_input_vals;
     for (auto input : group->inputs()) {
       if (input->isA<NamedScalar>() &&
           input->as<NamedScalar>()->getParallelDim().has_value() &&

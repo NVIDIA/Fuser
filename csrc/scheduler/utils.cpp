@@ -244,7 +244,7 @@ size_t mergeReduction(TensorView* tv) {
 }
 
 size_t mergeNonReduction(TensorView* tv) {
-  bool has_outmost_device_dim = false;
+  bool has_outermost_device_dim = false;
   int prev_i = -1;
   size_t num_merged = 0;
   if (tv->nDims() == 0) {
@@ -255,6 +255,7 @@ size_t mergeNonReduction(TensorView* tv) {
       continue;
     }
     if (tv->axis(i)->isDeviceDim()) {
+      NVF_ERROR(i == 0, "Invalid device parallelization detected at ", i);
       has_outmost_device_dim = true;
       continue;
     }
