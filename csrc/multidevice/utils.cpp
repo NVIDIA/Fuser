@@ -268,7 +268,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* output_permute = set(input_permute);
       TensorView* new_output = permute(output_permute, {{0, idx}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      for (size_t i = 0; i < output->nDims(); i++) {
+      for (int i = 0; i < output->nDims(); i++) {
         new_output->axis(i)->parallelize(output->axis(i)->getParallelType());
       }
       new_output->setDeviceMesh(output->getDeviceMesh());

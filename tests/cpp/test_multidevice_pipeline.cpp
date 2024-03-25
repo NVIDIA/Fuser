@@ -236,7 +236,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -249,7 +249,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -262,7 +262,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -275,7 +275,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -288,7 +288,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -301,7 +301,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(true),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -314,7 +314,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(true),
-        testing::Values(0,1),
+        testing::Values(0, 1),
         testing::Bool()));
 
 enum class SchedulingMode {

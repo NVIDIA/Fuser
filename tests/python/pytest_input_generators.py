@@ -1478,3 +1478,32 @@ def vector_at_error_generator(
         yield SampleInput(
             make_arg(error_case["tensor_shape"]), index=error_case["index"]
         ), error_type, error_msg
+
+
+def matmul_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    def multiply_range(maximum, step):
+        assert maximum % step == 0
+        num_steps = int(math.log(maximum, step))
+        return tuple(
+            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
+        )
+
+    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
+    # Use a Cartesian product to create a wide range of matrix shapes
+    # I'll stop at 512 as possible numerical difference may show up.
+    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
+    for M, N, K in itertools.product(M, N, K):
+        lhs_shape = (M, K)
+        rhs_shape = (K, N)
+        yield SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))

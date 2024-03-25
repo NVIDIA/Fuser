@@ -146,7 +146,7 @@ void lowerToScatter(
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
-  auto receiver_mesh = output_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
   auto root = input_tv->getDeviceMesh().vector().at(0);
   if (!isDeviceInvolved(my_device_index, root, receiver_mesh)) {
     return;
@@ -170,7 +170,7 @@ void lowerToGather(
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
-  auto sender_mesh = input_tv->getDeviceMesh();
+  const auto& sender_mesh = input_tv->getDeviceMesh();
   for (auto root : output_tv->getDeviceMesh().vector()) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
@@ -257,12 +257,14 @@ void lowerToBroadcastOrP2P(
 // general cases.
 void lowerToBroadcastOrP2P(
     DeviceIdxType my_device_index,
-    const DeviceMesh& sender_mesh,
-    const DeviceMesh& receiver_mesh,
+    TensorView* input_tv,
+    TensorView* output_tv,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     bool is_sharded,
     std::vector<std::shared_ptr<Communication>>& comms) {
+  const auto& sender_mesh = input_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
   if (is_sharded) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
@@ -342,8 +344,8 @@ void lowerToReduce(
     BinaryOpType op_type,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we create as many Reduces as there are devices in the receiver mesh
-  auto receiver_mesh = output_tv->getDeviceMesh();
-  auto sender_mesh = input_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
+  const auto& sender_mesh = input_tv->getDeviceMesh();
   for (auto root : receiver_mesh.vector()) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
@@ -362,11 +364,13 @@ void lowerToReduce(
 
 void lowerToAllreduce(
     DeviceIdxType my_device_index,
-    const DeviceMesh& mesh,
+    TensorView* input_tv,
+    TensorView* output_tv,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     BinaryOpType op_type,
     std::vector<std::shared_ptr<Communication>>& comms) {
+  const auto& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
@@ -492,7 +496,8 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       if (same_mesh) {
         lowerToAllreduce(
             my_device_index,
-            sender_mesh,
+            input_tv,
+            output_tv,
             input_tensor,
             output_tensor,
             op_type,
@@ -538,8 +543,8 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     } else {
       lowerToBroadcastOrP2P(
           my_device_index,
-          sender_mesh,
-          receiver_mesh,
+          input_tv,
+          output_tv,
           input_tensor,
           output_tensor,
           is_input_sharded,

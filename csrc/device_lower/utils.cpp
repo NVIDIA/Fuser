@@ -710,6 +710,7 @@ BasicAllocInfo getAllocInformation(
     const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
+  DEBUG_PRINT_SCOPE(tv);
   BasicAllocInfo info;
   auto gpu_lower = GpuLower::current();
 
@@ -717,6 +718,7 @@ BasicAllocInfo getAllocInformation(
 
   for (auto fl : for_loops) {
     if (info.alloc_pos == tv->getComputeAtPosition()) {
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 
@@ -727,12 +729,14 @@ BasicAllocInfo getAllocInformation(
           "Invalid computeAt of T",
           tv->name(),
           ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 
     auto fl_id = fl->iter_domain();
 
     if (fl_id->getParallelType() == ParallelType::Unroll) {
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 
