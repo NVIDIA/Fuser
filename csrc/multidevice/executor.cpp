@@ -110,9 +110,10 @@ void MultiDeviceExecutor::postKernel(
     // them through launch_params.
     std::vector<Val*> group_input_vals;
     for (auto input : group->inputs()) {
-      if (input->isA<NamedScalar>()
-          && input->as<NamedScalar>()->getParallelDim().has_value()
-          && launch_params.hasDim(input->as<NamedScalar>()->getParallelDim().value())) {
+      if (input->isA<NamedScalar>() &&
+          input->as<NamedScalar>()->getParallelDim().has_value() &&
+          launch_params.hasDim(
+              input->as<NamedScalar>()->getParallelDim().value())) {
         continue;
       }
       group_input_vals.push_back(input);
