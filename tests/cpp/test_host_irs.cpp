@@ -166,7 +166,98 @@ TEST_P(HostIrTest, TwoFusions) {
 
   auto outputs = hie.runWithInput({input});
 
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0))) << "ref_outputs:\n " << ref_output << "\noutputs:\n " << outputs.at(0);
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+}
+
+TEST_P(HostIrTest, ThreeFusions) {
+  auto [use_fusion_executor_cache] = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  Fusion fusion_0, fusion_1, fusion_2;
+
+  std::vector<int64_t> input_sizes_0 = {4, 8, 32};
+  std::vector<int64_t> input_sizes_1;
+  for (int i = 1; i<3; i++) {
+    input_sizes_1.push_back(input_sizes_0[i]);
+  }
+
+  FusionGuard fg(&fusion_0);
+  auto tv0_0 = makeConcreteTensor(input_sizes_0);
+  auto tv1_0 = add(tv0_0, tv0_0);
+  auto tv2_0 = sum(tv1_0, {0});
+  fusion_0.addInput(tv0_0);
+  fusion_0.addOutput(tv1_0);
+  fusion_0.addOutput(tv2_0);
+
+  FusionGuard::setCurFusion(&fusion_1);
+  auto tv0_1 = makeConcreteTensor(input_sizes_0);
+  auto tv1_1 = mul(tv0_1, tv0_1);
+  auto tv2_1 = sum(tv1_1, {0});
+  fusion_1.addInput(tv0_1);
+  fusion_1.addOutput(tv2_1);
+
+  FusionGuard::setCurFusion(&fusion_2);
+  auto tv0_2 = makeConcreteTensor(input_sizes_1);
+  auto tv1_2 = makeConcreteTensor(input_sizes_1);
+  auto tv2_2 = add(tv0_2, tv1_2);
+  fusion_2.addInput(tv0_2);
+  fusion_2.addInput(tv1_2);
+  fusion_2.addOutput(tv2_2);
+
+
+  FusionGuard::setCurFusion(hic.get());
+  IrCloner ir_cloner(hic.get());
+  auto clone = [&] (std::vector<Val*> vals)
+    {
+      std::vector<Val*> ret;
+      for (auto val: vals) {
+        ret.push_back(ir_cloner.clone(val));
+      }
+      return ret;
+    };
+
+  auto eu_0 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
+  auto eu_1 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
+  auto eu_2 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_2));
+
+  std::vector<Val*> post_inputs_0 = clone({tv0_0});
+  std::vector<Val*> post_outputs_0 = clone({tv1_0, tv2_0});
+  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_0, std::move(post_inputs_0), post_outputs_0);
+
+  std::vector<Val*> post_inputs_1 = {post_outputs_0.at(0)};
+  std::vector<Val*> post_outputs_1 = clone({tv2_1});
+  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_1, std::move(post_inputs_1), post_outputs_1);
+
+  std::vector<Val*> post_inputs_2 = {post_outputs_0.at(1), post_outputs_1.at(0)};
+  std::vector<Val*> post_outputs_2= clone({tv2_2});
+  auto post_2 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_2, std::move(post_inputs_2), post_outputs_2);
+
+  hic->top_level_exprs.push_back(post_0);
+  hic->top_level_exprs.push_back(post_1);
+  hic->top_level_exprs.push_back(post_2);
+
+  // add global IO to the HostIrContainer. This step could potentially be infered automatically
+  hic->addInput(post_0->inputs().at(0));
+  hic->addOutput(post_2->outputs().at(0));
+
+  HostIrExecutorParams params;
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrExecutor hie(std::move(hic), std::move(params));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  c10::IValue tv0_0_ref_ivalue = at::randn(input_sizes_0, options);
+  at::Tensor tv0_0_ref = tv0_0_ref_ivalue.toTensor();
+  auto tv1_0_ref = tv0_0_ref + tv0_0_ref;
+  auto tv2_0_ref = at::sum(tv1_0_ref, {0});
+  auto tv0_1_ref = tv1_0_ref;
+  auto tv2_1_ref = at:: sum(tv0_1_ref * tv0_1_ref, {0});
+  auto tv0_2_ref = tv2_0_ref;
+  auto tv1_2_ref = tv2_1_ref;
+  auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
+
+  auto outputs = hie.runWithInput({tv0_0_ref_ivalue});
+
+  GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
 }
 
 INSTANTIATE_TEST_SUITE_P(
