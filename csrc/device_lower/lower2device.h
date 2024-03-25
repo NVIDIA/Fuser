@@ -240,7 +240,8 @@ class GpuLower : public NonCopyable {
     return passes_;
   }
 
-  // Register a boolean Val as a predicate to validate at the run time. Optional validation error messages can be given as args.
+  // Register a boolean Val as a predicate to validate at the run time. Optional
+  // validation error messages can be given as args.
   template <typename... Args>
   void validate(Val* validation_condition, Args... args) {
     auto sv = simplifyExpr(val);
