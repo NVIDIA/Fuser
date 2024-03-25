@@ -114,7 +114,7 @@ class MultiDeviceExecutor {
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication. Launch Params are used only if
-  // params_.use_fusion_executor_cache = true
+  // params_.use_fusion_executor_cache = false
   void postKernel(SegmentedGroup* group, const LaunchParams& launch_params);
   // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);

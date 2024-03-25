@@ -31,7 +31,7 @@ TensorView* scheduleReductionTV(
   // Inner here though is only relative to the other axis. When
   // rparams.fastest_dim == false, the reduction axis is logically outside the
   // iteration axis.
-  const int has_outmost_dim_sharded = isSharded(reduction_tv);
+  const bool has_outmost_dim_sharded = isSharded(reduction_tv);
   const int iter_axis = has_outmost_dim_sharded ? 1 : 0;
   const int outer_reduce_axis = rparams.schedule_3D ? 1 : 0;
   const int inner_reduce_axis =
