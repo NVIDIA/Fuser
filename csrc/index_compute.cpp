@@ -3790,25 +3790,15 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
           in->toString(),
           " is not on the path.");
-      Val* is_divisible = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+      Val* is_divisible = SimplifyingIrBuilder::eqExpr(
           SimplifyingIrBuilder::modExpr(in->extent(), split->factor()),
-          gmem_tv->fusion()->zeroVal()));
-      NVF_ERROR(
-          !is_divisible->isFalse(),
-          "The stride of ",
-          in->toString(),
+          gmem_tv->fusion()->zeroVal());
+      GpuLower::current()->validate(
+          is_divisible,
+          "Invalid view in TMA: the extent of ",
+          in,
           " must be divisible by ",
-          split->factor()->toInlineString());
-      if (!is_divisible->isTrue()) {
-        // TODO: enable this
-        // https://github.com/NVIDIA/Fuser/pull/1959
-        // GpuLower::current()->requestValidate(
-        //     is_divisible,
-        //     "The stride of ",
-        //     in,
-        //     " must be divisible by ",
-        //     split->factor());
-      }
+          split->factor());
       frontier.insert(
           in_it,
           std::make_tuple(
@@ -3921,8 +3911,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   }
 
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
-  // TODO: validate alignment of global_address
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
 
   Val* global_stride =
       (dim > 1
@@ -3981,8 +3969,15 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
   expected_bytes =
       GpuLower::current()->commonScalarMap().hoistScalar(expected_bytes, loops);
-  // TODO: validate expected_bytes
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+      expected_bytes->fusion()->zeroVal());
+  GpuLower::current()->validate(
+      is_multiple_of_16B,
+      "The expected bytes must be a multiple of 16 bytes, but ",
+      expected_bytes,
+      " is not.");
 
   return {IrBuilder::create<kir::TensorIndex>(gmem_tv, index), expected_bytes};
 }

@@ -870,7 +870,6 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
   // According to the CUDA programming guide, the size of the transfer must be
   // a multiple of 16 bytes:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
-  GTEST_SKIP() << "Validation for this test is not yet implemented";
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -902,15 +901,14 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
         FusionExecutor fe;
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Some error message")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "The expected bytes must be a multiple of 16 bytes, but 8 is not.")));
 }
 
 TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   // According to the CUDA programming guide, the size of the transfer must be
   // a multiple of 16 bytes:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
-  GTEST_SKIP() << "Validation for this test is not yet implemented";
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -952,8 +950,60 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       [&]() {
         fe.runFusion({t0, items_of_16_bytes / 2});
       },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "The expected bytes must be a multiple of 16 bytes, but ")));
+}
+
+TEST_F(TMARuntimeInvalidTest, InvalidView) {
+  // According to the CUDA programming guide, the size of the transfer must be
+  // a multiple of 16 bytes:
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-one-dim-tma
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // view as 2D
+    tv->split(0, 1024);
+    // create tile
+    tv->split(1, 32);
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(3)->parallelize(ParallelType::Bulk);
+  // tv2->axis(1)->parallelize(ParallelType::TIDy);
+  // tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  // (10240,) can be viewed as (10, 1024)
+  auto t0_valid = at::randn({10240}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0_valid}, {}, matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0_valid});
+  testValidate(&fusion, cg_outputs, {t0_valid}, {t0_valid}, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      [&]() {
+        // it is impossible to view (10249,) as (?, 1024)
+        auto t0_inval = at::randn({10249}, options);
+        fe.runFusion({t0_inval});
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Some error message")));
+          ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
 // End TMA tests
