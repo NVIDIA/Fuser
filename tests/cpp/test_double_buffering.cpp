@@ -16,7 +16,124 @@ namespace {
 class DoubleBufferingTest : public NVFuserTest {};
 } // anonymous namespace
 
-TEST_F(DoubleBufferingTest, DoubleBuffering1) {
+// TODO: to be revomed
+#define TMA_DEV_TOOLS 1
+
+#if TMA_DEV_TOOLS
+TEST_F(DoubleBufferingTest, WIP) {
+#else
+TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
+#endif
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // gmem -> smem (tma / double buffering / 1d -> 2d)
+  // smem -> gmem
+
+  constexpr size_t bulk_inner_dim = 32;
+  // constexpr size_t bulk_outer_dim = 4;
+  constexpr size_t tensor_dim = 130; // bulk_inner_dim * bulk_outer_dim;
+
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // [M] -> [M/bid, bid]
+  tv2->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv0->computeAt(tv2, 1);
+  tv1->doubleBuffer();
+
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  fusion.printTransforms();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({tensor_dim}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+
+#if TMA_DEV_TOOLS
+  {
+    auto ref_cpu_data = t0.cpu();
+    auto res_cpu_data = cg_outputs.front().cpu();
+
+    auto ref_cpu = ref_cpu_data.accessor<float, 1>();
+    auto res_cpu = res_cpu_data.accessor<float, 1>();
+
+    for (size_t pos = 0; pos < tensor_dim; ++pos) {
+      if (fabs((double)res_cpu[pos] - (double)ref_cpu[pos]) > 0.0001) {
+        std::cout << "[" << pos << "] - result: " << res_cpu[pos]
+                  << " | ref: " << ref_cpu[pos] << std::endl;
+      }
+    }
+  }
+#endif
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering2d) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // gmem -> smem (tma / double buffer / 2d -> 4d)
+  // smem -> gmem
+
+  constexpr size_t bulk_inner_dim = 4;
+  constexpr size_t bulk_outer_dim = 4;
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  // [M, N] -> [M, N/bid, bid]
+  tv2->split(-1, bulk_inner_dim);
+  // [M, N/bid, bid] -> [M/bod, bod, N/bid, bid]
+  tv2->split(0, bulk_outer_dim);
+  // [M/bod, bod, N/bid, bid] -> [M/bod, N/bid, bod, bid]
+  tv2->reorder({{-2, -3}});
+
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv0->computeAt(tv2, 2);
+  tv1->doubleBuffer();
+
+  fusion.printTransforms();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({bulk_outer_dim, bulk_inner_dim}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -682,5 +799,4 @@ TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
 
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
-
 } // namespace nvfuser
