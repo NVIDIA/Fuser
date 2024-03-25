@@ -244,6 +244,10 @@ class GpuLower : public NonCopyable {
   void validate(Val* val, Args... args) {
     auto sv = simplifyExpr(val);
     if (sv->isTrue()) {
+      // If val is simplified to true, we know that the condition is always
+      // true regardless of the runtime values of the inputs. We can skip the
+      // validation. For example, we are not interested in validating that
+      // 3 < 4 or i % 8 < 8 every time we run the kernel.
       return;
     }
     std::string message = to_str(args...);

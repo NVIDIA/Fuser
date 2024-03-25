@@ -987,6 +987,7 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  // (10240,) can be viewed as (10, 1024)
   auto t0_valid = at::randn({10240}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_valid}, {}, matmul_cparams);
@@ -995,6 +996,7 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
 
   EXPECT_THAT(
       [&]() {
+        // it is impossible to view (10249,) as (?, 1024)
         auto t0_inval = at::randn({10249}, options);
         fe.runFusion({t0_inval});
       },
