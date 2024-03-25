@@ -59,7 +59,7 @@ TEST_P(ShardedComputeTest, ComputeIndex) {
   fusion->addOutput(b);
   fusion->addOutput(c);
   fusion->addOutput(d);
-  
+
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
