@@ -257,12 +257,17 @@ class NVF_API Allocate final : public Expr {
   //! Allocation of a multi-dimensional buffer
   //!
   //! param shape Size of each dimension
+  //! param zero_init Should this memory be zero-initialized?
+  //! param resets_to_zero Will this memory be set to zero upon completion of
+  //!   this kernel?
+  //! param alias Is this an alias of previously-allocated memory
   explicit Allocate(
       IrBuilderPasskey passkey,
       Val* buffer,
       MemoryType memory_type,
       std::vector<Val*> shape = {},
       bool zero_init = false,
+      bool resets_to_zero = false,
       Allocate* alias = nullptr);
 
   //! Allocation of a non-dimensional buffer
@@ -273,7 +278,8 @@ class NVF_API Allocate final : public Expr {
       Val* buffer,
       MemoryType memory_type,
       Val* size,
-      bool zero_init = false);
+      bool zero_init = false,
+      bool resets_to_zero = false);
 
   const char* getOpString() const override {
     return "Allocate";
@@ -300,8 +306,8 @@ class NVF_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 5);
-    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 6);
+    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -311,10 +317,14 @@ class NVF_API Allocate final : public Expr {
     return attribute<bool>(2);
   }
 
+  bool resetsToZero() const {
+    return attribute<bool>(3);
+  }
+
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
-    return dynamic_cast<const Allocate*>(attribute(3));
+    return dynamic_cast<const Allocate*>(attribute(4));
   }
 
   // Set the address of a shared memory allocation within the dynamic shared
@@ -329,14 +339,14 @@ class NVF_API Allocate final : public Expr {
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
-    attributes_[4] = addr;
+    attributes_[5] = addr;
   }
 
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
-    return attributeVal(4);
+    return attributeVal(5);
   }
 };
 
