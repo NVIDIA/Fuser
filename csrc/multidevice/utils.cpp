@@ -20,7 +20,7 @@
 
 namespace nvfuser {
 namespace {
-  
+
 const std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
   std::unordered_set<IterDomain*> sharded_ids;
   std::copy_if(
