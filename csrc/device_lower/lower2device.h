@@ -244,17 +244,17 @@ class GpuLower : public NonCopyable {
   // validation error messages can be given as args.
   template <typename... Args>
   void validate(Val* validation_condition, Args... args) {
-    auto sv = simplifyExpr(val);
+    auto sv = simplifyExpr(validation_condition);
     if (sv->isTrue()) {
-      // If val is simplified to true, we know that the condition is always
-      // true regardless of the runtime values of the inputs. We can skip the
-      // validation. For example, we are not interested in validating that
-      // 3 < 4 or i % 8 < 8 every time we run the kernel.
+      // If validation_condition is simplified to true, we know that the
+      // condition is always true regardless of the runtime values of the
+      // inputs. We can skip the validation. For example, we are not interested
+      // in validating that 3 < 4 or i % 8 < 8 every time we run the kernel.
       return;
     }
     std::string message = to_str(args...);
     NVF_ERROR(!sv->isFalse(), message);
-    validations_.emplace_back(val, message);
+    validations_.emplace_back(sv, message);
   }
 
   const std::vector<std::pair<const Val*, std::string>>& validations() const {
