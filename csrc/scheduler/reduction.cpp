@@ -507,15 +507,19 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 }
 
 // Summary of the heuristic:
-// Generall, prioritize block reduction over grid reduction by allowing more
-// unroll and threads in reduction dim. If we have to do grid reduction, we
-// prioritize more threads in iteration dim, vectorization, and reduce thread
-// load serial workload.
+// Generally, prioritize block reduction over grid reduction by allowing more
+// unroll and threads in reduction dim. If we have to do grid reduction,
+// increase threads in iteration dim to avoid using too many blocks in iteration
+// dim. Optimize blocks in reduction dim to improve SM utilization.
+
+// Parallelization strategy:
 // iter dim: vectorization, bdimx, gdimx (Dynamic)
 // redu dim: redu_unroll, bdimy, gdimy, thread local serial (Dynamic)
+
+// Heuristic details:
 // (1) Define free parameters (magic numbers):
-//     register for unroll = 64 --> max unroll = 128 for fp16
-//     max_serial_reduce_top_unroll = 16.
+//     registers for unroll = 64 --> max unroll = 128 for fp16
+//     max_serial_reduce_top_unroll = 16
 //     max_redu_unroll = 64
 //     min_bdimx = 8
 // (2) split threads in block into bdimx (iter) and bidmy (redu)
@@ -530,14 +534,14 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 
 //     (5_block) If block reduce:
 //         set grid dim for iter (x), gdimx = iter / (bdimx*vect)
-//         if gdimx < quarter wave, reduce iter_unroll
+//         if gdimx < quarter wave, reduce vect
 //     (5_grid) If grid reduce:
 //         (a) set grid dim for iter (x), gdimx = iter / (bdimx*vect)
 //             if gdimx > half wave, increase bdimx (from 8 up to 64)
 //         (b) start grid dim for redu (y) from min:
 //             gdimy = redu / (bdimy * redu_unroll * max_serial)
 //         (c) adjust gdimy for better grid reduce and SM utilization:
-//             (c.1) ensure gdimy >= 4
+//             (c.1) ensure gdimy >= 4 to reduce serial iterations
 //             (c.2) ensure gdimx * gdimy close to one wave or more
 //             (c.3) adjust gdimy to power of 2 for better tree reduction
 //             (c.4) adjust gdimx * gdimy to avoid ragged waves
@@ -566,7 +570,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // vectorized by 8 and unrolled by 32.
   constexpr int64_t max_buffer_register = 64L;
 
-  // avoid using very larege unroll in reduction dim, e.g. when iter dim is
+  // avoid using very large unroll in reduction dim, e.g. when iter dim is
   // very small, iter_unroll = 1, don't let all unroll go to reduction dim.
   constexpr int64_t max_redu_unroll = 64l;
 
@@ -576,7 +580,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   constexpr int64_t max_serial_reduce_top_unroll = 16L;
 
   // [min_bdimx] is used to set [bdimx], which parallels the iteration dim.
-  // In CUDA, 32 threads are gouped as a warp, when we set bdimx = 8, the 32
+  // In CUDA, 32 threads are grouped as a warp, when we set bdimx = 8, the 32
   // threads within a warp access 4 consecutive rows of data from gmem. Assume
   // each row has Y bytes of data and after vectorization each thread accesses
   // 16 bytes of data. So the gmem access pattern is:
@@ -590,7 +594,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // and we need 8 64-bytes transactions.
   // If we further increase [min_bdimx] to 16, the data is spread into 2
   // rows, each row has 16 x 16 = 256 bytes of data. Since the largest
-  // transaction is 128 btyes, we still needs 2 x 2 = 4 128-bytes transactions.
+  // transaction is 128 bytes, we still needs 2 x 2 = 4 128-bytes transactions.
   constexpr int64_t min_bdimx = 8;
 
   auto max_unroll = ceilDiv(
@@ -700,18 +704,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   bdimx = std::min(min_bdimx, total_iteration_numel);
 
   // Set iter_unroll_factor (vectorization) before increasing bdimx.
-  // for block reduce: may be further decreased to use more blocks.
-  // for grid reduce: this is the final value.
-  iter_unroll_factor = [&]() {
-    // start with max allowed
-    int64_t factor = (int64_t)vectorize_factor;
-
+  // for block reduce: may be further decreased to use more blocks to reduce
+  // unused SMs. for grid reduce: this is the final value, we can use more
+  // blocks in the reduction dim if SM utilization is low.
+  {
+    iter_unroll_factor = (int64_t)vectorize_factor;
     // limitation set by iter extent
-    factor = std::min(factor, iDimAvail());
-
+    iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
     // Adjust to last power of 2
-    return scheduler_utils::lastPow2(factor);
-  }();
+    iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+  }
 
   // adjust bdimx
   if (total_iteration_numel > bdimx && total_iteration_numel < bdimx * 2) {
@@ -723,7 +725,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
 
   // check if needs grid reduce using current bidmx and iter_unroll_factor
-  bool is_grid_reduce = [&]() {
+  bool is_grid_reduce = false;
+  {
     int64_t tmp_bdimy = std::min(
         scheduler_utils::safeDiv(target_threads_in_block, bdimx),
         total_reduction_numel);
@@ -732,8 +735,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         std::min(max_redu_unroll, target_unroll / iter_unroll_factor);
     int64_t thread_local_redu =
         ceilDiv(total_reduction_numel, tmp_bdimy * tmp_redu_unroll);
-    return thread_local_redu > max_serial_reduce_top_unroll;
-  }();
+    is_grid_reduce = thread_local_redu > max_serial_reduce_top_unroll;
+  }
 
   // If grid reduce:
   // avoid using more than half wave of blocks in iter dim (leave some for redu
@@ -785,10 +788,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // parallelizing iteration dimension didn't take the available unroll factor.
   inner_reduction_unroll_factor =
       std::min(max_redu_unroll, target_unroll / iter_unroll_factor);
-  grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
 
-  // For grid reduction, use at least 4 blocks in reduction dim.
-  // use at least one wave of blocks in taoal.
+  // start reduction blocks from the minimum
+  // increase to reduce serial iterations
+  grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
   if (is_grid_reduce) {
     grdim = std::max(grdim, 4l);
     grdim = std::max(
