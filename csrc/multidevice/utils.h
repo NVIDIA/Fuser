@@ -42,7 +42,6 @@ void unshard(TensorView*);
 
 // Runs through the fusion and inserts a resharding Set Op before any resharding
 // Expr that is not directly lowerable to a series of communications
-// TODO: add an option to rather insert the Set AFTER the resharding Expr
 void insertReshardings(Fusion* fusion);
 
 } // namespace nvfuser

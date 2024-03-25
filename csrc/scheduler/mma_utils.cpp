@@ -1359,7 +1359,7 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // First check the tensorsview is 3D (4D)
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
-  auto dims = bcast_out->domain()->noDevices().size();
+  auto dims = TensorDomain::noDevices(bcast_out->getLeafDomain()).size();
   if (!((dims == 3 || dims == 4) &&
         TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
             dims - 1)) {
@@ -1376,7 +1376,7 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
 
 int64_t numBroadcastDeviceDims(TensorView* tv) {
   int64_t num = 0;
-  for (auto id : tv->getMaybeRFactorDomain()) {
+  for (auto id : tv->getLeafDomain()) {
     if (id->isDeviceDim() && id->isBroadcast()) {
       num += 1;
     }

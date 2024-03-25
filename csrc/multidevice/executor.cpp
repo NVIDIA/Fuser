@@ -15,8 +15,6 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 
-#include <chrono>
-
 namespace nvfuser {
 
 namespace {
@@ -195,16 +193,12 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       inputs.size() == staged_fusion_->inputs().size(),
       "Wrong number of inputs");
 
-  auto start = std::chrono::high_resolution_clock::now();
   auto allocations =
       allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
   NVF_ERROR(vals_to_allocate_.size() == allocations.size());
   for (auto i : c10::irange(allocations.size())) {
     val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
   }
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration = end - start;
-  std::cout << "Allocation: " << duration.count() << "seconds" << std::endl;
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
@@ -215,17 +209,9 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
-      start = std::chrono::high_resolution_clock::now();
       postKernel(group);
-      end = std::chrono::high_resolution_clock::now();
-      duration = end - start;
-      std::cout << "Kernel call: " << duration.count() << "seconds" << std::endl;
     } else {
-      start = std::chrono::high_resolution_clock::now();
       postCommunication(group);
-      end = std::chrono::high_resolution_clock::now();
-      duration = end - start;
-      std::cout << "Comms call: " << duration.count() << "seconds" << std::endl;
     }
   }
 

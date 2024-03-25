@@ -39,7 +39,6 @@
 #include <transform_rfactor.h>
 
 #include <algorithm>
-#include <chrono>
 #include <iostream>
 
 namespace nvfuser {
@@ -434,24 +433,6 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestStagedReduction,
     ::testing::Values(SchedulingMode::InterDeviceOnly, SchedulingMode::Manual));
 
-inline std::vector<at::Tensor> executeAndTime(
-      MultiDeviceExecutor& runtime, std::vector<c10::IValue>& inputs) {
-  auto start = std::chrono::high_resolution_clock::now();
-  auto outputs = runtime.runWithInput(inputs);
-  auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> duration = end - start;
-  std::cout << "First run : " << duration.count() << "seconds" << std::endl;
-
-  start = std::chrono::high_resolution_clock::now();
-  for (auto i = 0; i < 5; i++) {
-    runtime.runWithInput(inputs);
-  }
-  end = std::chrono::high_resolution_clock::now();
-  duration = end - start;
-  std::cout << "Average time taken: " << duration.count() / 5.0 << "seconds" << std::endl;
-  return outputs;
-}
-
 // option = is output sharded
 class DistributedMatmul : public MultiDeviceTest,
                           public ::testing::WithParamInterface<bool> {};
@@ -522,7 +503,6 @@ TEST_P(DistributedMatmul, LayoutTN) {
   MultiDeviceExecutorParams params{true, false, false};
   MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
   auto outputs = runtime.runWithInput(inputs);
-  // auto outputs = executeAndTime(runtime, inputs);
   auto tolerance_overwrite = ValidationConstants();
   std::array<std::array<double, 2>, 20> relaxed_sum_tol;
   for (auto& arr : relaxed_sum_tol) {
@@ -612,8 +592,7 @@ TEST_F(MultiDeviceTest, MatmulNT_AllReduce) {
 
   MultiDeviceExecutorParams params{true, false, false};
   MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
-  // auto outputs = runtime.runWithInput(inputs);
-  auto outputs = executeAndTime(runtime, inputs);
+  auto outputs = runtime.runWithInput(inputs);
   // TODO: tolerance needed for this test seems high.
   // TODO: check percision of AllReduce.
   auto tolerance_overwrite = ValidationConstants();
@@ -660,7 +639,8 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  std::vector<int64_t> orig_size = {1, M, N}; // Note: {Ko,M,N}, but Ko is sharded. 48, 24
+  // TODO: How should reshape work with sharded sizes?
+  std::vector<int64_t> orig_size = {1, M, N};
   std::vector<int64_t> new_size = {1, Mo, Mi, N}; 
   TensorView* c1 = reshape(c0, orig_size, new_size); 
   TensorView* c = sum(c1, {0}); 
@@ -700,7 +680,6 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   MultiDeviceExecutorParams params{true, false, false};
   MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
   auto outputs = runtime.runWithInput(inputs);
-  // auto outputs = executeAndTime(runtime, inputs);
   // TODO: error is higher than expected. 
   // Check precision of ReduceScatter.
   auto tolerance_overwrite = ValidationConstants();

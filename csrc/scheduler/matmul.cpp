@@ -39,6 +39,7 @@ bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(heuristicType(), msg);
     return false;
   }
+
   return true;
 }
 
@@ -858,7 +859,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
-  auto nLocalDims = mma_result->domain()->noDevices().size();
+  auto nLocalDims = TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
       nLocalDims == 3 || nLocalDims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",

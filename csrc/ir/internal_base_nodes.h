@@ -545,10 +545,6 @@ class TensorDomain : public Val {
     return no_bcast_domain_.size() != leaf_domain_.size();
   }
 
-  bool hasDevice() const {
-    return no_device_domain_.size() != leaf_domain_.size();
-  }
-
   bool hasRFactor() const {
     return !rfactor_domain_.empty();
   }
@@ -572,14 +568,6 @@ class TensorDomain : public Val {
 
   const std::vector<IterDomain*>& noBroadcasts() const {
     return no_bcast_domain_;
-  }
-
-  const std::vector<IterDomain*>& noDevices() {
-    // TODO: properly initialize in constructors.
-    if (no_device_domain_.size() == 0) {
-      no_device_domain_ = noDevices(leaf_domain_);
-    }
-    return no_device_domain_;
   }
 
   // The input logical domain. The root domain of a consumer should equal the
@@ -637,7 +625,6 @@ class TensorDomain : public Val {
   void resetDomains() {
     no_reduction_domain_ = noReductions(leaf_domain_);
     no_bcast_domain_ = noBroadcasts(leaf_domain_);
-    no_device_domain_ = noDevices(leaf_domain_);
     has_reduction_ = hasReduction(leaf_domain_);
   }
 
