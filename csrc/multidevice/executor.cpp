@@ -113,7 +113,8 @@ void MultiDeviceExecutor::postKernel(
     // the group's `input_vals` are `{input 1, ..., input n, blockDim,
     // gridDim}`. However, `FusionExecutor::runFusion` expects `inputs` to be
     // `{input 1, ..., input n}` and `launch_constraints` to contain `blockDim`
-    // and `gridDim`.     std::vector<Val*> group_input_vals;
+    // and `gridDim`.
+    std::vector<Val*> group_input_vals;
     for (auto input : group->inputs()) {
       if (input->isA<NamedScalar>() &&
           input->as<NamedScalar>()->getParallelDim().has_value() &&
