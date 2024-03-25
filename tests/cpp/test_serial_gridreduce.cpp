@@ -43,6 +43,12 @@ TEST_F(SerialGridReductionTest, Scheduling) {
       // per thread), so that the non-serial compilation does not take too
       // long.
       for (int64_t B : {8}) {
+        std::stringstream ss;
+        DebugStreamGuard dsg(ss);
+        DebugDumpOptionsGuard ddog;
+        DebugDumpOptionsGuard::getCurOptions().set(
+            DebugDumpOption::GlobalZeroedMemory);
+
         std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
         auto fusion = fusion_ptr.get();
         FusionGuard fg(fusion);
@@ -121,8 +127,16 @@ TEST_F(SerialGridReductionTest, Scheduling) {
         auto outputs = fe.runFusion({input});
 
         if (serial) {
-          testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
+          // Verify that zeroed semaphore memory was reused instead of
+          // launching memset. We cannot easily confirm that the memset kernel
+          // was not launched, but we can check that the global zeroed memory
+          // pool actually serviced an allocation request.
+          EXPECT_THAT(
+              ss.str(),
+              testing::HasSubstr("Allocating byte range: 0 to 512 bytes"));
         }
+
+        testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
       }
     }
   }
