@@ -704,7 +704,6 @@ class TensorDomain : public Val {
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
-  std::vector<IterDomain*> no_device_domain_;
   std::vector<std::optional<bool>> contiguity_;
   bool has_reduction_ = false;
 };
