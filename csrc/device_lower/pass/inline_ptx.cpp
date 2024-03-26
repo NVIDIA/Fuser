@@ -32,7 +32,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
   void handle(kir::AsyncWait* wait) override {
     if (wait->asyncOpType() == AsyncOpType::CpAsync &&
-        wait->keepStages() == 0) {
+        wait->keepStages()->isConstInt() &&
+        wait->keepStages()->evaluate().as<int64_t>() == 0) {
       // cp.async uses wait_all for zero keep stages, other instructions uses a
       // unified interface for all keep stages.
       registerReplace(
@@ -48,7 +49,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
           IrBuilder::create<kir::Asm>(
               wait->ptx(),
               std::vector<Val*>{},
-              std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
+              std::vector<Val*>{wait->keepStages()},
               kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
     }
   }

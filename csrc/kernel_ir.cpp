@@ -633,7 +633,8 @@ AsyncWait::AsyncWait(
 
 std::string AsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << ptx() << " " << keepStages() << "\n";
+  indent(ss, indent_size) << ptx() << " " << keepStages()->toInlineString()
+                          << "\n";
   return ss.str();
 }
 
