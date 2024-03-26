@@ -9,7 +9,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <compute_at_map.h>
 #include <executor.h>
+#include <id_model/id_model.h>
+#include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -73,6 +76,7 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Same as 1 but merge starting from inner most dimension
 TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -123,6 +127,7 @@ TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Same compute as 1 and 2 but use a scheduler.
 TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -153,6 +158,7 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Same as 3 but use 3 dimensions and concrete sizes
 TEST_F(NVFuserTest, FusionIndexing4_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -352,8 +358,8 @@ TEST_F(NVFuserTest, FusionIndexing8_CUDA) {
       &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__, __FILE__);
 }
 
+// Same as 5 but using implicit broadcast
 TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
-  // Same as 7 but with outer splits instead of inner
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -727,43 +733,574 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Repro of issue #2560
+// TODO: Finish and enable test
 TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  TensorView* tv0 = makeConcreteTensor({5, 7, 11, 13});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = makeConcreteTensor({5, 11});
+  fusion.addInput(tv2);
+
+  auto tv3 = broadcast(tv2, {false, true, false, true});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  // // tv4[5, 7, 11, 13] = tv3[5, b1, 11, b3] + tv1[5, 7, 11, 13]
+  tv4->merge(0, 3);
+  // tv4[5*13, 7, 11]
+  tv4->split(0, 3);
+  // tv4[5*13//3, 3, 7, 11]
+  tv4->merge(2, 3)->split(2, 2);
+  // tv4[5*13//3, 3, 7*11//2, 2]
+  // tv4->merge(0, 2);
+  // // tv4[(5*13//3)*(7*11//2), 3, 2]
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  inlineAllAt(tv4, 1, false);
+  fusion.printKernel();
+  // std::cout<<tv4->definition()->toString()<<std::endl;
+  // fusion.print();
+  // ComputeAtMap ca_map(&fusion);
+  // std::cout << ca_map.idGraph().loopNodes().toString() << std::endl;
+}
+
+// TODO: Finish and enable test
+//
+// Create a case where we're missing a valid concrete id so the compute at map
+// processing will fail. We need to be able to create the concrete ID not just
+// look for one.
+TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({7});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = broadcast(tv1, {false, true});
+
+  auto tv3 = makeConcreteTensor({7, 11});
+  fusion.addInput(tv3);
+
+  auto tv4 = add(tv3, tv2);
+  auto tv5 = broadcast(tv4, {false, false, true});
+  // tv4[7, 11, 1]
+
+  auto tv6 = broadcast(tv1, {false, true});
+
+  auto tv7 = makeConcreteTensor({7, 13});
+  fusion.addInput(tv7);
+  auto tv8 = add(tv7, tv6);
+  auto tv9 = broadcast(tv8, {false, true, false});
+  // tv9[7, 1, 13]
+
+  auto tv10 = add(tv5, tv9);
+  fusion.addOutput(tv10);
+
+  // tv10[7, 11, 13]
+  tv10->merge(0)->merge(0);
+  // tv10[7*11*13]
+  tv10->split(0, 5)->split(0, 3);
+  // tv10[7*11*13//5//3, 3, 5]
+
+  TransformPropagatorWithCheck propagator(tv10);
+  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+
+  std::vector<TensorView*> tensors_to_inline{tv1, tv2, tv4, tv6, tv8};
+  for (auto tensor : tensors_to_inline) {
+    tensor->inlineAt(1);
+  }
+
+  // Validation needs to be disabled as ComputeAtMap would fail with this fusion
+  IdModel id_model(
+      &fusion,
+      /* build_graphs */ true,
+      /* allow_self_mapping */ false,
+      /* validate */ false);
+
+  // All of the IDs that are generated with merge operations from the
+  // root domains should be mapped to the single group.
+  const ValGroup& merge_loop_group =
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      if (dynamic_cast<Split*>(id->definition()) == nullptr) {
+        const ValGroup& loop_group =
+            id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+        ASSERT_EQ(loop_group, merge_loop_group)
+            << "Unexpected loop group: " << nvfuser::toString(loop_group);
+      }
+    }
+  }
+
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  // The merge loop group should be promoted to the output of the
+  // final merge in tv10
+  auto ref_merge_out = tv10->axis(0)
+                           ->definition()
+                           ->input(0)
+                           ->definition()
+                           ->input(0)
+                           ->as<IterDomain>();
+
+  auto promotion_map_it = promotion_map.find(merge_loop_group);
+  ASSERT_TRUE(promotion_map_it != promotion_map.end())
+      << "Loop promotion not found for merge loop group: "
+      << nvfuser::toString(merge_loop_group);
+  auto merge_out_promotion_id = promotion_map_it->second;
+  ASSERT_EQ(
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(merge_out_promotion_id),
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out))
+      << "Merge loop group should be promoted to " << ref_merge_out->toString();
+  ASSERT_NE(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(merge_out_promotion_id),
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_merge_out))
+      << "Should not be loop-mapped with ref: "
+      << merge_out_promotion_id->toString();
+
+  // Get the corresponding reference ID in tv10
+  auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
+    if (dynamic_cast<Split*>(id->definition()) != nullptr) {
+      if (id->uses().empty()) {
+        auto it = std::find(
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+        NVF_ERROR(it != tv->getLeafDomain().end());
+        int leaf_pos =
+            static_cast<int>(std::distance(tv->getLeafDomain().begin(), it));
+        return tv10->axis(leaf_pos);
+      } else {
+        return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
+      }
+    } else {
+      return ref_merge_out;
+    }
+  };
+
+  // Check if id is a leaf of a consumer tensor of tv
+  auto isIdOfConsumerTensor = [&](IterDomain* id, TensorView* tv) -> bool {
+    auto consumer_tvs = ir_utils::consumerTvsOf(tv);
+    return std::any_of(
+        consumer_tvs.begin(), consumer_tvs.end(), [&](auto consumer_tv) {
+          auto all_ids = ir_utils::allIDsOf(consumer_tv);
+          return std::find(all_ids.begin(), all_ids.end(), id) != all_ids.end();
+        });
+  };
+
+  // At this point, all of the IDs from the root until split are
+  // validated. Validating the remaining IDs
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+      if (loop_group == merge_loop_group) {
+        // already validated
+        continue;
+      }
+
+      auto promotion_map_it = promotion_map.find(loop_group);
+      ASSERT_TRUE(promotion_map_it != promotion_map.end())
+          << "Loop promotion not found for " << id->toString() << " of "
+          << tv->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+
+      auto promotion_id = promotion_map_it->second;
+
+      // Promotion ID should be loop-mapped
+      ASSERT_TRUE(loop_group->has(promotion_id))
+          << "Loop promotion for " << id->toString() << " of " << tv->toString()
+          << " is promoted to an ID that isn't loop mapped: "
+          << promotion_id->toString() << std::endl;
+
+      auto promotion_exact_group =
+          id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_id);
+
+      auto ref_id = getRefId(tv, id);
+      auto ref_exact_group =
+          id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
+
+      ASSERT_EQ(promotion_exact_group, ref_exact_group)
+          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
+          << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
+
+      auto ref_loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_id);
+      ASSERT_NE(loop_group, ref_loop_group)
+          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
+          << ". Should not be loop-mapped with ref: "
+          << nvfuser::toString(loop_group);
+
+      // If id is a leaf, make sure it isn't mapped with
+      auto leaf_id_it =
+          std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+      if (leaf_id_it != tv->getLeafDomain().end() &&
+          std::distance(tv->getLeafDomain().begin(), leaf_id_it) >=
+              tv->getComputeAtPosition()) {
+        for (auto loop_mapped_id : *loop_group) {
+          if (loop_mapped_id == id) {
+            continue;
+          }
+          ASSERT_FALSE(
+              isIdOfConsumerTensor(loop_mapped_id->as<IterDomain>(), tv))
+              << "Invalid promotion: " << id->toString() << " of "
+              << tv->toString() << ". Found to mapped a consumer tensor: "
+              << loop_mapped_id->name();
+        }
+      }
+    }
+  }
+
+  // The current ComputeAtMap fails with this fusion
+  // fusion.printKernel();
+}
+
+// Progressive loop promotion. producer gets promoted in consumer, consumer is
+// promoted in a different way to its consumer.
+TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+
+  // [5]
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  // [1, 5]
+  auto tv3 = makeConcreteTensor({3, 5});
+  fusion.addInput(tv3);
+  auto tv4 = add(tv3, tv2);
+  // [3, 5]
+
+  auto tv5 = broadcast(tv4, {false, false, true});
+  // [3, 5, 1]
+  auto tv6 = makeConcreteTensor({3, 5, 7});
+  fusion.addInput(tv6);
+  auto tv7 = add(tv5, tv6);
+  // [3, 5, 7]
+  fusion.addOutput(tv7);
+
+  tv4->merge(0)->split(0, 2, false);
+  // [3, 5]
+  // [3, 3*5//2]
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  // tv0->tv1->tv2(b)->tv4->tv5(b)->tv7
+
+  tv1->inlineAt(1);
+  tv2->inlineAt(1);
+  tv4->inlineAt(1);
+
+  // [2, 3*5//2]
+  tv5->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*1//4]
+  tv7->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*7//4]
+  tv5->inlineAt(2);
+
+  IdModel id_model(&fusion);
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  // For tv1, tv2, tv4, their first leaf domains should all be
+  // loop-mapped and promoted to a domain that is exaclty mapped with
+  // the first leaf domain of tv7. The second leaf domains should also
+  // be promoted to the domain at the same position in tv7 but since
+  // they are not inlined, they should not be loop-mapped
+  for (auto tv : {tv1, tv2, tv4}) {
+    // Validating the first leaf ID
+    {
+      auto leaf_id0 = tv->axis(0);
+      auto ref_id0 = tv7->axis(0);
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::LOOP)
+                      .disjointValSets()
+                      .strictAreMapped(leaf_id0, ref_id0));
+      auto promotion_map_it = promotion_map.find(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id0));
+      ASSERT_NE(promotion_map_it, promotion_map.end());
+      auto promoted_id = promotion_map_it->second;
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                      .disjointValSets()
+                      .strictAreMapped(promoted_id, ref_id0))
+          << "Expected exact mapping: " << promoted_id->toString() << " with "
+          << ref_id0->toString() << " of " << tv7->toString();
+    }
+
+    // Validating the second leaf ID
+    {
+      auto leaf_id1 = tv->axis(1);
+      // Should be promoted to a domain that is exactly mapped with iS31
+      auto ref_id1 = tv7->axis(1)
+                         ->definition()
+                         ->as<Split>()
+                         ->in()
+                         ->definition()
+                         ->as<Merge>()
+                         ->outer();
+      auto promotion_map_it = promotion_map.find(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id1));
+      ASSERT_NE(promotion_map_it, promotion_map.end());
+      auto promoted_id = promotion_map_it->second;
+      ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                      .disjointValSets()
+                      .strictAreMapped(promoted_id, ref_id1))
+          << "Expected exact mapping: " << promoted_id->toString() << " with "
+          << ref_id1->toString() << " of " << tv7->toString();
+      // While promoted ID should be exact-mapped with the reference ID, they
+      // should not be loop-mapped
+      ASSERT_FALSE(id_model.idGraph(IdMappingMode::LOOP)
+                       .disjointValSets()
+                       .strictAreMapped(promoted_id, ref_id1))
+          << "Expected no loop mapping: " << promoted_id->toString() << " with "
+          << ref_id1->toString() << " of " << tv7->toString();
+
+      // In the case of tv1 and tv2, the promoted id is a newly replayed
+      // domain, whereas for the tv4, there should be no replay as
+      // there's no broadcast. So, the size of the loop group should be
+      // 2 for the former and 1 for the latter.
+      const auto& leaf_id1_loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(leaf_id1);
+      ASSERT_EQ(leaf_id1_loop_group->size(), tv == tv4 ? 1 : 2)
+          << "Unexpected loop group: "
+          << nvfuser::toString(leaf_id1_loop_group);
+    }
+  }
+
+  // Validate tv5. The last leaf domain should be promoted to a domain
+  // that is exactly mapped with the last domain of tv7
+  {
+    auto last_leaf = tv5->axis(-1);
+    auto promotion_map_it = promotion_map.find(
+        id_model.idGraph(IdMappingMode::LOOP).toGroup(last_leaf));
+    ASSERT_NE(promotion_map_it, promotion_map.end());
+    auto promoted_id = promotion_map_it->second;
+    ASSERT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                    .disjointValSets()
+                    .strictAreMapped(promoted_id, tv7->axis(-1)))
+        << "Expected exact mapping: " << promoted_id->toString() << " with "
+        << tv7->axis(-1)->toString() << " of " << tv7->toString();
+
+    // While promoted ID should be exact-mapped with the last ID, they
+    // should not be loop-mapped
+    ASSERT_FALSE(id_model.idGraph(IdMappingMode::LOOP)
+                     .disjointValSets()
+                     .strictAreMapped(promoted_id, tv7->axis(-1)))
+        << "Expected no loop maping: " << promoted_id->toString() << " with "
+        << tv7->axis(-1)->toString() << " of " << tv7->toString();
+  }
+
+  // Validation not enabled yet as incorrect code is generated. Need
+  // to use the loop promotion info to generate correct loop-nests
+#if 0
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5}, options);
+  auto t3 = at::randn({3, 5}, options);
+  auto t6 = at::randn({3, 5, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t3, t6};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+#endif
+}
+
+// Repro for issue #1873
+TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+  tv4->split(0, 32);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv2->inlineAt(1);
+  tv3->inlineAt(1);
+
+  tv2->split(-1, 8);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({123}, options);
+  at::Tensor t1 = at::randn({3, 123}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+
+  auto outputs = fe.runFusion({t0, t1});
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Broadcast inline 3 times and merge all domains
+TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [y]
+  auto tv0 = makeSymbolicTensor(1);
+  // [w, x, y, z]
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // y
+  auto tv2 = broadcast(tv0, {true, false});
+  // w, y, z
+  auto tv3 = broadcast(tv2, {false, false, true});
+  // w, y, z
+  auto tv4 = broadcast(tv3, {false, true, false, false});
+  // w, x, y, z
+  auto tv5 = add(tv4, tv1);
+
+  fusion.addOutput(tv5);
+
+  tv5->merge(1)->merge(1)->merge(0)->split(0, 11);
+
+  tv0->computeAt(tv5, 1);
+  tv1->computeAt(tv5, 1);
+
+  FusionExecutor fe;
+
+  int w = 3, x = 4, y = 7, z = 8;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({y}, options);
+  at::Tensor t1 = at::randn({w, x, y, z}, options);
+
+  auto t4 = t0.unsqueeze(0).unsqueeze(0).unsqueeze(-1);
+  auto aten_output = t4.add(t1);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+// Broadcast and concretize same domain in two different ways and try to merge
+// their loops. The inlining pattern is invalid but the current
+// inlining check is not capable of flagging the inlining poistion as
+// invalid. The loop promotion analysis should not find any promotion
+// of the loop group where all the leaf domains are merged into.
+TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // [w]
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
+
+  // [w, x]
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  // [w, y]
+  auto tv2 = makeSymbolicTensor(2);
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv0);
+  // [w]
+  auto tv4 = broadcast(tv3, {false, true});
+  // [w, 1]
+  auto tv5 = add(tv4, tv1);
+  // [w, x]
+  fusion.addOutput(tv5);
+
+  // [w]
+  auto tv6 = broadcast(tv3, {false, true});
+  // [w, 1]
+  auto tv7 = add(tv6, tv2);
+  // [y]
+  fusion.addOutput(tv7);
+
+  for (auto tv : std::vector<TensorView*>{tv4, tv5, tv6, tv7}) {
+    tv->merge(0);
+  }
+
+  // Since x and y are not proven to be the same, this inling position
+  // should not be allowed.
+  for (auto tv : std::vector<TensorView*>{tv3, tv4, tv6}) {
+    tv->inlineAt(1);
+  }
+
+  // For now, just make sure there's no loop promotion for the merged
+  // loop group.
+  IdModel id_model(&fusion);
+  const auto& leaf_loop_group =
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv7->axis(0));
+  auto promotion_map_it = id_model.loopPromotionMap().find(leaf_loop_group);
+  ASSERT_EQ(promotion_map_it, id_model.loopPromotionMap().end());
+}
+
+// TODO: All the above tests are merges followed by splits, we should make some
+// more complex examples even though merging then spliting is the most likely
+// use case. In multi-gpu it may be the exact opposite where we split out the
+// outer most iter domain to the multi-gpu dimension, then schedule.
+
+TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // [w]
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // [w, x]
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, true});
-  auto tv3 = add(tv2, tv1);
-  auto tv4 = sum(tv3, {0, 1});
-  fusion.addOutput(tv4);
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
 
-  tv4->merge(0);
-  tv4->split(0, 4);
-  auto tv5 = tv4->rFactor({1});
+  tv3->split(0, 3);
+  tv3->split(2, 4);
+  tv3->merge(1);
+  tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv5);
-  TransformPropagator tp(tv5);
+  MaxRootDomainInfoSpanningTree tree(tv3);
+  TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
-  inlineAllAt(tv4, 1, true);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({5}, options);
-  at::Tensor t1 = at::randn({5, 3}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
-
+  inlineAllAt(tv3, 1, true);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs);
-  auto cg_outputs = fe.runFusion(inputs);
 
-  auto ref = (t0.unsqueeze(-1) + t1).sum();
+  int x = 4, y = 7;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  testValidate(fe.kernel(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  at::Tensor t0 = at::randn({x}, options);
+  at::Tensor t1 = at::randn({x, y}, options);
+
+  auto t2 = t0.unsqueeze(-1);
+  auto aten_output = t1.add(t2);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

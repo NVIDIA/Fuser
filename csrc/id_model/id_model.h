@@ -64,6 +64,20 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // considered the exact same size operating on matching dimensions from the root
 // domain mapping.
 //
+// LOOP mode is important to resolve inlined broadcassts. If we have something
+// like: consumer[i0o, threadIdx.x{i0i}] = producer[i0o,
+// threadIdx.y{i0i}](computeAt = 1) which can easily happen when using shared
+// memory. Loop is actually defined for all iteration domains, and resembles
+// groups of iter domains that are effectively inlined with eachother. Therefore
+// iter domain's that are a common dependency of inlined leaf domains may be
+// loop mapped together. This map is developed in lowering from
+// bulidInlinePromotions and buildLoopPromotionMap.
+//
+// Loop promotion is a mechanism by which to capture inlined resolved
+// broadcasts. If a consumer resolves a broadcast of a producer, and the
+// producer's broadcast is inlined (in total or partially). Then the producer's
+// iter domain will be "promoted" to the size of the consumers iter domain.
+//
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -80,8 +94,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
-//   dependent domains
-//
+//   dependent domains. Denotes groups of IterDomains that are
+//   promoted to a common iter domain
 class IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
@@ -169,7 +183,7 @@ class IdModel : public PolymorphicBase {
   // fusion.
   void buildIterDomainDefinitionsAndUses();
 
-  /// Start loop map by grouping inlined iter domains
+  // Start loop map by grouping inlined iter domains
   void initializeLoopGraph(const StatefulInliningInfo& info);
 
   // Build a map of loop groups to IterDomains that represent actual
@@ -192,7 +206,35 @@ class IdModel : public PolymorphicBase {
   // input is promoted, the output needs to be promoted too. If
   // there's already an equivalent expr that uses the promoted inputs,
   // create a mapping from the outputs of the IEL expr to the outputs
-  // of the equivalent expr.
+  // of the equivalent expr. When require_loop_mapped_promotion is
+  // true, the equivalent expr needs to be already loop mapped. If no
+  // such expr is found, the IEL expr is replayed iwth the promoted
+  // inputs. require_loop_mapped_promotion is true when this function
+  // is used for step 3.
+  //
+  // This is used twice when building the promotion map. The first time
+  // it is used there's no loop graph promotion yet, so only the IEL
+  // promotions are propagated. In that case, loop_graph_promotion_map
+  // should be just empty.
+  //
+  // Propagation uses iel_promotion_map and
+  // loop_graph_promotion_map. If both are available for an IEL group,
+  // the former has the precedence. This is because when this function
+  // is used for step 4, the given iel_promotion_map starts as an
+  // empty map and gets populated during this propagation, so any
+  // mapping in the map is guaranteed to be the correct final mapping,
+  // whereas the loop graph may have invalid mappings for partially
+  // inlined domains.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
+      bool require_loop_mapped_promotion);
+
+  // Same as the other propagatePromotionsInIELGraph but without loop
+  // graph map. This is used for step 2, where there's no loop
+  // graph map yet.
   void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
@@ -207,20 +249,36 @@ class IdModel : public PolymorphicBase {
       const ValGraph& loop_graph,
       const StatefulInliningInfo& inlining_info);
 
+  void sanityCheckLoopPromotionMap(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
+
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
   // within the loop group. Specifically, we examine each IEL group of
   // the loop group, and if an IEL group has a promotion, we consider it as a
   // candidate of the promotion of this loop group. If not, we include a
-  // domain of the IEL group as a candidate too. Once all candidates are
-  // obtained, we pick one that covers all the exact domains (cf. concrete
-  // domains in ComputeAtMap)
+  // domain of the IEL group as a candidate too. We also look at the
+  // inline promotion map since that may also contain the promotion the
+  // loop should be associated with. Once all candidates are obtained,
+  // we pick one that covers all the exact domains (cf. concrete domains
+  // in ComputeAtMap)
   IterDomain* findPromotionOfLoopGroup(
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
       const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
+
+  // Make sure only leaf nodes of tensor views are parallelized
+  void validatePTypes(const std::vector<TensorView*>& all_tvs) const;
+
+  //! Run through disjoint sets in the LOOP map, make sure there's only one
+  //! non-serial parallel type in each disjoint set, set the parallel type of
+  //! all IterDomains in the disjoint set to that PType.
+  void propagateLoopPTypes() const;
+
+  // !! START Helper functions to build loop promotion and index map!!
 
   // Terminal loop ids are iteration domains in each loop group that:
   // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
@@ -230,13 +288,65 @@ class IdModel : public PolymorphicBase {
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
       const StatefulInliningInfo& info);
 
+  // !! END Helper functions to build loop promotion and index map!!
+
+  // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
+  // map to go from leaf domains of each (consumer only?) tensor to their
+  // corresponding leaf domain in the index graph.
+  std::unordered_map<IterDomain*, IterDomain*> buildIndexGraph(
+      const std::vector<Expr*>& exprs,
+      const std::vector<TensorView*>& all_tvs,
+      StatefulInliningInfo& info,
+      std::unordered_map<ValGroup, IterDomain*> stale_promotion_map);
+
+  // Returns the terminal rfactor or input iter domains each group in the almost
+  // exact map covers (in the almost exact map). This effectively returns all
+  // the input almost exact iter domain groups for each almost exact iter domain
+  // group. RFactor axes are considered an "input" as all broadcast dimensions
+  // have to be resolved by or before the rfactor iter domain.
+  std::unordered_map<ValGroup, ValGroups> buildCoveredAlmostExact();
+
+  // ======= END Iteration domain build process in order called =======
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // TODO:
+  // Update the LOOP ID disjoint sets with resolved computeWith
+  void updateComputeWith(TensorView* compute_with_tv);
 
   // Replay Expr but with the inputs provided. ValGraphs will be updated
   // for all maps that have entries, adding the output iter domains of the
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
+
+  // Similar to addReplayAs, but clones the expr exactly instead of replaying it
+  // forward. It's up to the calling code to make sure the replacements are
+  // valid for the provided expr. It's generally recommended that the
+  // IterDomains exactly match those in the expr.
+  //
+  // "forward" dictates the same argument for mapThroughExpr. If forward the
+  // function will apply mapThroughExpr forward if inputs map in each
+  // initialized map. Else does the same but backwards through the expression
+  // from outputs.
+  Expr* addExprWithReplacement(
+      const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
+      Expr* old_expr);
+
+  // Make a new expr matching that provided but using the outputs provided.
+  // IterDomainGraphss will be updated for all maps that have entries. Adding
+  // the input iter domains of the replayed expression and adding potential
+  // mappings through the expressions. Input domains will match exactly in all
+  // properties as those in expr. This is unlike addReplayAs which will produce
+  // new outputs using transformations directly.
+  Expr* addBackwardsReplayAs(
+      const std::vector<IterDomain*>& new_outputs,
+      Expr* expr);
+
+  // Make an exact copy of provided IterDomain (without rfactor set), and map
+  // the copy to the original in all registered IdModel. IterDomain copy will
+  // not have any registered uses or definitions.
+  IterDomain* cloneIterDomain(IterDomain* id);
 
  protected:
   // All tensor expressions that this model analyzes
@@ -277,8 +387,18 @@ class IdModel : public PolymorphicBase {
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 
+  // Loop promotion map for inlined root broadcast domains
+  std::unordered_map<ValGroup, IterDomain*> iel_root_promotion_map_;
+
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
+
+// A utility function to update a map of ValGroups to ID from an old
+// Valgraph to a new ValGraph. The new graph must be a superset of the
+// old graph.
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph);
 
 } // namespace nvfuser

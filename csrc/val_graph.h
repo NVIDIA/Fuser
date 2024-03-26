@@ -146,6 +146,11 @@ class ValGraph {
 
   bool hasUses(const ValGroup& val_group) const;
 
+  // Return sorted expressions to go from the provided IterDomains in from to
+  // the provided IterDomains in to with provided mode. Minimal expressions to
+  // get from 'from' to 'to' returned.
+  ExprGroups getExprsBetween(const ValGroups& from, const ValGroups& to) const;
+
   // Uses the Valgraph to produce mappings between from and to.
   // Supports one to many mappings. If a single Val in from maps to
   // multiple Vals in to, the order of the Vals in value of
@@ -184,6 +189,9 @@ class ValGraph {
 
   std::string toString() const;
 
+  // Returns if all atributes of the ID transforms first and second are the same
+  static bool transformAtributesMatch(Expr* first, Expr* second);
+
   // Initializes entries for the provided Val with its definitions and
   // uses.
   void initializeVal(
@@ -210,6 +218,7 @@ class ValGraph {
   // mappings.
   void validateConsistency() const;
 
+ public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }
@@ -229,6 +238,23 @@ class ValGraph {
   // when the forward parameter is true. This should
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
+
+  // Removes expressions from unique_definitions_ and unique_uses_ that return
+  // mappings from IdGraph::isTrivialExpr
+  void removeTrivialExprs();
+
+  // Removes the provided expression group from unique_definitions_ and
+  // unique_uses_ breaking traversal through them.
+  void eraseExprGroup(const ExprGroup& expr_group);
+
+  // Returns if the expression group has an input id group that matches an
+  // output id group. This means traversing on this expression doesn't actually
+  // do anything.
+  bool isTrivialExprGroup(const ExprGroup& expr_group) const;
+
+  void setPropagateThroughExprs(bool b) {
+    propagate_through_exprs_ = b;
+  }
 
   // Can't back prop through merge without making sure one input actually
   // matches. This can be done on a map or extent basis.

@@ -6,8 +6,11 @@
  */
 // clang-format on
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <val_graph.h>
+
+#include <memory>
 
 namespace nvfuser {
 
@@ -30,9 +33,7 @@ ValGraph::ValGraph(const ValGraph& other)
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    NVF_ERROR(
-        unique_definitions_.emplace(new_val_group, std::move(new_expr_groups))
-            .second);
+    unique_definitions_[new_val_group] = new_expr_groups;
   }
 
   for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
@@ -211,6 +212,251 @@ bool ValGraph::hasUses(const ValGroup& val_group) const {
   return unique_uses_.find(val_group) != unique_uses_.end();
 }
 
+ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
+    const {
+  ExprGroups all_uses_of_from = allUsesOf(from);
+  ExprGroups all_definitions_of_to = allDefinitionsOf(to);
+
+  // All of the expressions between from and to. Not all will be used as we
+  // just want to define each iter domain group once.
+  ExprGroups all_exprs =
+      all_uses_of_from.computeIntersect(all_definitions_of_to);
+
+  // There could be IterDomains in from or to that are between other from and
+  // to nodes. Make sure to clear those out.
+  ValGroups terminating_inputs;
+  ValGroups terminating_outputs;
+  {
+    ValGroups not_inputs;
+    ValGroups not_outputs;
+    ValGroups all_id_groups;
+
+    for (const ExprGroup& expr_group : all_exprs) {
+      if (isTrivialExprGroup(expr_group)) {
+        // Expression is just a loop to its current group, ignore
+        continue;
+      }
+
+      std::vector<ValGroup> inp_groups = inputGroups(expr_group);
+      std::vector<ValGroup> out_groups = outputGroups(expr_group);
+
+      all_id_groups.pushBack(inp_groups);
+      not_outputs.pushBack(inp_groups);
+
+      all_id_groups.pushBack(out_groups);
+      not_inputs.pushBack(out_groups);
+    }
+    terminating_inputs = all_id_groups.computeSubtract(not_inputs);
+    terminating_outputs = all_id_groups.computeSubtract(not_outputs);
+  }
+
+  // Track all expressions to get from outputs to this IterDomain. We
+  // traverse backwards as that's the direction of indexing expressions. An
+  // index is assigned to each leaf of a domain and as we traverse backwards
+  // we're effectively accumulating indexing math. We'll only keep the fewest
+  // expression lists to get to the iter domain.
+  std::unordered_map<ValGroup, ExprGroups> required_ind_exprs_ids;
+  std::unordered_map<ExprGroup, ExprGroups> required_ind_exprs_exprs;
+
+  // Return if all output IterDomain groups of an expression group have
+  // already been visited
+  auto outputsVisited = [&](ExprGroup expr_group) {
+    auto output_groups = outputGroups(expr_group);
+    return std::all_of(
+        output_groups.begin(),
+        output_groups.end(),
+        [&](const ValGroup& output_group) {
+          return required_ind_exprs_ids.find(output_group) !=
+              required_ind_exprs_ids.end();
+        });
+  };
+
+  // Returns all expression groups in required_ind_exprs_ids of outputs
+  auto requiredExprsOutputs = [&](ExprGroup expr_group) -> ExprGroups {
+    ExprGroups all_output_required_exprs;
+    for (const ValGroup& output_id_group : outputGroups(expr_group)) {
+      auto id_group_exprs_it = required_ind_exprs_ids.find(output_id_group);
+      NVF_ERROR(
+          id_group_exprs_it != required_ind_exprs_ids.end(),
+          "Failure in Iter Domain Graph index resolution, count expected for group: ",
+          output_id_group->toString());
+      all_output_required_exprs.pushBack(id_group_exprs_it->second);
+    }
+    return all_output_required_exprs;
+  };
+
+  auto processExprGroup = [&](ExprGroup expr_group) -> bool {
+    if (!outputsVisited(expr_group)) {
+      return false;
+    }
+    // Accumulate expressions from all outputs add this expression and set it
+    // as current expressions required indexing expressions.
+    required_ind_exprs_exprs[expr_group] = requiredExprsOutputs(expr_group);
+    return true;
+  };
+
+  auto processValGroup = [&](ValGroup id_group) -> bool {
+    // Track if we've grabed any of the uses required indexing expressions.
+    bool initialized = false;
+    // Expression group of all indexing expressions required for this iter
+    // domain coming back from any of its uses.
+    ExprGroups min_groups;
+
+    const ExprGroups& uses = getUses(id_group);
+
+    if (uses.empty()) {
+      // No expressions required for this iter domain, it must be a
+      // terminating output.
+      required_ind_exprs_ids[id_group] = min_groups;
+      return true;
+    }
+
+    // Only worry about expressions between inputs and outputs we're
+    // looking at.
+    for (const ExprGroup& use_group : uses.computeIntersect(all_exprs)) {
+      auto use_required_ind_exprs_it = required_ind_exprs_exprs.find(use_group);
+      if (use_required_ind_exprs_it == required_ind_exprs_exprs.end()) {
+        // If there isn't an entry for the use expression it wasn't
+        // processed, so don't try to process this iter domain yet.
+        return false;
+      }
+      if (!initialized) {
+        // If first use found initialize the minimum expression group
+        min_groups =
+            use_required_ind_exprs_it->second.computeUnion({use_group});
+        initialized = true;
+      } else if (
+          use_required_ind_exprs_it->second.size() + 1 < min_groups.size()) {
+        // If current use has fewer expressions use that, make sure to add the
+        // use expression.
+        min_groups =
+            use_required_ind_exprs_it->second.computeUnion({use_group});
+      }
+    }
+    required_ind_exprs_ids[id_group] = min_groups;
+    return true;
+  };
+
+  // Backward traversal from the terminating outputs
+  ValGroups to_visit_ids = terminating_outputs;
+  ExprGroups to_visit_exprs;
+
+  while (!to_visit_ids.empty() || !to_visit_exprs.empty()) {
+    // Process expressions first as all uses of iter domains have to be
+    // processed before we can process that iter domain.
+
+    // Try to detect when nothing has been processed which would put us in an
+    // infinite loop
+    bool something_was_processed = false;
+    ExprGroups still_to_visit_exprs;
+    while (!to_visit_exprs.empty()) {
+      ExprGroup currently_visiting_exprs = to_visit_exprs.popFront();
+      if (required_ind_exprs_exprs.find(currently_visiting_exprs) !=
+          required_ind_exprs_exprs.end()) {
+        // currently_visiting_exprs is already visited
+        continue;
+      }
+      if (processExprGroup(currently_visiting_exprs)) {
+        something_was_processed = true;
+        std::vector<ValGroup> inp_groups =
+            inputGroups(currently_visiting_exprs);
+        for (const ValGroup& inp_group : inp_groups) {
+          to_visit_ids.pushBack(inp_group);
+        }
+      } else {
+        still_to_visit_exprs.pushBack(currently_visiting_exprs);
+      }
+    }
+
+    std::swap(to_visit_exprs, still_to_visit_exprs);
+
+    ValGroups still_to_visit_ids;
+    while (!to_visit_ids.empty()) {
+      auto currently_visiting_ids = to_visit_ids.popFront();
+      if (required_ind_exprs_ids.find(currently_visiting_ids) !=
+          required_ind_exprs_ids.end()) {
+        continue;
+      }
+
+      if (processValGroup(currently_visiting_ids)) {
+        something_was_processed = true;
+        for (const ExprGroup& def : getDefinitions(currently_visiting_ids)) {
+          if (!all_exprs.has(def)) {
+            continue;
+          }
+          if (required_ind_exprs_exprs.find(def) ==
+              required_ind_exprs_exprs.end()) {
+            to_visit_exprs.pushBack(def);
+          }
+        }
+      } else {
+        still_to_visit_ids.pushBack(currently_visiting_ids);
+      }
+    }
+
+    NVF_ERROR(
+        something_was_processed ||
+            (to_visit_ids.empty() && to_visit_exprs.empty()),
+        "Infinite loop entered.");
+  }
+
+  // We want to traverse the expressions registered in required_ind_exprs_ids,
+  // let's create a strict "uses path"
+  std::unordered_map<ValGroup, ExprGroups> uses_path;
+  for (const auto& entry : required_ind_exprs_ids) {
+    const ValGroup& id = entry.first;
+    const ExprGroups& traverse_exprs = entry.second;
+    const ExprGroups& all_uses = getUses(id);
+    uses_path[id] = traverse_exprs.computeIntersect(all_uses);
+  }
+
+  // Topologically sort the uses_path.
+  ExprGroups sorted_exprs;
+  ExprGroups to_visit_expr_groups;
+
+  for (const ValGroup& inp : terminating_inputs) {
+    auto use_it = uses_path.find(inp);
+    if (use_it == uses_path.end()) {
+      // This can happen for a trivial traversal where inputs and outputs are
+      // exactly the same.
+      continue;
+    }
+    const ExprGroups& uses = use_it->second;
+    for (const ExprGroup& use : uses) {
+      to_visit_expr_groups.pushBack(use);
+    }
+  }
+
+  ValGroups visited = terminating_inputs;
+
+  while (!to_visit_expr_groups.empty()) {
+    bool something_processed = false;
+    ExprGroups still_to_visit;
+    while (!to_visit_expr_groups.empty()) {
+      auto currently_visiting = to_visit_expr_groups.popFront();
+      auto inputs = inputGroups(currently_visiting);
+      if (std::all_of(inputs.begin(), inputs.end(), [&](ValGroup inp_id) {
+            return visited.has(inp_id);
+          })) {
+        something_processed = true;
+        sorted_exprs.pushBack(currently_visiting);
+        auto outputs = outputGroups(currently_visiting);
+        for (const ValGroup& out_id : outputs) {
+          visited.pushBack(out_id);
+          const ExprGroups& uses = getUses(out_id);
+          still_to_visit.pushBack(uses.computeIntersect(all_exprs));
+        }
+      } else {
+        still_to_visit.pushBack(currently_visiting);
+      }
+    }
+    std::swap(to_visit_expr_groups, still_to_visit);
+    NVF_ERROR(something_processed, "Infinite loop entered.");
+  }
+
+  return sorted_exprs;
+}
+
 std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to) const {
@@ -262,16 +508,60 @@ std::string ValGraph::toString() const {
   return ss.str();
 }
 
+bool ValGraph::transformAtributesMatch(Expr* first, Expr* second) {
+  if (first == nullptr || second == nullptr) {
+    return false;
+  }
+
+  NVF_ERROR(
+      first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
+          first->isA<Resize>() || first->isA<Swizzle>(),
+      "Unsupported rfactor expressions in compute at map:\n",
+      first->toString());
+
+  if (typeid(*first) != typeid(*second)) {
+    return false;
+  }
+
+  if (first->isA<Split>()) {
+    auto first_split = first->as<Split>();
+    auto second_split = second->as<Split>();
+    if (!first_split->factor()->sameAs(second_split->factor()) ||
+        first_split->innerSplit() != second_split->innerSplit() ||
+        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
+        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+      return false;
+    }
+  }
+
+  if (first->isA<Swizzle2D>()) {
+    auto first_swizzle = first->as<Swizzle2D>();
+    auto second_swizzle = second->as<Swizzle2D>();
+    if (first_swizzle->swizzleMode() != second_swizzle->swizzleMode() ||
+        first_swizzle->swizzleType() != second_swizzle->swizzleType()) {
+      return false;
+    }
+  }
+
+  if (first->isA<Swizzle>()) {
+    auto swizzle_1 = first->as<Swizzle>();
+    auto swizzle_2 = first->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
+      return false;
+    }
+  }
+
+  // TODO: Resize properties
+
+  return true;
+}
+
 void ValGraph::initializeVal(
     Val* val,
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
       disjoint_vals_.initializeSet(val).first->second;
-
-  // For now, the definition of a val should be unique. Remove this
-  // assertion as necessary
-  NVF_ERROR(definitions.size() <= 1);
 
   ExprGroups def_groups;
   for (auto def : definitions) {
@@ -561,6 +851,56 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   return true;
+}
+
+void ValGraph::removeTrivialExprs() {
+  ExprGroups trivial_expr_groups;
+  // This seems like it shouls just be a copy if.
+  for (const ExprGroup& expr_group : disjointExprSets().disjointSets()) {
+    if (isTrivialExprGroup(expr_group)) {
+      trivial_expr_groups.pushBack(expr_group);
+    }
+  }
+
+  // Clear out expressions that map inputs and outputs to the same group
+  // from definitions and uses. They shouldn't be important in traversal, and
+  // will break the terminal input/terminal output logic of traversal. Similar
+  // to what's drafted in buildIndexGraph
+  for (const ExprGroup& trivial_expr_group : trivial_expr_groups) {
+    // Complexity of erase not good as both disjoint set and vector of unique
+    // entries require a vector find to erase an entry.
+    eraseExprGroup(trivial_expr_group);
+  }
+}
+
+// Complexity here is not great. We might want a better complexity version when
+// erasing multiple expr_groups.
+void ValGraph::eraseExprGroup(const ExprGroup& expr_group) {
+  // Erase entries that exist in unique_definitions_ and unique_uses_
+  for (const ValGroup& id_group : disjointValSets().disjointSets()) {
+    // Make sure the entries exists
+    NVF_ERROR(
+        unique_definitions_.find(id_group) != unique_definitions_.end(),
+        "Broken definitions, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+    NVF_ERROR(
+        unique_uses_.find(id_group) != unique_uses_.end(),
+        "Broken uses, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+
+    unique_definitions_[id_group].erase(expr_group);
+    unique_uses_[id_group].erase(expr_group);
+  }
+
+  for (auto expr : *expr_group) {
+    disjoint_exprs_.erase(expr);
+  }
+}
+
+bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
+  return !ValGroups(inputGroups(expr_group))
+              .computeIntersect(ValGroups(outputGroups(expr_group)))
+              .empty();
 }
 
 void ValGraph::validateConsistency() const {

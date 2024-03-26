@@ -81,13 +81,33 @@ class VectorOfUniqueEntries {
     return false;
   }
 
+  // Returns if a node was actually added
+  bool pushFront(T entry) {
+    if (set_.emplace(entry).second) {
+      vector_.insert(vector_.begin(), entry);
+      return true;
+    }
+    return false;
+  }
+
   // Returns true if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     return pushBack(other.vector());
   }
 
   // Returns true if any node was added
-  bool pushBack(const std::vector<T>& other) {
+  template <
+      typename VectorOfUniqueEntriesType,
+      typename VectorOfUniqueEntriesHash>
+  bool pushBack(const VectorOfUniqueEntries<
+                VectorOfUniqueEntriesType,
+                VectorOfUniqueEntriesHash>& other) {
+    return pushBack(other.vector());
+  }
+
+  // Returns if any node was added
+  template <typename OtherType>
+  bool pushBack(const std::vector<OtherType>& other) {
     bool any_added = false;
     for (const auto& entry : other) {
       auto added = pushBack(entry);
@@ -166,6 +186,14 @@ class VectorOfUniqueEntries {
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();
+    return v;
+  }
+
+  // Remove and returns the last element in vector
+  T popFront() {
+    T v = vector_.front();
+    set_.erase(v);
+    vector_.erase(vector_.begin());
     return v;
   }
 
@@ -393,7 +421,9 @@ class DisjointSets {
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
-        " either an error occurred, or non strict mapping should have been used.");
+        " either an error occurred, or non strict mapping should have been used.",
+        " ",
+        entry0->name());
     return entry_it->second->has(entry1);
   }
 
