@@ -127,7 +127,8 @@ class GridSerializationSyncInserter : kir::ExprMutator {
     kir::Allocate* alloc = lower_utils::allocGlobalBufferForGridComm(
         lower_utils::getGridSyncBufferSize(cur_expr_sync_pattern_.value()),
         DataType::Int,
-        true);
+        /*zero_init=*/true,
+        /*resets_to_zero=*/true);
     auto wait = IrBuilder::create<kir::BlockSerializeWait>(
         cur_expr_sync_pattern_.value(), alloc->buffer());
     registerInsertBefore(cur_top_level_expr_, alloc);

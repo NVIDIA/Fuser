@@ -694,7 +694,8 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init) {
+    bool zero_init,
+    bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
           GpuLower::current()->kernel()->zeroVal(), buffer_size))};
@@ -702,7 +703,11 @@ kir::Allocate* allocGlobalBufferForGridComm(
   const auto buffer_tv =
       IrBuilder::create<TensorView>(buffer_domain, dtype, MemoryType::Global);
   return IrBuilder::create<kir::Allocate>(
-      buffer_tv, buffer_tv->getMemoryType(), nullptr, zero_init);
+      buffer_tv,
+      buffer_tv->getMemoryType(),
+      nullptr,
+      zero_init,
+      resets_to_zero);
 }
 
 BasicAllocInfo getAllocInformation(

@@ -257,12 +257,17 @@ class NVF_API Allocate final : public Expr {
   //! Allocation of a multi-dimensional buffer
   //!
   //! param shape Size of each dimension
+  //! param zero_init Should this memory be zero-initialized?
+  //! param resets_to_zero Will this memory be set to zero upon completion of
+  //!   this kernel?
+  //! param alias Is this an alias of previously-allocated memory
   explicit Allocate(
       IrBuilderPasskey passkey,
       Val* buffer,
       MemoryType memory_type,
       std::vector<Val*> shape = {},
       bool zero_init = false,
+      bool resets_to_zero = false,
       Allocate* alias = nullptr);
 
   //! Allocation of a non-dimensional buffer
@@ -273,7 +278,8 @@ class NVF_API Allocate final : public Expr {
       Val* buffer,
       MemoryType memory_type,
       Val* size,
-      bool zero_init = false);
+      bool zero_init = false,
+      bool resets_to_zero = false);
 
   const char* getOpString() const override {
     return "Allocate";
@@ -300,21 +306,54 @@ class NVF_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 5);
-    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 6);
+    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
   }
 
+  //! Does this allocation require its memory to be initialized to zero before
+  //! this kernel is launched? If this is true, then an additional memset
+  //! kernel might be launched before the current Fusion kernel is launched in
+  //! order to guarantee that this buffer is filled with zeroes (see
+  //! resetsToZero() below).
   bool zeroInit() const {
     return attribute<bool>(2);
+  }
+
+  //! Is this buffer guaranteed to be reset to all zero values at the end of
+  //! this kernel? This is used to avoid an additional memset kernel launch for
+  //! buffers that require zeroed memory (see zeroInit() above).
+  //!
+  //! A common use case for zeroInit() allocations is semaphore buffers that
+  //! hold counters starting at zero. Typically, each participating thread would
+  //! increment the counter and the last thread would leave the counter in a
+  //! non-zeroed state. The next time that kernel is run, it can no longer
+  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
+  //!
+  //! Instead, if the last thread resets the counter to zero, then the buffer
+  //! can be re-used, and at::zeroes need only be run at the first kernel
+  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
+  //! reuse zeroed memory avoiding the additional kernel launch.
+  //!
+  //! Whenever possible, we should try to guarantee that resetsToZero() is true
+  //! if zeroInit() is true by modifying our code to clean up global counters,
+  //! because the latency penalty of an additional kernel launch should be
+  //! greater than that required to reset this memory at the end of the fusion.
+  //! The exception is when a kernel is launched only a single time, in which
+  //! case resetting the memory is unnecessary, but we expect that kernels will
+  //! instead be launched many times.
+  bool resetsToZero() const {
+    return attribute<bool>(3);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
-    return dynamic_cast<const Allocate*>(attribute(3));
+    return dynamic_cast<const Allocate*>(attribute(4));
   }
 
   // Set the address of a shared memory allocation within the dynamic shared
@@ -329,14 +368,14 @@ class NVF_API Allocate final : public Expr {
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
-    attributes_[4] = addr;
+    attributes_[5] = addr;
   }
 
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
-    return attributeVal(4);
+    return attributeVal(5);
   }
 };
 
