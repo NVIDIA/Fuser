@@ -56,8 +56,8 @@ bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
   return false;
 }
 
-// For a sharding expression, either a set or reduce, returns root IDs
-// that are sharded/unsharded.
+// For a resharding expression, either a set or reduce, returns root IDs
+// that change sharding.
 // (1) sharded root IterDomains that are added by the expression
 // i.e. sharded IterDomains that are present in the output, but not the input.
 // (2) sharded root IterDomains that are removed by the expression
