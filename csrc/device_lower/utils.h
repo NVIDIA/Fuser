@@ -257,7 +257,8 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map);
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init);
+    bool zero_init,
+    bool resets_to_zero = false);
 
 struct BasicAllocInfo {
   // The for loop that the initialization of this allocation must be
