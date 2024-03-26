@@ -232,7 +232,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         all_backends,
         all_meshes,
-        all_nontrivial_meshes,
+        all_meshes,
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
@@ -244,7 +244,7 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     testing::Combine(
         all_backends,
-        all_nontrivial_meshes,
+        all_meshes,
         all_meshes,
         testing::Values(false),
         testing::Values(true),
