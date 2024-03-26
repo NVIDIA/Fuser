@@ -394,4 +394,11 @@ class IdModel : public PolymorphicBase {
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
 
+// A utility function to update a map of ValGroups to ID from an old
+// Valgraph to a new ValGraph. The new graph must be a superset of the
+// old graph.
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph);
+
 } // namespace nvfuser

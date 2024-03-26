@@ -681,31 +681,6 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
   return resolved_bcast_domains;
 }
 
-// Update a map of ValGroups to ID from an old Valgraph to a new
-// ValGraph. The new graph must be a superset of the old graph.
-std::unordered_map<ValGroup, IterDomain*> updateMap(
-    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
-    ValGraph& new_graph) {
-  std::unordered_map<ValGroup, IterDomain*> new_map;
-
-  for (const auto& [stale_group, mapped_id] : stale_map) {
-    const ValGroups& new_groups = new_graph.toGroups(*stale_group);
-    NVF_ERROR(
-        new_groups.size() == 1,
-        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
-        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
-        "old:",
-        nvfuser::toString(stale_group),
-        "new: ",
-        nvfuser::toString(new_groups));
-    NVF_ERROR(
-        new_map.emplace(new_groups.front(), mapped_id).second,
-        "Expected only a single mapping but multiple entries detected for ",
-        nvfuser::toString(new_groups.front()));
-  }
-  return new_map;
-}
-
 } // namespace
 
 // Grab inlining relationships
@@ -945,7 +920,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   loop_graph_copy = idGraph(IdMappingMode::LOOP);
   loop_graph_copy_promotion_map =
-      updateMap(loop_graph_copy_promotion_map, loop_graph_copy);
+      updateValGroupIdMap(loop_graph_copy_promotion_map, loop_graph_copy);
 
   // Step 4: In order to fully propagate the loop graph promotions, first
   // propagate them to the IEL groups, which are then used to
@@ -976,7 +951,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // The loop map is built for loop_graph_copy. Update the map to the
   // latest loop graph
   final_loop_promotion_map =
-      updateMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+      updateValGroupIdMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
@@ -1904,6 +1879,29 @@ void IdModel::sanityCheckLoopPromotionMap(
         ". Promotion domain: ",
         promotion->name());
   }
+}
+
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph) {
+  std::unordered_map<ValGroup, IterDomain*> new_map;
+
+  for (const auto& [stale_group, mapped_id] : stale_map) {
+    const ValGroups& new_groups = new_graph.toGroups(*stale_group);
+    NVF_ERROR(
+        new_groups.size() == 1,
+        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
+        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
+        "old:",
+        nvfuser::toString(stale_group),
+        "new: ",
+        nvfuser::toString(new_groups));
+    NVF_ERROR(
+        new_map.emplace(new_groups.front(), mapped_id).second,
+        "Expected only a single mapping but multiple entries detected for ",
+        nvfuser::toString(new_groups.front()));
+  }
+  return new_map;
 }
 
 std::unordered_map<IterDomain*, IterDomain*> IdModel::buildIndexGraph(
