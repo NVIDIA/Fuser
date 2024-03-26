@@ -631,7 +631,16 @@ class AsyncWait final : public Expr {
   explicit AsyncWait(
       IrBuilderPasskey passkey,
       AsyncOpType async_op_type,
-      int64_t keep_stages = 0);
+      Val* keep_stages);
+
+  explicit AsyncWait(
+      IrBuilderPasskey passkey,
+      AsyncOpType async_op_type,
+      int64_t keep_stages = 0)
+      : AsyncWait(
+            passkey,
+            async_op_type,
+            IrBuilder::create<Val>(keep_stages, DataType::Int)) {}
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -651,8 +660,8 @@ class AsyncWait final : public Expr {
 
   //! Returns the remaining number of stages that are not synchronized
   //!  after this op.
-  int64_t keepStages() const {
-    return attribute<int64_t>(1);
+  Val* keepStages() const {
+    return attributeVal(1);
   }
 };
 

@@ -69,9 +69,7 @@
 // iteration. However, the value loaded by the invalid load would not
 // be used, so instead of adding the additional predicate, the Epilogue
 // loop is replicated from the original loop, except for the load
-// expression since it's not used. Note that this overrun does not
-// happen when the producer is on gmem, so in that case, this
-// additional replication is not done.
+// expression since it's not used.
 //
 // When creating those three types of loops, additional care must be
 // taken when multiple tensors are double buffered. When multiple
@@ -109,16 +107,16 @@
 //     if pred:
 //       x[i*S+j] = y[i, j];
 //
-// for i in 0..N: // main loop
+// for i in 0..(N-(D-1)): // main loop
 //   for j in ...
 //     if pred:
 //       x[((i+D-1)%D)*S+j] = y[i+D-1, j];
 //   for j in ...
 //     .. = x[(i%D)*S+j]
 //
-// (Epilog omitted since this only makes sense in using
-// cp.async, where producer will be in global mem and consumer will
-// be in shared mem).
+// for i in (N-(D-1))..N: // epilog
+//   for j in ...
+//     .. = x[(i%2)*S+j]
 //
 // The profitability of this optimization comes from extra tolerance
 //  of global memory pipeline latency, as on the expression `.. = x[(i%D)*S+j]`
@@ -162,6 +160,12 @@
 //                      ensure completion of its own async copies so
 //                      would need to sync to this point to ensure
 //                      completion of the whole tile.
+//
+// for i in (N-(D-1))..N: // epilog
+//   for j in ...
+//     // TODO: is a sync required here?
+//     .. = x[(i%2)*S+j]
+//   cp.async.wait N-1-i; // Ensure all but the future loads are incomplete
 
 namespace nvfuser {
 

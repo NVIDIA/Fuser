@@ -150,10 +150,9 @@ class DoubleBufferFusionInspector : private IterVisitor {
 
 // The epilogue loop is only created when the producer of a double
 // buffer tensor is on smem, in which case it would otherwise require
-// an additional predicate to guard buffer overruns. When it's on
-// gmem, that isn't the case, so it does not need to create an
-// epilogue loop.
+// an additional predicate to guard buffer overruns.
 bool requireEpilogue(const std::vector<Expr*>& exprs) {
+  return true;
   return std::any_of(exprs.begin(), exprs.end(), [](const Expr* expr) {
     return expr->input(0)->as<TensorView>()->getMemoryType() ==
         MemoryType::Shared;
@@ -207,21 +206,28 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_loop_->iter_domain());
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
+      std::cout << "Prolog" << std::endl;
       NVF_ERROR(start->isZeroInt());
       stop = SimplifyingIrBuilder::create<Val>(
           int64_t(stage_depth - 1), DataType::Index);
     } else if (
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
+      std::cout << "Main" << std::endl;
       stop = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), gpu_lower->kernel()->oneVal());
+          double_buffer_loop_->stop(),
+          IrBuilder::create<Val>(int64_t(stage_depth - 1), DataType::Index));
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
+      std::cout << "Epilog" << std::endl;
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Val>(
-              int64_t(stage_depth - 1), DataType::Index));
+          IrBuilder::create<Val>(int64_t(stage_depth - 1), DataType::Index));
     }
+
+    std::cout << "start=" << start->toInlineString()
+              << " stop=" << stop->toInlineString()
+              << " stage_depth=" << stage_depth << std::endl;
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
         double_buffer_loop_->iter_domain(),
@@ -596,6 +602,30 @@ class DoubleBufferInserter : private kir::ExprMutator {
           loads,
           DoubleBufferLoopStage::Epilog,
           alloc_in_main);
+      if (has_cpasync) {
+        // Insert a cp.async.wait_group at the end of each epilogue loop
+        // iteration. This should require all but the remaining future iteration
+        // loads to be completed.
+        // for i in (N-(D-1))..N: // epilog
+        //   for j in ...
+        //     .. = x[(i%2)*S+j]
+        //   cp.async.wait N-1-i; // Ensure all but the future loads are
+        //   complete
+        // For D=4 this unrolls as
+        // for j in ...
+        //   .. = x[(N-3)%2)*S+j]
+        // cp.async.wait 2;
+        // for j in ...
+        //   .. = x[(N-2)%2)*S+j]
+        // cp.async.wait 1;
+        // for j in ...
+        //   .. = x[(N-1)%2)*S+j]
+        // cp.async.wait 0;
+        auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
+            AsyncOpType::CpAsync,
+            SimplifyingIrBuilder::subExpr(
+                epilogue_loop->index() FusionGuard::getCurFusion()->oneVal()));
+      }
       registerInsertAfter(double_buffer_loop, epilogue_loop);
     }
   }
