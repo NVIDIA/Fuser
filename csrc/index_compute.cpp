@@ -3311,29 +3311,29 @@ Val* Index::eye(
 // The gmem tensor of TMA store, or the gmem tensor of TMA load when replayed as
 // consumer, must be scheduled like this:
 //
-//                  ---------------------
-//                  | Allocation Domain |
-//                  ---------------------
-//                    | | | | | | | | |
-//                  IterDomain Expressions
-//                    | | | | | | | | |
-//            ----------------------------------
-//            |  I0           I1           I2  |
-//            ----------------------------------
-//               |            |            |
-//              ...         split        split
-//                          /   \        /   |
-//                         I3   I4      I5   I6
-//                         |    |       |    |
-//                        ...   |      ... split
-//                              |          /   |
-//                              |         I7   I8
-//                              |         |    |
-//                              |         |   ...
-//                              |         |
+//                         ---------------------
+//                         | Allocation Domain |
+//                         ---------------------
+//                           | | | | | | | | |
 //                         IterDomain Expressions
-//                          |    |    |    |    |
-//                         Bulk Bulk Bulk Bulk Bulk
+//                           | | | | | | | | |
+//            -----------------------------------------------
+//            |  I0           I1           I2           I3  |
+//            -----------------------------------------------
+//               |            |            |            |
+//              ...         split        split          |
+//                          /   \        /   |          |
+//                         I3   I4      I5   I6         |
+//                         |    |       |    |          |
+//                        ...   |      ... split        |
+//                              |          /   |        |
+//                              |         I7   I8       |
+//                              |         |    |        /
+//                              |         |   ...      /
+//                              |         |           /
+//                              IterDomain Expressions
+//                               |    |    |    |    |
+//                              Bulk Bulk Bulk Bulk Bulk
 //
 // To schedule TMA, the overall process is:
 //
@@ -3613,6 +3613,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     indexing = std::make_unique<IndexCompute>(index_from_id_graph.index);
   }
 
+  auto allocation_domain = TensorDomain::noBroadcasts(
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain()));
+  std::unordered_set<Val*> allocation_domain_set(
+      allocation_domain.begin(), allocation_domain.end());
+
   // Step 1: Get all bulk IterDomains and originating bulk IterDomains
 
   // Get all bulk IterDomains
@@ -3769,20 +3774,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   std::list<std::tuple<IterDomain*, /*contiguity*/ bool, /*stride*/ Val*>>
       frontier;
-  std::unordered_set<Val*> allocation_domain_set;
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  auto allocation_domain =
-      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
   for (auto i : c10::irange((int64_t)allocation_domain.size())) {
     auto id = allocation_domain.at(i);
-    if (id->isBroadcast()) {
-      continue;
-    }
     auto stride = IrBuilder::getItemExpr(alloc_strides, i);
     frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
-    allocation_domain_set.insert(id);
   }
   // Propagate forward from the allocation domain to TMA-global IterDomains
   for (Expr* expr : DependencyCheck::getAllExprsBetween(
