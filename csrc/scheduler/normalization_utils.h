@@ -234,14 +234,15 @@ struct PersistentKernelProperties {
   bool has_exp_op;
   std::string toString() const {
     std::stringstream ss;
-    ss << "\n===== Persistent Kernel Properties ========\n"
+    ss << "===== Persistent Kernel Properties ========\n"
        << "inner_most_dimension_numel: " << inner_most_dimension_numel << "\n"
        << "total_reduction_numel: " << total_reduction_numel << "\n"
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "max_persistent_buffer_size: " << max_persistent_buffer_size << "\n"
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
        << "max_input_dtype_size: " << max_dtype_size << "\n"
-       << "max allowed vectorize_factor: " << vectorize_factor << "\n";
+       << "max allowed vectorize_factor: " << vectorize_factor << "\n"
+       << "project_persistent_buffers: " << project_persistent_buffers << "\n";
     return ss.str();
   }
 };
