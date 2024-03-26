@@ -1818,7 +1818,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           // Allow access to reusable zeroed memory if buffer is guaranteed
           // to reset to zero upon completion of the kernel, or if we have
           // enabled the option (unsafe)
-          intermediate_buffer = contigZeroTensor(
+          intermediate_buffer = contigZeroedTensor(
               unexpanded_sizes, buf_info.type, options_.device);
         } else {
           intermediate_buffer = at::zeros(

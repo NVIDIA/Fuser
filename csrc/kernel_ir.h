@@ -313,10 +313,39 @@ class NVF_API Allocate final : public Expr {
     return result;
   }
 
+  //! Does this allocation require its memory to be initialized to zero before
+  //! this kernel is launched? If this is true, then an additional memset
+  //! kernel might be launched before the current Fusion kernel is launched in
+  //! order to guarantee that this buffer is filled with zeroes (see
+  //! resetsToZero() below).
   bool zeroInit() const {
     return attribute<bool>(2);
   }
 
+  //! Is this buffer guaranteed to be reset to all zero values at the end of
+  //! this kernel? This is used to avoid an additional memset kernel launch for
+  //! buffers that require zeroed memory (see zeroInit() above).
+  //!
+  //! A common use case for zeroInit() allocations is semaphore buffers that
+  //! hold counters starting at zero. Typically, each participating thread would
+  //! increment the counter and the last thread would leave the counter in a
+  //! non-zeroed state. The next time that kernel is run, it can no longer
+  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
+  //!
+  //! Instead, if the last thread resets the counter to zero, then the buffer
+  //! can be re-used, and at::zeroes need only be run at the first kernel
+  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
+  //! reuse zeroed memory avoiding the additional kernel launch.
+  //!
+  //! Whenever possible, we should try to guarantee that resetsToZero() is true
+  //! if zeroInit() is true by modifying our code to clean up global counters,
+  //! because the latency penalty of an additional kernel launch should be
+  //! greater than that required to reset this memory at the end of the fusion.
+  //! The exception is when a kernel is launched only a single time, in which
+  //! case resetting the memory is unnecessary, but we expect that kernels will
+  //! instead be launched many times.
   bool resetsToZero() const {
     return attribute<bool>(3);
   }
