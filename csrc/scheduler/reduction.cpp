@@ -552,13 +552,13 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
-  // WARNING: Current device for codegen may not be the target device
+  auto dev_props = at::cuda::getCurrentDeviceProperties();
   const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
+      (int64_t)dev_props->maxThreadsPerMultiProcessor;
 
   const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      (int64_t)dev_props->multiProcessorCount;
+  const int64_t threads_per_warp = (int64_t)dev_props->warpSize;
 
   // Definition of magic numbers used in this heuristic
   // when unroll in reduction dim and vect in iteration dim, needs to store
@@ -754,6 +754,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           ceilDiv(total_iteration_numel, iter_unroll_factor * max_iter_blocks),
           max_bidmx);
     }
+    bdimx = roundUpPow2OrMultipleOf(bdimx, threads_per_warp);
   } else {
     // If block reduce:
     // ensure use at least a quarter wave of blocks, achieved by reducing
@@ -762,15 +763,31 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     while (iDimAvail() < min_iter_blocks && iter_unroll_factor >= 2) {
       iter_unroll_factor /= 2;
     }
+    // This section is to adjust bdimx to avoid ragged waves.
+    // It leads to 10% to 20% speedup on A100. If used on H100, it leads to 5%
+    // regression.
+    if (dev_props->major < 9) {
+      int64_t gdimx_tmp =
+          ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
+      while (gdimx_tmp > device_multiprocessor_count &&
+             bdimx * 2 <= threads_per_warp) {
+        bdimx *= 2;
+        gdimx_tmp = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
+      }
+      // round gidim
+      int64_t tmp_gidim = iDimAvail();
+      int64_t wave_count = ceilDiv(tmp_gidim, device_multiprocessor_count);
+      int64_t wave_tail = tmp_gidim % device_multiprocessor_count;
+      if (bdimx >= 32 && wave_tail > 0 &&
+          wave_tail < device_multiprocessor_count / 2 && wave_count > 1) {
+        auto new_gidim = (wave_count - 1) * device_multiprocessor_count;
+        bdimx = ceilDiv(total_iteration_numel, iter_unroll_factor * new_gidim);
+      }
+    }
+    bdimx = roundUpPow2OrMultipleOf(bdimx, 8);
   }
 
   // Round bdimx to a nice value
-  int64_t niceValue = 8;
-  if (n_elems >= device_multiprocessor_count *
-          device_max_threads_per_multiprocessor * 32) {
-    niceValue = 32;
-  }
-  bdimx = roundUpPow2OrMultipleOf(bdimx, niceValue);
 
   // set grid iteration dim before set grid reduction dim
   // at this point, parallelization of iteration dim is done
@@ -791,12 +808,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // start reduction blocks from the minimum
   // increase to reduce serial iterations
-  grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
   if (is_grid_reduce) {
+    grdim = ceilDiv(rDimAvail(), max_serial_reduce_top_unroll);
     grdim = std::max(grdim, 4l);
     grdim = std::max(
         grdim, scheduler_utils::safeDiv(device_multiprocessor_count, gidim));
     grdim = scheduler_utils::roundUpPow2(grdim);
+  } else {
+    grdim = 1;
   }
 
   // Try to do some cleanup of ragged waves on device
