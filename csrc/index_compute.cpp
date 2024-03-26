@@ -3898,7 +3898,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     auto box_id_it = tma_global_id_to_box_id.find(id);
     if (box_id_it == tma_global_id_to_box_id.end()) {
       // non-TMA-global ID
-      bool should_create_new_dim = !(state == PENDING_NON_BULK && contiguous);
+      bool should_create_new_dim = !(state != START && contiguous);
       if (should_create_new_dim) {
         tensor_sizes_inner_to_outer.push_back(id->extent());
         if (it != frontier.rbegin()) {

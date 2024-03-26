@@ -174,9 +174,9 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 class TMATest : public NVFuserTest {
  protected:
   void SetUp() override {
-    // if (cudaArchGuardShouldSkip(9, 0)) {
-    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    // }
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
     NVFuserTest::SetUp();
   }
 };
@@ -720,7 +720,7 @@ TEST_F(TMAIndexingTest, BulkEntireDim) {
   // tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8, 4}, options);
+  auto t0 = at::randn({32, 4, 2, 8, 8, 8, 2, 8, 4}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
