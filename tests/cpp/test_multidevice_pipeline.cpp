@@ -51,7 +51,7 @@ using namespace at::indexing;
    --gtest_filter=PipelineTest.Pipeline
 */
 
-TEST_F(PipelineTest, DISABLED_Pipeline) {
+TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
   const std::vector<int64_t> input_shape2 = {3, 5, 2};
   // ===========================================================
@@ -160,9 +160,6 @@ TEST_P(PipelineTestTwoStages, Communication) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator->setDefaultBackend(backend);
-  std::cout << "Parameters " << backend << " " << mesh0 << " " << mesh1 << std::endl;
-  std::cout << "Stages sharded " << is_stage0_sharded << " " << is_stage1_sharded << std::endl;
-  std::cout << "Reduction " << do_reduction << " sharded dim " << sharded_dim << " FEC " << use_fusion_executor_cache << std::endl;
 
   if (mesh1.vector().empty()) {
     mesh1 = mesh0;
