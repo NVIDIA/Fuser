@@ -1158,8 +1158,8 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  // tv2->axis(1)->parallelize(ParallelType::TIDy);
-  // tv2->axis(3)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDy);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
