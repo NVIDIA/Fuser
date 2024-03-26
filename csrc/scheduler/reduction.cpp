@@ -597,13 +597,13 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // transaction is 128 bytes, we still needs 2 x 2 = 4 128-bytes transactions.
   constexpr int64_t min_bdimx = 8;
 
-  auto max_unroll = ceilDiv(
-      // Available unrolling based on size of data type
-      max_buffer_register * scheduler_utils::bytes_per_register /
-          (int64_t)max_input_dtype_size,
-      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(
-          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+  auto max_unroll = max_buffer_register * scheduler_utils::bytes_per_register /
+          (int64_t)max_input_dtype_size;
+  if(std::getenv("USE_OLD") == nullptr) {
+      // divide max_unroll by n_tensor_inputs to avoid using too many registers
+    max_unroll = scheduler_utils::lastPow2(ceilDiv(max_unroll,n_tensor_inputs));
+  }
+
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   const int64_t n_waves = 8;
