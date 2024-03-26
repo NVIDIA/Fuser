@@ -21,6 +21,7 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
+import nvfuser
 from nvfuser import (
     FusionCache,
     FusionDefinition,
@@ -3570,6 +3571,39 @@ class TestNvFuserFrontend(TestCase):
         # check if serialization passes during segmentation
         # skip pytorch check because fusion is derived from llama2 network.
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_execute_options(self):
+        inputs = [
+            torch.ones(2, 4, 8, device="cuda"),
+            torch.ones(2, 4, 8, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_scalar(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+            t3 = fd.ops.mul(t2, c0)
+            t4 = fd.ops.sum(t3, [-1], False, DataType.Float)
+
+            fd.add_output(t4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        fd.execute(inputs)
+        hoist_code = fd.last_cuda_code()
+
+        # now reset the FusionCache so that we create a new FusionDefinition,
+        # then execute with a different set of options.
+        # TODO: options should be taken into consideration in our Fusion caching system
+        FusionCache.reset()
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        fd.execute(inputs, disable="index_hoist")
+        no_hoist_code = fd.last_cuda_code()
+
+        assert no_hoist_code != hoist_code
 
     # https://github.com/NVIDIA/Fuser/issues/1953
     @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")

@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
@@ -541,7 +542,8 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter,
              bool override_user_schedule,
              std::optional<int64_t> device,
-             bool capture_debug_output) {
+             bool capture_debug_output,
+             std::vector<std::string> disable_options) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -561,6 +563,16 @@ void initNvFuserPythonBindings(PyObject* module) {
               NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
+            DisableOptionsGuard dog;
+            for (auto disable_label : disable_options) {
+              std::optional<DisableOption> opt =
+                  stringToDisableOption(disable_label);
+              NVF_CHECK(
+                  opt.has_value(),
+                  "Unrecognized enable_option: ",
+                  disable_label);
+              DisableOptionsGuard::getCurOptions().set(opt.value());
+            }
             return self.execute(
                 inputs,
                 override_user_schedule,
@@ -572,6 +584,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::kw_only(),
           py::arg("device") = py::none(),
           py::arg("capture_debug_output") = false,
+          py::arg("disable") = py::none(),
           py::return_value_policy::reference)
       .def(
           "_debug_output",
@@ -925,7 +938,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::Operators> nvf_ops(fusion_def, "Operators");
   nvf_ops.def(py::init<FusionDefinition*>());
 
-  // ******************** INSERT OP BINDINGS BELOW HERE ********************
+// ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
 #define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                \
