@@ -48,6 +48,7 @@ from pytest_input_generators import (
     var_mean_generator,
     vector_at_error_generator,
     where_error_generator,
+    matmul_input_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,
@@ -59,6 +60,7 @@ from pytest_utils import (
     ArgumentType,
 )
 from functools import partial
+from nvfuser import DataType
 
 eps = 1e-2
 
@@ -1103,6 +1105,40 @@ uniform_opinfo = OpInfo(
 )
 tensor_creation_ops.append(uniform_opinfo)
 
+matmul_ops = []
+
+
+def matmul_wrapper(fd, data_type, a, b):
+    t1 = fd.ops.matmul(a, b)
+    t2 = fd.ops.cast(t1, dtype=data_type)
+    return t2
+
+
+# We can't access nvFuser.Tensor's dtype as yet, thus we
+# need to create two OpInfos based on whether we cast back
+# to fp16 or bf16. Ideally we'd just need one OpInfo and in
+# the wrapper cast to the input dtype.
+matmulfp16_opinfo = OpInfo(
+    lambda fd: partial(matmul_wrapper, fd, DataType.Half),
+    "matmul_float16",
+    dtypes=(torch.float16,),
+    sample_input_generator=matmul_input_generator,
+    reference=torch.matmul,
+)
+matmul_ops.append(matmulfp16_opinfo)
+
+matmulbf16_opinfo = OpInfo(
+    lambda fd: partial(matmul_wrapper, fd, DataType.BFloat16),
+    "matmul_Bfloat16",
+    dtypes=(torch.bfloat16,),
+    sample_input_generator=matmul_input_generator,
+    reference=torch.matmul,
+)
+
+# bf16 needs Ampere or newer.
+if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8:
+    matmul_ops.append(matmulbf16_opinfo)
+
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
@@ -1114,3 +1150,4 @@ opinfos.extend(dynamic_shapes_ops)
 opinfos.extend(normalization_ops)
 opinfos.extend(shape_ops)
 opinfos.extend(tensor_creation_ops)
+opinfos.extend(matmul_ops)

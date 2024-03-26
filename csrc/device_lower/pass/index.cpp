@@ -1417,19 +1417,15 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   auto state = IrBuilder::create<Val>(DataType::UInt);
   pushBack(IrBuilder::create<kir::Allocate>(
       state, MemoryType::Local, ldst->container()->oneVal()));
-  Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(in_tv->dtype()));
-  for (auto id : in_tv->getLeafDomain()) {
-    expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
-  }
-  expect_bytes =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+
+  // expect_bytes for mbarrier
+  auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
+      in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
       state, mbarrier_index, expect_bytes));
 
   // indexing ldst op
   auto out = lowerDstIndex(ldst->out(), {}, true);
-  auto in = Index::cpAsyncBulkIndex(
-      in_tv, out_tv, out_tv, mbarrier_index, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -1440,11 +1436,16 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 }
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
+  pushBack(IrBuilder::create<kir::Asm>(
+      "fence.proxy.async",
+      std::vector<Val*>{},
+      std::vector<Val*>{},
+      kir::Asm::Options{/*volatile=*/true}));
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
   auto in_tv = ldst->in()->as<TensorView>();
   auto out_tv = ldst->out()->as<TensorView>();
-  auto out =
-      Index::cpAsyncBulkIndex(out_tv, in_tv, out_tv, nullptr, for_loops_);
+  auto [out, _] = Index::getCpAsyncBulkGmemIndex(
+      in_tv, out_tv, nullptr, for_loops_, rotated_loop_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());

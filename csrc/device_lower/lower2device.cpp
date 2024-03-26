@@ -349,10 +349,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
+  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
-
-  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+  dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.

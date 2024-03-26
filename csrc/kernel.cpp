@@ -7,7 +7,6 @@
 // clang-format on
 #include <debug.h>
 #include <device_lower/lower2device.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -32,12 +31,6 @@ class KernelIrScanner : private IrVisitor {
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
-    const auto gpu_lower = GpuLower::current();
-    for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
-      auto extent = split->in()->extent();
-      auto factor = split->factor();
-      summary_.splits_to_validate.emplace_back(extent, factor);
-    }
   }
 
   const auto& summary() const {
@@ -355,6 +348,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   ValidateAllocation::validate(this);
   analyze();
   // Make sure this is after analyze as it sets summary_
+  summary_.validations = GpuLower::current()->validations();
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();

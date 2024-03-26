@@ -768,6 +768,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
+  NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
+
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)
   NVFUSER_BINARY_TV_OP("div", div)

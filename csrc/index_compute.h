@@ -586,14 +586,14 @@ class Index {
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       DataType dtype);
 
-  //! Compute the global index for isCpAsyncBulk, currently just generate naive
-  //! zeros
-  static Val* cpAsyncBulkIndex(
-      TensorView* gmem_tv,
-      TensorView* smem_tv,
-      TensorView* consumer,
+  //! Compute the global index and the expected bytes for complete_tx mechanism
+  //! for CpAsyncBulk.
+  static std::pair<Val*, Val*> getCpAsyncBulkGmemIndex(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
       Val* mbarrier,
-      const std::vector<kir::ForLoop*>& loops);
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_set<kir::ForLoop*>& rotated_loops);
 };
 
 // Used for local and shared index mapping. Returns a map from loops
