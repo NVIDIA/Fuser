@@ -120,11 +120,34 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
   }
 }
+
+// TODO: Very simple sharding propagation pass.
+// Auto inserted ops like castOps don't propagate shardings
+// Note: we cannot perform this when the Op is inserted into the fusion, because
+// the multidevice shcheduling hasn't been applied.
+void shardOpsWithoutMesh(Expr* expr) {
+  auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+  auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+  std::vector<TensorView*> input_with_mesh;
+  for (auto tv : inputs) {
+    if (tv->hasDeviceMesh()) {
+      input_with_mesh.push_back(tv);
+    }
+  }
+  std::vector<TensorView*> outputs_without_mesh;
+  for (auto tv : outputs) {
+    if (!tv->hasDeviceMesh()) {
+      outputs_without_mesh.push_back(tv);
+    }
+  }
+  shardAllLike(input_with_mesh[0], outputs_without_mesh);
+}
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
+    shardOpsWithoutMesh(expr);
     if (isLowerableToCommunication(expr)) {
       continue;
     }
@@ -137,17 +160,32 @@ void insertReshardings(Fusion* fusion) {
         "multi-output expressions are not supported");
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::vector<TensorView*> new_inputs;
-    for (auto input : getTvsWithDifferentSharding(
-             output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
-      // TODO: reuse cacheAfter?
-      // TODO: here we should add a mechanism to potentially reuse the inserted
-      // resharding accross all the consumer of the resharded tensor. This way
-      // we could avoid wasteful resharding set insertion.
-      TensorView* new_input = set(input);
-      new_inputs.push_back(new_input);
-      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+    auto inputs = getTvsWithDifferentSharding(
+        output, ir_utils::filterByType<TensorView>(expr->inputs()));
+    // Insert resharding expression after the expr
+    // input [expr] output [set] new_output
+    if (!inputs.empty() && expr->inputs().size() == 1) {
+      auto input = *inputs.begin();
+      TensorView* new_output = set(output);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // Update shardings new_output takes output's sharding, output takes
+      // input's sharding
+      shardAllLike(output, {new_output});
+      shardAllLike(input, {output});
+    } else {
+      // For non-UnaryOps insert the set before the expr
+      // for each input (input [set] new input) [expr] output
+      for (auto input : inputs) {
+        // TODO: reuse cacheAfter?
+        // TODO: here we should add a mechanism to potentially reuse the
+        // inserted resharding accross all the consumer of the resharded tensor.
+        // This way we could avoid wasteful resharding set insertion.
+        TensorView* new_input = set(input);
+        new_inputs.push_back(new_input);
+        expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+      }
+      shardAllLike(output, new_inputs);
     }
-    shardAllLike(output, new_inputs);
   }
 }
 

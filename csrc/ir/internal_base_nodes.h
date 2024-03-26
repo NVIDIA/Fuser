@@ -680,6 +680,8 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>&);
   NVF_API static std::vector<IterDomain*> noBroadcasts(
       const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noDevices(
+      const std::vector<IterDomain*>&);
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
@@ -702,6 +704,7 @@ class TensorDomain : public Val {
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
+  std::vector<IterDomain*> no_device_domain_;
   std::vector<std::optional<bool>> contiguity_;
   bool has_reduction_ = false;
 };
