@@ -174,9 +174,9 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 class TMATest : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(9, 0)) {
+    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
@@ -673,15 +673,16 @@ TEST_F(TMAIndexingTest, AutoBulkOne) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, TileEntireDim) {
+TEST_F(TMAIndexingTest, BulkEntireDim) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = TensorViewBuilder()
-                 .ndims(8)
-                 .dtype(DataType::Float)
-                 .contiguity({true, true, false, true, false, true, true, true})
-                 .build();
+  auto tv0 =
+      TensorViewBuilder()
+          .ndims(9)
+          .dtype(DataType::Float)
+          .contiguity({true, true, false, true, false, true, true, false, true})
+          .build();
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
@@ -692,23 +693,34 @@ TEST_F(TMAIndexingTest, TileEntireDim) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   for (auto tv : {tv1, tv2}) {
-    // [I1, I2, I3, I4, I5, I6, I7, I8]
-    tv->reorder({{1, -3}});
-    // [I1, I3, I4, I5, I6, I2, I7, I8]
-    for (auto _ : c10::irange(4)) {
-      (void)_;
-      tv->merge(0);
-    }
+    // [I1, I2, I3, I4, I5, I6, I7, I8, I9]
+    tv->merge(3);
+    tv->split(3, 3);
+    // [I1, I2, I3, I4*I5/3, 3, I6, I7, I8, I9]
+    tv->reorder({{1, -5}, {3, -4}});
+    // [I1, I3, 3, I6, I2, I4*I5/3, I7, I8, I9]
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
     tv->merge(1);
     tv->merge(1);
+    tv->merge(1);
+    tv->merge(1);
+    // [I1*I3*3*I6, I2*(I4*I5/3)*I7*I8*I9]
     tv->axis(0)->parallelize(ParallelType::BIDx);
+    // Will use 5D TMA:
+    // [ I1, I2,
+    //   I3,
+    //   I4, I5,
+    //   I6, I7, I8,
+    //   I9]
   }
   // Parallelize the tile axes
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   // tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8}, options);
+  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8, 4}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
