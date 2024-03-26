@@ -3894,7 +3894,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           inner_it == tma_global_id_to_inner_id.end(),
           "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
           "(this is always the case for nvFuser now)",
-          ", the first element of elementStrides must be one");
+          ", the first element of elementStrides must be one.");
     }
     if (inner_it != tma_global_id_to_inner_id.end()) {
       element_strides_inner_to_outer.push_back(inner_it->second->extent());
