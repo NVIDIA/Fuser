@@ -612,15 +612,24 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeRelease)
 AsyncWait::AsyncWait(
     IrBuilderPasskey passkey,
     AsyncOpType async_op_type,
-    int64_t keep_stages)
+    Val* keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(async_op_type);
-  addDataAttribute(keep_stages);
+  addAttribute(keep_stages);
 }
+
+AsyncWait::AsyncWait(
+    IrBuilderPasskey passkey,
+    AsyncOpType async_op_type,
+    int64_t keep_stages)
+    : AsyncWait(
+          passkey,
+          async_op_type,
+          IrBuilder::create<Val>(keep_stages, DataType::Int)) {}
 
 std::string AsyncWait::toString(int indent_size) const {
   std::stringstream ss;

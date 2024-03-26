@@ -636,11 +636,7 @@ class AsyncWait final : public Expr {
   explicit AsyncWait(
       IrBuilderPasskey passkey,
       AsyncOpType async_op_type,
-      int64_t keep_stages = 0)
-      : AsyncWait(
-            passkey,
-            async_op_type,
-            IrBuilder::create<Val>(keep_stages, DataType::Int)) {}
+      int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

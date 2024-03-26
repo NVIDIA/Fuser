@@ -206,28 +206,21 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_loop_->iter_domain());
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
-      std::cout << "Prolog" << std::endl;
       NVF_ERROR(start->isZeroInt());
       stop = SimplifyingIrBuilder::create<Val>(
           int64_t(stage_depth - 1), DataType::Index);
     } else if (
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
-      std::cout << "Main" << std::endl;
       stop = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
           IrBuilder::create<Val>(int64_t(stage_depth - 1), DataType::Index));
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
-      std::cout << "Epilog" << std::endl;
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
           IrBuilder::create<Val>(int64_t(stage_depth - 1), DataType::Index));
     }
-
-    std::cout << "start=" << start->toInlineString()
-              << " stop=" << stop->toInlineString()
-              << " stage_depth=" << stage_depth << std::endl;
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
         double_buffer_loop_->iter_domain(),
@@ -624,7 +617,11 @@ class DoubleBufferInserter : private kir::ExprMutator {
         auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
             AsyncOpType::CpAsync,
             SimplifyingIrBuilder::subExpr(
-                epilogue_loop->index() FusionGuard::getCurFusion()->oneVal()));
+                epilogue_loop->stop(),
+                SimplifyingIrBuilder::addExpr(
+                    epilogue_loop->index(),
+                    FusionGuard::getCurFusion()->oneVal())));
+        epilogue_loop->body().push_back(cp_async_wait);
       }
       registerInsertAfter(double_buffer_loop, epilogue_loop);
     }
