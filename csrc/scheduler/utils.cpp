@@ -2494,9 +2494,12 @@ std::unordered_set<TensorView*> getAllTvsFrom(
 
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t threads_per_block) {
   const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t max_threads_per_block = dev_prop->maxThreadsPerBlock;
+  // use device max threads per block if threads_per_block is not provided
+  const int64_t max_threads_per_block =
+      threads_per_block > 0 ? threads_per_block : dev_prop->maxThreadsPerBlock;
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size = 1;
   for (auto tv : reduction_tvs) {

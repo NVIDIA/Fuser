@@ -644,11 +644,17 @@ int64_t getPersistentBufferSizeOfTensor(
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
 
-//! Returns the shared memory overhead per block includes reserved by the CUDA
-//! driver and the space for the reduction broadcast workspace.
+//! Calculates the shared memory overhead per block, including CUDA driver
+//! reserves and reduction workspace. Defaults to using maximum threads per
+//! block (threads_per_block = -1), potentially increasing overhead.
+//! The callers can pass other values if they are sure about the max values
+//! used at the runtime. However, specifying a smaller threads_per_block can
+//! cause kernel launch failures if a larger value is used at runtime due to
+//! insufficient shared memory.
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs);
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t threads_per_block = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
