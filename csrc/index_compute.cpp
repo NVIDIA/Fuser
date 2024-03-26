@@ -3694,7 +3694,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     NVF_ERROR(
         def != nullptr && def->isA<Split>(),
         "An originating bulk IterDomain must be the output of a split, but ",
-        id,
+        id->toString(),
         " is not.");
     originating_bulk_ids.pushBack(id);
   }

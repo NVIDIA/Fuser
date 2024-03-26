@@ -1006,6 +1006,80 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
+TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 16);
+    tv->split(0, 16);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+
+  EXPECT_THAT(
+      [&]() {
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but")));
+}
+
+TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 16);
+    tv->split(0, 16);
+    tv->swizzle(SwizzleType::XOR, 1, 2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+
+  EXPECT_THAT(
+      [&]() {
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "An originating bulk IterDomain must be the output of a split, but")));
+}
+
 // End TMA tests
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
