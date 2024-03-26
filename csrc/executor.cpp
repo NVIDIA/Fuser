@@ -2258,6 +2258,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       &data.strides,
       nvfuser::toUnderlying(data.type),
       data.zero_init,
+      data.resets_to_zero,
       data.is_profile_buffer,
       is_fusion_output);
 }
@@ -2392,7 +2393,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
 
   info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
-  info.resets_to_zero = buffer->zero_init();
+  info.resets_to_zero = buffer->resets_to_zero();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
 }
