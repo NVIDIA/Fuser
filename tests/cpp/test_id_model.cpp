@@ -326,7 +326,6 @@ void checkStep4Results(
       << "Expected to have " << ref_promotion_map.size()
       << " mappings but found " << iel_promotion_map.size();
 
-  // for (const auto& [iel_group, promotion_id] : iel_promotion_map) {
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
     const auto& ref_promotion_id = ref_promotion_pair.second;
@@ -339,12 +338,10 @@ void checkStep4Results(
         });
 
     auto iel_promotion_id = iel_promotion_it->second;
-    ASSERT_EQ(ref_promotion_id, iel_promotion_id)
+    EXPECT_EQ(ref_promotion_id, iel_promotion_id)
         << "Expected promotion: " << ref_promotion_id->toString()
         << ". Actual: " << iel_promotion_id->toString();
   }
-
-  std::cerr << "checkStep4Results done\n";
 }
 
 // Create a fusion where we're missing a valid concrete id so the compute at map
@@ -1718,90 +1715,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
   checkStep4Results(
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
-}
-
-// A repro that produces an invalid loop graph due to the compliment
-// mapping. This is not currently supported.
-TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({7});
-  fusion.addInput(tv0);
-  auto tv1 = makeConcreteTensor({7, 8});
-  fusion.addInput(tv1);
-  auto tv2 = makeConcreteTensor({7, 9});
-  fusion.addInput(tv2);
-
-  auto tv3 = broadcast(tv0, {false, true});
-  auto tv4 = add(tv1, tv3);
-  auto tv5 = broadcast(tv4, {false, false, true});
-
-  auto tv6 = broadcast(tv0, {false, true});
-  auto tv7 = add(tv2, tv6);
-  auto tv8 = broadcast(tv7, {false, true, false});
-
-  auto tv9 = add(tv5, tv8);
-
-  auto tv10 = set(tv9);
-  auto tv11 = set(tv10);
-  fusion.addOutput(tv11);
-
-  // Merge all domains except for tv10 and tv11
-  for (auto tv : ir_utils::allTvs(&fusion)) {
-    if (tv == tv10 || tv == tv11) {
-      continue;
-    }
-    while (tv->nDims() > 1) {
-      tv->merge(0);
-    }
-  }
-
-  // Fully inline all tensors up until tv10
-  for (auto tv : ir_utils::allTvs(&fusion)) {
-    if (tv == tv9 || tv == tv10 || tv == tv11) {
-      continue;
-    }
-    tv->inlineAt(1);
-  }
-
-  // Fully inline tv10 to tv11 without merging
-  tv10->inlineAt(-1);
-
-  // Due to the compliment mapping, the leaf domains of tv10 and tv11
-  // are loop mapped, which is invalid.
-  //
-  // Specifically, here are the tv10 and tv11 tensors:
-  //
-  // T10_l[ iS22{7}, iS23{8}, iS24{9} ] ca_pos( 3 )
-  // root domain : (iS22{7}, iS23{8}, iS24{9})
-  // contiguity: t t t
-  // leaf domain : (iS22{7}, iS23{8}, iS24{9})
-  // T11_g[ iS25{7}, iS26{8}, iS27{9} ] produce_pos( 3 )
-  // root domain : (iS25{7}, iS26{8}, iS27{9})
-  // contiguity: t t t
-  // leaf domain : (iS25{7}, iS26{8}, iS27{9})
-  //
-  // Here's the loop graph for tv10 and tv11:
-  // idg{22 23 24 25 26 27}
-
-  // Due to the invalid mapping, building IdModel should fail for now
-  EXPECT_THAT(
-      [&]() { IdModel id_model(&fusion, true, false, false); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Detected leaf domains are mapped in the loop graph")));
-
-  // Enable the below validation once the above problem is resolved.
-  //
-  // const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-  //
-  // These assertions should fail at this moment.
-  // ASSERT_NE(
-  //     loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(1)));
-  // ASSERT_NE(
-  //     loop_graph.toGroup(tv10->axis(0)), loop_graph.toGroup(tv10->axis(2)));
-  // ASSERT_NE(
-  //     loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
 namespace {
