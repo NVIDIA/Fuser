@@ -31,29 +31,19 @@ std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
   return sharded_ids;
 }
 
-// Returns whether a IterDomain in a TensorView can be read/written
-// contiguously. when a IterDomain's sharding is flipped. This occurs when the
-// IterDomain being unsharded/sharded is the outermost in the allocation domain.
-// e.g. [DIDx(i0), r1, i2, i3]
-// i0 => true, outermost axis
-// i1 => true, reduction axis are not allocated
-// i2 => true, reduction and device axis are not allocated
-// i3 => false, i2 is allocated.
-bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
-  for (auto id : tv->getLeafDomain()) {
-    if (id == changed_id) {
+// Returns whether a IterDomain in a TensorView is the outermost
+// allocated IterDomain in the TensorView.
+bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
+  for (auto i : tv->getLeafDomain()) {
+    if (i == id) {
       return true;
     }
-    if (!id->isDeviceDim() && !id->isReduction()) {
+    if (!i->isDeviceDim() && !i->isReduction()) {
       return false;
     }
   }
   NVF_ERROR(
-      false,
-      "Id",
-      changed_id->toString(),
-      " is not in TensorView ",
-      tv->toString());
+      false, "Id", id->toString(), " is not in TensorView ", tv->toString());
   return false;
 }
 
@@ -76,33 +66,30 @@ allocationShardings(Expr* expr) {
   auto output = expr->outputs().at(0)->as<TensorView>();
   auto input = expr->inputs().at(0)->as<TensorView>();
 
-  auto sharded_ids_input = getShardedIterDomains(input);
-  auto sharded_ids_output = getShardedIterDomains(output);
   std::vector<IterDomain*> shard_additions;
   std::vector<IterDomain*> shard_deletions;
   auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
+  const auto c2p_map = rootmap.mapConsumerToProducer();
 
-  const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
-  for (auto [id1, id2] : c2p_map) {
-    if (id1->getParallelType() != id2->getParallelType()) {
-      shard_additions.push_back(id1);
-    }
-  }
-
-  const auto p2c_map = rootmap.mapProducerToConsumer(&sharded_ids_input);
-  for (auto [id1, id2] : p2c_map) {
-    // Ignore sharded reductions i.e.
-    // DIDx(i0) -> r(i0) or DIDx(i0)->r(DIDx(i0))
+  for (IterDomain* out_root : output->getRootDomain()) {
+    IterDomain* in_root = c2p_map.at(out_root);
+    // Ignore sharded reductions on the output
+    // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
-    if (id1->getParallelType() != id2->getParallelType() &&
-        !id2->isReduction()) {
+    if (in_root->isDeviceDim() && !out_root->isParallelized() &&
+        !out_root->isReduction()) {
+      shard_deletions.push_back(in_root);
+    } else if (!in_root->isParallelized() && out_root->isDeviceDim()) {
+      shard_additions.push_back(out_root);
+    } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
       NVF_ERROR(
-          !id2->isReduction() ||
-              (id1->getParallelType() == id2->getParallelType() ||
-               id2->getParallelType() == ParallelType::Serial),
-          "Invalid resharding expression ",
-          expr->toString());
-      shard_deletions.push_back(id1);
+          in_root->getParallelType() == out_root->getParallelType(),
+          expr->toString(),
+          " reshards ",
+          in_root->toString(),
+          " to ",
+          out_root->toString(),
+          " which is not supported");
     }
   }
   return std::make_pair(shard_additions, shard_deletions);
@@ -267,7 +254,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     if (!shard_deletions.empty()) {
       auto id = shard_deletions[0];
       int idx = static_cast<int>(input->domain()->posOf(id));
-      if (isContiguousShard(input, id)) {
+      if (isOutermostAllocatedId(input, id)) {
         continue;
       }
       TensorView* input_permute = permute(input, {{idx, 0}});
@@ -284,13 +271,13 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
     // permute the sharded axis to the proper location.
-    // Example: [i0 i1 DIDx(i2)] -> [i0 DIDx(i1) r(DIDx(i2))]
+    // Example: [i0 i1 DIDx(i2)] -> [i0 DIDx(i1) r2]
     // Rewritten to: [i0 i1 DIDx(i2)] -> [i1 i0 DIDx(i2)] ->
-    //                    [DIDx(i1) i0 r(DIDx(i2))] -> [i0 DIDx(i1)]
+    //                    [DIDx(i1) i0 r2] -> [i0 DIDx(i1)]
     else if (!shard_additions.empty()) {
       auto id = shard_additions[0];
       int idx = static_cast<int>(output->domain()->posOf(id));
-      if (isContiguousShard(output, id)) {
+      if (isOutermostAllocatedId(output, id)) {
         continue;
       }
 

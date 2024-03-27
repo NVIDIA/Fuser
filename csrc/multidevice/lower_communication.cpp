@@ -120,7 +120,7 @@ CommParams createParamsForGatherScatter(
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      auto sliced_buf = root_buf.index({at::indexing::Slice(i, i + 1), "..."});
+      auto sliced_buf = root_buf.slice(0, i, i + 1);
       ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
     // The scatter/gather semantics imposes the root to be both
@@ -128,8 +128,7 @@ CommParams createParamsForGatherScatter(
     // have to artificially make it send and receive a dummy buffer
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
-      at::Tensor dummy =
-          createDummyTensor(root_buf.index({at::indexing::Slice(0, 1), "..."}));
+      at::Tensor dummy = createDummyTensor(root_buf.slice(0, 0, 1));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -391,15 +390,12 @@ void lowerToReduceScatter(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
-  // TODO: Clean up once allocation domain for sharded tensors is
-  // better supported.
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedAxis(output_tv);
   // The output tensor is sharded on scattered_axis and needs to be mapped
   // back onto the input. The input has an reduced axis, so the scattered axis
-  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [rDIDx(i0),
-  // DIDx(i1)] The scattered_axis is axis=0 on the output and maps to axis=1 on
-  // the input.
+  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
+  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
   if (reduction_axis <= scattered_axis) {
     scattered_axis++;
   }
