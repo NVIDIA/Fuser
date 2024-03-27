@@ -127,11 +127,6 @@ class SegmentedGroup {
   //! Debug print function
   void print() const;
 
-  //! Returns the segmented fusion that this group is in
-  SegmentedFusion* segmentedFusion() const {
-    return segmented_fusion_;
-  }
-
   //! Utility to re-collect the operators included in this
   //!  segmented group after updating the group boundary.
   void resetExprList();

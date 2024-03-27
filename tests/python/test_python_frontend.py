@@ -2367,6 +2367,42 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
+    def test_matmul(self):
+        m = 24
+        n = 16
+        k = 8
+        inputs_tt = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
+        ]
+
+        inputs_tn = [
+            inputs_tt[0].clone(),
+            inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
+        ]
+
+        inputs_nt = [
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, k]),
+            inputs_tt[1].clone(),
+        ]
+
+        inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
+
+        inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
+
+        def fusion_func(fd: FusionDefinition, inps) -> None:
+            t0 = fd.from_pytorch(inps[0])
+            t1 = fd.from_pytorch(inps[1])
+            t2 = fd.ops.matmul(t0, t1)
+            t3 = fd.ops.cast(t2, dtype=DataType.Half)
+            fd.add_output(t3)
+
+        for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
+            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
+            eager_out = torch.matmul(inps[0], inps[1])
+            fp16_nvf_out = nvf_out[0]
+            self.assertEqual(eager_out, fp16_nvf_out)
+
     def test_integer_division(self):
         inputs = [
             torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
@@ -3536,6 +3572,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/1953
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1953(self):
         inputs = [
             128,

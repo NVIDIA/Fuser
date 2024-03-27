@@ -694,7 +694,8 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init) {
+    bool zero_init,
+    bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
           GpuLower::current()->kernel()->zeroVal(), buffer_size))};
@@ -702,7 +703,11 @@ kir::Allocate* allocGlobalBufferForGridComm(
   const auto buffer_tv =
       IrBuilder::create<TensorView>(buffer_domain, dtype, MemoryType::Global);
   return IrBuilder::create<kir::Allocate>(
-      buffer_tv, buffer_tv->getMemoryType(), nullptr, zero_init);
+      buffer_tv,
+      buffer_tv->getMemoryType(),
+      nullptr,
+      zero_init,
+      resets_to_zero);
 }
 
 BasicAllocInfo getAllocInformation(
@@ -710,6 +715,7 @@ BasicAllocInfo getAllocInformation(
     const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
+  DEBUG_PRINT_SCOPE(tv);
   BasicAllocInfo info;
   auto gpu_lower = GpuLower::current();
 
@@ -717,6 +723,7 @@ BasicAllocInfo getAllocInformation(
 
   for (auto fl : for_loops) {
     if (info.alloc_pos == tv->getComputeAtPosition()) {
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 
@@ -727,12 +734,14 @@ BasicAllocInfo getAllocInformation(
           "Invalid computeAt of T",
           tv->name(),
           ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 
     auto fl_id = fl->iter_domain();
 
     if (fl_id->getParallelType() == ParallelType::Unroll) {
+      DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
 

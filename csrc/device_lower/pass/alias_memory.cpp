@@ -1458,6 +1458,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
         old_alloc->memoryType(),
         old_alloc->shape(),
         old_alloc->zeroInit(),
+        /*reset_to_zero=*/false,
         alloc_expr_to);
 
     registerReplace(old_alloc, new_alloc);
@@ -1971,6 +1972,20 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
         debug() << "Inserting block sync before position " << position
                 << std::endl;
       }
+      {
+        // TODO: This is a temporary HACK to work around
+        // https://github.com/NVIDIA/Fuser/issues/2000
+        // Instead, we should only insert these wait statements when we detect
+        // that there are corresponding unsynced async operations involving the
+        // buffers in question. We should also update dispatch(Expr*) to check
+        // not only hasBlockSync but also check if there already exist AsyncWait
+        // expressions in the interval (or in some cases before the interval but
+        // after the last write?).
+        auto new_async_wait =
+            IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync);
+        registerInsertBefore(expr, new_async_wait);
+      }
+
       auto new_sync = IrBuilder::create<kir::BlockSync>();
       inserted_syncs_.insert(new_sync);
       registerInsertBefore(expr, new_sync);

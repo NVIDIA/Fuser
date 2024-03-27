@@ -171,6 +171,18 @@ void validateIterDomainUsage(Fusion* fusion) {
   }
 }
 
+void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
+  for (auto tv : tvs) {
+    for (auto id : tv->getLeafDomain()) {
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            ir_utils::isCpAsyncBulk(tv->definition()),
+            "ParallelType::Bulk is only supported for cp.async.bulk.");
+      }
+    }
+  }
+}
+
 } // namespace
 
 void validateIr(Fusion* fusion) {
@@ -190,6 +202,9 @@ void validateIr(Fusion* fusion) {
       dynamic_tvs.empty(),
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
+
+  auto all_tvs = ir_utils::allTvs(fusion);
+  validateCpAsyncBulk(all_tvs);
 }
 
 namespace {
@@ -373,6 +388,16 @@ class VectorizeValidator : public OptInDispatch {
       if (r_id->isReduction() || r_id->isBroadcast()) {
         continue;
       }
+      if ((tv->getMemoryType() == MemoryType::Shared ||
+           tv->getMemoryType() == MemoryType::Local) &&
+          r_id->isBlockDim()) {
+        // Inner-most parallelized dimensions don't count in allocation of
+        // shared and local tensors.
+        continue;
+      }
+      if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
+        continue;
+      }
       last_alloc_dim = r_id;
       last_alloc_dim_pos = i - 1;
       break;
@@ -401,9 +426,9 @@ class VectorizeValidator : public OptInDispatch {
           ", allocation domain: ",
           ir_utils::toString(tv->getMaybeAllocationDomain()),
           ", vectorized id: ",
-          validator.vectorized_id_,
+          validator.vectorized_id_->toString(),
           ", innermost id: ",
-          last_alloc_dim,
+          last_alloc_dim->toString(),
           ", contiguity: ",
           contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }
