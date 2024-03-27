@@ -193,14 +193,12 @@ enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
 inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
-          ldst->out()->as<TensorView>()->getMemoryType() ==
-              MemoryType::Shared) {
+      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
         return CpAsyncBulkTileType::G2S;
       } else if (
-          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
-          ldst->out()->as<TensorView>()->getMemoryType() ==
-              MemoryType::Global) {
+          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
         return CpAsyncBulkTileType::S2G;
       } else {
         NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
@@ -872,6 +870,16 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
         return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
       });
   return outs_requiring_codegen;
+}
+
+Val* getNumThreadsInTensorView(TensorView* tv) {
+  Val* num_threads = tv->fusion()->oneVal();
+  for (auto id : tv->getLeafDomain()) {
+    if (id->isThreadDim()) {
+      num_threads = SimplifyingIrBuilder::mulExpr(num_threads, id->extent());
+    }
+  }
+  return num_threads;
 }
 
 } // namespace lower_utils

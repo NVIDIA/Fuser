@@ -313,6 +313,12 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 //! filtered out.
 std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
 
+//! Get the number of threads in a tensor view. Note that this function
+//! only cares about the given tensor view itself, not the entire fusion.
+//! That is, for example, if the tensor view is [TIDx{3}], but the entire
+//! fusion has blockDim.x = 128, this function will return 3 instead of 128.
+Val* getNumThreadsInTensorView(TensorView* tv);
+
 } // namespace lower_utils
 
 } // namespace nvfuser
