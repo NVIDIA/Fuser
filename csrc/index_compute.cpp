@@ -3473,12 +3473,12 @@ Val* Index::eye(
 //
 // Example 1:
 //
-// I0 -> split -> I1 -> split -> I3 (Bulk)
-//           \               \-> I4
-//            \-> I2 -> split -> I5 (Bulk)
-//                           \-> I6
-// I7
-// I8 (Bulk)
+// -> I0 -> split -> I1 -> split -> I3 (Bulk)
+//              \               \-> I4
+//               \-> I2 -> split -> I5 (Bulk)
+//                              \-> I6
+// -> I7
+// -> I8 (Bulk)
 //
 // Originating bulk IterDomains: { I3, I5, I8 }
 // Box IterDomains: { I3, I5, I8 }
@@ -3490,10 +3490,10 @@ Val* Index::eye(
 //
 // Example 2:
 //
-// I0 -> split -> I1 -> split -> I3 (Bulk)
-//           \               \-> I4
-//            \-> I2 -> split -> I5 -> split -> I7
-//                           \-> I6         \-> I8 (Bulk)
+// -> I0 -> split -> I1 -> split -> I3 (Bulk)
+//              \               \-> I4
+//               \-> I2 -> split -> I5 -> split -> I7
+//                              \-> I6         \-> I8 (Bulk)
 //
 // Originating bulk IterDomains: { I3, I8 }
 // Box IterDomains: { I3, I5 }
@@ -3505,8 +3505,8 @@ Val* Index::eye(
 //
 // Example 3:
 //
-// I0 -> merge -> I2 -> split -> I3 (Bulk)
-// I1 ---^                   \-> I4
+// -> I0 -> merge -> I2 -> split -> I3 (Bulk)
+// -> I1 ---^                   \-> I4
 //
 // Originating bulk IterDomains: { I3 }
 // Box IterDomains: { I3 }
