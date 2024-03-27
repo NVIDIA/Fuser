@@ -75,7 +75,8 @@ NVF_API void propagateParallelization(
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
 //
-// [i-block dims, i-thread dims, i-non-constant sized, i-constant sized,
+// [i-device dims, i-block dims, i-thread dims, i-constant sized, i-non-constant
+// sized
 //  r-block dims, r-thread dims, r-non-constant sized, r-constant sized,
 //  i/r-unswitched, i/r-unroll/vectorized, broadcasted dims]
 //

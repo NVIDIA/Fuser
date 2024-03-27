@@ -12,6 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -30,9 +31,18 @@ TensorView* scheduleReductionTV(
   // Inner here though is only relative to the other axis. When
   // rparams.fastest_dim == false, the reduction axis is logically outside the
   // iteration axis.
-  const int iter_axis = 0;
+  // Multidevice scheduling: we assume only the outermost domain can be
+  // parallelized with DIDx at this point and in that case this reduction
+  // scheduler only schedules the remaining domains while leaving the DIDx
+  // domain unchanged.
+  const bool has_outermost_dim_sharded = isSharded(reduction_tv);
+  NVF_ERROR(
+      !has_outermost_dim_sharded || !rparams.schedule_3D,
+      "Mixing interdevice and 3D schedule is not supported");
+  const int iter_axis = has_outermost_dim_sharded ? 1 : 0;
   const int outer_reduce_axis = rparams.schedule_3D ? 1 : 0;
-  const int inner_reduce_axis = rparams.schedule_3D ? 2 : has_iter_axis ? 1 : 0;
+  const int inner_reduce_axis =
+      rparams.schedule_3D ? 2 : has_outermost_dim_sharded + has_iter_axis;
 
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
@@ -615,6 +625,12 @@ int idPos(const IterDomain* id) {
     return inner_most;
   }
   inner_most--;
+
+  // Iter and device (outer)
+  if (!id->isReduction() && id->isDeviceDim()) {
+    return outer_most;
+  }
+  outer_most++;
 
   // Iter and block (outer)
   if (!id->isReduction() && id->isBlockDim()) {
