@@ -1310,59 +1310,34 @@ MmaOpDetails getMmaOpDetails(
   return details;
 }
 
-// std::vector<PolymorphicValue> evaluate_matmul(
-//   MmaOp* mma_op,
-//   DataType castop_out_dtype) {
-
-//   verifyMmaOpForEvaluation(mma_op, castop_out_dtype);
-//   // Squeeze the inputs to remove the broadcasted dimensions.
-
-//   std::vector<at::Tensor> mma_inputs;
-//   for (Val* inp: mma_op->inputs()) {
-//     auto eval_i = ee.evaluate(inp, known_values);
-//     mma_inputs.push_back(eval_i.as<at::Tensor>());
-//   }
-//   const auto a = mma_inputs.at(0).squeeze(-1);
-//   const auto b = mma_inputs.at(1).squeeze(0);
-
-//   // After removing the broadcast dimensions, the format should be
-//   // [M, K] x [K, N] compatible with aten::matmul format.
-//   at::Tensor output = a.matmul(b);
-//   return {output};
-// }
-
 // Verifies the assumptions made when evaluating a fusion containing MmaOp:
 // 1. MmaOp is preceded by a broadcast.
-// 2. The inputs to MmaOp are broadcasted as the last dim for the first operand and the first dim for the second operand.
-// The inputs of MmaOp will be [M, K, 1] x [1, K, N].
-void verifyMmaOpForEvaluation(
-  MmaOp* mma_op,
-  DataType final_out_dtype) {
+// 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
+// and the first dim for the second operand. The inputs of MmaOp will be [M, K,
+// 1] x [1, K, N].
+void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
   const Val* in_a = mma_op->inA();
   const Val* in_b = mma_op->inB();
 
-  NVF_CHECK(
-    in_a->as<TensorView>()->nDims() == in_b->as<TensorView>()->nDims(),
-    "Either both or none of A and B should be batch"
-  );
+  NVF_ERROR(
+      in_a->as<TensorView>()->nDims() == in_b->as<TensorView>()->nDims(),
+      "Either both or none of A and B should be batch");
   // Verify that the broadcasted size is 3.
-  NVF_CHECK(
+  NVF_ERROR(
       in_a->as<TensorView>()->nDims() == 3,
       "MmaOp::evaluate is not implemented for size: ",
       in_a->as<TensorView>()->nDims());
 
-  NVF_CHECK(
-      in_a->definition() != nullptr &&
-          in_a->definition()->isA<BroadcastOp>(),
+  NVF_ERROR(
+      in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_CHECK(
-      in_b->definition() != nullptr &&
-          in_b->definition()->isA<BroadcastOp>(),
+  NVF_ERROR(
+      in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_CHECK(
+  NVF_ERROR(
       in_a->as<TensorView>()->getRootDomain().back()->isBroadcast(),
       "Expected last dimension to be broadcasted for first operand.");
-  NVF_CHECK(
+  NVF_ERROR(
       in_b->as<TensorView>()->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
 
@@ -1376,36 +1351,70 @@ void verifyMmaOpForEvaluation(
   // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) does not
   // occur.
 
-  NVF_CHECK(in_a->as<TensorView>()->getDataType().value() == final_out_dtype,
-    "CastOp should cast to the same final datatype as the input datatype.");
+  NVF_ERROR(
+      in_a->as<TensorView>()->getDataType().value() == final_out_dtype,
+      "CastOp should cast to the same final datatype as the input datatype.");
 }
 
-void verifyBiasForEvaluation(
-  Val* bias,
-  DataType final_out_dtype) {
+bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
+  if (auto* mma = dynamic_cast<MmaOp*>(cast_op->input(0)->definition())) {
+    MmaOpUtils::verifyMmaOpForEvaluation(
+        mma, cast_op->out()->getDataType().value());
+    mma_lhs = mma->inA();
+    mma_rhs = mma->inB();
+    return true;
+  }
+  return false;
+}
 
-  // Bias tensor is broadcasted from shape [M,] to [M, 1] in biasEpilogue
-  NVF_CHECK(bias->definition() != nullptr && bias->definition()->isA<BroadcastOp>(),
-        "Expected bias tensor to be broadcasted.");
+bool matchMatmulBiasCast(
+    const UnaryOp* cast_op,
+    Val*& mma_lhs,
+    Val*& mma_rhs,
+    Val*& bias) {
+  if (auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition())) {
+    if (binary->getBinaryOpType() == BinaryOpType::Add) {
+      if (auto* mma = dynamic_cast<MmaOp*>(binary->input(0)->definition())) {
+        DataType final_out_dtype = cast_op->out()->getDataType().value();
 
-  NVF_CHECK(
-    bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
-    "Expected last dimension to be broadcasted for bias tensor.");
+        // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
+        MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
+        mma_lhs = mma->inA();
+        mma_rhs = mma->inB();
 
-  Val* bcast_in = bias->definition()->as<BroadcastOp>()->input(0);
+        Val* bcast_bias = binary->input(1);
+        // Bias is casted to fp32 and broadcasted from shape [M,] to [M, 1] in
+        // biasEpilogue.
+        NVF_ERROR(
+            bcast_bias->definition() != nullptr &&
+                bcast_bias->definition()->isA<BroadcastOp>(),
+            "Expected bias tensor to be broadcasted.");
 
-  // The bias tensor and matmul inputs should be of the same dtype.
-  // The bias tensor is upcasted to fp32.
-  auto is_previous_castop = [](Val* in, DataType expected_dtype) -> bool {
-    if (auto* unary = dynamic_cast<UnaryOp*>(in->definition())) {
-      if (unary->getUnaryOpType() == UnaryOpType::Cast) {
-        return unary->input(0)->getDataType().value() == expected_dtype;
+        NVF_ERROR(
+            bcast_bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+            "Expected last dimension to be broadcasted for bias tensor.");
+
+        Val* upcast_bias =
+            bcast_bias->definition()->as<BroadcastOp>()->input(0);
+
+        // The bias tensor and matmul inputs should be of the same dtype.
+        // The bias tensor is upcasted to fp32.
+        if (auto* unary = dynamic_cast<UnaryOp*>(upcast_bias->definition())) {
+          if (unary->getUnaryOpType() == UnaryOpType::Cast) {
+            NVF_CHECK(
+                unary->input(0)->getDataType().value() == final_out_dtype,
+                "Expected the bias to be originally of the same type as the final output dtype.");
+            bias = unary->input(0);
+            return true;
+          }
+        }
+        NVF_ERROR(
+            false,
+            "Expected the bias tensor to be preceded by castOp before broadcasting");
       }
     }
-    return false;
-  };
-
-  NVF_CHECK(is_previous_castop(bcast_in, final_out_dtype),
-    "Expected the bias to be preceded by castOp before broadcasting and to be originally of the same type as the final output dtype .");
   }
+  return false;
+}
+
 } // namespace nvfuser::MmaOpUtils

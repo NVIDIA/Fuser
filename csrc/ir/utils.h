@@ -58,11 +58,16 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b);
 
-// std::vector<PolymorphicValue> evaluateAsMatmul(MmaOp* mma_op, DataType
-// castop_out_dtype);
-
 void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType castop_out_dtype);
-void verifyBiasForEvaluation(Val* bias, DataType final_out_dtype);
+
+bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs);
+
+bool matchMatmulBiasCast(
+    const UnaryOp* cast_op,
+    Val*& mma_lhs,
+    Val*& mma_rhs,
+    Val*& bias);
+
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {
