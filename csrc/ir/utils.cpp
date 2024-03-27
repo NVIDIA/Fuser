@@ -1313,9 +1313,13 @@ MmaOpDetails getMmaOpDetails(
 // Verifies the assumptions made when evaluating a fusion containing MmaOp:
 // 1. MmaOp is preceded by a broadcast.
 // 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
-// and the first dim for the second operand. The inputs of MmaOp will be [M, K,
-// 1] x [1, K, N].
-void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
+// and the first dim for the second operand.
+// The inputs of MmaOp will be [M, K, 1] x [1, K, N].
+// Additionally, the inputs to the MmaOp should of the `expected_input_dtype`.
+// This is the same as the output dtype of the final castOp.
+void verifyMmaOpForEvaluation(
+    MmaOp* mma_op,
+    const DataType expected_input_dtype) {
   const Val* in_a = mma_op->inA();
   const Val* in_b = mma_op->inB();
 
@@ -1355,8 +1359,11 @@ void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
   // occur.
 
   NVF_ERROR(
-      tv_a->getDataType().value() == final_out_dtype,
-      "CastOp should cast to the same final datatype as the input datatype.");
+      *(tv_a->getDataType()) == *(tv_b->getDataType()),
+      "MmaOp inputs should be of the same dtype.")
+  NVF_ERROR(
+      *(tv_a->getDataType()) == expected_input_dtype,
+      "MmaOp inputs should be the same dtype as the output dtype of the final castOp.");
 }
 
 bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
@@ -1401,12 +1408,12 @@ bool matchMatmulBiasCast(
             bcast_bias->definition()->as<BroadcastOp>()->input(0);
 
         // The bias tensor and matmul inputs should be of the same dtype.
-        // The bias tensor is upcasted to fp32.
+        // The bias tensor is upcasted to fp32 before biasEpilogue.
         if (auto* unary = dynamic_cast<UnaryOp*>(upcast_bias->definition())) {
           if (unary->getUnaryOpType() == UnaryOpType::Cast) {
             NVF_CHECK(
                 unary->input(0)->getDataType().value() == final_out_dtype,
-                "Expected the bias to be originally of the same type as the final output dtype.");
+                "Bias should be originally of the same type as the final output dtype.");
             bias = unary->input(0);
             return true;
           }
