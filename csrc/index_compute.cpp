@@ -3891,6 +3891,32 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   //        BG: create new     new dim      NG: create new
   //  dim if discontiguous       if         dim if discontiguous
   //                        discontiguous
+  //
+  // Example 1: If my TMA domain is [I1, I2, I3], with contiguity [T, T, T],
+  // I1 and I2 are non-TMA-global IDs (therefore they are implicitly one tiled),
+  // and I3 is a non-bulk TMA-global ID, then this algorithm will choose to use
+  // 2D TMA: [(I1, I2), (I3)], where I1 and I2 are considered as "merged"
+  // together. However, I2 and I3 will not be considered as "merged" because
+  // non-bulk TMA-global ID should be treated as alone.
+  //
+  // Example 2: Similar to Example 1, except that the contiguity is [F, T, T].
+  // For this case, the algorithm will choose to use 3D TMA: [(I1), (I2), (I3)].
+  // I1 and I2 will not be considered as "merged" this time, because they are
+  // not contiguous.
+  //
+  // Example 3: Similar to Example 1, except that I3 is a bulk TMA-global ID.
+  // This time, the algorithm will choose to use 1D TMA [(I1, I2, I3)], where
+  // the box size is the extent of I3.
+  //
+  // Example 4: If my TMA domain is [I1, I2, I3, I4], with contiguity all true.
+  // I1 and I2 are non-TMA-global IDs, I3 and I4 are bulk TMA-global IDs. Then
+  // the algorithm will choose to use 1D TMA: [(I1, I2, I3, I4)], with the box
+  // size I3->extent() * I4->extent().
+  //
+  // Example 5: Similar to Example 4, except that the contiguity is [T, F, T, T].
+  // For this case, the algorithm will choose to use 2D TMA: [(I1, I2), (I3, I4)]。
+  // The box size of the first dim, (I1, I2), is one. The second dim, (I3, I4),
+  // has only one box, whose size is the tensor size at this dimension.
   enum { START, PENDING_BULK, PENDING_NON_BULK } state = START;
   for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
     auto id = std::get<0>(*it);
