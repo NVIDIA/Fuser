@@ -135,6 +135,9 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   for (const auto is_take_along : {false, true}) {
     for (int rank = 1; rank <= 5; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
+        // this test uses a random input shape, clear the allocator to avoid
+        // OOM.
+        maybeClearAllocator();
         auto fusion_ptr = std::make_unique<Fusion>();
         Fusion& fusion = *fusion_ptr.get();
         FusionGuard fg(&fusion);
