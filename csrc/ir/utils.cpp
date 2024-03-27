@@ -1319,14 +1319,17 @@ void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
   const Val* in_a = mma_op->inA();
   const Val* in_b = mma_op->inB();
 
+  const auto tv_a = in_a->as<TensorView>();
+  const auto tv_b = in_b->as<TensorView>();
+
   NVF_ERROR(
-      in_a->as<TensorView>()->nDims() == in_b->as<TensorView>()->nDims(),
+      tv_a->nDims() == tv_b->nDims(),
       "Either both or none of A and B should be batch");
   // Verify that the broadcasted size is 3.
   NVF_ERROR(
-      in_a->as<TensorView>()->nDims() == 3,
+      tv_a->nDims() == 3,
       "MmaOp::evaluate is not implemented for size: ",
-      in_a->as<TensorView>()->nDims());
+      tv_a->nDims());
 
   NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
@@ -1335,10 +1338,10 @@ void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
       in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
   NVF_ERROR(
-      in_a->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+      tv_a->getRootDomain().back()->isBroadcast(),
       "Expected last dimension to be broadcasted for first operand.");
   NVF_ERROR(
-      in_b->as<TensorView>()->getRootDomain().front()->isBroadcast(),
+      tv_b->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
 
   // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
@@ -1352,7 +1355,7 @@ void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType final_out_dtype) {
   // occur.
 
   NVF_ERROR(
-      in_a->as<TensorView>()->getDataType().value() == final_out_dtype,
+      tv_a->getDataType().value() == final_out_dtype,
       "CastOp should cast to the same final datatype as the input datatype.");
 }
 
