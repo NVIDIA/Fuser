@@ -28,3 +28,7 @@ T[1, 3], T[1, 4], T[2, 0] , T[2, 1]
 ```
 
 They are clearly not equivalent.
+
+If you are using TMA to access the tensor and wants the out of bound items in smem
+being padded as zero automatically by TMA, then schedule 1 should be considered a
+2D TMA, and schedule 2 should be considered as 1D TMA.
