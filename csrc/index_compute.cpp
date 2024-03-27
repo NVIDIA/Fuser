@@ -3348,11 +3348,11 @@ Val* Index::eye(
 // want a contiguous box dim (see Definition 3: "boxId" below), then we do one
 // split to get the box. If we want a strided box dim, then we do two splits,
 // the first split is to get the box, and the second split is to get the stride.
-// Note that if the tile size is 1, we can skip tiling, for this case, we call
-// it "implicitly one tiled". In the above diagram, I0 is implicitly one tiled,
-// I1 has a contiguous box dim, and I2 has a strided box dim. If we want to
-// treat the entire dimension as a tile, we can also skip tiling, for this case,
-// we call it "whole tiled". In the above diagram, I3 is whole tiled.
+// Note that if a box dimension has size 1, we can skip tiling, for this case,
+// we call it "implicitly one tiled". In the above diagram, I0 is implicitly one
+// tiled, I1 has a contiguous box dim, and I2 has a strided box dim. If we want
+// to treat the entire dimension as a tile, we can also skip tiling, for this
+// case, we call it "whole tiled". In the above diagram, I3 is whole tiled.
 //
 // Third, we can schedule the "bulk" IterDomains (see Definition 1: "bulk"
 // below) and "non-bulk" IterDomains separately in whatever way we want.
