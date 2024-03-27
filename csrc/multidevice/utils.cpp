@@ -40,12 +40,13 @@ std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
 // i2 => true, reduction and device axis are not allocated
 // i3 => false, i2 is allocated.
 bool isContiguousShard(TensorView* tv, IterDomain* changed_id) {
-  bool not_allocated = true;
   for (auto id : tv->getLeafDomain()) {
     if (id == changed_id) {
-      return not_allocated;
+      return true;
     }
-    not_allocated = not_allocated && (id->isDeviceDim() || id->isReduction());
+    if (!id->isDeviceDim() && !id->isReduction()) {
+      return false;
+    }
   }
   NVF_ERROR(
       false,
@@ -79,11 +80,11 @@ allocationShardings(Expr* expr) {
   auto sharded_ids_output = getShardedIterDomains(output);
   std::vector<IterDomain*> shard_additions;
   std::vector<IterDomain*> shard_deletions;
-  auto rootmap = PairwiseRootDomainMap(input, output);
+  auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
 
   const auto c2p_map = rootmap.mapConsumerToProducer(&sharded_ids_output);
   for (auto [id1, id2] : c2p_map) {
-    if (!id1->sameAs(id2)) {
+    if (id1->getParallelType() != id2->getParallelType()) {
       shard_additions.push_back(id1);
     }
   }
@@ -93,7 +94,14 @@ allocationShardings(Expr* expr) {
     // Ignore sharded reductions i.e.
     // DIDx(i0) -> r(i0) or DIDx(i0)->r(DIDx(i0))
     // since they don't affect allocation.
-    if (!id1->sameAs(id2) && !id2->isReduction()) {
+    if (id1->getParallelType() != id2->getParallelType() &&
+        !id2->isReduction()) {
+      NVF_ERROR(
+          !id2->isReduction() ||
+              (id1->getParallelType() == id2->getParallelType() ||
+               id2->getParallelType() == ParallelType::Serial),
+          "Invalid resharding expression ",
+          expr->toString());
       shard_deletions.push_back(id1);
     }
   }
@@ -272,7 +280,6 @@ void insertShardedAxisReordering(Fusion* fusion) {
       new_output->setDeviceMesh(output->getDeviceMesh());
       shardAllLike(input, {input_permute});
       shardAllLike(new_output, {output_permute});
-      fusion->removeExpr(expr);
     }
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
@@ -319,7 +326,6 @@ void insertShardedAxisReordering(Fusion* fusion) {
       new_output->setDeviceMesh(output->getDeviceMesh());
       shardAllLike(input, {input_permute});
       shardAllLike(new_output, {output_permute});
-      fusion->removeExpr(expr);
     }
   }
 }
