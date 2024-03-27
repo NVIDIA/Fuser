@@ -543,7 +543,8 @@ std::string testNameTMASimpleLdstTest(
   auto dtype = std::get<1>(info.param);
   auto dim = std::get<2>(info.param);
   std::stringstream ss;
-  ss << dim << "D" << "_" << toString(swizzle) << "_" << dtype;
+  ss << dim << "D"
+     << "_" << toString(swizzle) << "_" << dtype;
   return ss.str();
 }
 
@@ -1172,7 +1173,9 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
+      [&]() {
+        fe.runFusion({t0, items_of_16_bytes / 2});
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
