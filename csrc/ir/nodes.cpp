@@ -398,8 +398,18 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
   // Broadcast(bias)) -> Cast) If not, evaluate UnaryOp::CastOp along with the
   // other types by evaluating the immediate input.
 
-  if ((getUnaryOpType() == UnaryOpType::Cast) &&
-      input(0)->definition() != nullptr) {
+  // Check if the unary op is a cast from fp32 to lower precision.
+  auto is_downcast = [this]() -> bool {
+    if (getUnaryOpType() != UnaryOpType::Cast) {
+      return false;
+    }
+    auto in_dtype = input(0)->getDataType().value();
+    return (
+        in_dtype == DataType::Float &&
+        isInclusiveType(*(out()->getDataType()), in_dtype));
+  };
+
+  if (is_downcast() && input(0)->definition() != nullptr) {
     Val* mma_lhs = nullptr;
     Val* mma_rhs = nullptr;
 
