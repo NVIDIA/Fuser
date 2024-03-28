@@ -127,7 +127,6 @@ class ValGraphBFS {
       const ValGroups& from,
       const ValGroups& to);
 
- protected:
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<GroupType> from_groups,
@@ -136,26 +135,28 @@ class ValGraphBFS {
         from_groups_(std::move(from_groups)),
         to_groups_(std::move(to_groups)) {}
 
+  virtual ~ValGraphBFS() = default;
+
   virtual void handle(const GroupType& group);
 
   virtual void handle(const ValGroup& val_group);
 
   virtual void handle(const ExprGroup& expr_group);
 
-  void traverse();
+  virtual void traverse();
 
-  bool isReady(const GroupType& group) const;
+  virtual bool isReady(const GroupType& group) const;
 
-  bool isVisited(const GroupType& group) const;
+  virtual bool isVisited(const GroupType& group) const;
 
-  void setVisited(const GroupType& group);
+  virtual void setVisited(const GroupType& group);
 
-  void addNewNeighbors(const GroupType& group);
+  virtual void addNewNeighbors(const GroupType& group);
 
-  void setPrevGroup(const GroupType& group);
+  virtual void setPrevGroup(const GroupType& group);
 
   // Extend this to support Val paths as well
-  ExprGroups getShortestExprPath() const;
+  virtual ExprGroups getShortestExprPath() const;
 
  protected:
   const ValGraph& graph_;
