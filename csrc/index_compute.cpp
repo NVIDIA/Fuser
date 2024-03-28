@@ -3311,6 +3311,7 @@ Val* Index::eye(
 // The gmem tensor of TMA store, or the gmem tensor of TMA load when replayed as
 // consumer, must be scheduled like this:
 //
+// Diagram 1:
 //                         ---------------------
 //                         | Allocation Domain |
 //                         ---------------------
@@ -3868,55 +3869,114 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  // There can be three types of IterDomains in frontier:
+  // The frontier is now the TMA domain. If the TMA domain contains <= 5
+  // IterDomains, it is possible to treat each IterDomain as a dimension of TMA.
+  // However, in order to be able to still use TMA if the TMA domain contains
+  // more than 5 IterDomains, we decide to merge contiguous IterDomains together
+  // here to reduce the dimensionality when possible.
+  //
+  // There can only be three types of IterDomains in the TMA domain:
   // -  NG: non-TMA-global ID
   // -  BG: bulk TMA-global ID
   // - NBG: non-bulk TMA-global ID
-  // Loop through the frontier from inner to outer, use the following 3-state
-  // machine to automatically merge contiguous IterDomains when possible.
   //
-  //                           NBG:
-  //                      create new dim
-  //                      .-------------.
-  //                      |             |
-  //                      '-- [START] <-'
-  //                BG:     / ^ NBG: ^ \     NG:
-  //              create   / / create \ \   create
-  //               new    / /   new    \ \   new
-  //               dim   / /    dim     \ \  dim
-  //                    v /              \ v
-  //        .-- [PENDING BULK] -----> [PENDING NON-BULK] <-.
-  //        |            ^       NG:       |               |
-  //        '------------'     create      '---------------'
-  //        BG: create new     new dim      NG: create new
-  //  dim if discontiguous       if         dim if discontiguous
-  //                        discontiguous
+  // An NG ID is an IterDomain that is not a TMA-global ID, in another word,
+  // none of its decendants are bulk. They are the IDs that are implicitly one
+  // tiled. In the Diagram 1 above, I0 is an NG ID. A BG ID is an IterDomain
+  // that is both TMA-global and bulk. It comes from the user marking a
+  // dimension of the TMA domain as bulk without creating a box. That is, this
+  // dimension is whole tiled. In the Diagram 1 above, I3 is such an IterDomain.
+  // An NBG ID is an IterDomain that is TMA-global but not bulk. It comes from
+  // the user creating a box with a split operation for this dimension. In the
+  // Diagram 1 above, I1 and I2 are NBG IDs. Depending on the contiguity and
+  // types of the IterDomains in the TMA domain, we may or may not be able to
+  // merge them together. Here are a few examples:
   //
   // Example 1: If my TMA domain is [I1, I2, I3], with contiguity [T, T, T],
-  // I1 and I2 are non-TMA-global IDs (therefore they are implicitly one tiled),
-  // and I3 is a non-bulk TMA-global ID, then this algorithm will choose to use
-  // 2D TMA: [(I1, I2), (I3)], where I1 and I2 are considered as "merged"
-  // together. However, I2 and I3 will not be considered as "merged" because
-  // non-bulk TMA-global ID should be treated as alone.
+  // I1 and I2 are NG IDs, and I3 is an NBG ID, then we will choose to use 2D
+  // TMA: [(I1, I2), (I3)], where I1 and I2 are considered as "merged" together
+  // because: Assuming that we did an imaginary transformation:
+  //   Im = merge(I1, I2);
+  //   I12, Ib = split(Im, 1);
+  //   Ib->parallelize(ParallelType::Bulk);
+  //   I1', I2' = split(I12, I2->extent());
+  // then I1' and I2' would be completely equivalent to I1 and I2. If we pluged
+  // in the above imaginary transformation into the TensorDomain and used I1'
+  // and I2' to substitute I1 and I2, we would not change what we were
+  // computing, but after this change, we would have TMA domain [Im, I3] which
+  // has less dimension than the original TMA domain. The box size of the first
+  // dim, Im, was one.
   //
   // Example 2: Similar to Example 1, except that the contiguity is [F, T, T].
-  // For this case, the algorithm will choose to use 3D TMA: [(I1), (I2), (I3)].
-  // I1 and I2 will not be considered as "merged" this time, because they are
-  // not contiguous.
+  // For this case, we will choose to use 3D TMA: [(I1), (I2), (I3)]. I1 and I2
+  // will not be considered as "merged" this time, because they are not
+  // contiguous. Merging discontiguous IterDomains in the allocation domain to
+  // get TMA domain is not allowed.
   //
-  // Example 3: Similar to Example 1, except that I3 is a bulk TMA-global ID.
-  // This time, the algorithm will choose to use 1D TMA [(I1, I2, I3)], where
-  // the box size is the extent of I3.
+  // Example 3: Similar to Example 1, except that I3 is a BG ID. This time, we
+  // will choose to use 1D TMA [(I1, I2, I3)], where the box size is the extent
+  // of I3. Because, if we did an imaginary transformation:
+  //   Im = merge(merge(I1, I2), I3);
+  //   I12, I3' = split(Im, I3->extent());
+  //   I3'->parallelize(ParallelType::Bulk);
+  //   I1', I2' = split(I12, I2->extent());
+  // then I1', I2', and I3' would be completely equivalent to I1, I2 and I3. If
+  // we pluged in the above imaginary transformation into the TensorDomain and
+  // used I1', I2' and I3' to substitute I1, I2 and I3, we would not change what
+  // we were computing, but after this change, we would have TMA domain [Im]
+  // which has less dimension than the original TMA domain. The box size of the
+  // only dim, Im, was I3->extent().
   //
   // Example 4: If my TMA domain is [I1, I2, I3, I4], with contiguity all true.
-  // I1 and I2 are non-TMA-global IDs, I3 and I4 are bulk TMA-global IDs. Then
-  // the algorithm will choose to use 1D TMA: [(I1, I2, I3, I4)], with the box
+  // I1 and I2 are NG IDs, I3 and I4 are BG IDs. Then similar to the above
+  // argument, we will choose to use 1D TMA: [(I1, I2, I3, I4)], with the box
   // size I3->extent() * I4->extent().
   //
-  // Example 5: Similar to Example 4, except that the contiguity is [T, F, T, T].
-  // For this case, the algorithm will choose to use 2D TMA: [(I1, I2), (I3, I4)]。
-  // The box size of the first dim, (I1, I2), is one. The second dim, (I3, I4),
-  // has only one box, whose size is the tensor size at this dimension.
+  // Example 5: Similar to Example 4, except that the contiguity is [T, F, T,
+  // T]. For this case, the algorithm will choose to use 2D TMA: [(I1, I2), (I3,
+  // I4)]. The box size of the first dim, (I1, I2), is one. The second dim,
+  // (I3, I4), has only one box, whose size is the tensor size at this
+  // dimension.
+  //
+  // The algorithm that does the above analysis is as follows: We run a 3-state
+  // machine. The state machine is initialized as START. After setting the
+  // initial state, we loop through the frontier from inner to outer. During the
+  // loop, for each IterDomain we see, we take an action and change the state of
+  // the machine. The action and target state depend on the current state of the
+  // machine, and the type and contiguity of the IterDomain we encounter. The
+  // actions and transition of states are shown in the following diagram:
+  //
+  //                                   NBG:
+  //                              create new dim
+  //                              .-------------.
+  //                              |             |
+  //                              '-- [START] <-'
+  //                        BG:     / ^ NBG: ^ \     NG:
+  //                      create   / / create \ \   create
+  //                       new    / /   new    \ \   new
+  //                       dim   / /    dim     \ \  dim
+  //                            v /              \ v
+  //                .-- [PENDING BULK] -----> [PENDING NON-BULK] <-.
+  //                |           ^ ^      NG:      | |              |
+  //                '-----------' |    create     | '--------------'
+  //               BG: create new |    new dim    | NG: create new
+  //         dim if discontiguous |      if       | dim if discontiguous
+  //              merge with prev | discontiguous | merge with prev
+  //                dim otherwise |               | dim otherwise
+  //                              '---------------'
+  //                              BG: create new dim
+  //
+  // There are three states in the machine. The meaning of these states are:
+  // - START: The machine is at the beginning of the loop, or the most recently
+  //   discovered dimension says that "please leave me alone and don't try to
+  //   merge me with anyone".
+  // - PENDING BULK: The most recently discovered dimension is whole tiled so
+  //   far. Please check if we can merge more BG IDs to grow the box size, or
+  //   check if we can merge an NG ID to make this box part of a dimension
+  //   instead of a whole dimension.
+  // - PENDING NON-BULK: The most recently discovered dimension is not whole
+  //   tiled so far. Please check if we can merge more NG IDs to grow the
+  //   whole dimension size.
   enum { START, PENDING_BULK, PENDING_NON_BULK } state = START;
   for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
     auto id = std::get<0>(*it);
