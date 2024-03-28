@@ -383,7 +383,9 @@ class NVF_API Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    NVF_ERROR(evaluator_index_ == -1);
+    // Only allow resetting evaluator_index to -1 OR
+    // setting evaluator_index if it isn't in-use
+    NVF_ERROR(evaluator_index_ == -1 || to == -1);
     evaluator_index_ = to;
   }
 

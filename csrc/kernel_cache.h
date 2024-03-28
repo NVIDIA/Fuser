@@ -274,7 +274,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
-  std::unique_ptr<FusionHeuristics> heuristics_;
+  HeuristicsPtr heuristics_;
 
   // Checks if this runtime instance is for a single-kernel fusion (false) or a
   //  segmented fusion (true).
@@ -285,12 +285,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! Utility to speed up value evaluation at runtime
-  std::unique_ptr<PrecomputedValues> precomputed_values_;
-
-  //! Cache of all tensors in the complete fusion
-  std::vector<TensorView*> all_tvs_;
 
   //! store number of arguments in KernelArgumentHolder after each segment
   //! used to check if arguments are erased if not being used in the following
