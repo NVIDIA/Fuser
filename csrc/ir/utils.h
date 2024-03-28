@@ -58,9 +58,7 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b);
 
-void verifyMmaOpForEvaluation(
-    MmaOp* mma_op,
-    const DataType expected_input_dtype);
+void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
 
 bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs);
 

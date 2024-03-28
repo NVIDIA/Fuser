@@ -1315,7 +1315,7 @@ MmaOpDetails getMmaOpDetails(
 // 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
 // and the first dim for the second operand.
 // The inputs of MmaOp will be [M, K, 1] x [1, K, N].
-// Additionally, the inputs to the MmaOp should of the `expected_input_dtype`.
+// Additionally, the inputs to the MmaOp should be of `expected_input_dtype`.
 // This is the same as the output dtype of the final castOp.
 void verifyMmaOpForEvaluation(
     MmaOp* mma_op,
@@ -1382,49 +1382,44 @@ bool matchMatmulBiasCast(
     Val*& mma_lhs,
     Val*& mma_rhs,
     Val*& bias) {
-  if (auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition())) {
-    if (binary->getBinaryOpType() == BinaryOpType::Add) {
-      if (auto* mma = dynamic_cast<MmaOp*>(binary->input(0)->definition())) {
-        DataType final_out_dtype = cast_op->out()->getDataType().value();
-
-        // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
-        MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
-        mma_lhs = mma->inA();
-        mma_rhs = mma->inB();
-
-        Val* bcast_bias = binary->input(1);
-        // Bias is casted to fp32 and broadcasted from shape [M,] to [M, 1] in
-        // biasEpilogue.
-        NVF_ERROR(
-            bcast_bias->definition() != nullptr &&
-                bcast_bias->definition()->isA<BroadcastOp>(),
-            "Expected bias tensor to be broadcasted.");
-
-        NVF_ERROR(
-            bcast_bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
-            "Expected last dimension to be broadcasted for bias tensor.");
-
-        Val* upcast_bias =
-            bcast_bias->definition()->as<BroadcastOp>()->input(0);
-
-        // The bias tensor and matmul inputs should be of the same dtype.
-        // The bias tensor is upcasted to fp32 before biasEpilogue.
-        if (auto* unary = dynamic_cast<UnaryOp*>(upcast_bias->definition())) {
-          if (unary->getUnaryOpType() == UnaryOpType::Cast) {
-            NVF_CHECK(
-                unary->input(0)->getDataType().value() == final_out_dtype,
-                "Bias should be originally of the same type as the final output dtype.");
-            bias = unary->input(0);
-            return true;
-          }
-        }
-        NVF_ERROR(
-            false,
-            "Expected the bias tensor to be preceded by castOp before broadcasting");
-      }
-    }
+  auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition());
+  if (binary == nullptr || binary->getBinaryOpType() != BinaryOpType::Add) {
+    return false;
   }
-  return false;
+
+  auto* mma = dynamic_cast<MmaOp*>(binary->input(0)->definition());
+  if (mma == nullptr) {
+    return false;
+  }
+
+  DataType final_out_dtype = cast_op->out()->getDataType().value();
+
+  // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
+  MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
+  mma_lhs = mma->inA();
+  mma_rhs = mma->inB();
+
+  // The expected ops for bias are: CastOp(bias, fp32) -> Broadcast -> Add
+  bias = binary->input(1); // Broadcasted bias tensor in fp32
+  auto* bcast = dynamic_cast<BroadcastOp*>(bias->definition());
+  NVF_ERROR(bcast != nullptr, "Expected bias tensor to be broadcasted.");
+
+  NVF_ERROR(
+      bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+      "Expected last dimension to be broadcasted for bias tensor.");
+
+  bias = bcast->input(0); // Bias tensor in fp32
+  auto* bias_cast = dynamic_cast<UnaryOp*>(bias->definition());
+
+  // The bias tensor and matmul inputs should be of the same dtype.
+  NVF_ERROR(
+      bias_cast == nullptr || bias_cast->getUnaryOpType() == UnaryOpType::Cast,
+      "Expected the bias tensor to be preceded by castOp before broadcasting.");
+  NVF_ERROR(
+      *(bias_cast->input(0)->getDataType()) == final_out_dtype,
+      "Bias should be originally of the same type as the final output dtype.");
+  bias = bias_cast->input(0); // Original input bias tensor of shape [M, ]
+  return true;
 }
 
 } // namespace nvfuser::MmaOpUtils
