@@ -815,9 +815,10 @@ bool ThreadPredicateMap::update(
 Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
+  DEBUG_PRINT_SCOPE_NAME("ThreadPredicateMap::getPredicate", tv, mask);
   NVF_ERROR(find(tv) != end(), "Couldn't find ", tv);
   auto pred_info = getPredicateInfo(tv);
-  return getPredicateFromPredicateInfo(pred_info, mask);
+  RECORD_AND_RETURN(getPredicateFromPredicateInfo(pred_info, mask));
 }
 
 ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
