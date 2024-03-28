@@ -2449,6 +2449,27 @@ Val* Index::getProducerStridedIndices(
   }
 }
 
+Val* Index::getProducerStridedIndices2(
+    TensorView* producer,
+    const TensorView* consumer,
+    TensorIndexer* tensor_indexer) {
+  Expr* expr = consumer->definition();
+  NVF_ERROR(
+      expr != nullptr,
+      "No definition found for a consumer tensor: ",
+      consumer->toString());
+
+  NVF_ERROR(
+      std::find(expr->inputs().begin(), expr->inputs().end(), producer) !=
+          expr->inputs().end(),
+      "Producer tensor not found in consumer definition: ",
+      expr->toString(),
+      ", producer: ",
+      producer->toString());
+
+  return tensor_indexer->getIndex(producer, expr);
+}
+
 // Producer is the inputs of an expression
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
@@ -2457,14 +2478,32 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
-  auto index = getProducerStridedIndices(
-      producer,
-      consumer,
-      loops,
-      rotated_loops,
-      override_index,
-      generate_pointer);
+    DataType as_type,
+    TensorIndexer* tensor_indexer) {
+  Val* index = nullptr;
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
+    std::cerr << "Using the new indexer for producer: " << producer->toString()
+              << std::endl;
+    index = getProducerStridedIndices2(producer, consumer, tensor_indexer);
+    std::cerr << "New index: " << index->toInlineString() << std::endl;
+    auto old_index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+    std::cerr << "Old index: " << old_index->toInlineString() << std::endl;
+  } else {
+    index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+  }
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
@@ -2537,7 +2576,7 @@ Val* Index::getConsumerStridedIndices2(
   Expr* expr = consumer->definition();
   NVF_ERROR(
       expr != nullptr,
-      "No definition found for a tensor to index as a consumer: ",
+      "No definition found for a consumer tensor: ",
       consumer->toString());
 
   NVF_ERROR(tensor_indexer != nullptr);
@@ -2557,8 +2596,8 @@ kir::TensorIndex* Index::getConsumerIndex(
   Val* index = nullptr;
 
   // Use the new IdModel-based indexer if enabled
-  if (hasEnableOptionArgument(EnableOption::IdModel, "index")) {
-    std::cerr << "Using the new indexer\n";
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
+    std::cerr << "Using the new indexer for consumer: " << consumer->toString() << std::endl;
     index = getConsumerStridedIndices2(consumer, tensor_indexer);
     std::cerr << "New index: " << index->toInlineString() << std::endl;
     auto old_index = getConsumerStridedIndices(

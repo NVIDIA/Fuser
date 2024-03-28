@@ -203,6 +203,8 @@ class IndexCompute : public OptOutDispatch {
 
   bool isForward(Expr* expr) const;
 
+  bool hasIndex(IterDomain* id) const;
+
   Val* getIndex(IterDomain* id) const;
 
   void setIndex(IterDomain* id, Val* idx);
@@ -217,13 +219,16 @@ void IndexCompute::propagate(const ExprGroup& expr_group) {
   dispatch(expr_group->front());
 }
 
+bool IndexCompute::hasIndex(IterDomain* id) const {
+  const ValGroup& id_group = exact_graph_.toGroup(id);
+  return index_map_.find(id_group) != index_map_.end();
+}
+
 Val* IndexCompute::getIndex(IterDomain* id) const {
   const ValGroup& id_group = exact_graph_.toGroup(id);
-  if (auto it = index_map_.find(id_group); it != index_map_.end()) {
-    return it->second;
-  } else {
-    return nullptr;
-  }
+  auto it = index_map_.find(id_group);
+  NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
+  return it->second;
 }
 
 void IndexCompute::setIndex(IterDomain* id, Val* idx) {
@@ -241,7 +246,7 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
 bool IndexCompute::isForward(Expr* expr) const {
   bool ready = true;
   for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-    if (getIndex(inp) == nullptr) {
+    if (!hasIndex(inp)) {
       ready = false;
       break;
     }
@@ -253,8 +258,7 @@ bool IndexCompute::isForward(Expr* expr) const {
   // Can just return false here. Just make sure the outputs are
   // already processed
   for (const auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-    NVF_ERROR(
-        getIndex(out) != nullptr, "Output index not found: ", out->toString());
+    NVF_ERROR(hasIndex(out), "Output index not found: ", out->toString());
   }
 
   return false;
@@ -267,15 +271,17 @@ void IndexCompute::handle(Split* split) {
 
   if (is_forward) {
     auto in_idx = getIndex(split->in());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, split->factor());
+    auto inner_extent = split->inner()->extent();
+    auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
+    auto inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
     setIndex(split->outer(), outer_idx);
-    auto inner_idx = SimplifyingIrBuilder::modExpr(in_idx, split->factor());
     setIndex(split->inner(), inner_idx);
   } else {
     auto outer_idx = getIndex(split->outer());
     auto inner_idx = getIndex(split->inner());
+    auto inner_extent = split->inner()->extent();
     auto in_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, split->factor()), inner_idx);
+        SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
     setIndex(split->in(), in_idx);
   }
 }
@@ -342,7 +348,7 @@ void TensorIndexer::buildLoopIndexMap() {
 
   FusionGuard fg(fusion);
 
-  auto shouldUseZeroIndex = [](const ValGroup& loop_group) -> bool {
+  auto shouldUseZeroIndex = [&](const ValGroup& loop_group) -> bool {
     ParallelType ptype = getParallelType(loop_group);
     if (isParallelTypeThread(ptype)) {
       return false;
@@ -362,14 +368,21 @@ void TensorIndexer::buildLoopIndexMap() {
     //  iterdomains, their "index variable" should be zero.
     if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
           return val->as<IterDomain>()->isBroadcast();
-    })) {
+        })) {
+      std::cerr << "All domains are broadcast: "
+                << nvfuser::toString(loop_group) << std::endl;
       return true;
     }
 
     // Trivial loop
     // TODO: consider expanded extent?
-    auto leaf_id = loop_group->front()->as<IterDomain>();
-    if (!leaf_id->maybePartial() && leaf_id->extent()->isOneInt()) {
+    auto leaf_id =
+        getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
+    if (!leaf_id->maybePartial() &&
+        GpuLower::current()
+            ->commonScalarMap()
+            .hoistScalar(leaf_id->extent(), {})
+            ->isOneInt()) {
       return true;
     }
 
@@ -403,6 +416,8 @@ void TensorIndexer::buildLoopIndexMap() {
       if (isParallelTypeThread(ptype)) {
         loop_index = NamedScalar::getParallelIndex(ptype);
       } else if (shouldUseZeroIndex(loop_group)) {
+        std::cerr << "Use zero for " << nvfuser::toString(loop_group)
+                  << std::endl;
         loop_index = fusion->zeroVal();
       } else {
         // Everything now should be serial concrete loops. For the mean
@@ -411,7 +426,7 @@ void TensorIndexer::buildLoopIndexMap() {
         if (GpuLower::hasCurrent()) {
           const auto& ca_map = GpuLower::current()->caMap();
           for (const auto& id :
-                   ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
             if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
               continue;
             }
@@ -429,6 +444,8 @@ void TensorIndexer::buildLoopIndexMap() {
         }
       }
       loop_index_map_[loop_group] = loop_index;
+      std::cerr << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+                << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -460,7 +477,7 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   std::stringstream ss;
   ss << "Strides:";
   for (const auto& stride : strides) {
-    ss << " " << stride->toInlineString();
+    ss << ", " << stride->toInlineString();
   }
   ss << std::endl;
   VERBOSE() << ss.str();
