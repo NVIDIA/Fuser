@@ -217,45 +217,69 @@ void ValGraphBFS::traverse() {
     addNewNeighbors(g);
   }
 
-  while (!is_all_terminal_visited() && !to_visit_.empty()) {
-    const auto g = to_visit_.front();
-    to_visit_.pop_front();
+  while (!is_all_terminal_visited()) {
+    bool something_was_processed = false;
+    std::deque<GroupType> not_ready_;
+    while (!is_all_terminal_visited() && !to_visit_.empty()) {
+      const auto g = to_visit_.front();
+      to_visit_.pop_front();
 
-    if (isVisited(g)) {
-      // std::cerr << "Already visited: " << toString(g) << std::endl;
-      continue;
-    }
+      if (isVisited(g)) {
+        // std::cerr << "Already visited: " << toString(g) << std::endl;
+        continue;
+      }
 
-#if 0
-    if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
-      std::cerr << "Visiting EG: " << nvfuser::toString(*eg) << std::endl;
-    } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
-      std::cerr << "Visiting VG: " << nvfuser::toString(*vg) << std::endl;
-    }
+#if 1
+      if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
+        std::cerr << "Visiting EG: " << nvfuser::toString(*eg) << std::endl;
+      } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
+        std::cerr << "Visiting VG: " << nvfuser::toString(*vg) << std::endl;
+      }
 #endif
 
-    if (!isReady(g)) {
-      // std::cerr << "Not yet ready: " << toString(g) << std::endl;
-      to_visit_.emplace_back(g);
-      continue;
+      if (!isReady(g)) {
+        std::cerr << "Not yet ready: " << toString(g) << std::endl;
+        // To stop an infinite loop, the not-ready group is not moved
+        // back to the to_visit_ queue but kept in the separate
+        // queue. This way, if all groups in to_visit_ are not ready,
+        // the queue would eventually become empty, which would then
+        // break the inner while loop
+        not_ready_.emplace_back(g);
+        if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
+          std::cerr << " " << (*eg)->front()->toString();
+        }
+        continue;
+      }
+
+      // Visit this group and add its neighbors to to_visit if not
+      // visited yet
+      handle(g);
+      setVisited(g);
+      setPrevGroup(g);
+      addNewNeighbors(g);
+      something_was_processed = true;
     }
 
-    // Visit this group and add its neighbors to to_visit if not
-    // visited yet
-    handle(g);
-    setVisited(g);
-    setPrevGroup(g);
-    addNewNeighbors(g);
-  }
+    // If nothing was processed, break out of the loop
+    if (!something_was_processed) {
+      break;
+    }
+
+    // Something was processed. Redo the traversal.
+    to_visit_.insert(to_visit_.end(), not_ready_.begin(), not_ready_.end());
+  };
 
   if (!is_all_terminal_visited()) {
     std::stringstream ss;
     for (const auto& to_group : to_groups_) {
       if (!isVisited(to_group)) {
         ss << " " << toString(to_group);
+        if (const ExprGroup* eg = std::get_if<ExprGroup>(&to_group)) {
+          ss << " " << (*eg)->front()->toString();
+        }
       }
     }
-    NVF_ERROR(false, "Fail to reach: ", ss.str());
+    NVF_ERROR(false, "BFS traversal could not visit some nodes: ", ss.str());
   }
 
   std::cerr << "Traversal done\n";
@@ -448,7 +472,12 @@ ExprGroups ValGraphBFS::getShortestExprPath() const {
     }
 
     auto prev_groups_it = prev_groups_.find(group);
-    NVF_ERROR(prev_groups_it != prev_groups_.end());
+
+    // Some groups may be considered visited without actually
+    // visited. No previous path set for such groups.
+    if (prev_groups_it == prev_groups_.end()) {
+      continue;
+    }
 
     for (const auto& prev_group : prev_groups_it->second) {
       to_visit.emplace_back(prev_group);

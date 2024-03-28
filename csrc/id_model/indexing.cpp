@@ -18,6 +18,28 @@ namespace nvfuser {
 
 namespace {
 
+class IndexingTraversal : public ValGraphBFS {
+ public:
+  IndexingTraversal(
+      const ValGraph& graph,
+      std::vector<GroupType> from_groups,
+      std::vector<GroupType> to_groups)
+      : ValGraphBFS(graph, from_groups, to_groups) {}
+
+  virtual ~IndexingTraversal() = default;
+
+ protected:
+  using ValGraphBFS::isVisited;
+
+  bool isVisited(const GroupType& group) const override {
+    if (const ValGroup* vg = std::get_if<ValGroup>(&group);
+        vg != nullptr && (*vg)->front()->as<IterDomain>()->isBroadcast()) {
+      return true;
+    }
+    return ValGraphBFS::isVisited(group);
+  }
+};
+
 IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
   // TODO: Loop promotion should only be defined for loop domains. The
   // loop promotion map should be fixed.
@@ -180,8 +202,18 @@ ExprGroups getExprsBetween(
   VERBOSE() << "getExprsBetween: loop: " << nvfuser::toString(loop_domains)
             << ", index: " << nvfuser::toString(index_domains) << std::endl;
 
-  const ExprGroups exprs = ValGraphBFS::getExprsBetweenVals(
-      exact_graph, loop_domain_groups, index_domain_groups);
+  IndexingTraversal traversal(
+      exact_graph,
+      {loop_domain_groups.vector().begin(), loop_domain_groups.vector().end()},
+      {index_domain_groups.vector().begin(),
+       index_domain_groups.vector().end()});
+
+  traversal.traverse();
+
+  const ExprGroups exprs = traversal.getShortestExprPath();
+
+  // const ExprGroups exprs = ValGraphBFS::getExprsBetweenVals(
+  // exact_graph, loop_domain_groups, index_domain_groups);
 
   return exprs;
 }
@@ -220,11 +252,19 @@ void IndexCompute::propagate(const ExprGroup& expr_group) {
 }
 
 bool IndexCompute::hasIndex(IterDomain* id) const {
+  // If it's a broadcast, its index is always zero.
+  if (id->isBroadcast()) {
+    return true;
+  }
   const ValGroup& id_group = exact_graph_.toGroup(id);
   return index_map_.find(id_group) != index_map_.end();
 }
 
 Val* IndexCompute::getIndex(IterDomain* id) const {
+  // If it's a broadcast, its index is always zero.
+  if (id->isBroadcast()) {
+    return id->fusion()->zeroVal();
+  }
   const ValGroup& id_group = exact_graph_.toGroup(id);
   auto it = index_map_.find(id_group);
   NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
