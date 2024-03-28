@@ -52,6 +52,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     MultiDeviceExecutorParams params)
     : comm_(comm), params_(params) {
   insertReshardings(fusion.get());
+  insertShardedAxisReordering(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,

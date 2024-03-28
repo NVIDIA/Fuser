@@ -184,5 +184,10 @@ INSTANTIATE_TEST_SUITE_P(
     ShardingTest,
     testing::Combine(testing::Bool(), testing::Values(0)));
 
+INSTANTIATE_TEST_SUITE_P(
+    InnermostShard,
+    ShardingTest,
+    testing::Combine(testing::Bool(), testing::Values(1)));
+
 } // namespace nvfuser
 #endif

@@ -13,6 +13,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <root_domain_map.h>
 #include <scheduler/utils.h>
 
 #include <c10/util/irange.h>
@@ -20,15 +21,80 @@
 namespace nvfuser {
 namespace {
 
-std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::vector<IterDomain*> sharded_ids;
+std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
+  std::unordered_set<IterDomain*> sharded_ids;
   std::copy_if(
       tv->getLeafDomain().begin(),
       tv->getLeafDomain().end(),
-      std::back_inserter(sharded_ids),
+      std::inserter(sharded_ids, sharded_ids.begin()),
       [](auto id) { return id->isDeviceDim(); });
   return sharded_ids;
 }
+
+// Returns whether a IterDomain in a TensorView is the outermost
+// allocated IterDomain in the TensorView.
+bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
+  for (auto i : tv->getLeafDomain()) {
+    if (i == id) {
+      return true;
+    }
+    if (!i->isDeviceDim() && !i->isReduction()) {
+      return false;
+    }
+  }
+  NVF_ERROR(
+      false, "Id", id->toString(), " is not in TensorView ", tv->toString());
+  return false;
+}
+
+// For a resharding expression, either a set or reduce, returns root IDs
+// that change sharding.
+// (1) sharded root IterDomains that are added by the expression
+// i.e. sharded IterDomains that are present in the output, but not the input.
+// (2) sharded root IterDomains that are removed by the expression
+// i.e. sharded IterDomains that are present in the input, but not the output.
+// TODO: Analyze leaf domain for unsharded/sharded IDs and return their
+// parent root IDs.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+allocationShardings(Expr* expr) {
+  NVF_ERROR(
+      expr->outputs().size() == 1,
+      "Resharding operations can only have one output");
+  NVF_ERROR(
+      expr->inputs().size() == 1,
+      "Resharding operations can have only one input");
+  auto output = expr->outputs().at(0)->as<TensorView>();
+  auto input = expr->inputs().at(0)->as<TensorView>();
+
+  std::vector<IterDomain*> shard_additions;
+  std::vector<IterDomain*> shard_deletions;
+  auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
+  const auto c2p_map = rootmap.mapConsumerToProducer();
+
+  for (IterDomain* out_root : output->getRootDomain()) {
+    IterDomain* in_root = c2p_map.at(out_root);
+    // Ignore sharded reductions on the output
+    // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
+    // since they don't affect allocation.
+    if (in_root->isDeviceDim() && !out_root->isParallelized() &&
+        !out_root->isReduction()) {
+      shard_deletions.push_back(in_root);
+    } else if (!in_root->isParallelized() && out_root->isDeviceDim()) {
+      shard_additions.push_back(out_root);
+    } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
+      NVF_ERROR(
+          in_root->getParallelType() == out_root->getParallelType(),
+          expr->toString(),
+          " reshards ",
+          in_root->toString(),
+          " to ",
+          out_root->toString(),
+          " which is not supported");
+    }
+  }
+  return std::make_pair(shard_additions, shard_deletions);
+}
+
 } // namespace
 
 bool isSharded(TensorView* tv) {
@@ -151,6 +217,106 @@ void insertReshardings(Fusion* fusion) {
   }
 }
 
+void insertShardedAxisReordering(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  std::vector<Expr*> reshard_exprs;
+  for (auto expr : exprs) {
+    if (isResharding(expr)) {
+      reshard_exprs.push_back(expr);
+    }
+  }
+  for (auto expr : reshard_exprs) {
+    NVF_ERROR(
+        ir_utils::isTvOp(expr),
+        "Non-tv op is not supported yet: ",
+        expr->toString());
+    NVF_ERROR(
+        expr->outputs().size() == 1,
+        "Resharding operations can only have one output");
+    NVF_ERROR(
+        expr->inputs().size() == 1,
+        "Resharding operations can have only one input");
+    auto output = expr->outputs().at(0)->as<TensorView>();
+    auto input = expr->inputs().at(0)->as<TensorView>();
+    auto [shard_additions, shard_deletions] = allocationShardings(expr);
+    NVF_ERROR(
+        shard_additions.size() + shard_deletions.size() <= 1,
+        "Resharding expr can only support one axis")
+
+    // For gather operations i.e. ID goes from sharded to unsharded
+    // this will rematerialize a sharded axis.
+    // ProcessGroup expects contiguous tensors.
+    // Update input to push the rematerialized axis to the front -> collective
+    // -> permute the rematerizlied axis to the proper location Example: [i0
+    // DIDx(i1)] -> [i0 i1] Rewritten to: [DIDx(i1) i0] -> [i1 i0] -> [i0 i1]
+    // Note: there are no reduction based collectives that materializes an axis
+    // so expr is guaranteed to be a set.
+    if (!shard_deletions.empty()) {
+      auto id = shard_deletions[0];
+      int idx = static_cast<int>(input->domain()->posOf(id));
+      if (isOutermostAllocatedId(input, id)) {
+        continue;
+      }
+      TensorView* input_permute = permute(input, {{idx, 0}});
+      TensorView* output_permute = set(input_permute);
+      TensorView* new_output = permute(output_permute, {{0, idx}});
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      for (int i = 0; i < static_cast<int>(output->nDims()); i++) {
+        new_output->axis(i)->parallelize(output->axis(i)->getParallelType());
+      }
+      new_output->setDeviceMesh(output->getDeviceMesh());
+      shardAllLike(input, {input_permute});
+      shardAllLike(new_output, {output_permute});
+    }
+    // For scatter operations i.e. ID goes from unsharded to sharded
+    // Update input to push the scattered axis to the front -> collective ->
+    // permute the sharded axis to the proper location.
+    // Example: [i0 i1 DIDx(i2)] -> [i0 DIDx(i1) r2]
+    // Rewritten to: [i0 i1 DIDx(i2)] -> [i1 i0 DIDx(i2)] ->
+    //                    [DIDx(i1) i0 r2] -> [i0 DIDx(i1)]
+    else if (!shard_additions.empty()) {
+      auto id = shard_additions[0];
+      int idx = static_cast<int>(output->domain()->posOf(id));
+      if (isOutermostAllocatedId(output, id)) {
+        continue;
+      }
+
+      TensorView* input_permute = permute(input, {{idx, 0}});
+      TensorView* output_permute = nullptr;
+      // For reduce scatter, determine if the reduction axis shifted to the
+      // right by 1.
+      auto red_axis = output->getReductionAxis();
+      int offset =
+          (red_axis.has_value() && idx > static_cast<int>(red_axis.value()))
+          ? 1
+          : 0;
+      if (expr->isA<ReductionOp>()) {
+        int raxis = static_cast<int>(red_axis.value()) + offset;
+        auto red_expr = dynamic_cast<ReductionOp*>(expr);
+        output_permute = reductionOp(
+            red_expr->getReductionOpType(),
+            {raxis},
+            red_expr->init(),
+            input_permute);
+      } else {
+        // Note this is a no-op and is moving a device parallel axis back
+        output_permute = set(input_permute);
+      }
+      int sharded_idx = idx - offset;
+      TensorView* new_output = permute(output_permute, {{0, sharded_idx}});
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      auto i = 0;
+      for (auto id :
+           TensorDomain::noReductions(output->getMaybeRFactorDomain())) {
+        new_output->axis(i++)->parallelize(id->getParallelType());
+      }
+      new_output->setDeviceMesh(output->getDeviceMesh());
+      shardAllLike(input, {input_permute});
+      shardAllLike(new_output, {output_permute});
+    }
+  }
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
@@ -190,6 +356,16 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
     }
   }
   return ret;
+}
+
+int64_t getShardedAxis(TensorView* tv) {
+  auto ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (ids[i]->getParallelType() == ParallelType::DIDx) {
+      return static_cast<int64_t>(i);
+    }
+  }
+  return -1;
 }
 
 } // namespace nvfuser
