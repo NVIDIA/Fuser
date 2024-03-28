@@ -387,6 +387,10 @@ class LogParserPyTest(LogParser):
 
         self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
 
+        self.extra_wildcard_testname_re = re.compile(
+            r".*?(?P<testname>\S+::\S+::\S+)\s+\[.*?\]\s+(?P<line>.*)"
+        )
+
         self.all_test_names: list[str] | None = None
 
     def parse_line(self, line):
@@ -396,7 +400,6 @@ class LogParserPyTest(LogParser):
                 # grab the test list
                 self.all_test_names = m.groups()[0].split(", ")
                 return True
-
         if self.all_test_names is not None:
             # Try to match a line like this:
             #
@@ -407,12 +410,25 @@ class LogParserPyTest(LogParser):
             # mark the beginning of a new test, and process the remainder of the
             # line as a separate line.
             testrest = line.split(maxsplit=1)
-            if len(testrest) > 0 and testrest[0] in self.all_test_names:
-                self.current_test = testrest[0]
-                if len(testrest) > 1:
-                    line = testrest[1]
+            if len(testrest) > 0:
+                if testrest[0] in self.all_test_names:
+                    self.current_test = testrest[0]
+                    if len(testrest) > 1:
+                        line = testrest[1]
+                    else:
+                        return True
                 else:
-                    return True
+                    # process cases with a time stamp, e.g.
+                    #
+                    # [2024-03-27 18:40:08] tests/python/test_schedule_ops.py::TestScheduleOps::test_reduction_factor_op
+                    #
+                    # Less reliable: match any line having at least one double colon
+                    # and interpret that as test name
+                    m = re.match(self.extra_wildcard_testname_re, line)
+                    if m is not None:
+                        d = m.groupdict()
+                        self.current_test = d["testname"]
+                        line = d["line"]
         else:
             # Less reliable: match any line having at least one double colon
             # and interpret that as test name
@@ -426,7 +442,6 @@ class LogParserPyTest(LogParser):
             self.finalize_test(True)
         elif line == "FAILED" and self.current_test is not None:
             self.finalize_test(False)
-
         if super().parse_line(line):
             return True
 
@@ -530,7 +545,6 @@ class TestRun:
             raise RuntimeError(
                 f"Input directory {self.directory} contains no file named 'stdout'"
             )
-
         if self.command_type == CommandType.GOOGLETEST:
             parser = LogParserGTest(logfile)
         elif self.command_type == CommandType.GOOGLEBENCH:
@@ -541,7 +555,6 @@ class TestRun:
             # The base class provides a parser that groups everything into a
             # single "test" called "Ungrouped Kernels"
             parser = LogParser(logfile)
-
         self.kernel_map = parser.kernel_map
 
     def find_preamble(self):
