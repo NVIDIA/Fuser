@@ -23,7 +23,8 @@
 namespace nvfuser {
 
 IndexLowering::IndexLowering() {
-  if (hasEnableOptionArgument(EnableOption::IdModel, "index")) {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
     tensor_indexer_ =
         std::make_unique<TensorIndexer>(GpuLower::current()->idModel());
   }
@@ -44,7 +45,8 @@ Val* IndexLowering::lowerSrcIndex(
         getRotatedLoop(),
         override_index,
         generate_pointer,
-        as_type);
+        as_type,
+        tensor_indexer_.get());
   } else {
     return src;
   }
