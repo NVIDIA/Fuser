@@ -107,7 +107,7 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
 
 // Disabled until at::addmm support is add.
 // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
-TEST_F(MatmulATenEvaluationTest, DISABLED_MatmulWithBias) {
+TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -132,7 +132,7 @@ TEST_F(MatmulATenEvaluationTest, DISABLED_MatmulWithBias) {
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
-  at::Tensor out_ref = at::matmul(t0, t1) + t2.unsqueeze(-1);
+  at::Tensor out_ref = at::addmm(t2.unsqueeze(-1), t0, t1);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2});

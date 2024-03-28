@@ -322,7 +322,8 @@ class NVF_API UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1447,10 +1448,6 @@ class NVF_API MmaOp : public Expr {
   const auto& batchAxes() const {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
-
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
 
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
