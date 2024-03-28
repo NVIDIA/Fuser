@@ -24,6 +24,7 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -108,6 +109,11 @@ class GpuLower : public NonCopyable {
 
   std::shared_ptr<const ComputeAtMap> caMap() const {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
   }
 
   std::shared_ptr<const HaloInfo> haloInfo() const {
@@ -328,6 +334,8 @@ class GpuLower : public NonCopyable {
   std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
+
+  std::unique_ptr<IdModel> id_model_;
 };
 
 } // namespace nvfuser

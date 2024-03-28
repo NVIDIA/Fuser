@@ -16,9 +16,9 @@
 
 namespace nvfuser {
 
-class Indexing {
+class TensorIndexer {
  public:
-  Indexing(const IdModel& id_model);
+  TensorIndexer(const IdModel& id_model);
 
   Val* getIndex(TensorView* tv, Expr* expr);
 

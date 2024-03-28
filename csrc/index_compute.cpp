@@ -20,6 +20,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -803,6 +804,12 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+
+  if (getenv("DISABLE_CONTIG_INDEXING")) {
+    std::cerr << "Disabling contig indexing\n";
+    contig_ids_.clear();
+  }
+
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
@@ -2524,6 +2531,20 @@ Val* Index::getConsumerStridedIndices(
   }
 }
 
+Val* Index::getConsumerStridedIndices2(
+    TensorView* consumer,
+    TensorIndexer* tensor_indexer) {
+  Expr* expr = consumer->definition();
+  NVF_ERROR(
+      expr != nullptr,
+      "No definition found for a tensor to index as a consumer: ",
+      consumer->toString());
+
+  NVF_ERROR(tensor_indexer != nullptr);
+
+  return tensor_indexer->getIndex(consumer, expr);
+}
+
 // Consumer is the output of an expression
 kir::TensorIndex* Index::getConsumerIndex(
     TensorView* consumer,
@@ -2531,10 +2552,25 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
-  auto index = getConsumerStridedIndices(
-      consumer, loops, rotated_loops, override_index, generate_pointer);
+    DataType as_type,
+    TensorIndexer* tensor_indexer) {
+  Val* index = nullptr;
+
+  // Use the new IdModel-based indexer if enabled
+  if (hasEnableOptionArgument(EnableOption::IdModel, "index")) {
+    std::cerr << "Using the new indexer\n";
+    index = getConsumerStridedIndices2(consumer, tensor_indexer);
+    std::cerr << "New index: " << index->toInlineString() << std::endl;
+    auto old_index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+    std::cerr << "Old index: " << old_index->toInlineString() << std::endl;
+  } else {
+    index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);
 }

@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
@@ -17,6 +19,9 @@ namespace nvfuser {
 namespace {
 
 IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
+  // TODO: Loop promotion should only be defined for loop domains. The
+  // loop promotion map should be fixed.
+
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
   const auto& loop_group = loop_graph.toGroup(id);
@@ -81,6 +86,8 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
   std::vector<std::optional<bool>> contiguity;
 
   if (tv->hasAllocation()) {
+    VERBOSE() << "Tv has allocation of " << tv->toString() << ", "
+              << toDelimitedString(tv->getAllocationDomain()) << std::endl;
     index_domains = tv->getAllocationDomain();
     contiguity = tv->domain()->contiguity();
   } else {
@@ -88,6 +95,9 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     // Local/Shared: leaf domains to the right of the CA position
     // Global: rfactor domains
     if (tv->getMemoryType() == MemoryType::Global) {
+      VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
+                << toDelimitedString(tv->getMaybeAllocationDomain())
+                << std::endl;
       index_domains = tv->getMaybeRFactorDomain();
       contiguity = tv->domain()->contiguity();
     } else {
@@ -132,15 +142,26 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     if (!isAllocated(index_domain, tv)) {
       continue;
     }
-    auto promotion_id = getLoopPromotion(index_domain, id_model);
-    actual_index_domains.push_back(promotion_id);
+    // If it's a leaf domain, the promoted domain is the true domain
+    // for allocation and indexing.
+    bool is_leaf = std::find(
+                       tv->getLeafDomain().begin(),
+                       tv->getLeafDomain().end(),
+                       index_domain) != tv->getLeafDomain().end();
+    auto actual_id =
+        is_leaf ? getLoopPromotion(index_domain, id_model) : index_domain;
+    VERBOSE() << "Index domain: " << index_domain->toString()
+              << ", actual domain (promotion domain): " << actual_id->toString()
+              << std::endl;
+
+    actual_index_domains.push_back(actual_id);
     actual_strides.push_back(strides.at(i));
     NVF_ERROR(
         actual_strides.back() != nullptr,
         "Stride unknown for ",
         index_domain->toString(),
         " (promoted to ",
-        promotion_id->toString(),
+        actual_id->toString(),
         ")");
   }
 
@@ -155,6 +176,9 @@ ExprGroups getExprsBetween(
     const ValGraph& exact_graph) {
   const ValGroups loop_domain_groups = exact_graph.toGroups(loop_domains);
   const ValGroups index_domain_groups = exact_graph.toGroups(index_domains);
+
+  VERBOSE() << "getExprsBetween: loop: " << nvfuser::toString(loop_domains)
+            << ", index: " << nvfuser::toString(index_domains) << std::endl;
 
   const ExprGroups exprs = ValGraphBFS::getExprsBetweenVals(
       exact_graph, loop_domain_groups, index_domain_groups);
@@ -237,7 +261,7 @@ bool IndexCompute::isForward(Expr* expr) const {
 }
 
 void IndexCompute::handle(Split* split) {
-  std::cerr << "IndexCompute handle: " << split->toString();
+  VERBOSE() << "IndexCompute handle: " << split->toString();
 
   const bool is_forward = isForward(split);
 
@@ -257,7 +281,7 @@ void IndexCompute::handle(Split* split) {
 }
 
 void IndexCompute::handle(Merge* merge) {
-  std::cerr << "IndexCompute handle: " << merge->toString();
+  VERBOSE() << "IndexCompute handle: " << merge->toString();
 
   const bool is_forward = isForward(merge);
 
@@ -304,11 +328,11 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
 } // namespace
 
-Indexing::Indexing(const IdModel& id_model) : id_model_(id_model) {
+TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 }
 
-void Indexing::buildLoopIndexMap() {
+void TensorIndexer::buildLoopIndexMap() {
   Fusion* fusion = id_model_.idGraph(IdMappingMode::LOOP)
                        .disjointValSets()
                        .disjointSets()
@@ -327,44 +351,52 @@ void Indexing::buildLoopIndexMap() {
     // TODO: halo loop not considered
     // TODO: double buffering not considered
 
+    Val* loop_index = nullptr;
+
     // First allocate thread and grid parallel indices:
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
     ParallelType ptype = getParallelType(loop_group);
     if (isParallelTypeThread(ptype)) {
-      loop_index_map_[loop_group] = NamedScalar::getParallelIndex(ptype);
-      continue;
+      loop_index = NamedScalar::getParallelIndex(ptype);
+    } else if (
+        isParallelTypeDeviceDim(ptype) || ptype == ParallelType::Vectorize) {
+      // The device paralle type is not included in "isThread". We don't
+      // allocate any index variable for device-parallel domains.
+      loop_index = fusion->zeroVal();
+    } else if (std::all_of(
+                   loop_group->begin(), loop_group->end(), [](Val* val) {
+                     return val->as<IterDomain>()->isBroadcast();
+                   })) {
+      // All loops in this set are non-parallel, non-concretized broadcast
+      //  iterdomains, their "index variable" should be zero.
+      loop_index = fusion->zeroVal();
+    } else {
+      // Everything now should be serial concrete loops. For the mean
+      // time, just use the same index integer val generated for
+      // ComputeAtMap if available.
+      if (GpuLower::hasCurrent()) {
+        const auto& ca_map = GpuLower::current()->caMap();
+        for (const auto& id :
+             ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+          if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+            continue;
+          }
+          std::cerr << "Trying to find index val for " << id->toString()
+                    << std::endl;
+          loop_index = ca_map->getIndexVariable(id);
+          break;
+        }
+        if (loop_index == nullptr) {
+          std::cerr << "No existing index found for "
+                    << nvfuser::toString(loop_group) << std::endl;
+        }
+      } else {
+        loop_index = IrBuilder::create<Val>(DataType::Index);
+      }
     }
-
-    // The device paralle type is not included in "isThread". We don't
-    // allocate any index variable for device-parallel domains.
-    if (isParallelTypeDeviceDim(ptype)) {
-      loop_index_map_[loop_group] = fusion->zeroVal();
-      continue;
-    }
-
-    // Vectorized domain just uses zero
-    if (ptype == ParallelType::Vectorize) {
-      loop_index_map_[loop_group] = fusion->zeroVal();
-      continue;
-    }
-
-    // All loops in this set are non-parallel, non-concretized broadcast
-    //  iterdomains, their "index variable" should be zero.
-    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
-          return val->as<IterDomain>()->isBroadcast();
-        })) {
-      loop_index_map_[loop_group] = fusion->zeroVal();
-      continue;
-    }
-
-    // TODO: Support double-buffered loops. See
-    // ComputeAtMap::allocateIndexVariables.
-
-    // Everything now should be serial concrete loops,
-    //   we just allocate a loop index integer for each set of loops.
-    loop_index_map_[loop_group] = IrBuilder::create<Val>(DataType::Index);
+    loop_index_map_[loop_group] = loop_index;
   }
 }
 
@@ -374,39 +406,41 @@ void Indexing::buildLoopIndexMap() {
 // 4. Set the initial index vals
 // 5. Propagate the initial indices of the loop domains to the index
 // domains
-Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
+Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
 
   bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  std::cerr << "getIndex of " << tv->toString() << " as "
+  VERBOSE() << "getIndex of " << tv->toString() << " as "
             << (as_consumer ? "consumer" : "producer") << std::endl;
 
   auto loop_domains = getLoopDomains(expr, id_model_);
 
-  std::cerr << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
+  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
   const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
 
-  std::cerr << "Index domains: " << toDelimitedString(index_domains)
+  VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
-  std::cerr << "Strides:";
+  std::stringstream ss;
+  ss << "Strides:";
   for (const auto& stride : strides) {
-    std::cerr << " " << stride->toInlineString();
+    ss << " " << stride->toInlineString();
   }
-  std::cerr << std::endl;
+  ss << std::endl;
+  VERBOSE() << ss.str();
 
   auto indexing_path =
       getExprsBetween(loop_domains, index_domains, exact_graph);
 
-  std::cerr << "Indexing path:\n";
+  VERBOSE() << "Indexing path:\n";
   for (const auto& expr_group : indexing_path) {
     Expr* expr = expr_group->front();
-    std::cerr << expr->toString();
+    VERBOSE() << expr->toString();
   }
-  std::cerr << "--- path done ---\n";
+  VERBOSE() << "--- path done ---\n";
 
   // Map from exact groups to initial index Vals
   std::unordered_map<ValGroup, Val*> initial_index_map;
@@ -436,14 +470,14 @@ Val* Indexing::getIndex(TensorView* tv, Expr* expr) {
     auto index_domain = index_domains.at(i);
     auto idx = index_compute.getIndex(index_domain);
     NVF_ERROR(idx != nullptr, "Index not found for ", index_domain->toString());
-    std::cerr << "Index of " << index_domain->toString() << ": "
+    VERBOSE() << "Index of " << index_domain->toString() << ": "
               << idx->toInlineString() << std::endl;
 
     index = SimplifyingIrBuilder::addExpr(
         index, SimplifyingIrBuilder::mulExpr(idx, strides.at(i)));
   }
 
-  std::cerr << "Index: " << index->toInlineString() << std::endl;
+  VERBOSE() << "Index: " << index->toInlineString() << std::endl;
 
   return index;
 }

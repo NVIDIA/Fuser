@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -487,9 +488,10 @@ class Index {
       TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false,
-      DataType as_type = DataType::Null);
+      const std::unordered_map<int, Val*>& override_index,
+      bool generate_pointer,
+      DataType as_type,
+      TensorIndexer* tensor_indexer);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
   //! allocation domain of a producer tensor. The size of the returned
@@ -513,6 +515,10 @@ class Index {
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false);
+
+  static Val* getConsumerStridedIndices2(
+      TensorView* consumer,
+      TensorIndexer* tensor_indexer);
 
   //! Returns the logical index linearized from a multi-dimension address into a
   //! linear memory address a consumer tensor. The returned index is intended to
