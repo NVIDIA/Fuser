@@ -13,6 +13,8 @@
 
 namespace nvfuser {
 
+class TensorView;
+
 // Parameters of the reduction heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters
@@ -133,8 +135,22 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
-  // use shared memory for persistent buffer, if false, will use registers
+  // If false, only register is used to store persistent buffers.
+  // If true, shared memory is used to store all or some of the persistent
+  // buffers. When there is only one persistent buffer, it is stored in shared
+  // memory. When there are multiple persistent buffers, the buffers stored in
+  // shared memory are marked in [smem_persistent_tvs]. Other persistent buffers
+  // are still stored in registers.
+
+  // TODO: For innerOuterPersistentHeuristic, only the persistent tensors in the
+  // original fusion definition may be moved to shared memory, the intermediate
+  // persistent tensors which are creased by the scheduler to store the partial
+  // outer reduction results are always stored in registers because they are
+  // frequently accessed by both read and write. The code can be extended to
+  // allow the move of these intermediate persistent tensors to shared memory
+  // when the shared memory is much larger than the register file.
   bool shared_mem_persistent_buffer = false;
+  std::vector<TensorView*> smem_persistent_tvs;
 
  public:
   using HeuristicParams::HeuristicParams;
@@ -310,7 +326,8 @@ class ReductionParams : public HeuristicParams {
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<ReductionParams>(*this);
+    auto ptr = std::make_shared<ReductionParams>(*this);
+    return std::static_pointer_cast<HeuristicParams>(ptr);
   }
 };
 
