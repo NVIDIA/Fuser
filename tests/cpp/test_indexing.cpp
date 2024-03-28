@@ -130,7 +130,7 @@ TEST_F(IndexingTest, TMP) {
 }
 
 // Moved from NvFuserTest.FusionIndexing1
-TEST_F(IndexingTest, SimpleIndexing1) {
+TEST_F(IndexingTest, Indexing1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -178,6 +178,90 @@ TEST_F(IndexingTest, SimpleIndexing1) {
 
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Same as 1 but merge starting from inner most dimension
+// Moved from NvFuserTest.FusionIndexing2
+TEST_F(IndexingTest, Indexing2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int w = 3, x = 4, y = 7, z = 8;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = broadcast(tv2, {true, false, false, false});
+  auto tv4 = add(tv3, tv1);
+
+  fusion.addOutput(tv4);
+
+  tv4->merge(-2);
+  tv4->merge(-2);
+  tv4->merge(-2);
+
+  tv4->split(0, 128);
+  tv4->split(0, 4);
+
+  tv2->computeAt(tv4, 1);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unroll);
+  tv4->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(1)->parallelize(ParallelType::Unroll);
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  FusionExecutor fe;
+
+  at::Tensor t0 = at::randn({x, y, z}, options);
+  at::Tensor t1 = at::randn({w, x, y, z}, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Same compute as 1 and 2 but use a scheduler.
+// Moved from NvFuserTest.FusionIndexing2
+TEST_F(IndexingTest, Indexing3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int w = 3, x = 4, y = 7, z = 8;
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x, y, z}, options);
+  at::Tensor t1 = at::randn({w, x, y, z}, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  auto lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }

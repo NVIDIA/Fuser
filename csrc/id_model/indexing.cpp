@@ -342,61 +342,94 @@ void TensorIndexer::buildLoopIndexMap() {
 
   FusionGuard fg(fusion);
 
-  // Run through all disjoint sets registered in loop map,
-  //  all lowered kir::ForLoop will correspond to one of the disjoint sets
-  //  and we only need one index variable for each set.
-  for (const ValGroup& loop_group : id_model_.idGraph(IdMappingMode::LOOP)
-                                        .disjointValSets()
-                                        .disjointSets()) {
-    // TODO: halo loop not considered
-    // TODO: double buffering not considered
-
-    Val* loop_index = nullptr;
-
-    // First allocate thread and grid parallel indices:
-    //  The validation pass will check that the parallel bindings within the
-    //  loop nodes are consistent so all the loops within this disjoint set
-    //  will be realized implicitly using parallel index variables.
+  auto shouldUseZeroIndex = [](const ValGroup& loop_group) -> bool {
     ParallelType ptype = getParallelType(loop_group);
     if (isParallelTypeThread(ptype)) {
-      loop_index = NamedScalar::getParallelIndex(ptype);
-    } else if (
-        isParallelTypeDeviceDim(ptype) || ptype == ParallelType::Vectorize) {
-      // The device paralle type is not included in "isThread". We don't
-      // allocate any index variable for device-parallel domains.
-      loop_index = fusion->zeroVal();
-    } else if (std::all_of(
-                   loop_group->begin(), loop_group->end(), [](Val* val) {
-                     return val->as<IterDomain>()->isBroadcast();
-                   })) {
-      // All loops in this set are non-parallel, non-concretized broadcast
-      //  iterdomains, their "index variable" should be zero.
-      loop_index = fusion->zeroVal();
-    } else {
-      // Everything now should be serial concrete loops. For the mean
-      // time, just use the same index integer val generated for
-      // ComputeAtMap if available.
-      if (GpuLower::hasCurrent()) {
-        const auto& ca_map = GpuLower::current()->caMap();
-        for (const auto& id :
-             ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-          if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
-            continue;
-          }
-          std::cerr << "Trying to find index val for " << id->toString()
-                    << std::endl;
-          loop_index = ca_map->getIndexVariable(id);
-          break;
-        }
-        if (loop_index == nullptr) {
-          std::cerr << "No existing index found for "
-                    << nvfuser::toString(loop_group) << std::endl;
-        }
-      } else {
-        loop_index = IrBuilder::create<Val>(DataType::Index);
-      }
+      return false;
     }
-    loop_index_map_[loop_group] = loop_index;
+
+    // The device paralle type is not included in "isThread". We don't
+    // allocate any index variable for device-parallel domains.
+    if (isParallelTypeDeviceDim(ptype)) {
+      return true;
+    }
+
+    if (ptype == ParallelType::Vectorize) {
+      return true;
+    }
+
+    // All loops in this set are non-parallel, non-concretized broadcast
+    //  iterdomains, their "index variable" should be zero.
+    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
+          return val->as<IterDomain>()->isBroadcast();
+    })) {
+      return true;
+    }
+
+    // Trivial loop
+    // TODO: consider expanded extent?
+    auto leaf_id = loop_group->front()->as<IterDomain>();
+    if (!leaf_id->maybePartial() && leaf_id->extent()->isOneInt()) {
+      return true;
+    }
+
+    return false;
+  };
+
+  for (auto expr : fusion->exprs()) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+    auto tv_output = ir_utils::getTvOutput(expr);
+    for (auto leaf_id : tv_output->getLeafDomain()) {
+      const ValGroup& loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(leaf_id);
+
+      if (loop_index_map_.find(loop_group) != loop_index_map_.end()) {
+        // Index already assigned
+        continue;
+      }
+
+      // TODO: halo loop not considered
+      // TODO: double buffering not considered
+
+      Val* loop_index = nullptr;
+
+      // First allocate thread and grid parallel indices:
+      //  The validation pass will check that the parallel bindings within the
+      //  loop nodes are consistent so all the loops within this disjoint set
+      //  will be realized implicitly using parallel index variables.
+      ParallelType ptype = getParallelType(loop_group);
+      if (isParallelTypeThread(ptype)) {
+        loop_index = NamedScalar::getParallelIndex(ptype);
+      } else if (shouldUseZeroIndex(loop_group)) {
+        loop_index = fusion->zeroVal();
+      } else {
+        // Everything now should be serial concrete loops. For the mean
+        // time, just use the same index integer val generated for
+        // ComputeAtMap if available.
+        if (GpuLower::hasCurrent()) {
+          const auto& ca_map = GpuLower::current()->caMap();
+          for (const auto& id :
+                   ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+              continue;
+            }
+            std::cerr << "Trying to find index val for " << id->toString()
+                      << std::endl;
+            loop_index = ca_map->getIndexVariable(id);
+            break;
+          }
+          if (loop_index == nullptr) {
+            std::cerr << "No existing index found for "
+                      << nvfuser::toString(loop_group) << std::endl;
+          }
+        } else {
+          loop_index = IrBuilder::create<Val>(DataType::Index);
+        }
+      }
+      loop_index_map_[loop_group] = loop_index;
+    }
   }
 }
 
