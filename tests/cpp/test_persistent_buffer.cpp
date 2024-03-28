@@ -891,7 +891,7 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
     auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
     // 24576 is the threshold to project to inputs. see deriviation in
-    // projectBufferToInputs()
+    // isProjectBufferToInputs()
     bool should_project_to_input =
         feature * dataTypeSize(DataType::Float) > 24576l;
     NVF_CHECK(
