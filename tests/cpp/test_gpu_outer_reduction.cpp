@@ -2238,7 +2238,18 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
   // Enforce grid reduction
   heuristics_params->cross_grid_inner_reduction = true;
   heuristics_params->split_grid_dim_inner_reduction = true;
-
+  heuristics_params->grid_dim_inner_reduction = ParallelType::BIDy;
+  int64_t bdimx = 8;
+  int64_t bdimy = 64;
+  int64_t gdimx = shape.at(1) / vect_factor / bdimx;
+  int64_t gdimy = shape.at(0) / bdimy;
+  heuristics_params->lparams = LaunchParams(
+      gdimx,
+      gdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
+      bdimy,
+      LaunchParams::UNINITIALIZED_VAL);
   scheduleReduction(&fusion, *heuristics_params);
 
   // lowering & check iteration grouped reductions
