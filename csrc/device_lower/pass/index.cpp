@@ -8,6 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/indexing.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -20,6 +21,13 @@
 #include <device_lower/pass/index.h>
 
 namespace nvfuser {
+
+IndexLowering::IndexLowering() {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "index")) {
+    tensor_indexer_ =
+        std::make_unique<TensorIndexer>(GpuLower::current()->idModel());
+  }
+}
 
 Val* IndexLowering::lowerSrcIndex(
     Val* src,
@@ -54,7 +62,8 @@ Val* IndexLowering::lowerDstIndex(
         getRotatedLoop(),
         override_index,
         generate_pointer,
-        as_type);
+        as_type,
+        tensor_indexer_.get());
   } else {
     return dst;
   }
