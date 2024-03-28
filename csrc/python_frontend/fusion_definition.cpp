@@ -10,6 +10,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <multidevice/communicator.h>
 #include <scheduler/heuristic_types.h>
 #include <utils.h>
 #include <validator_utils.h>
@@ -133,11 +134,13 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
 
-  user_sched_->executor->compileFusion(
-      user_sched_->schedule.get(),
-      inputs,
-      user_sched_->fusion_id_,
-      user_sched_->device_id_);
+  if (!multidevice_flag) {
+    user_sched_->executor->compileFusion(
+        user_sched_->schedule.get(),
+        inputs,
+        user_sched_->fusion_id_,
+        user_sched_->device_id_);
+  }
   user_sched_ = nullptr;
 }
 
@@ -162,6 +165,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool override_user_schedule,
     bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
+  static std::unique_ptr<Communicator> comm = nullptr;
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -169,6 +173,22 @@ std::vector<at::Tensor> FusionDefinition::execute(
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (multidevice_flag) {
+    if (comm == nullptr) {
+      comm = std::make_unique<Communicator>();
+    }
+    if (multi_device_executor == nullptr) {
+      // NOTE: we are always using cache and it's bad.
+      auto device = getCommonDeviceCUDA(inputs, selected_device);
+      auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+      NVF_CHECK(user_sched_id.has_value() && device > -1);
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
+    }
+    return multi_device_executor->runWithInput(inputs.vec());
+  }
 
   std::vector<at::Tensor> outputs;
 
@@ -187,8 +207,10 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-      inputs, std::nullopt, selected_device);
+  if (outputs.empty()) {
+    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+        inputs, std::nullopt, selected_device);
+  }
 
   if (capture_debug_output) {
     debug_output_ = debug_ss.str();

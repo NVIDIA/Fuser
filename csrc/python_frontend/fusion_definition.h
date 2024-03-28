@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include <kernel_cache.h>
+#include <multidevice/executor.h>
 #include <python_frontend/fusion_state.h>
 #include <visibility.h>
 
@@ -182,6 +183,11 @@ class NVF_API FusionDefinition : public FusionState {
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
 
+  //! Experimental API we'll redo this later!
+  void setMultiDevice() {
+    multidevice_flag = true;
+  }
+
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
@@ -240,6 +246,15 @@ class NVF_API FusionDefinition : public FusionState {
 
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
+
+  //! DO NOT COMMIT TO THESE CHANGES!
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor
+  bool multidevice_flag = false;
+  //! DO NOT COMMIT TO THESE CHANGES!
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor
+  mutable std::unique_ptr<MultiDeviceExecutor> multi_device_executor = nullptr;
 };
 
 } // namespace nvfuser::python_frontend
