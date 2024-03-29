@@ -1367,14 +1367,15 @@ void verifyMmaOpForEvaluation(
 }
 
 bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
-  if (auto* mma = dynamic_cast<MmaOp*>(cast_op->input(0)->definition())) {
-    MmaOpUtils::verifyMmaOpForEvaluation(
-        mma, cast_op->out()->getDataType().value());
-    mma_lhs = mma->inA();
-    mma_rhs = mma->inB();
-    return true;
+  auto* mma = dynamic_cast<MmaOp*>(
+      cast_op->input(0)->definition()) if (mma == nullptr) {
+    return false;
   }
-  return false;
+  MmaOpUtils::verifyMmaOpForEvaluation(
+      mma, cast_op->out()->getDataType().value());
+  mma_lhs = mma->inA();
+  mma_rhs = mma->inB();
+  return true;
 }
 
 bool matchMatmulBiasCast(
