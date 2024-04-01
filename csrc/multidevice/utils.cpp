@@ -55,8 +55,8 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
 // i.e. sharded IterDomains that are present in the input, but not the output.
 // TODO: Analyze leaf domain for unsharded/sharded IDs and return their
 // parent root IDs.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr) {
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getShardingChanges(Expr* expr) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Resharding operations can only have one output");
@@ -254,7 +254,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     if (!shard_deletions.empty()) {
       IterDomain* shard_deleted_id = shard_deletions[0];
       int sharding_axis =
-          static_cast<int>(input->domain()->posOf(shard_deleted_id));
+          static_cast<int>(input->domain()->rootPosOf(shard_deleted_id));
       if (isOutermostAllocatedId(input, shard_deleted_id)) {
         continue;
       }
@@ -280,7 +280,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     else if (!shard_additions.empty()) {
       auto shard_added_id = shard_additions[0];
       int sharding_axis =
-          static_cast<int>(output->domain()->posOf(shard_added_id));
+          static_cast<int>(output->domain()->rootPosOf(shard_added_id));
       if (isOutermostAllocatedId(output, shard_added_id)) {
         continue;
       }
