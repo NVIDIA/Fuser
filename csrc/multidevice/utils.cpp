@@ -55,8 +55,8 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
 // i.e. sharded IterDomains that are present in the input, but not the output.
 // TODO: Analyze leaf domain for unsharded/sharded IDs and return their
 // parent root IDs.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
-allocationShardings(Expr* expr) {
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
+    Expr* expr) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Resharding operations can only have one output");
@@ -238,7 +238,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
         "Resharding operations can have only one input");
     auto output = expr->outputs().at(0)->as<TensorView>();
     auto input = expr->inputs().at(0)->as<TensorView>();
-    auto [shard_additions, shard_deletions] = allocationShardings(expr);
+    auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
         "Resharding expr can only support one axis")
@@ -252,67 +252,77 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // Note: there are no reduction based collectives that materializes an axis
     // so expr is guaranteed to be a set.
     if (!shard_deletions.empty()) {
-      auto id = shard_deletions[0];
-      int idx = static_cast<int>(input->domain()->posOf(id));
-      if (isOutermostAllocatedId(input, id)) {
+      IterDomain* shard_deleted_id = shard_deletions[0];
+      int sharding_axis =
+          static_cast<int>(input->domain()->posOf(shard_deleted_id));
+      if (isOutermostAllocatedId(input, shard_deleted_id)) {
         continue;
       }
-      TensorView* input_permute = permute(input, {{idx, 0}});
+      TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);
-      TensorView* new_output = permute(output_permute, {{0, idx}});
+      TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      for (int i = 0; i < static_cast<int>(output->nDims()); i++) {
-        new_output->axis(i)->parallelize(output->axis(i)->getParallelType());
-      }
+
+      // Propagate shardings from input and manually apply sharding deletions.
+      shardAllLike(input, {input_permute, output_permute, new_output});
+      output_permute->axis(0)->parallelize(ParallelType::Serial);
+      new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
+      output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
-      shardAllLike(input, {input_permute});
-      shardAllLike(new_output, {output_permute});
     }
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
     // permute the sharded axis to the proper location.
-    // Example: [i0 i1 DIDx(i2)] -> [i0 DIDx(i1) r2]
-    // Rewritten to: [i0 i1 DIDx(i2)] -> [i1 i0 DIDx(i2)] ->
-    //                    [DIDx(i1) i0 r2] -> [i0 DIDx(i1)]
+    // Example: [i0 DIDx(i1) i2] -> [i0 r1 DIDx(i2)]
+    // Rewritten to: [i0 DIDx(i1) i2] -> [i2 i0 DIDx(i1)] ->
+    //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
+    // Note that reduction axis shifts from axis=1 to axis=2.
     else if (!shard_additions.empty()) {
-      auto id = shard_additions[0];
-      int idx = static_cast<int>(output->domain()->posOf(id));
-      if (isOutermostAllocatedId(output, id)) {
+      auto shard_added_id = shard_additions[0];
+      int sharding_axis =
+          static_cast<int>(output->domain()->posOf(shard_added_id));
+      if (isOutermostAllocatedId(output, shard_added_id)) {
         continue;
       }
 
-      TensorView* input_permute = permute(input, {{idx, 0}});
+      TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = nullptr;
-      // For reduce scatter, determine if the reduction axis shifted to the
-      // right by 1.
-      auto red_axis = output->getReductionAxis();
-      int offset =
-          (red_axis.has_value() && idx > static_cast<int>(red_axis.value()))
+      // Calculate the number of reduction axes before the sharding axis.
+      // After permuting the sharding axis to the front, the reduction axis
+      // will be offset by this amount.
+      auto reduction_axis = output->getReductionAxis();
+      int num_reduction_axes_before_sharding_axis =
+          (reduction_axis.has_value() &&
+           sharding_axis > static_cast<int>(reduction_axis.value()))
           ? 1
           : 0;
       if (expr->isA<ReductionOp>()) {
-        int raxis = static_cast<int>(red_axis.value()) + offset;
+        int reduction_axis_after_permute =
+            static_cast<int>(reduction_axis.value()) +
+            num_reduction_axes_before_sharding_axis;
         auto red_expr = dynamic_cast<ReductionOp*>(expr);
         output_permute = reductionOp(
             red_expr->getReductionOpType(),
-            {raxis},
+            {reduction_axis_after_permute},
             red_expr->init(),
             input_permute);
       } else {
         // Note this is a no-op and is moving a device parallel axis back
         output_permute = set(input_permute);
       }
-      int sharded_idx = idx - offset;
-      TensorView* new_output = permute(output_permute, {{0, sharded_idx}});
+      int sharding_axis_after_permute =
+          sharding_axis - num_reduction_axes_before_sharding_axis;
+      TensorView* new_output =
+          permute(output_permute, {{0, sharding_axis_after_permute}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      auto i = 0;
-      for (auto id :
-           TensorDomain::noReductions(output->getMaybeRFactorDomain())) {
-        new_output->axis(i++)->parallelize(id->getParallelType());
-      }
+
+      // Propagate shardings from input and manually apply sharding additions.
+      shardAllLike(input, {input_permute, output_permute, new_output});
+      output_permute->axis(0)->parallelize(shard_added_id->getParallelType());
+      new_output->axis(sharding_axis_after_permute)
+          ->parallelize(shard_added_id->getParallelType());
+      output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
-      shardAllLike(input, {input_permute});
-      shardAllLike(new_output, {output_permute});
     }
   }
 }
