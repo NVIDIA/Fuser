@@ -53,16 +53,10 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
-namespace {
-
-// This function will be used by both matmul and linear.
-// Matmul will add a castOp to the output of this function
-// whereas linear will skip the cast (set cast flag as false)
-// and add the bias.
-TensorView* matmulImpl(
-    TensorView* a,
-    TensorView* b,
-    bool cast_output_to_input) {
+// This function will add a castOp to the output of the matrix multiplication
+// The implementation of linear can use this but will skip the cast (set cast
+// flag as false) and add the bias.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input) {
   NVF_CHECK(
       a->nDims() == b->nDims(),
       "The number of dimension of A and B do not match");
@@ -91,10 +85,8 @@ TensorView* matmulImpl(
   return output;
 }
 
-} // namespace
-
 TensorView* matmul(TensorView* a, TensorView* b) {
-  return matmulImpl(a, b, true /* cast output to input dtype */);
+  return matmul(a, b, true /* cast output to input dtype */);
 }
 
 LstmResult lstm(
