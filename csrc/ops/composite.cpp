@@ -59,7 +59,10 @@ namespace {
 // Matmul will add a castOp to the output of this function
 // whereas linear will skip the cast (set cast flag as false)
 // and add the bias.
-TensorView* matmulImpl(TensorView* a, TensorView* b, bool cast = true) {
+TensorView* matmulImpl(
+    TensorView* a,
+    TensorView* b,
+    bool cast_output_to_input) {
   NVF_CHECK(
       a->nDims() == b->nDims(),
       "The number of dimension of A and B do not match");
@@ -80,18 +83,18 @@ TensorView* matmulImpl(TensorView* a, TensorView* b, bool cast = true) {
   NVF_CHECK(
       a->getDataType().value() == b->getDataType().value(),
       "data types of inputs to matmul don't match");
-  if (cast) {
+  auto* output = fusedMultiplySum(tv0b, tv1b, {-2});
+  if (cast_output_to_input) {
     // For matmul, the output dtype should match input.
-    return maybeCastOp(
-        a->getDataType().value(), fusedMultiplySum(tv0b, tv1b, {-2}));
+    return maybeCastOp(a->getDataType().value(), output);
   }
-  return fusedMultiplySum(tv0b, tv1b, {-2});
+  return output;
 }
 
 } // namespace
 
 TensorView* matmul(TensorView* a, TensorView* b) {
-  return matmulImpl(a, b);
+  return matmulImpl(a, b, true /* cast output to input dtype */);
 }
 
 LstmResult lstm(
