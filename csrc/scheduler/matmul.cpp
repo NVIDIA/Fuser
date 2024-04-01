@@ -739,6 +739,16 @@ void scheduleEpilogue(
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
     const bool use_splitk,
     const bool use_smem_epilogue) {
+  //   mma_result
+  //     nbatch +   1   2   3   4   5   6  7  8
+  //              -15 -14 -13 -12 -11 -10 -9 -8
+  //     [...  Mo  No  Kf  Kg Kwo Mwo Nwo Mw Nw     ...
+  //          iBx iBy  rS  rS  rS iTz iTy iS iS
+  //                             9   10   11   12   13   14   15
+  //                            -7   -6   -5   -4   -3   -2   -1
+  //                     ...  Mino Nino Min2 Nin2 Kino Kin4 Kin2]
+  //                           iTx iMMA iMMA iMMA rMMA rMMA rMMA
+  std::cout << "mma_result: " << mma_result->toString() << std::endl;
   TensorView* splitk_sum = nullptr;
   if (use_splitk) {
     // rFactor converts
@@ -749,7 +759,20 @@ void scheduleEpilogue(
     // and the method returns "intermediate". We need mma_result to refer to
     // the actual MmaOp output, so here we reassign that to the intermediate.
     splitk_sum = mma_result;
-    mma_result = splitk_sum->rFactor({-4, -1});
+    mma_result = splitk_sum->rFactor({-13, -12, -3, -2, -1});
+    std::cout << "Split-K" << std::endl;
+    std::cout << "  mma_result: " << mma_result->toString() << std::endl;
+    std::cout << "  splitk_sum: " << splitk_sum->toString() << std::endl;
+    // mma_result
+    //  nbatch + 1   2   3   4   5   6  7  8    9   10   11   12   13   14   15
+    //     -16 -15 -14 -13 -12 -11 -10 -9 -8   -7   -6   -5   -4   -3   -2   -1
+    //  ... Mo  No  Kf  Kg Kwo Mwo Nwo Mw Nw Mino Nino Min1 Nin2 Kino Kin4 Kin2
+    //     iBx iBy  iS  rS  rS iTz iTy iS iS  iTx iMMA iMMA iMMA rMMA rMMA rMMA
+    // splitk_sum
+    //  nbatch + 1   2           3   4  5  6    7    8    9   10
+    //     -11 -10  -9          -8  -7 -6 -5   -4   -3   -2   -1
+    //  ... Mo  No  Kf         Mwo Nwo Mw Nw Mino Nino Min2 Nin2
+    //     iBx iBy  rS         iTz iTy iS iS  iTx   iS   iS   iS
   }
 
   if (use_smem_epilogue) {
@@ -758,12 +781,31 @@ void scheduleEpilogue(
     // becomes
     //   smem_epilogue = set(mma_result)
     //   splitk_sum = sum(smem_epilogue)
+    //
+    // smem_epilogue (no split-K)
+    //  nbatch + 1   2   3  4  5    6    7    8    9
+    //     -10  -9  -8  -7 -6 -5   -4   -3   -2   -1
+    //  ... Mo  No Mwo Nwo Mw Nw Mino Nino Min1 Nin2
+    //     iBx iBy iTz iTy iS iS  iTx   iS   iS   iS
+    //
+    // smem_epilogue (split-K)
+    //  nbatch + 1  2   3   4  5  6    7    8    9   10
+    //     -11 -10 -9  -8  -7 -6 -5   -4   -3   -2   -1
+    //  ... Mo  No Kf Mwo Nwo Mw Nw Mino Nino Min1 Nin2
+    //     iBx iBy iS iTz iTy iS iS  iTx   iS   iS   iS
     TensorView* smem_epilogue = mma_result->cacheAfter();
-    // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
+    std::cout << "smem_epilogue: " << smem_epilogue->toString() << std::endl;
+    // smem_epilogue: T9_l[ iS229{( ceilDiv(i0, 128) )}, iS231{( ceilDiv(i6,
+    // 128) )}, iS236{( ceilDiv(( ( ceilDiv(128, 4) ) * 4 ), 64) )}, iS244{(
+    // ceilDiv(( ( ( ceilDiv(( ceilDiv(128, 8) ), 4) ) * 4 ) * 8 ), 64) )},
+    // iS246{( ceilDiv(64, 16) )}, iS248{( ceilDiv(64, 8) )}, iS259{( ( (
+    // ceilDiv(( ceilDiv(16, 8) ), 2) ) * 8 ) * ( ceilDiv(8, 2) ) )}, iS255{(
+    // ceilDiv(8, 8) )}, iS253{2}, iS258{2} ]
 
     // handle epilogue and always vectorize Ki
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(smem_epilogue);
+    // swizzleSharedMemory(smem_epilogue);
+    /*
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
@@ -771,6 +813,7 @@ void scheduleEpilogue(
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
             .propagateToBoundary());
+          */
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
     for (auto [dc, d] : cached_outputs) {
@@ -998,20 +1041,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // [..., iMo, iNo, rKo, iMi, iNi, rKi]
-  int num_splitk_dims = 0;
-  if (params.splitk_factor != 1) {
-    // Split Ko -> [rKf, rKg]
-    mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-    // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
-    num_splitk_dims = 1;
-  }
+  // We always do a split-K split, it just might have size 1.
+  //   [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  //   Split Ko -> [Kf, Kg]
+  //   [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
+  mma_result->split(-4, params.splitk_factor, /*inner*/ false);
 
   // At this point we have the following schedule:
-  //   No split-K
-  //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
-  //   Split-K
-  //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
 
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
@@ -1034,18 +1071,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //         -8  -7 -6  -5 -4 -3 -2 -1
   //   [... Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   // so now
-  //                   -12 -11  -10   -9   -8   -7   -6  -5  -4   -3   -2   -1
-  // mma_result = [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //                   -12 -11 -10  -9   -8   -7   -6  -5  -4   -3   -2   -1
+  // mma_result = [... iMo iNo iKf rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::backward(
       mma_result, -1, {acw_smem, bcw_smem});
 
-  // No (cross-CTA) split-K
-  //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin rKin]
-  //
-  // With split-K
-  //   mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  // mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
 
   // Schedule prolog:
   //   TODO: this section needs more configurability.
@@ -1097,9 +1130,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // (and a possible final reduction dim).
   // eg. [M64, N24, R]  -> [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   // Before
-  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //   mma_result  [... iMo iNo iKf rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
   // After
-  //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
+  //   mma_result  [... iMo iNo iKf rKg rKwo iMwo iNwo iMw
   //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
   mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
@@ -1139,32 +1172,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   - iMMA: uncontracted axis in an MMA tensor core operation.
   //   - rMMA: contract in an MMA tensor core operation.
   //
-  // With split-K:
   //   mma_result
-  //     nbatch +   1    2    3    4    5    6   7   8
-  //              -15  -14  -13  -12  -11  -10  -9  -8
-  //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
-  //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+  //     nbatch +   1   2   3    4    5    6   7   8
+  //              -15 -14 -13  -12  -11  -10  -9  -8
+  //     [... iMo iNo iKf rKg rKwo iMwo iNwo iMw iNw     ...
+  //          iBx iBy iBz  rS   rS  iTz  iTy  iS  iS
   //                              9    10    11    12    13    14    15
   //                             -7    -6    -5    -4    -3    -2    -1
-  //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+  //                     ...  iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
   //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
-  //
-  // Without split-K:
-  //   mma_result
-  //     nbatch +   1   2    3    4    5   6   7    8
-  //              -14 -13  -12  -11  -10  -9  -8   -7
-  //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
-  //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
-  //                                   9    10    11     12    13    14
-  //                                  -6    -5    -4     -3    -2    -1
-  //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
-  //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
-  //   smem_epilogue   (unscheduled, same as original mma_result)
 
   // When we have both batch dims and splitk, parallelize splitk only.
   // If we only have batch dim, parallelize the batch dim.
-  if (num_splitk_dims != 0) {
+  if (params.splitk_factor > 1) {
     mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDz);
   } else if (num_batch_dims != 0) {
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
@@ -1184,10 +1204,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // parallelize Mwo, Nwo by thread
-  mma_result->axis(num_batch_dims + 4 + num_splitk_dims)
-      ->parallelize(ParallelType::TIDz);
-  mma_result->axis(num_batch_dims + 5 + num_splitk_dims)
-      ->parallelize(ParallelType::TIDy);
+  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDz);
+  mma_result->axis(num_batch_dims + 6)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -1207,15 +1225,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_batch_dims,
       gemm_tile,
       cached_outputs,
-      num_splitk_dims != 0,
+      params.splitk_factor > 1,
       params.use_smem_epilogue);
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt(
-      {acr, bcr, ab, bb}, mma_result, num_batch_dims + 6 + num_splitk_dims);
+  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 7);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1242,8 +1259,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
     // rotate Kg loop
-    scheduler_utils::rotateLoop(
-        mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
+    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 3, {acr, bcr});
   }
 }
 
