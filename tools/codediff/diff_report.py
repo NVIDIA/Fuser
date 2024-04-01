@@ -387,7 +387,9 @@ class LogParserPyTest(LogParser):
 
         self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
 
-        self.extra_wildcard_testname_re = re.compile(r".*?(?P<testname>\S+::\S+) (?P<line>.*)$")
+        self.extra_wildcard_testname_re = re.compile(
+            r".*?(?P<testname>\S+::\S+) (?P<line>.*)$"
+        )
 
         self.all_test_names: list[str] | None = None
 
