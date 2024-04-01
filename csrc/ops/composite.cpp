@@ -57,7 +57,7 @@ namespace {
 
 // This function will be used by both matmul and linear.
 // Matmul will add a castOp to the output of this function
-// whereas linear will skip the cast (set cast flag as false) 
+// whereas linear will skip the cast (set cast flag as false)
 // and add the bias.
 TensorView* matmulImpl(TensorView* a, TensorView* b, bool cast = true) {
   NVF_CHECK(
