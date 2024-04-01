@@ -14,6 +14,7 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -1316,6 +1317,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
+    info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
     // as well as halo. Currently, allocation of tensors with halo is
     // only supported by inferShapeOfIntermediate, whereas expanded
@@ -1534,8 +1536,10 @@ void dumpKernelArgs(
   for (const auto i : c10::irange(intermediates.size())) {
     const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
+    const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
-            << " is_zero_initialized: " << zero_init << std::endl;
+            << " is_zero_initialized: " << zero_init
+            << " resets_to_zero: " << resets_to_zero << std::endl;
   }
 }
 
@@ -1565,6 +1569,10 @@ void FusionExecutor::initializeExecutorEntry(
 
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
+
+  for (const auto& entry : kernel()->summary().validations) {
+    NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
+  }
 
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
@@ -1805,9 +1813,18 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
-        intermediate_buffer = at::zeros(
-            unexpanded_sizes,
-            at::TensorOptions().dtype(buf_info.type).device(options_.device));
+        if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
+            buf_info.resets_to_zero) {
+          // Allow access to reusable zeroed memory if buffer is guaranteed
+          // to reset to zero upon completion of the kernel, or if we have
+          // enabled the option (unsafe)
+          intermediate_buffer = contigZeroedTensor(
+              unexpanded_sizes, buf_info.type, options_.device);
+        } else {
+          intermediate_buffer = at::zeros(
+              unexpanded_sizes,
+              at::TensorOptions().dtype(buf_info.type).device(options_.device));
+        }
       } else {
         intermediate_buffer = at::native::empty_cuda(
             unexpanded_sizes,
@@ -1864,11 +1881,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   executor_utils::CudaKernelTimer timer(stream);
 
-  if (measure_kernel_time) {
-    timer.init();
-  }
-
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    if (measure_kernel_time) {
+      timer.init();
+    }
+
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1941,19 +1958,23 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
-
-      outputBytesProcessed(outputs);
-
-      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-          isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-        double gb_per_s =
-            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-            (double)1.0e9;
-        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-      }
     }
   }
+
+  if (measure_kernel_time) {
+    outputBytesProcessed(outputs);
+
+    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      double gb_per_s =
+          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
+          (double)1.0e9;
+      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
+              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
+    }
+  }
+
+  releaseZeroedMemory();
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
@@ -2237,6 +2258,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       &data.strides,
       nvfuser::toUnderlying(data.type),
       data.zero_init,
+      data.resets_to_zero,
       data.is_profile_buffer,
       is_fusion_output);
 }
@@ -2371,6 +2393,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
 
   info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
+  info.resets_to_zero = buffer->resets_to_zero();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
 }

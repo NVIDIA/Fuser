@@ -669,7 +669,7 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   return get()->segments_.at(idx);
 }
 
-void FusionProfiler::start(bool cupti_disable) {
+/*static*/ void FusionProfiler::start(bool cupti_disable) {
   FusionProfiler* fp = get();
   fp->cupti_disabled_ = cupti_disable;
   reset();
@@ -686,7 +686,22 @@ void FusionProfiler::start(bool cupti_disable) {
   fp->state_ = ProfilerState::Running;
 }
 
-void FusionProfiler::stop() {
+const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
+  NVF_CHECK(device_id >= 0, "Invalid device index: ", device_id);
+  if ((size_t)device_id >= device_descriptors_.size()) {
+    device_descriptors_.resize(device_id + 1);
+  }
+  DeviceDescriptor& desc = device_descriptors_[device_id];
+
+  if (desc.device != device_id) {
+    // This happens when device_descriptors_[device_id] is initialized (and
+    // thus device==-1) but not populated.
+    DeviceDescriptor::generate(desc, device_id);
+  }
+  return desc;
+}
+
+/*static*/ void FusionProfiler::stop() {
   FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Running,
@@ -719,24 +734,9 @@ void FusionProfiler::stop() {
       if (fp->corrid_2_segid_.count(corr_id) == 0) {
         continue;
       }
-      NVF_CHECK(
-          kprof.device >= 0,
-          "Device Descriptor index is not valid! ",
-          kprof.device);
-      if ((size_t)kprof.device >= fp->device_descriptors_.size()) {
-        fp->device_descriptors_.resize(kprof.device + 1);
-      }
-      NVF_CHECK(
-          (size_t)kprof.device < fp->device_descriptors_.size(),
-          "Device idx is beyond size of Device Descriptors! ",
-          kprof.device);
-      if (fp->device_descriptors_[kprof.device].device != kprof.device) {
-        DeviceDescriptor::generate(
-            fp->device_descriptors_[kprof.device], kprof.device);
-      }
-      kprof.device_name = fp->device_descriptors_[kprof.device].name;
-      kprof.peak_bandwidth_gbs =
-          fp->device_descriptors_[kprof.device].peak_bandwidth_gbs;
+      const DeviceDescriptor& device_desc = fp->deviceDescriptor(kprof.device);
+      kprof.device_name = device_desc.name;
+      kprof.peak_bandwidth_gbs = device_desc.peak_bandwidth_gbs;
       NVF_CHECK(
           fp->corrid_2_segid_.count(corr_id) > 0,
           "Correlation Id is not found in corrid -> segid hashmap! ",
@@ -784,8 +784,7 @@ void FusionProfiler::stop() {
     }
     if (!fp->segments_.empty()) {
       fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-          fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs *
-          100.0;
+          fp->deviceDescriptor(segment(0).device()).peak_bandwidth_gbs * 100.0;
     }
   }
   fprof.compile_time_ms = fp->compile_timer_.time();

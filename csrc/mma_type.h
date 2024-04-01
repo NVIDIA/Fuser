@@ -10,10 +10,11 @@
 #include <macros.h>
 
 #include <exceptions.h>
-#include <fusion.h>
+#include <type.h>
 #include <visibility.h>
 
 #include <cstring>
+#include <ostream>
 
 #if IS_CPP20
 #include <bit>
@@ -265,6 +266,12 @@ std::string toString(const GemmTile& tile);
 NVF_API std::string toString(const MatMulTileOptions& opts);
 NVF_API std::string toString(MmaMacro macro);
 NVF_API std::string toString(MmaInputSmemSwizzle swizzle);
+inline std::ostream& operator<<(
+    std::ostream& os,
+    MmaInputSmemSwizzle input_layout) {
+  os << toString(input_layout);
+  return os;
+}
 
 // MMA hash utils
 NVF_API size_t hash(MmaMacro macro);
