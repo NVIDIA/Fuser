@@ -709,8 +709,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // blocks in the reduction dim if SM utilization is low.
   {
     iter_unroll_factor = (int64_t)vectorize_factor;
+    // limitation set by target
+    iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
     // limitation set by iter extent
-    iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
+    iter_unroll_factor =
+        std::min(iter_unroll_factor, ceilDiv(total_iteration_numel, bdimx));
     // Adjust to last power of 2
     iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
   }
