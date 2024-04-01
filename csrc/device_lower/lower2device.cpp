@@ -9,6 +9,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
+#include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/pass/alias_memory.h>
@@ -16,6 +17,7 @@
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
+#include <device_lower/pass/grid_serialization.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/inline_ptx.h>
 #include <device_lower/pass/insert_syncs.h>
@@ -250,7 +252,8 @@ void dumpExprsIfEnabled(
   if (force_enable || enabled_by_env()) {
     debug() << "After " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
-      debug() << exp->toString() << std::endl;
+      // `Expr::toString()` already ends with a new line.
+      debug() << exp->toString();
     }
   }
 }
@@ -263,6 +266,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
+           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
@@ -345,10 +349,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
+  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
-
-  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+  dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -361,6 +366,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // prepare for lowering
   validateIr(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
+
+  // Determines minimum device version necessary to compile and run this fusion.
+  std::tie(min_device_version_, min_device_version_reason_) =
+      MinimumDeviceVersion::compute(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
@@ -382,7 +392,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_, false, true);
+    IdModel id_model(fusion_);
   }
 
   resolveComputeWith(fusion_);
@@ -420,6 +430,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   validateResize(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
+
+  validateReductions(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);

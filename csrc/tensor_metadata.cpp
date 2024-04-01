@@ -12,6 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
@@ -314,8 +315,11 @@ inferAndValidateAllocationSizesAndStrides(
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);
   }
-  // Validate final sizes and strides
-  validateAllocationSizesAndStrides(alloc, tv->getContiguity(), sizes, strides);
+  // Only validate final sizes and strides when we have a non-empty tensor.
+  if (tensor.numel() != 0) {
+    validateAllocationSizesAndStrides(
+        alloc, tv->getContiguity(), sizes, strides);
+  }
   return {std::move(sizes), std::move(strides)};
 }
 
@@ -339,6 +343,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
+  // If tensor is sharded then logical_size and logical_stride will
+  // refer to size and stride of the sharded tensor.
   metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
   if (tv->hasAllocation()) {

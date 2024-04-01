@@ -15,8 +15,7 @@
 #include <tma.h>
 #include <type.h>
 #include <utils.h>
-
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <string>
@@ -77,7 +76,7 @@ class Predicate final : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
-  std::string toInlineString(int indent_size = 0) const override;
+  NVF_API std::string toInlineString(int indent_size = 0) const override;
 
   PredicateType predicate_type() const {
     return ptype_;
@@ -147,7 +146,7 @@ class Predicate final : public Val {
   Val* value_ = nullptr;
 };
 
-class TensorIndex final : public Val {
+class NVF_API TensorIndex final : public Val {
  public:
   TensorIndex(
       IrBuilderPasskey,
@@ -251,19 +250,24 @@ class Asm final : public Expr {
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
-class Allocate final : public Expr {
+class NVF_API Allocate final : public Expr {
  public:
   using Expr::Expr;
 
   //! Allocation of a multi-dimensional buffer
   //!
   //! param shape Size of each dimension
+  //! param zero_init Should this memory be zero-initialized?
+  //! param resets_to_zero Will this memory be set to zero upon completion of
+  //!   this kernel?
+  //! param alias Is this an alias of previously-allocated memory
   explicit Allocate(
       IrBuilderPasskey passkey,
       Val* buffer,
       MemoryType memory_type,
       std::vector<Val*> shape = {},
       bool zero_init = false,
+      bool resets_to_zero = false,
       Allocate* alias = nullptr);
 
   //! Allocation of a non-dimensional buffer
@@ -274,7 +278,8 @@ class Allocate final : public Expr {
       Val* buffer,
       MemoryType memory_type,
       Val* size,
-      bool zero_init = false);
+      bool zero_init = false,
+      bool resets_to_zero = false);
 
   const char* getOpString() const override {
     return "Allocate";
@@ -301,21 +306,54 @@ class Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 5);
-    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 6);
+    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
   }
 
+  //! Does this allocation require its memory to be initialized to zero before
+  //! this kernel is launched? If this is true, then an additional memset
+  //! kernel might be launched before the current Fusion kernel is launched in
+  //! order to guarantee that this buffer is filled with zeroes (see
+  //! resetsToZero() below).
   bool zeroInit() const {
     return attribute<bool>(2);
+  }
+
+  //! Is this buffer guaranteed to be reset to all zero values at the end of
+  //! this kernel? This is used to avoid an additional memset kernel launch for
+  //! buffers that require zeroed memory (see zeroInit() above).
+  //!
+  //! A common use case for zeroInit() allocations is semaphore buffers that
+  //! hold counters starting at zero. Typically, each participating thread would
+  //! increment the counter and the last thread would leave the counter in a
+  //! non-zeroed state. The next time that kernel is run, it can no longer
+  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
+  //!
+  //! Instead, if the last thread resets the counter to zero, then the buffer
+  //! can be re-used, and at::zeroes need only be run at the first kernel
+  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
+  //! reuse zeroed memory avoiding the additional kernel launch.
+  //!
+  //! Whenever possible, we should try to guarantee that resetsToZero() is true
+  //! if zeroInit() is true by modifying our code to clean up global counters,
+  //! because the latency penalty of an additional kernel launch should be
+  //! greater than that required to reset this memory at the end of the fusion.
+  //! The exception is when a kernel is launched only a single time, in which
+  //! case resetting the memory is unnecessary, but we expect that kernels will
+  //! instead be launched many times.
+  bool resetsToZero() const {
+    return attribute<bool>(3);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
-    return dynamic_cast<const Allocate*>(attribute(3));
+    return dynamic_cast<const Allocate*>(attribute(4));
   }
 
   // Set the address of a shared memory allocation within the dynamic shared
@@ -330,14 +368,14 @@ class Allocate final : public Expr {
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
-    attributes_[4] = addr;
+    attributes_[5] = addr;
   }
 
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
-    return attributeVal(4);
+    return attributeVal(5);
   }
 };
 
@@ -345,7 +383,7 @@ class Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class BlockSync final : public Expr {
+class NVF_API BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -368,7 +406,7 @@ class BlockSync final : public Expr {
 
 // Synchronize all blocks in device, implies cooperative group launch is
 // required.
-class GridSync final : public Expr {
+class NVF_API GridSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -395,7 +433,7 @@ class GridSync final : public Expr {
   }
 };
 
-class MBarrierInit final : public Expr {
+class NVF_API MBarrierInit final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInit(
@@ -421,7 +459,7 @@ class MBarrierInit final : public Expr {
   }
 };
 
-class MBarrierInvalidate final : public Expr {
+class NVF_API MBarrierInvalidate final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
@@ -440,7 +478,7 @@ class MBarrierInvalidate final : public Expr {
   }
 };
 
-class MBarrierArrive final : public Expr {
+class NVF_API MBarrierArrive final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
@@ -467,7 +505,7 @@ class MBarrierArrive final : public Expr {
 // This is usually used to specify the number of bytes that will be
 // transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
 // can wait for the completion of the transfer.
-class MBarrierArriveExpectTx final : public Expr {
+class NVF_API MBarrierArriveExpectTx final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArriveExpectTx(
@@ -498,7 +536,7 @@ class MBarrierArriveExpectTx final : public Expr {
   }
 };
 
-class MBarrierWait final : public Expr {
+class NVF_API MBarrierWait final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
@@ -775,7 +813,7 @@ class Scope {
 //! ForLoop may represent a part of an iteration domain representend
 //! by iter_domain_. In that case, the loop extent field, extent_, may
 //! be smaller than the extent of iter_domain_.
-class ForLoop final : public Expr {
+class NVF_API ForLoop final : public Expr {
  public:
   using Expr::Expr;
 
@@ -901,7 +939,7 @@ class ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class IfThenElse final : public Expr {
+class NVF_API IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
@@ -948,7 +986,7 @@ class IfThenElse final : public Expr {
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 class GridReduction final : public ReductionOp {
-  static constexpr int num_reduction_op_attr = 3;
+  static constexpr int num_reduction_op_attr = 4;
 
  public:
   using ReductionOp::ReductionOp;
@@ -1020,7 +1058,7 @@ class GridReduction final : public ReductionOp {
   }
 };
 
-class GroupedGridReduction final : public GroupedReductionOp {
+class NVF_API GroupedGridReduction final : public GroupedReductionOp {
  public:
   using GroupedReductionOp::GroupedReductionOp;
 
@@ -1111,7 +1149,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
-class GridBroadcast final : public Expr {
+class NVF_API GridBroadcast final : public Expr {
  public:
   using Expr::Expr;
 
@@ -1222,7 +1260,7 @@ class GridWelford final : public Expr {
   }
 };
 
-class GroupedGridWelford final : public GroupedWelfordOp {
+class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
  public:
   using GroupedWelfordOp::GroupedWelfordOp;
 
@@ -1316,7 +1354,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
 
 //! Represents a WelfordOp with the division by count is hoisted out
 //! of an innermost loop
-class VectorizedWelfordOp final : public WelfordOp {
+class NVF_API VectorizedWelfordOp final : public WelfordOp {
  public:
   using WelfordOp::WelfordOp;
 

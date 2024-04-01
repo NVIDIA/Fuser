@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
+#include <visibility.h>
 
 #include <vector>
 
@@ -646,10 +647,71 @@ RegisterType getRegisterType(Val* value);
 // potentially hide the error. The argument `preserve_error` specifies whether
 // we should disable these optimization, unless we can prove there won't be an
 // error.
-Val* simplifyExpr(
+NVF_API Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
     std::vector<Val*> assumptions = {},
     bool preserve_error = false);
+
+class Context;
+namespace assoc_comm {
+// The expression type that represents the flattened ops. For example, if I have
+// out = a + b + 3 + c + 5, then I will have:
+//   FlattenedAssocCommOp {
+//     inputs: [a, b, 3, c, 5]
+//     outputs: [out]
+//   }
+class FlattenedAssocCommOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  FlattenedAssocCommOp(
+      IrBuilderPasskey passkey,
+      BinaryOpType op,
+      Val* out,
+      std::vector<Val*> terms);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override;
+
+  // FlattenedAssocCommOp is unordered, so we should have
+  // FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
+  bool sameAs(const Statement* other) const override;
+
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
+
+  DataType dtype() const {
+    return *output(0)->getDataType();
+  }
+
+  BinaryOpType getOpType() const {
+    return attribute<BinaryOpType>(0);
+  }
+
+  // Get a vector of inputs, sorted as the order given by `variables`. Note that
+  // the sorting key is the rightmost variable that an input depends on. For
+  // example, if I have two inputs.
+  // v1 = a * c
+  // v2 = b
+  // and variables is [a, b, c], then v2 < v1 because the rightmost depending
+  // variable of v2 is b, and the rightmost depending variable of v1 is c,
+  // and b < c. So in this example, this function will return [v2, v1].
+  // Tensors are always considered as variables and they are always considered
+  // as the rightmost.
+  std::vector<Val*> sortedInputs(const Context& context);
+
+  bool isTrivial() const {
+    return inputs().size() == 1;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+} // namespace assoc_comm
 
 } // namespace nvfuser

@@ -26,6 +26,7 @@ namespace tma {
 #if (CUDA_VERSION >= 12000)
 
 inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
+  // NOTE: future fp8 support?
   switch (std::get<PrimDataType>(dtype.type)) {
     case PrimDataType::Double:
       return CU_TENSOR_MAP_DATA_TYPE_FLOAT64;
@@ -177,8 +178,8 @@ Val* encodeTensorMapTiled(
     MmaInputSmemSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
-  auto output = IrBuilder::create<Val>(
-      OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
+  auto output =
+      IrBuilder::create<Val>(OpaqueType::make<TensorMap>("TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
       output,
       data_type,
@@ -220,6 +221,31 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 
   NVF_ERROR(inputs.at(4).is<std::vector>());
   auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
+
+  DEBUG_PRINT_SCOPE_NAME(
+      "EncodeTensorMapTiled",
+      "global_address=",
+      global_address,
+      "global_dim=",
+      global_dim,
+      "global_strides=",
+      global_strides,
+      "box_dim=",
+      box_dim,
+      "element_strides=",
+      element_strides,
+      "data_type=",
+      dataType(),
+      "interleave=",
+      this->interleave(),
+      "swizzle=",
+      this->swizzle(),
+      "l2_promotion=",
+      l2Promotion(),
+      "oob_fill=",
+      oobFill(),
+      "tensor_rank=",
+      tensor_rank);
 
   CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
   CUtensorMapInterleave interleave =

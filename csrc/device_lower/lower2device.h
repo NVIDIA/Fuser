@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <compute_at_map.h>
@@ -22,7 +21,9 @@
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
+#include <exceptions.h>
 #include <executor_params.h>
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -32,6 +33,7 @@
 #include <partial_split_map.h>
 #include <root_domain_map.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <functional>
 #include <memory>
@@ -60,11 +62,11 @@ class GpuLower : public NonCopyable {
   // into cuda code. index_type allows to compile the kernel based on int32
   // indexing instead of int64 for additional performance.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  explicit GpuLower(
+  NVF_API explicit GpuLower(
       Fusion* fusion,
       const CompileParams& cparams = CompileParams());
 
-  kir::Kernel* kernel() const;
+  NVF_API kir::Kernel* kernel() const;
 
   //! Returns the currently active lowering object.
   //! It's an error if no lowering is in progress.
@@ -75,10 +77,18 @@ class GpuLower : public NonCopyable {
 
   //! Actually run the lowering by executing the passes in the order given by
   //! passes_
-  kir::Kernel* run();
+  NVF_API kir::Kernel* run();
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();
+  }
+
+  const std::pair<int, int>& minDeviceVersion() const {
+    return min_device_version_;
+  }
+
+  const std::string& minDeviceVersionReason() const {
+    return min_device_version_reason_;
   }
 
   std::shared_ptr<const ConcretizedBroadcastDomains>
@@ -230,6 +240,31 @@ class GpuLower : public NonCopyable {
     return passes_;
   }
 
+  // Register a boolean Val as a predicate to validate at the run time. Optional
+  // validation error messages can be given as args.
+  template <typename... Args>
+  void validate(Val* validation_condition, Args... args) {
+    auto sv = simplifyExpr(validation_condition);
+    if (sv->isTrue()) {
+      // If validation_condition is simplified to true, we know that the
+      // condition is always true regardless of the runtime values of the
+      // inputs. We can skip the validation. For example, we are not interested
+      // in validating that 3 < 4 or i % 8 < 8 every time we run the kernel.
+      return;
+    }
+    std::string message = to_str(args...);
+    NVF_ERROR(!sv->isFalse(), message);
+    validations_.emplace_back(sv, message);
+  }
+
+  const std::vector<std::pair<const Val*, std::string>>& validations() const {
+    return validations_;
+  }
+
+  std::vector<std::pair<const Val*, std::string>>& validations() {
+    return validations_;
+  }
+
  private:
   void analysis(Fusion* fusion);
 
@@ -252,6 +287,8 @@ class GpuLower : public NonCopyable {
   // would be safer to wrap all of these in unique pointers and remove the build
   // interface and default constructor. That way they couldn't be accessed
   // without being initialized.
+  std::pair<int, int> min_device_version_;
+  std::string min_device_version_reason_;
   std::shared_ptr<const ConcretizedBroadcastDomains>
       concretized_broadcast_domains_;
   ThreadPredicateMap thread_pred_map_;
@@ -282,8 +319,13 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // keep track of the mbarrier used for each load/store operation
+  // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // Keep track of validations needed at runtime. For example, a pair of
+  //! "extent mod split_factor == 0" and an error message for divisibility check
+  //! for vectorization.
+  std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
 };

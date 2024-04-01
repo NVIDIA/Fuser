@@ -7,11 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
-
 #include <utils.h>
+#include <visibility.h>
 
 #include <complex>
 #include <unordered_map>
@@ -69,8 +67,6 @@ class TensorView;
 
 class NamedScalar;
 
-class PipelineVal;
-
 // Exprs
 class FullOp;
 class IotaOp;
@@ -107,12 +103,10 @@ class CatOp;
 class PadOp;
 class SliceOp;
 
-class PipelineStage;
-class PipelineCommunication;
-
 // Exprs
 class Split;
 class Merge;
+class Swizzle;
 class Swizzle2D;
 class Resize;
 
@@ -149,6 +143,10 @@ class EncodeTensorMapTiled;
 
 } // namespace kir
 
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
+
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
 class OptOutConstDispatch : public PolymorphicBase {
@@ -170,8 +168,6 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const kir::Predicate*);
   virtual void handle(const kir::TensorIndex*);
-
-  virtual void handle(const PipelineVal*);
 
   // Exprs
   virtual void handle(const FullOp* stmt);
@@ -206,6 +202,7 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const Split* stmt);
   virtual void handle(const Merge* stmt);
+  virtual void handle(const Swizzle* stmt);
   virtual void handle(const Swizzle2D* stmt);
   virtual void handle(const Resize* stmt);
   virtual void handle(const ExpandOp* stmt);
@@ -240,12 +237,10 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::AllocateFusedReduction*);
   virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
   virtual void handle(const kir::EncodeTensorMapTiled*);
-
-  virtual void handle(const PipelineStage*);
-  virtual void handle(const PipelineCommunication*);
+  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
-class OptOutDispatch : public PolymorphicBase {
+class NVF_API OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -264,8 +259,6 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(kir::Predicate*);
   virtual void handle(kir::TensorIndex*);
-
-  virtual void handle(PipelineVal*);
 
   // Exprs
   virtual void handle(FullOp* stmt);
@@ -300,6 +293,7 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(Split* stmt);
   virtual void handle(Merge* stmt);
+  virtual void handle(Swizzle* stmt);
   virtual void handle(Swizzle2D* stmt);
   virtual void handle(Resize* stmt);
   virtual void handle(ExpandOp* stmt);
@@ -334,9 +328,7 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
   virtual void handle(kir::EncodeTensorMapTiled* stmt);
-
-  virtual void handle(PipelineStage* stmt);
-  virtual void handle(PipelineCommunication* stmt);
+  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptInConstDispatch : public OptOutConstDispatch {
@@ -370,7 +362,7 @@ class OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class OptOutMutator : public PolymorphicBase {
+class NVF_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);
@@ -390,7 +382,6 @@ class OptOutMutator : public PolymorphicBase {
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);
   virtual void mutate(TensorView*);
-  virtual void mutate(PipelineVal*);
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);

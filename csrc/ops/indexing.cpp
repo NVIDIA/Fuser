@@ -15,7 +15,6 @@
 #include <type.h>
 
 #include <c10/util/BFloat16.h>
-#include <c10/util/Exception.h>
 #include <c10/util/Half.h>
 #include <c10/util/irange.h>
 

@@ -63,7 +63,7 @@ void swap(Fusion& a, Fusion& b) noexcept {
 std::unique_ptr<SegmentedFusion> Fusion::segment(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("Segment Fusion");
-  return SegmentCandidateFinder::segment(this, args);
+  return SegmentCandidateFinder::segment(this, &args);
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
@@ -85,10 +85,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   // TODO: put this into ir_cloner instead
-  for (const auto& entry : from->io_alias_) {
-    Val* copied_output = ir_cloner.clone(entry.first);
-    Val* copied_input = ir_cloner.clone(entry.second.first);
-    to->io_alias_[copied_output] = {copied_input, entry.second.second};
+  for (const auto& [output, alias_info] : from->io_alias_) {
+    Val* copied_output = ir_cloner.clone(output);
+    Val* copied_input = ir_cloner.clone(alias_info.aliased_io);
+    to->io_alias_[copied_output] = {
+        .type = alias_info.type,
+        .aliased_io = copied_input,
+        .hide_output = alias_info.hide_output};
   }
 
   to->permuted_input_map_ = from->permuted_input_map_;
@@ -267,15 +270,11 @@ void Fusion::addOutput(Val* output) {
   // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
-  if (output->isA<TensorView>()) {
-    output->as<TensorView>()->setMemoryType(MemoryType::Global);
-  } else {
-    NVF_CHECK(
-        output->isA<PipelineVal>() &&
-            output->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
-        "Non-TensorView outputs are not supported at this point: ",
-        output->toString());
-  }
+  NVF_CHECK(
+      output->isA<TensorView>(),
+      "Non-TensorView outputs are not supported at this point: ",
+      output->toString());
+  output->as<TensorView>()->setMemoryType(MemoryType::Global);
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
@@ -333,34 +332,12 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
   }
 }
 
-std::vector<Expr*> Fusion::exprs() {
+std::vector<Expr*> Fusion::exprs() const {
   return StmtSort::getExprs(this);
 }
 
-namespace {
-
-bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  for (Val* out : fusion->outputs()) {
-    const auto& [in, info] = fusion->getOutputAlias(out);
-    if (in == nullptr) {
-      return false;
-    }
-    NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerArithmetic) {
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
-    return true;
-  }
-
-  if (allOutputsArePointerArithmetics(this)) {
     return true;
   }
 
@@ -708,7 +685,7 @@ Expr* Fusion::definition(const Val* val) const {
 }
 
 // Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() {
+bool Fusion::isStochastic() const {
   for (auto expr : exprs()) {
     if (expr->isA<RNGOp>()) {
       // Note that RNGOps without seed is not stochastic since the random seed
@@ -787,7 +764,24 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
   return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
+void Fusion::aliasOutputToInput(
+    Val* output,
+    Val* input,
+    const AllocationType type) {
+  NVF_CHECK(
+      type != AllocationType::New,
+      "New is returned automatically for a missing key. Don't add it explicitly.");
+
+  if (type == AllocationType::Evaluate) {
+    NVF_CHECK(
+        output->isFusionOutput(),
+        "Only fusion outputs can be expression evaluated.");
+    io_alias_[output] =
+        AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
+    return;
+  }
+
+  NVF_ERROR(type == AllocationType::ReuseBuffer);
   // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
@@ -813,7 +807,10 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
-  io_alias_[output] = {input, AliasInfo{type, !output->isFusionOutput()}};
+  io_alias_[output] = AliasInfo{
+      .type = type,
+      .aliased_io = input,
+      .hide_output = !output->isFusionOutput()};
 
   // TODO: output should be marked at the end of fusion definition #1488
   if (!output->isFusionOutput()) {
@@ -821,12 +818,13 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) const {
+const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
+  static AliasInfo no_alias_info{
+      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
-    return {in_val_and_info.first, &in_val_and_info.second};
+    return search->second;
   }
-  return {nullptr, nullptr};
+  return no_alias_info;
 }
 
 bool Fusion::hasDynamicTransform() {

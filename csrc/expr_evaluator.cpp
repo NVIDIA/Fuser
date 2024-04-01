@@ -124,10 +124,45 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      bind_(
-          rfactor_domain[i]->getMaybeExpandedExtent(),
-          t.size(i),
-          evaluate_validate);
+      auto id = rfactor_domain[i];
+      if (id->hasExpandedExtent()) {
+        // Verify that t is also expanded
+        NVF_ERROR(
+            t.size(i) == 1 || t.stride(i) == 0,
+            "IterDomain ",
+            id->toString(),
+            " in TensorView ",
+            tv->toString(),
+            " has expanded extent but input tensor has size ",
+            t.size(i),
+            " and stride ",
+            t.stride(i),
+            " in dimension ",
+            i);
+        bind_(
+            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (rfactor_domain[i]->isDeviceDim()) {
+        // Currently we have the restrictions:
+        // (1) Devices parallelized axis extent == DeviceMesh's extent
+        // (2) Device parallelized axis cannot be split or merged
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
+        NVF_CHECK(
+            1 == t.size(i),
+            "TensorView ",
+            tv->toString(),
+            " IterDomain ",
+            id->toString(),
+            "is sharded and must have size 1, but input tensor has size ",
+            t.size(i));
+        bind_(
+            rfactor_domain[i]->extent(),
+            (int)tv->getDeviceMesh().vector().size(),
+            evaluate_validate);
+      } else {
+        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
+      }
     }
   }
   if (value->isA<NamedScalar>()) {
@@ -167,15 +202,15 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
-  return evaluateHelper(value, known_values_);
+  return evaluate(value, known_values_);
 }
 
 PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
   std::unordered_map<const Val*, PolymorphicValue> known_values;
-  return evaluateHelper(value, known_values);
+  return evaluate(value, known_values);
 }
 
-const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
+const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
   if (precomputed_values_ && precomputed_values_->ready()) {
@@ -189,16 +224,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      std::vector<PolymorphicValue> inputs;
-      inputs.reserve(def->inputs().size());
-      for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
-        if (!eval_i.hasValue()) {
-          return null_;
-        }
-        inputs.emplace_back(eval_i);
-      }
-      auto outputs = def->evaluate(*this, inputs);
+      auto outputs = def->evaluate(*this, known_values);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }

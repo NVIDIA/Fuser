@@ -15,7 +15,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
-#include <unordered_map>
 
 namespace nvfuser {
 

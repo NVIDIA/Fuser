@@ -357,7 +357,7 @@ void multiReductionInliner(
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -375,7 +375,7 @@ void multiReductionInliner(
       reference_tv,
       unroll,
       vectorize,
-      is_outer_grid_persistence,
+      use_grouped_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
@@ -440,7 +440,7 @@ void propagateParallelization(
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
@@ -518,9 +518,7 @@ void propagateParallelization(
       if (are_unrolled.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
           auto id = tv->axis((int)i);
-          // Use Group only for grid reductions (i.e., not for rfactor'ed
-          // reductions)
-          if (is_outer_grid_persistence &&
+          if (use_grouped_reduction &&
               std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
                   reduction_tvs.end() &&
               id->getParallelType() == ParallelType::Vectorize) {
@@ -742,6 +740,7 @@ class PersistentBufferProjector {
   void projectToInputs() {
     // Iterate through projected buffers, tracking which index it corresponds
     // too since there's a resolution point entry for every buffer.
+    const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
     for (auto buffer_i : c10::irange(persistent_buffers.size())) {
       auto buffer = persistent_buffers[buffer_i];
       if (std::find(
@@ -750,8 +749,31 @@ class PersistentBufferProjector {
               buffer) == projectable_persistent_buffers.end()) {
         continue;
       }
+      // when project to inputs, if the buffer depends on reduction tvs,
+      // additional reduction is required to re-calculate the buffer.
+      // Consider the following fusion where f() is a trivial op.
+      // t1 = f(t0); t2 = sum(t1); t3 = broadcast(t2); t4 = add(t1, t3);
+      // t5 = f(t4); t6 = sum(t5); t7 = broadcast(t6); t8 = add(t5, t7);
+      // In this case t0 is input, t1 and t5 are persistent buffers.
+      // Re-calculation of t1 from t0 is trivial, just f(t0).
+      // Re-calculation of t5 from t0 needs t0->t1->t2->t3->t4->t5 where
+      // t1->t2 is a reduction, which is considered very expensive and should
+      // be avoided. Since t3 is a broadcast tv, all the persitent batches are
+      // sharing the same value. It can be considered as a `free` persistent
+      // buffer. So, t5 can be re-calculated directly from t3, this skips the
+      // reduciton and broadcast from input t0 to t3. The broadcast here is not
+      // just a local register copy but involves an inter-thread communication.
+      std::vector<Val*> vals_project_to = fusion_->inputs();
+      const auto& [can_project, broadcast_tvs] =
+          scheduler_utils::canProjectToInputsWithoutReduction(
+              reduction_tvs, buffer);
+      if (can_project) {
+        vals_project_to.insert(
+            vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      }
+
       projectToInputOrImmediatePersistentProducer(
-          (int)buffer_i, fusion_->inputs());
+          (int)buffer_i, vals_project_to);
     }
   }
 
@@ -875,9 +897,13 @@ class PersistentBufferProjector {
       // domain. But adding `T7 = T1 + T6` creates a new propagation path
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
-      dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
-      ir_utils::replaceValInExprInputs(
-          use->definition(), buffer, buffer_replicate);
+      // avoid replacing the use with itself, see
+      // https://github.com/NVIDIA/Fuser/issues/1533
+      if (buffer != buffer_replicate) {
+        dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
+        ir_utils::replaceValInExprInputs(
+            use->definition(), buffer, buffer_replicate);
+      }
     }
   }
 };

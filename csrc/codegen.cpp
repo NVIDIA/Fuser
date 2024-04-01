@@ -20,7 +20,6 @@
 #include <cmath>
 #include <sstream>
 #include <typeindex>
-#include <typeinfo>
 #include <vector>
 
 namespace nvfuser {
@@ -32,6 +31,21 @@ std::string ptrType(DataType dt) {
   std::stringstream ss;
   ss << dt << "*";
   return ss.str();
+}
+
+bool isTmaType(const DataType& dtype) {
+  return std::visit(
+      [](auto&& dtype) -> bool {
+        using T = std::decay_t<decltype(dtype)>;
+        if constexpr (std::is_same_v<T, PointerType>) {
+          return isTmaType(*dtype.type);
+        }
+        if constexpr (std::is_same_v<T, OpaqueType>) {
+          return 0 == dtype.name.compare("TensorMap");
+        }
+        return false;
+      },
+      dtype.type);
 }
 
 //! Utility class to build an argument list
@@ -160,6 +174,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     initStringStreamFormat(code_);
   }
 
+  // aligned array of registers used in the kernel
+  std::unordered_set<Val*> aligned_array_of_regs_;
+
   using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
@@ -185,6 +202,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
+      case DataType::UInt:
+        return "ULL";
+      case DataType::UInt32:
+        return "U";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
@@ -226,6 +247,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           typePrefix(v->dtype()) + std::to_string(val_to_name_.size());
     }
     return val_to_name_.at(v);
+  }
+
+  // If the variable is an aligned array, append ".array" to use the reguar
+  // array. This avoid the type mismatch in template functions when one of the
+  // arguments is an aligned array (Array<T,N>) while the other is a regular
+  // array T[N].
+  std::string genVariableNameConvertAlignedArray(Val* v) {
+    TensorView* tv = nullptr;
+    if (v->isA<kir::TensorIndex>()) {
+      tv = v->as<kir::TensorIndex>()->view();
+    } else if (v->isA<TensorView>()) {
+      tv = v->as<TensorView>();
+    }
+    if (tv && aligned_array_of_regs_.count(tv)) {
+      return genVariableName(tv).append(".array");
+    } else {
+      return genVariableName(v);
+    }
   }
 
   // Generates the kernel function declaration
@@ -271,7 +310,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       } else {
         NVF_ERROR(param->isScalar()); // NOLINT (LLVM bug 48525)
-        code_ << param->dtype() << " " << var_name_ss.str();
+        if (isTmaType(param->dtype())) {
+          code_ << "const __grid_constant__ " << param->dtype() << " "
+                << var_name_ss.str();
+        } else {
+          code_ << param->dtype() << " " << var_name_ss.str();
+        }
       }
 
       if (i + 1 != kernel_->parameters().size()) {
@@ -448,7 +492,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (value.is<bool>()) {
       code_ << (value ? "true" : "false");
     } else if (value.is<int64_t>()) {
-      code_ << value << getLiteralSuffix(dtype);
+      if (isUnsignedIntegralType(dtype)) {
+        code_ << (uint64_t)value << getLiteralSuffix(dtype);
+      } else {
+        code_ << value << getLiteralSuffix(dtype);
+      }
     } else if (value.is<double>()) {
       auto val = value.as<double>();
       // note: default inf/nan doesn't work and should be replaced with macros
@@ -505,7 +553,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
     const auto def = s->definition();
-    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
+    const bool has_alloc = alloc_set_.find(s) != alloc_set_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
       if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
@@ -524,7 +572,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const NamedScalar* ns) final {
     if (ns->definition() != nullptr &&
-        alloc_map_.find(ns) == alloc_map_.end()) {
+        alloc_set_.find(ns) == alloc_set_.end()) {
       code_ << genInline(ns->definition());
     } else {
       code_ << genVariableName(ns);
@@ -1576,16 +1624,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
+
     NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
-
-    if (grop->isSerial()) {
-      generateSerialGridReduction(grop);
-      return;
-    }
 
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);
@@ -1665,11 +1713,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         block_flags,
         ArgumentBuilder().arg("gridDim"));
 
+    int64_t vectorize_size = ir_utils::getVectorizeSize(out->view());
+
+    ArgumentBuilder template_args;
+    template_args.arg("/*vec_size=*/").append(std::to_string(vectorize_size));
+
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(gen(out));
-    func_args.arg(gen(grop->in()));
+    func_args.arg("&").append(gen(out));
+    func_args.arg("&").append(gen(grop->in()));
     func_args.arg(gen(grop->init()));
-    func_args.arg(gen(grop->serialReductionTensor()));
+    func_args.arg("&").append(gen(grop->serialReductionTensor()));
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
     // Whether this is the first or last step
@@ -1692,7 +1745,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(read_pred);
     }
 
-    indent() << "reduction::serialReductionStep(\n";
+    indent() << "reduction::serialReductionStep<" << template_args << ">(\n";
     indent() << kTab << func_args << ");\n";
   }
 
@@ -1763,18 +1816,89 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  void generateIterGroupedGridReduction(
+      const int num_grouped_iterations,
+      const kir::GroupedGridReduction* grop) {
+    NVF_ERROR(grop->output(0)->isA<kir::TensorIndex>());
+    const auto output = grop->output(0)->as<kir::TensorIndex>();
+    const auto input = grop->input(0)->as<kir::TensorIndex>();
+    const auto op_type = grop->getReductionOpType(0);
+    const auto data_type = grop->output(0)->dtype();
+
+    const std::string flags_str =
+        generateGridReduceTemplateFlags2(grop, grop->threadPredicate());
+
+    const bool persistent_sync =
+        kernel_->summary().has_cooperative_grid_reduction;
+
+    // Since block-level reduction is already done, those dimensions
+    // with tidx/y/z being true do not participate in the grid
+    // reduction.
+    ArgumentBuilder template_args;
+    template_args.arg(flags_str)
+        .arg(persistent_sync)
+        .arg(isAligned())
+        .arg(num_grouped_iterations);
+
+    const auto work_buffer =
+        grop->reduction_buffers().at(0)->buffer()->as<TensorView>();
+    const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
+
+    ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
+    auto output_tv = output->view();
+    auto va = kernel_->summary().vectorized_accesses;
+    if (va.find(output_tv) != va.end()) {
+      func_args.arg(genVariableName(output) + ".array");
+    } else {
+      func_args.arg(genVariableName(output));
+    }
+    func_args.arg(genVariableName(input));
+    func_args.arg(genReductionOp(op_type, data_type));
+    func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
+    func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
+    func_args.arg(genCall("static_cast", ptrType(data_type), "shared_mem"));
+    // read and write predicates
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
+    const auto read_pred = genInline(grop->predicate());
+    func_args.arg(read_pred);
+    if (grop->writePredicate() != nullptr) {
+      NVF_ERROR(grop->writePredicate()->hasValue());
+      func_args.arg(genInline(grop->writePredicate()));
+    } else {
+      func_args.arg(read_pred);
+    }
+    // Init val
+    func_args.arg(genCall(data_type, genInline(grop->initVal(0))));
+
+    addProfileArguments(func_args, grop);
+
+    indent() << "reduction::iterGroupedGridReduce<" << template_args << ">(\n";
+    indent() << kTab << func_args << ");\n";
+  }
+
   void handle(const kir::GroupedGridReduction* grouped_grop) final {
     const auto out = ir_utils::getTvOutput(grouped_grop);
     const auto domain = out->domain();
     NVF_ERROR(domain->hasGridReduction());
-
     NVF_ERROR(grouped_grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto sync_buffer =
         grouped_grop->sync_buffer()->buffer()->as<TensorView>();
-
     if (grouped_grop->isAllreduce()) {
       generateGroupedGridAllreduce(grouped_grop);
       return;
+    }
+
+    // iter domain grouped grid reduction, used for outer reduction
+    // where iter domain is vectorized.
+    if (grouped_grop->numHorizontallyGroupedExprs() == 1) {
+      const auto num_grouped_iterations =
+          getGroupedLoopIndexConcreteIntSets().size();
+      NVF_ERROR(
+          num_grouped_iterations > 1,
+          "num_grouped_iterations should be greater than 1. Got: ",
+          num_grouped_iterations);
+      return generateIterGroupedGridReduction(
+          (int)num_grouped_iterations, grouped_grop);
     }
 
     NVF_ERROR(
@@ -2265,13 +2389,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableName(output.get(0)));
-    func_args.arg(genVariableName(output.get(1)));
-    func_args.arg(genVariableName(output.get(2)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(0)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(1)));
+    func_args.arg(genVariableNameConvertAlignedArray(output.get(2)));
     // inputs
-    func_args.arg(genVariableName(input.get(0)));
-    func_args.arg(genVariableName(input.get(1)));
-    func_args.arg(genVariableName(input.get(2))).append("[0]");
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(0)));
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
+    func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
+        .append("[0]");
 
     // global buf
     for (const auto i : c10::irange(3)) {
@@ -2302,7 +2427,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_template_args.arg(num_grouped_iterations);
     func_template_args.arg(data_type);
 
-    const auto& par_dim_map = kernel_->summary().parallel_dimension_map_;
+    const auto& par_dim_map = kernel_->summary().parallel_dimension_map;
     NVF_ERROR(par_dim_map.get(ParallelType::TIDx)->isConstInt());
     NVF_ERROR(par_dim_map.get(ParallelType::TIDy)->isConstInt());
     func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDx)));
@@ -2550,7 +2675,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // predciated out) we're just going to assume they're part of the iter
       // dimension. This would cause more communication than strictly necessary
       // but should not be a common use case.
-      auto pt_dim = kernel_->summary().parallel_dimension_map_.get(pt);
+      auto pt_dim = kernel_->summary().parallel_dimension_map.get(pt);
       if (pt_dim == nullptr || pt_dim->isOneInt()) {
         continue;
       }
@@ -2605,9 +2730,91 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void genIterGroupedBlockReduction(
+      const int num_grouped_iterations,
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred,
+      kir::Predicate* write_pred) {
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+
+    const auto data_type = output->dtype();
+
+    ArgumentBuilder template_args;
+    template_args.arg(tidx).arg(tidy).arg(tidz);
+    template_args.arg(isAligned());
+    template_args.arg(num_grouped_iterations);
+
+    ArgumentBuilder func_args;
+    auto output_tv = output->view();
+    auto va = kernel_->summary().vectorized_accesses;
+    if (va.find(output_tv) != va.end()) {
+      func_args.arg(genVariableName(output) + ".array");
+    } else {
+      func_args.arg(genVariableName(output));
+    }
+    func_args.arg(genVariableName(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+    func_args.arg(genInline(read_pred));
+    // Pass the write predicate if available and different from the
+    // default predicate. The blockReduce runtime function uses the
+    // default predicate for both read and write when only the
+    // default one is given.
+    if (write_pred != nullptr) {
+      NVF_ERROR(write_pred->hasValue());
+      func_args.arg(genInline(write_pred));
+    }
+    func_args.arg(genCall(data_type, genInline(init)));
+
+    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+             << ";\n";
+  }
+
   void handle(const GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    const auto num_grouped_iterations =
+        getGroupedLoopIndexConcreteIntSets().size();
+
+    const auto num_grouped_exprs = grouped_rop->numHorizontallyGroupedExprs();
+
+    // special version where only iteration is grouped.
+    // used for outer reduction with vectorized iteration domain.
+    if (num_grouped_iterations > 1 && num_grouped_exprs == 1) {
+      const auto output = grouped_rop->output(0)->as<kir::TensorIndex>();
+      const auto input = grouped_rop->input(0)->as<kir::TensorIndex>();
+      const auto op_type = grouped_rop->getReductionOpType(0);
+      const auto domain = output->view()->domain();
+      const bool has_block_reduce = domain->hasBlockReduction();
+      const bool has_grid_reduce = domain->hasGridReduction();
+      NVF_ERROR(
+          !has_grid_reduce, "IterGroupedGridReduction not implemented yet");
+      NVF_ERROR(
+          has_block_reduce,
+          "To use IterGroupedBlockReduction, must have block reduce!");
+      return genIterGroupedBlockReduction(
+          (int)num_grouped_iterations,
+          output,
+          input,
+          grouped_rop->initVal(0),
+          op_type,
+          grouped_rop->predicate(),
+          grouped_rop->writePredicate());
+    }
+
+    for (const auto i : c10::irange(num_grouped_exprs)) {
       NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();
@@ -2740,10 +2947,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     NVF_ERROR(alloc->buffer() != nullptr);
-    alloc_map_.emplace(alloc->buffer(), alloc);
+    alloc_set_.emplace(alloc->buffer());
 
     if (!alloc->buffer()->isA<TensorView>()) {
-      indent() << buffer_dtype << " " << gen(alloc->buffer()) << ";\n";
+      // Pointer TensorMap allocation must be const as kernel parametr assigned
+      // to it is const by definition, see genDeclaration(...) for details
+      const bool add_const = isTmaType(buffer_dtype);
+      indent() << (add_const ? "const " : "") << buffer_dtype << " "
+               << gen(alloc->buffer()) << ";\n";
       return;
     }
 
@@ -2766,6 +2977,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ">*>(&" << genVariableName(alias_tv)
                  << ");\n";
+        if (alloc->memoryType() == MemoryType::Local) {
+          aligned_array_of_regs_.insert(tv);
+        }
       }
     } else {
       // Standard Memory Allocation
@@ -2792,6 +3006,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
                      << ", " << va.at(tv) << "> " << genVariableName(tv)
                      << ";\n";
+            aligned_array_of_regs_.insert(tv);
           } else {
             indent() << buffer_dtype << " " << genVariableName(tv) << "["
                      << genInline(size) << "];\n";
@@ -3153,7 +3368,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   bool vectorize_scope_ = false;
   //! Keep track of Allocate node for Val. Used to determine if Val
   //! should be inlined.
-  std::unordered_map<const Val*, const kir::Allocate*> alloc_map_;
+  std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values

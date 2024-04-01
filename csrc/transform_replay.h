@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <maxinfo_propagator.h>
+#include <visibility.h>
 
 #include <algorithm>
 #include <unordered_map>
@@ -183,7 +182,7 @@ struct TransformReplayOptions {
   }
 };
 
-class TransformReplay {
+class NVF_API TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
   //
@@ -269,7 +268,8 @@ class TransformReplay {
       const TensorView* target);
 };
 
-class TransformPropagator : public MaxRootDomainInfoSpanningTree::Propagator {
+class NVF_API TransformPropagator
+    : public MaxRootDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
@@ -286,5 +286,13 @@ struct MostInlinedTransformPropagator
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;
 };
+
+// Replays an `Expr` with the new input, `new_in`. This function currently has
+// the following limitations:
+// 1. It doesn't set isRFactorProduct correctly (#1857).
+// 2. It requires `e` to be a unary op, and therefore takes a single new input.
+// 3. It requires `e` to be a TensorView op, which takes and produces only
+// TensorViews.
+Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 
 } // namespace nvfuser

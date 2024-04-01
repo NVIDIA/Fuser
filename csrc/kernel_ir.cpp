@@ -135,6 +135,7 @@ Allocate::Allocate(
     MemoryType memory_type,
     std::vector<Val*> shape,
     bool zero_init,
+    bool resets_to_zero,
     Allocate* alias)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -149,7 +150,7 @@ Allocate::Allocate(
     NVF_ERROR(buffer->isA<TensorView>());
     NVF_ERROR(buffer->as<TensorView>()->getMemoryType() == memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : domain->noReductions()) {
+    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
       shape.push_back(axis->extent());
     }
   }
@@ -178,6 +179,7 @@ Allocate::Allocate(
   addAttribute(buffer);
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
+  addDataAttribute(resets_to_zero);
   addAttribute(alias);
   // Always initialize shared memory address to nullptr
   addAttribute(nullptr);
@@ -192,13 +194,15 @@ Allocate::Allocate(
     Val* buffer,
     MemoryType memory_type,
     Val* size,
-    bool zero_init)
+    bool zero_init,
+    bool resets_to_zero)
     : Allocate(
           passkey,
           buffer,
           memory_type,
           size == nullptr ? std::vector<Val*>{} : std::vector<Val*>{size},
-          zero_init) {}
+          zero_init,
+          resets_to_zero) {}
 
 std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
@@ -206,9 +210,9 @@ std::string Allocate::toString(int indent_size) const {
   ss << " = ALLOCATE("
      << "buffer=" << buffer()->toString() << ", "
      << "mem_type=" << memoryType() << ", "
-     << "size=" << size()->toInlineString();
-  ss << ", "
-     << "zero_init=" << boolLiteral(zeroInit()) << ")\n";
+     << "size=" << size()->toInlineString() << ", "
+     << "zero_init=" << boolLiteral(zeroInit()) << ", "
+     << "resets_to_zero=" << boolLiteral(resetsToZero()) << ")\n";
   if (alias() != nullptr) {
     indent(ss, indent_size) << kTab << ".alias=";
     ss << alias()->buffer()->toString() << "\n";
@@ -1089,7 +1093,9 @@ bool ForLoop::isGroup() const {
 
   return ExprFinder::exists(
       this,
-      {typeid(kir::GroupedGridReduction), typeid(kir::GroupedGridWelford)});
+      {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)

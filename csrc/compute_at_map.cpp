@@ -14,7 +14,6 @@
 #include <transform_iter.h>
 
 #include <tuple>
-#include <typeinfo>
 
 namespace nvfuser {
 namespace {
@@ -610,7 +609,8 @@ void IterDomainGraph::build(Fusion* fusion) {
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
-          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>(),
+          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
           "\nto be an expression defined in an rfactor transformation.");
@@ -766,8 +766,10 @@ void IterDomainGraph::initializeId(
   }
 }
 
-ComputeAtMap::ComputeAtMap(Fusion* fusion)
-    : id_graph_(fusion), concretized_bcasts_(fusion), fusion_(fusion) {
+ComputeAtMap::ComputeAtMap(Fusion* fusion, bool allow_self_mapping)
+    : id_graph_(fusion, allow_self_mapping),
+      concretized_bcasts_(fusion),
+      fusion_(fusion) {
   build(fusion);
 }
 
@@ -1224,6 +1226,14 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     auto swizzle_2 = expr_2->as<Swizzle2D>();
     if (swizzle_1->swizzleType() != swizzle_2->swizzleType() ||
         swizzle_1->swizzleMode() != swizzle_2->swizzleMode()) {
+      return false;
+    }
+  }
+
+  if (expr_1->isA<Swizzle>()) {
+    auto swizzle_1 = expr_1->as<Swizzle>();
+    auto swizzle_2 = expr_2->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
       return false;
     }
   }

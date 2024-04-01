@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef USE_DISTRIBUTED
+#ifdef NVFUSER_DISTRIBUTED
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
 #include <multidevice/communication.h>
+#include <utils.h>
 
 namespace nvfuser {
 namespace {
@@ -217,7 +218,6 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(
 Reduce::Reduce(CommParams params) : Communication(params, "reduce") {
   assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
   assertBufferCount(params_.src_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Reduce::post(
@@ -235,10 +235,15 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
 #ifdef USE_C10D_NCCL
-  if (backend == CommunicatorBackend::nccl) {
-    auto nccl_backend =
-        dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
+  auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
+  if (nccl_backend) {
+#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
+    // API change https://github.com/pytorch/pytorch/pull/119421
+    return nccl_backend->_reduce_oop(
+        buf.at(0), params_.src_bufs.at(0), options);
+#else
     return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+#endif
   }
 #endif
   if (comm.deviceId() == params_.root) {
@@ -252,7 +257,6 @@ Allreduce::Allreduce(CommParams params)
   assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Allreduce::post(

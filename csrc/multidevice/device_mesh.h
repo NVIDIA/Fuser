@@ -9,6 +9,7 @@
 #pragma once
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -19,7 +20,7 @@ namespace nvfuser {
 */
 class DeviceMesh final {
  public:
-  DeviceMesh(std::vector<DeviceIdxType> devices = {0}) {
+  DeviceMesh(std::vector<DeviceIdxType> devices = {}) {
     setDevices(devices);
   }
 
@@ -43,7 +44,6 @@ class DeviceMesh final {
  private:
   void setDevices(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
-    NVF_ERROR(!devices.empty(), "empty device mesh");
     NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),
         "device mesh has duplicates");
@@ -53,6 +53,6 @@ class DeviceMesh final {
   std::vector<DeviceIdxType> vector_;
 };
 
-std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
+NVF_API std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser

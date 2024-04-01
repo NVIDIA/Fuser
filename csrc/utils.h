@@ -8,22 +8,37 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/torch.h>
+#include <visibility.h>
 
 #include <debug.h>
+#include <mma_type.h>
+#include <tma.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
 #include <deque>
-#include <fstream>
+#include <memory>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
+
+#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+
+#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
 
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
@@ -64,8 +79,12 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 bool useFallback();
 
 //! Ceil integer division
-constexpr int64_t ceilDiv(int64_t a, int64_t b) {
-  return (a + b - 1) / b;
+constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
+  return (dividend + divisor - 1) / divisor;
+}
+
+constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
+  return ceilDiv(dividend, divisor) * divisor;
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -262,7 +281,11 @@ SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
 using ConstCharStar = const char*;
 SPECIALIZE_PRINTER(ConstCharStar);
+using VoidStar = void*;
+SPECIALIZE_PRINTER(VoidStar);
+SPECIALIZE_PRINTER(uint32_t);
 SPECIALIZE_PRINTER(int64_t);
+SPECIALIZE_PRINTER(uint64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
 SPECIALIZE_PRINTER(UnaryOpType);
@@ -270,10 +293,17 @@ SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
 SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(tma::TensorMapInterleave);
+SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
+SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
+SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
+SPECIALIZE_PRINTER(std::vector<uint32_t>);
 SPECIALIZE_PRINTER(std::vector<int64_t>);
+SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
@@ -370,28 +400,96 @@ std::string toDelimitedInlineString(
   return ss.str();
 }
 
-template <typename... Args>
 class DebugPrintScope {
  public:
+  template <typename... Args>
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
     debug() << "Entering " << name_ << "("
             << toDelimitedString(std::forward_as_tuple(args...)) << ")"
             << std::endl;
   }
+
   ~DebugPrintScope() {
-    debug() << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_;
+    if (!return_.empty()) {
+      debug() << " returning " << return_;
+    }
+    if (!file_.empty()) {
+      debug() << " at " << file_;
+    }
+    if (line_ >= 0) {
+      debug() << ":" << line_;
+    }
+    debug() << std::endl;
+  }
+
+  template <typename T>
+  void setReturn(const T& ret, std::string file = "", int64_t line = -1) {
+    return_ = Printer<std::decay_t<T>>::toString(ret);
+    file_ = std::move(file);
+    line_ = line;
   }
 
  private:
+  // The name of the scope, as specified as the first argument of
+  // DEBUG_PRINT_SCOPE_NAME. If using DEBUG_PRINT_SCOPE, then this is __func__.
   std::string name_;
+
+  // Return value and location of the return statement.
+  // Note that the recording of the return value is not automatic. The function
+  // needs to be manually instrumented to replace `return XXX;` with
+  // `RECORD_AND_RETURN(XXX)` to record the return value.
+  std::string return_;
+  std::string file_;
+  int64_t line_ = -1;
 };
 
+#ifndef NDEBUG
+
+// Debug printing the entering and leaving of a function. The given arguments
+// will be printed when entering the function.
+//
 // Note: ##__VA_ARGS__ is not C++ stardard, but it should work on gcc and clang.
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
 // compiler, please use DebugPrintScope directly without this macro.
-#define DEBUG_PRINT_SCOPE(...) \
-  DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)                                 \
+  std::unique_ptr<DebugPrintScope> _debug_print_scope;                    \
+  if (isDebugDumpEnabled(DebugDumpOption::FunctionTrace)) {               \
+    auto enabled = getDebugDumpArguments(DebugDumpOption::FunctionTrace); \
+    for (auto pattern : enabled) {                                        \
+      std::regex re(pattern);                                             \
+      if (std::regex_match(name, re)) {                                   \
+        _debug_print_scope =                                              \
+            std::make_unique<DebugPrintScope>(name, ##__VA_ARGS__);       \
+        break;                                                            \
+      }                                                                   \
+    }                                                                     \
+  }
+
+#define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
+
+#define DEBUG_LOG(...)                                    \
+  if (_debug_print_scope) {                               \
+    debug() << "[" << __FILE__ << ":" << __LINE__ << "] " \
+            << to_str("", ##__VA_ARGS__) << std::endl;    \
+  }
+
+// Record the return value and return it.
+#define RECORD_AND_RETURN(ret)                              \
+  if (_debug_print_scope) {                                 \
+    _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
+  }                                                         \
+  return ret
+
+#else
+
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)
+#define DEBUG_PRINT_SCOPE(...)
+#define DEBUG_LOG(...)
+#define RECORD_AND_RETURN(ret) return ret
+
+#endif
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
@@ -444,6 +542,13 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-char* getNvFuserEnv(const char* env_name);
+NVF_API char* getNvFuserEnv(const char* env_name);
+
+// Returns the mapped value or the default.
+template <typename K, typename V>
+V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
+  const auto i = map.find(key);
+  return i == map.end() ? V() : i->second;
+}
 
 } // namespace nvfuser

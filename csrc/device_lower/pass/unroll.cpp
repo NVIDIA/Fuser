@@ -64,18 +64,21 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
-  if (ir_utils::isTvOp(expr) && !ir_utils::isCpAsyncBulk(expr)) {
+  if (ir_utils::isTvOp(expr)) {
+    DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
     const bool should_predicate = !for_loops_.empty() ||
         out_tv->getMemoryType() == MemoryType::Global ||
         out_tv->getMemoryType() == MemoryType::Shared;
     if (!should_predicate) {
+      DEBUG_LOG("!should_predicate");
       return;
     }
 
     auto thread_pred =
         GpuLower::current()->threadPredMap().getPredicate(out_tv);
+    DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
 
     // If this expr is for initializing a reduction output tensor, the
     // thread predicate can be ignored if the tensor is not shared by
@@ -84,10 +87,12 @@ void UnrollPass::dispatch(Expr* expr) {
       if (out_tv->getMemoryType() == MemoryType::Local) {
         // Local is always private, so we can always ignore thread predicates
         thread_pred = GpuLower::current()->kernel()->trueVal();
+        DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else if (out_tv->getMemoryType() == MemoryType::Shared) {
         // In the case of Shared, we can only ignore BIDx predicates
         thread_pred = GpuLower::current()->threadPredMap().getPredicate(
             out_tv, ParallelTypeBitmap().setAllTID());
+        DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other
@@ -106,6 +111,7 @@ void UnrollPass::dispatch(Expr* expr) {
     // grouped to the unswitch predicate.
     kir::Predicate* thread_pred_expr = nullptr;
     if (unswitched_loop_) {
+      DEBUG_LOG("thread predicate in unswitched loop");
       thread_pred_expr = IrBuilder::create<kir::Predicate>(thread_pred);
     }
 
@@ -116,6 +122,7 @@ void UnrollPass::dispatch(Expr* expr) {
     // When a predicate needs to account for ShiftOp, it is currently
     // taken care by its own function.
     if (GpuLower::current()->haloInfo()->needsShiftPredicate(expr)) {
+      DEBUG_LOG("Shift predicate.");
       expr_with_predicate = ShiftPredicateInserter::insert(
           expr, for_loops_, thread_pred, unswitched_loop_);
       if (expr_with_predicate != expr) {
@@ -130,6 +137,9 @@ void UnrollPass::dispatch(Expr* expr) {
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
                 PredicateType::ReductionWrite, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Reduction write predicate.");
+      }
       expr_with_predicate = expr_with_predicate->withWritePredicate(write_pred);
     }
 
@@ -140,6 +150,9 @@ void UnrollPass::dispatch(Expr* expr) {
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
                 PredicateType::Inline, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Inline predicate.");
+      }
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
       registerReplace(expr, expr_with_predicate);
       return;
@@ -153,6 +166,7 @@ void UnrollPass::dispatch(Expr* expr) {
               return fl->iter_domain()->getParallelType() ==
                   ParallelType::Vectorize;
             })) {
+      DEBUG_LOG("Vectorize predicate");
       pred = IrBuilder::create<kir::Predicate>(PredicateType::Vectorize);
     }
 
@@ -160,6 +174,9 @@ void UnrollPass::dispatch(Expr* expr) {
       pred = unswitched_loop_ ? thread_pred_expr
                               : IrBuilder::create<kir::Predicate>(
                                     PredicateType::Inline, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Inline predicate.");
+      }
     }
 
     if (lower_utils::supportInlinePredicate(expr)) {

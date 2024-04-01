@@ -8,14 +8,13 @@
 #pragma once
 
 #include <c10/core/ScalarType.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <ir/builder_passkey.h>
 #include <polymorphic_value.h>
 #include <type.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <iostream>
@@ -94,7 +93,7 @@ class ExprPasskey {
 //! is also important for the design to have a dispatch system for a Statment.
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
-class Statement : public NonCopyable, public PolymorphicBase {
+class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
@@ -218,7 +217,7 @@ class Statement : public NonCopyable, public PolymorphicBase {
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
 //!
-class Val : public Statement {
+class NVF_API Val : public Statement {
  public:
   // When we create a Val we immediately register them with the active fusion.
   explicit Val(
@@ -497,7 +496,7 @@ using newObjectFuncType = Expr*(
 //!  7) A string entry must be added in expr_type_string_map
 //!  8) Entry added to ir_graphviz .cpp/.h
 //!
-class Expr : public Statement {
+class NVF_API Expr : public Statement {
  public:
   explicit Expr(IrBuilderPasskey);
 
@@ -524,6 +523,17 @@ class Expr : public Statement {
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
+
+  // This version allows evaluation of multiple ops together instead of one op
+  // at a time by overriding and skipping computation of intermediate inputs
+  // that are not required. For example:
+  // 1. CatOp is internally preceded by PadOp but the ATen evaluation uses only
+  // the unpadded inputs and the evaluation of padded inputs can be skipped.
+  // 2. Evaluating patterns in matmul fallback such as MmaOp + Cast/ MmaOp +
+  // Bias + Cast
+  virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
   // Input/output accessors
   const auto& inputs() const {

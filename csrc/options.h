@@ -7,9 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -22,11 +21,26 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FunctionTrace, //!< Dump the function trace of selected internal function. The
+                 //!< function of interest needs to be instrumented with
+                 //!< DEBUG_PRINT_SCOPE and optionally RECORD_AND_RETURN before
+                 //!< it can be traced. If RECORD_AND_RETURN is not used,
+                 //!< function tracing will still work, but it will not be able
+                 //!< to print the return value and the line of the return
+                 //!< statement. If you are interested in tracing a specific
+                 //!< function while developing a PR, you are recommended to
+                 //!< keep the instrumentation code in your PR and so later
+                 //!< people can use it after committed to the main branch.
+  FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
-  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization
+  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
+                  //!< before segmentation
+  FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
+  // TODO(wujingyue): name the following FusionIrSched
+  FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
+            //!< to `FusionExecutor::compileFusion`.
+  FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
+                //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
@@ -38,6 +52,7 @@ enum class DebugDumpOption {
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
+  GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
@@ -67,6 +82,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
+  PredicateElimination, //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -80,7 +96,10 @@ enum class EnableOption {
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -98,6 +117,8 @@ enum class DisableOption {
                               //! grouped grid welford kernel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
+  MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
+                  //! matmul
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
@@ -159,7 +180,7 @@ class Options {
     options_.erase(option_type);
   }
 
-  static std::unordered_map<OptionEnum, std::vector<std::string>>
+  NVF_API static std::unordered_map<OptionEnum, std::vector<std::string>>
   getOptionsFromEnv();
 
  protected:
@@ -169,7 +190,7 @@ class Options {
 //! Utility class to temporarily overrride the Enable options,
 //! including those provided by the environment variable
 template <typename OptionEnum>
-class OptionsGuard {
+class NVF_API OptionsGuard {
  public:
   OptionsGuard() : prev_options_(getCurOptions()) {}
 
@@ -177,7 +198,7 @@ class OptionsGuard {
     getCurOptions() = prev_options_;
   }
 
-  static Options<OptionEnum>& getCurOptions();
+  NVF_API static Options<OptionEnum>& getCurOptions();
 
  private:
   Options<OptionEnum> prev_options_;
@@ -185,23 +206,24 @@ class OptionsGuard {
 
 // DebugDump options
 template <>
-std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
     DebugDumpOption>::getOptionsFromEnv();
 
 using DebugDumpOptions = Options<DebugDumpOption>;
 
 template <>
-Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions();
+NVF_API Options<DebugDumpOption>& OptionsGuard<
+    DebugDumpOption>::getCurOptions();
 
 using DebugDumpOptionsGuard = OptionsGuard<DebugDumpOption>;
 
-bool isDebugDumpEnabled(DebugDumpOption option);
+NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
 // Enable options
 template <>
-std::unordered_map<EnableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv();
 
 using EnableOptions = Options<EnableOption>;
@@ -211,30 +233,30 @@ bool isOptionEnabled(EnableOption option);
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 
 template <>
-Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
+NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
 
 using EnableOptionsGuard = OptionsGuard<EnableOption>;
 
 // Disable options
 template <>
-std::unordered_map<DisableOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv();
 
 using DisableOptions = Options<DisableOption>;
 
-bool isOptionDisabled(DisableOption option);
+NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
 template <>
-Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
+NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
 using DisableOptionsGuard = OptionsGuard<DisableOption>;
 
 // Profiler Options
 
 template <>
-std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+NVF_API std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
     ProfilerOption>::getOptionsFromEnv();
 
 using ProfilerOptions = Options<ProfilerOption>;
@@ -249,7 +271,7 @@ const std::vector<std::string>& getProfilerOptionArguments(
     ProfilerOption option);
 
 template <>
-Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
+NVF_API Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
 
 using ProfilerOptionsGuard = OptionsGuard<ProfilerOption>;
 

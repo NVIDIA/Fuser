@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <compute_at_map.h>
@@ -60,6 +59,8 @@ class OrderedIdInformation : public OptInDispatch {
   void handle(Split*) override;
 
   void handle(Merge* merge) override;
+
+  void handle(Swizzle* swizzle) override;
 
   void handle(Swizzle2D* swizzle) override;
 
@@ -254,6 +255,7 @@ class ContigIDs : public OptInDispatch {
   // as contiguity is generally not preserved after swizzles.
   // But in follow ups we could gradually add back a few special
   // cases, depending on specific swizzle type and axes.
+  void handle(Swizzle* swizzle) override {}
   void handle(Swizzle2D* swizzle) override {}
 
   void handle(Resize* resize) override {}

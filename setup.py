@@ -23,6 +23,9 @@
 #   --build-with-ucc
 #     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
 #
+#   --build-without-distributed
+#     Build nvfuser without multidevice support
+#
 #   --debug
 #     Building nvfuser in debug mode
 #
@@ -68,7 +71,7 @@ NO_BENCHMARK = False
 NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
-PATCH_NVFUSER = True
+BUILD_WITHOUT_DISTRIBUTED = False
 OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
@@ -100,6 +103,9 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-with-asan":
         BUILD_WITH_ASAN = True
         continue
+    if arg == "--build-without-distributed":
+        BUILD_WITHOUT_DISTRIBUTED = True
+        continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
         continue
@@ -128,9 +134,6 @@ for i, arg in enumerate(sys.argv):
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         BUILD_SETUP = False
-    if arg in ["bdist_wheel"]:
-        # bdist_wheel doesn't install entry-points, so we can't really patch it yet
-        PATCH_NVFUSER = False
     forward_args.append(arg)
 sys.argv = forward_args
 
@@ -283,7 +286,10 @@ def cmake(install_prefix: str = "./nvfuser"):
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+    from tools.gen_nvfuser_version import (
+        get_pytorch_cmake_prefix,
+        get_pytorch_use_distributed,
+    )
 
     # this is used to suppress import error.
     # so we can get the right pytorch prefix for cmake
@@ -297,6 +303,8 @@ def cmake(install_prefix: str = "./nvfuser"):
 
     logger.setLevel(logger_level)
 
+    pytorch_use_distributed = get_pytorch_use_distributed()
+
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
@@ -304,6 +312,7 @@ def cmake(install_prefix: str = "./nvfuser"):
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
+        f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         "-B",
         cmake_build_dir,
     ]
@@ -321,6 +330,8 @@ def cmake(install_prefix: str = "./nvfuser"):
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
     if BUILD_WITH_ASAN:
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
+    if BUILD_WITHOUT_DISTRIBUTED:
+        cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
@@ -392,7 +403,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser", "nvfuser_python_utils"],
+            packages=["nvfuser"],
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
@@ -408,19 +419,8 @@ def main():
                 "test": ["numpy", "expecttest", "pytest"],
                 **EXTRAS_REQUIRE,
             },
-            entry_points={
-                "console_scripts": [
-                    "patch-nvfuser = nvfuser_python_utils:patch_installation",
-                ],
-            },
             license="BSD-3-Clause",
         )
-
-        if BUILD_SETUP and PATCH_NVFUSER:
-            sys.path.append("./nvfuser_python_utils")
-            from patch_nvfuser import patch_installation
-
-            patch_installation()
 
 
 if __name__ == "__main__":

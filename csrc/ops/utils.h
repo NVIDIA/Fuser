@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <vector>
 
@@ -32,15 +33,13 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
-std::vector<IterDomain*> newOutputDomain(
-    const std::vector<Val*>& vals,
-    DataType dtype);
+std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);
 
 std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals);
 
-Val* newValLike(Val* val, DataType dtype);
+NVF_API Val* newValLike(Val* val, DataType dtype);
 
 // returns the minimum init value for reduction:
 //   -inf for floating type;

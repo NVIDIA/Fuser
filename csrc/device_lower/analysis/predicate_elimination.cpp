@@ -10,6 +10,7 @@
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -59,7 +60,7 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
   return true;
 }
 
-class PredicateAnalyzer : public OptOutDispatch {
+class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  public:
   //! Checks if a predicate is needed to avoid out-of-bound accesses.
   //!
@@ -68,6 +69,11 @@ class PredicateAnalyzer : public OptOutDispatch {
   //! local memory. However, accessing producer tensors still may
   //! result in out-of-bound as they are replayed as consumers.
   static bool needsPredicate(TensorView* producer, TensorView* consumer) {
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(consumer->definition())) {
+      return false;
+    }
     // Both tensors must be on local or shared memory. Global tensors must be
     // predicated as allocation is done based on root domains. Smem
     // and local tensors are allocated based on leaf domains.
@@ -85,7 +91,7 @@ class PredicateAnalyzer : public OptOutDispatch {
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
 
-    PredicateAnalyzer analyzer(c2p);
+    ProducerConsumerPairAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -97,7 +103,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+  ProducerConsumerPairAnalyzer(
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
       : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
@@ -251,15 +258,17 @@ class PredicateChcker : public IterVisitor {
 
   // Always predicate rng ops as they are expensive.
   bool predicateRNGOp(Expr* expr) const {
-    return expr->isA<RNGOp>();
+    DEBUG_PRINT_SCOPE(expr);
+    RECORD_AND_RETURN(expr->isA<RNGOp>());
   }
 
   // Always predicate integer division and related ops as we don't
   // know what values are in the out-of-bound region and they may
   // cause exceptions
   bool predicateIntDiv(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     auto dt = expr->outputs()[0]->getDataType().value();
-    return (
+    RECORD_AND_RETURN(
         (dt == DataType::Int || dt == DataType::Int32) &&
         expr->isA<BinaryOp>() &&
         (expr->as<BinaryOp>()->getBinaryOpType() == BinaryOpType::Div ||
@@ -271,8 +280,9 @@ class PredicateChcker : public IterVisitor {
   // If we're reducing an expanded domain, we need to be careful to predicate it
   // or we could end up reducing a broadcasted value too many times.
   bool predicateExpandReduce(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     if (!ir_utils::isReductionOp(expr)) {
-      return false;
+      RECORD_AND_RETURN(false);
     }
     auto tv_inputs = ir_utils::getTvs(expr->inputs());
     NVF_ERROR(
@@ -287,7 +297,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     if (!found_expand) {
-      return false;
+      RECORD_AND_RETURN(false);
     }
 
     auto tv_outputs = ir_utils::getTvs(expr->outputs());
@@ -307,16 +317,17 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          return true;
+          RECORD_AND_RETURN(true);
         }
       }
     }
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   // Skip if MisalignedVectorize is involved for now. This could be
   // relaxed.
   bool predicateMisalignedVectorize(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     std::vector<const std::vector<Val*>*> inputs_and_outputs = {
         &(expr->inputs()), &(expr->outputs())};
     for (const auto& inputs_or_outputs : inputs_and_outputs) {
@@ -328,38 +339,42 @@ class PredicateChcker : public IterVisitor {
                   return axis->getParallelType() ==
                       ParallelType::MisalignedVectorize;
                 })) {
-          return true;
+          RECORD_AND_RETURN(true);
         }
       }
     }
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   // Shift is not supported yet.
   bool predicateShift(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     auto halo_info = GpuLower::current()->haloInfo();
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    return halo_info->needsShiftPredicate(expr) ||
+    RECORD_AND_RETURN(
+        halo_info->needsShiftPredicate(expr) ||
         std::any_of(input_tvs.begin(), input_tvs.end(), [&](auto input_tv) {
-             return input_tv->definition() != nullptr &&
-                 halo_info->needsShiftPredicate(input_tv->definition());
-           });
+          return input_tv->definition() != nullptr &&
+              halo_info->needsShiftPredicate(input_tv->definition());
+        }));
   }
 
   // Predicates the expression if any producer-consumer pair of the
   // expression needs to be predicated
   bool predicateProducerConsumerPair(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        if (PredicateAnalyzer::needsPredicate(input, output)) {
-          return true;
+        if (ProducerConsumerPairAnalyzer::needsPredicate(input, output)) {
+          RECORD_AND_RETURN(true);
         }
       }
     }
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   bool predicateSharedMemAccess(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
     // This is initial step to gradually remove predicates around
     //  sharedmem access in suitable situations.
     // Using an additional variable to track the predicate-on reasons
@@ -369,13 +384,13 @@ class PredicateChcker : public IterVisitor {
         if (producer->getMemoryType() == MemoryType::Shared ||
             consumer->getMemoryType() == MemoryType::Shared) {
           if (needSharedMemPredicate(producer, consumer)) {
-            return true;
+            RECORD_AND_RETURN(true);
           }
         }
       }
     }
 
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   // Check for conditions where the predicate cannot be removed
@@ -515,6 +530,12 @@ class PredicateChcker : public IterVisitor {
   // rather uncommon, either would be fine as long as correctness is
   // provided.
   bool predicateNonDivisibleRootDomains(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      RECORD_AND_RETURN(false);
+    }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
@@ -544,7 +565,7 @@ class PredicateChcker : public IterVisitor {
       }
       const auto zero_leaf_ids = getZeroLeafIds(output);
       if (zero_leaf_ids.empty()) {
-        return true;
+        RECORD_AND_RETURN(true);
       }
       const auto vals =
           DependencyCheck::getAllValsBetween(split_root, zero_leaf_ids);
@@ -555,25 +576,31 @@ class PredicateChcker : public IterVisitor {
                 return std::find(vals.begin(), vals.end(), split_root_id) ==
                     vals.end();
               })) {
-        return true;
+        RECORD_AND_RETURN(true);
       }
     }
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   // Always predicate if non-divisible split is found. It may be
   // possible to make it less conservative.
   // See FusionPredicateElimination7 for a concrete example.
   bool predicateNonDivisibleSplit(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
+    // TMA ops handles out of bound accesses automatically in hardware, there is
+    // no need for us to predicate it.
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      RECORD_AND_RETURN(false);
+    }
     const auto& non_divisible_split_info =
         GpuLower::current()->nonDivisibleSplitInfo();
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       if (non_divisible_split_info.splitsToPredicate().find(output) !=
           non_divisible_split_info.splitsToPredicate().end()) {
-        return true;
+        RECORD_AND_RETURN(true);
       }
     }
-    return false;
+    RECORD_AND_RETURN(false);
   }
 
   // If this is a reduction, and if we omit the predicate for the
@@ -863,7 +890,9 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  traverseTo(fusion->outputs());
+  // To avoid errors in analysis when using ATen evaluation for matmul, only use
+  // outputs that require codegen. See PR # 1775 and Issue #1812
+  traverseTo(lower_utils::getFusionOutputsRequiringCodegen(fusion));
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
@@ -892,10 +921,14 @@ void PredicateElimination::dispatch(Expr* expr) {
     auto input_def = input->definition();
     // When input_def is null, input must be an input to the fusion,
     // so that must be allocated on global memory. Since we don't omit
-    // predication for expressions involving global memory, this
-    // should never occur.
-    NVF_ERROR(
-        input_def != nullptr, "Inconsistent input found: ", input->toString());
+    // predication for expressions involving global memory except when we are
+    // accessing the global memory with TMA, the following condition should
+    // only occur if expr is a TMA load. For TMA loads, initialization is
+    // handled in the TMA load itself, so we don't need to set a init value
+    // here.
+    if (input_def == nullptr) {
+      continue;
+    }
 
     // If input is an output of reduction, it should be fully
     // initialied as it's allocated on local memory.
@@ -1033,12 +1066,21 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
 
 std::string PredicateElimination::toString() const {
   std::stringstream ss;
-  ss << "Tensors that do not need predication:";
+  VectorOfUniqueEntries<TensorView*> non_predicated_tvs;
   for (auto expr : non_predicated_exprs_) {
     for (auto out : expr->outputs()) {
-      NVF_ERROR(out->isA<TensorView>());
-      ss << " T" << out->name();
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(out)) {
+        non_predicated_tvs.pushBack(ti->view());
+      } else if (auto tv = dynamic_cast<TensorView*>(out)) {
+        non_predicated_tvs.pushBack(tv);
+      } else {
+        NVF_ERROR(false, "Unexpected output ", out, " in ", expr);
+      }
     }
+  }
+  ss << "Tensors that do not need predication:";
+  for (auto tv : non_predicated_tvs) {
+    ss << " T" << tv->name();
   }
   ss << "\n";
   ss << "Init values:";
@@ -1051,6 +1093,10 @@ std::string PredicateElimination::toString() const {
     }
   }
   ss << "\n";
+  ss << "Non-predicated expressions:";
+  for (auto expr : non_predicated_exprs_) {
+    ss << " " << expr;
+  }
   return ss.str();
 }
 
