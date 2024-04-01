@@ -223,7 +223,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
     auto tv2 = sum(mul(tv0, tv1), {-1});
     // setting output alloc_domain to avoid allocation order propagation, which
-    // breaks the assumption of matmul scheduler.
+    // breaks the assumption of matmul scheduler. see issue:
+    // https://github.com/NVIDIA/Fuser/issues/2014
     tv2->setAllocationDomain(tv2->getMaybeRFactorDomain(), true);
 
     fusion->addOutput(tv2);
