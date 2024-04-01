@@ -85,6 +85,7 @@ class AllocationOrderInferencer : public IterVisitor {
  protected:
   using IterVisitor::handle;
 
+  void handle(FullOp*) override;
   void handle(UnaryOp*) override;
   void handle(BroadcastOp*) override;
   void handle(BinaryOp*) override;
@@ -188,6 +189,12 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
   }
 
   return src;
+}
+
+// FullOp set empty allocation order to output
+void AllocationOrderInferencer::handle(FullOp* op) {
+  auto* out = static_cast<TensorView*>(op->output(0));
+  alloc_order_map_[out] = {};
 }
 
 // UnaryOp propagation forward allocation order from input to output
