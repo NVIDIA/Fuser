@@ -1113,7 +1113,7 @@ matmul_opinfo = OpInfo(
     dtypes=(
         (torch.float16, torch.bfloat16)
         if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
-        else (torch.float16)
+        else (torch.float16,)
     ),
     sample_input_generator=matmul_input_generator,
     reference=torch.matmul,
