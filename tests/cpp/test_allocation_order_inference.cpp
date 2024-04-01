@@ -176,8 +176,16 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     auto tv2 = add(tv0, tv1);
     fusion.addOutput(tv2);
 
-    // permute propagation is not supported yet
-    auto tv3 = permute(tv1, {0, 2, 1, 3});
+    // reshape propagation is not supported yet
+    auto tv3 = reshape(
+        tv1,
+        {
+            tv0->axis(0)->extent(),
+            tv0->axis(1)->extent(),
+            tv0->axis(2)->extent(),
+            tv0->axis(3)->extent(),
+        });
+    auto tv3 = reshape(tv1, {0, 2, 1, 3});
     auto tv4 = add(tv0, tv3);
     fusion.addOutput(tv4);
 
