@@ -305,6 +305,43 @@ class TMAPredicateChecker : private kir::IrVisitor {
   }
 };
 
+class TMADimChecker : private kir::IrVisitor {
+  int64_t dim_ = -1;
+
+  using kir::IrVisitor::dispatch;
+
+  void dispatch(Expr* expr) final {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+    kir::TensorIndex* gmem_ti = nullptr;
+    if (ir_utils::isCpAsyncBulkLoad(expr)) {
+      gmem_ti = expr->input(0)->as<kir::TensorIndex>();
+    } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+      gmem_ti = expr->output(0)->as<kir::TensorIndex>();
+    }
+    if (gmem_ti == nullptr) {
+      return;
+    }
+    auto dtype = std::get<StructType>(gmem_ti->index()->dtype().type);
+    auto field_it = std::find_if(
+        dtype.fields.begin(), dtype.fields.end(), [](const auto& f) {
+          return f.name == "coordinate";
+        });
+    auto field_dtype = std::get<ArrayType>(field_it->type->type);
+    dim_ = (int64_t)field_dtype.size;
+  }
+
+ public:
+  // Check the dimension of TMA
+  static int64_t getDim(kir::Kernel* kernel) {
+    TMADimChecker checker;
+    checker.handle(kernel->topLevelExprs());
+    return checker.dim_;
+  }
+};
+
 // Simple load/store tests:
 //
 // Do a gmem -> smem -> gmem copy. Either the load or the store is a TMA.
@@ -456,9 +493,11 @@ TEST_P(TMASimpleLdstTest, Load) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), dim);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
+  TMADimChecker::getDim(fe.kernel());
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -489,6 +528,7 @@ TEST_P(TMASimpleLdstTest, Store) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), dim);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
@@ -550,6 +590,7 @@ TEST_F(TMAIndexingTest, Load2DTensorWith1DTMA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -586,6 +627,7 @@ TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -622,6 +664,7 @@ TEST_F(TMAIndexingTest, NonOneElementStride) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 0);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -699,6 +742,7 @@ TEST_F(TMAIndexingTest, Advanced) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 5);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -740,6 +784,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
 
@@ -788,6 +833,7 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationLoad) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 4);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -830,6 +876,7 @@ TEST_F(TMAMiscTest, AdvancedThreadParallelizationStore) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 4);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -865,6 +912,7 @@ TEST_F(TMAMiscTest, DisableIndexHoisting) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 0);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -896,6 +944,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 0);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -967,6 +1016,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_aligned}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0_aligned});
@@ -1021,6 +1071,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_aligned}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0_aligned});
@@ -1114,6 +1165,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, items_of_16_bytes}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0, items_of_16_bytes});
@@ -1167,6 +1219,9 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
   auto t0_valid = at::randn({10240}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0_valid}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
+
   auto cg_outputs = fe.runFusion({t0_valid});
   testValidate(&fusion, cg_outputs, {t0_valid}, {t0_valid}, __LINE__, __FILE__);
 
