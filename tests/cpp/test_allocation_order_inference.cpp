@@ -185,7 +185,6 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
             tv0->axis(2)->extent(),
             tv0->axis(3)->extent(),
         });
-    auto tv3 = reshape(tv1, {0, 2, 1, 3});
     auto tv4 = add(tv0, tv3);
     fusion.addOutput(tv4);
 
