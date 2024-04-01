@@ -123,6 +123,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
+  FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
     if (isLowerableToCommunication(expr)) {
