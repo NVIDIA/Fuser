@@ -400,6 +400,7 @@ class LogParserPyTest(LogParser):
                 # grab the test list
                 self.all_test_names = m.groups()[0].split(", ")
                 return True
+
         if self.all_test_names is not None:
             # Try to match a line like this:
             #
@@ -442,6 +443,7 @@ class LogParserPyTest(LogParser):
             self.finalize_test(True)
         elif line == "FAILED" and self.current_test is not None:
             self.finalize_test(False)
+
         if super().parse_line(line):
             return True
 
@@ -545,6 +547,7 @@ class TestRun:
             raise RuntimeError(
                 f"Input directory {self.directory} contains no file named 'stdout'"
             )
+
         if self.command_type == CommandType.GOOGLETEST:
             parser = LogParserGTest(logfile)
         elif self.command_type == CommandType.GOOGLEBENCH:
@@ -555,6 +558,7 @@ class TestRun:
             # The base class provides a parser that groups everything into a
             # single "test" called "Ungrouped Kernels"
             parser = LogParser(logfile)
+
         self.kernel_map = parser.kernel_map
 
     def find_preamble(self):
