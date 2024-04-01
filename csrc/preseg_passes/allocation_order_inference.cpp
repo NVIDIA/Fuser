@@ -18,6 +18,11 @@ namespace {
 AllocationOrder adjustAllocationOrder(
     const TensorView* tv,
     const AllocationOrder& alloc_order) {
+  // short-cut to return empty order
+  if (alloc_order.empty()) {
+    return alloc_order;
+  }
+
   AllocationOrder ret = alloc_order;
 
   int64_t tv_rank = static_cast<int64_t>(tv->nDims());
@@ -107,8 +112,12 @@ class AllocationOrderInferencer : public IterVisitor {
   //
   // It scans through each candidate to find the first one that:
   //   1. is a TensorView
-  //   2. has an entry in alloc_order_map_
-  //   3. has the highest number of non_broadcast IterDomain
+  //   2. has the highest number of non_broadcast IterDomain
+  //
+  // The function returns a nullptr when it encounters a TensorView that does
+  // not have an entry in alloc_order_map_, since this means we failed to
+  // propagate memory format for an entry, we do NOT want to aggressively insert
+  // output memory format.
   //
   // The function is used to resolve allocation order propagation for operator
   // with multiple operands. The operand with the most number of
@@ -154,9 +163,19 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
       continue;
     }
 
+    auto iter = alloc_order_map_.find(tv);
     // skip entry that doesn't have an allocation order
-    if (alloc_order_map_.count(tv) == 0) {
+    if (iter == alloc_order_map_.end()) {
+      return nullptr;
+    }
+
+    if (iter->second.empty()) {
+      // skip if unspecified
       continue;
+
+      if (src == nullptr) {
+        src = tv;
+      }
     }
 
     // check if current entry sets new record for num of non broadcast / non
@@ -221,6 +240,12 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
   auto iter = alloc_order_map_.find(in);
   // early return when there's no recorded allocation order for `in`
   if (iter == alloc_order_map_.end()) {
+    return;
+  }
+
+  // propagate empty allocation order;
+  if (iter->second.empty()) {
+    alloc_order_map_[out] = {};
     return;
   }
 
@@ -335,7 +360,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     }
 
     auto mapped_entry = stride_mapping.find(out_tv);
-    if (mapped_entry == stride_mapping.end()) {
+    if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
       continue;
     }
 
