@@ -2328,12 +2328,20 @@ TEST_F(GpuViewTest, SplitExpandedBroadcast) {
   out = reshape(out, {4, 5, 6}, {4, 5, 2, 3});
   fusion.addOutput(out);
 
-  FusionExecutor fe;
   at::Tensor in_tensor =
       at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_THAT(out_tensor.strides(), testing::ElementsAre(5, 1, 0, 0));
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 2, 3));
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(5, 1, 0, 0));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Reverse of SplitExpandedBroadcast
@@ -2353,12 +2361,20 @@ TEST_F(GpuViewTest, MergeExpandedBroadcast) {
   out = reshape(out, {4, 5, 2, 3}, {4, 5, 6});
   fusion.addOutput(out);
 
-  FusionExecutor fe;
   at::Tensor in_tensor =
       at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_THAT(out_tensor.strides(), testing::ElementsAre(5, 1, 0));
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 6));
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(5, 1, 0));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Merge an expanded Broadcast with an Iteration IterDomain
@@ -2378,13 +2394,21 @@ TEST_F(GpuViewTest, MergeExpandedWithIteration) {
   out = reshape(out, {4, 5, 2, 3}, {4, 5, 6});
   fusion.addOutput(out);
 
-  FusionExecutor fe;
   at::Tensor in_tensor =
       at::randn({4, 5, 2}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 6));
   // The output should not be expanded
-  EXPECT_THAT(out_tensor.strides(), testing::ElementsAre(30, 6, 1));
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(30, 6, 1));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
