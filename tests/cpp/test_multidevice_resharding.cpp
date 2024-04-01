@@ -228,6 +228,9 @@ class automaticReshardingTest
 };
 
 TEST_P(automaticReshardingTest, setInsertion) {
+  if (!distributedEnabled()) { // Test only works with distributed
+    return;
+  }
   auto
       [mesh0,
        mesh1,
