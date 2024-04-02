@@ -194,7 +194,7 @@ class IdModel : public PolymorphicBase {
   // create a mapping from the outputs of the IEL expr to the outputs
   // of the equivalent expr. When require_loop_mapped_promotion is
   // true, the equivalent expr needs to be already loop mapped. If no
-  // such expr is found, the IEL expr is replayed iwth the promoted
+  // such expr is found, the IEL expr is replayed with the promoted
   // inputs. require_loop_mapped_promotion is true when this function
   // is used for step 3.
   //
