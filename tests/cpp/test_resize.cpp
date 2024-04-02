@@ -1310,7 +1310,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   auto bop = dynamic_cast<BinaryOp*>(resize_extent->definition());
   ASSERT_TRUE(bop != nullptr)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
-  ASSERT_TRUE(bop->getBinaryOpType() == BinaryOpType::Max)
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Max)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
