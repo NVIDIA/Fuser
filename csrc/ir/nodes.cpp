@@ -3041,15 +3041,39 @@ IterDomain* IterDomain::resize(
   // The overall extent is (in->extent() + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // overall extent is left_expansion + slice_end_offset.
+
+  // Detect common slice patterns and return a simplified Val
+  // representing (in->extent() + right_expansion) if possible
+  auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
+                                                       Val* in_extent) -> Val* {
+    auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
+    if (bop == nullptr) {
+      return nullptr;
+    }
+    Val* sub_rhs = nullptr;
+    if (bop->getBinaryOpType() == BinaryOpType::Sub) {
+      sub_rhs = bop->rhs();
+    } else if (bop->getBinaryOpType() == BinaryOpType::Add) {
+      // Note that SimplifyingIrBuilder may turn (a - b) to (a + (- b))
+      if (auto uop = dynamic_cast<UnaryOp*>(bop->rhs()->definition());
+          uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg) {
+        sub_rhs = uop->in();
+      }
+    }
+    if (sub_rhs == in_extent) {
+      return bop->lhs();
+    } else {
+      return nullptr;
+    }
+  };
+
   Val* resized_id_size = nullptr;
-  if (right_expansion->definition() != nullptr &&
-      right_expansion->definition()->isA<BinaryOp>() &&
-      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
-          BinaryOpType::Sub &&
-      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
-    resized_id_size = SimplifyingIrBuilder::addExpr(
-        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  if (auto simplified_val = simplify_input_extent_plus_right_expansion(
+          right_expansion, in->extent())) {
+    resized_id_size =
+        SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::addExpr(

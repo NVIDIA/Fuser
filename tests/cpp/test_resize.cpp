@@ -1289,6 +1289,31 @@ TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+TEST_F(ResizeTest, FusionResizeSliceExtentSimplification) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  // [ i0 ]
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      slice(tv0, {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1L)}});
+  // By default, the extent of the tv1 domain is:
+  //   i0 + ( ( fmax(0, ( fmin(i0, 1) )) ) + ( -i0 ) )
+  // This should be simplified to just:
+  //   fmax(0, ( fmin(i0, 1) ))
+
+  fusion.addOutput(tv1);
+
+  auto resize_extent = tv1->axis(0)->extent();
+  auto bop = dynamic_cast<BinaryOp*>(resize_extent->definition());
+  ASSERT_TRUE(bop != nullptr)
+      << "Unexpected resize output extent: " << resize_extent->toInlineString();
+  ASSERT_TRUE(bop->getBinaryOpType() == BinaryOpType::Max)
+      << "Unexpected resize output extent: " << resize_extent->toInlineString();
+}
+
 TEST_F(ResizeTest, FusionResizePadReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
