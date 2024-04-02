@@ -2,7 +2,7 @@
 
 Indivisible splits has many interesting properties that deserve us thinking.
 
-# Merge then split vs split then merge
+Let's begin the discussion with a simple question:
 
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
@@ -11,10 +11,8 @@ If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
 Where the divisions above are all ceildiv.
 
-## Explanation
-
-The answer is no.
-Why? Let's see an example where `I1` has extent `2`, and `I2` has extent `5`.
+If the split is indivisible, the answer is no.
+We can see this from a simple example where `I1` has extent `2`, and `I2` has extent `5`.
 
 For schedule 1, after schedule, the extents of the leaf domain will be `[2*2, 4]`.
 So for this schedule, we will be iterating the tensor as:
@@ -37,17 +35,22 @@ T[1, 3], T[1, 4], T[2, 0] , T[2, 1]
 
 They are clearly not equivalent.
 
-Note that they are not equivalent only when the split is indivisible.
+What if the split is divisible? They are equivalent!
 
-## Implications
+TODO: explain why?
 
-### Merging discontiguous IterDomains
+# Implications
 
-In TMA scheduling, when creating TMA domain from allocation domain, can we merge discontiguous IterDomains?
+## Merging discontiguous IterDomains
 
-The answer is no.
-If we merge discontiguous IterDomains then use split to create a box,
+- Q1: Can I merge two discontiguous IterDomains to create a larger IterDomain, and split out a vectorization IterDomain from this larger IterDomain?
+- Q2: In TMA scheduling, can I create the TMA domain by merging two discontiguous IterDomains, and then split out a box?
+
+The answer is: yes if and only if the split size divide the extent of the inner IterDomain of the merge.
+If we merge discontiguous IterDomains then do a split that does not divide the inner extent,
 we will end up iterating the tensor like schedule 2.
 From the above listing, we see that after `T[0, 4]`, we should be accessing `T[1, 0]`,
 which is not contiguous to `T[0, 4]` in memory.
-However, TMA can only access memory contiguously.
+However, vectorization and TMA can only access memory contiguously.
+
+TODO: what if divisible?
