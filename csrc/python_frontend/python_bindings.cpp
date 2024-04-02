@@ -408,7 +408,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! ParallelType used for scheduling
   //! Note that we are only using this for multidevice at this point
   py::enum_<ParallelType>(nvfuser, "ParallelType")
-      .value("DIDx", ParallelType::DIDx);
+      .value("mesh_x", ParallelType::DIDx);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -2735,18 +2735,20 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  //! experimental API for multidevice support
   nvf_sched.def(
-      "create_device_mesh",
+      "_create_device_mesh",
       [](FusionDefinition::SchedOperators& self, std::vector<int64_t> devices) {
-        FUSER_PERF_SCOPE("SchedOperators.create_device_mesh");
+        FUSER_PERF_SCOPE("SchedOperators._create_device_mesh");
         return DeviceMesh(devices);
       },
       py::arg("devices"),
       py::return_value_policy::reference);
+  //! experimental API for multidevice support
   nvf_sched.def(
-      "set_device_mesh",
+      "_set_device_mesh",
       [](FusionDefinition::SchedOperators& self, Tensor arg, DeviceMesh mesh) {
-        FUSER_PERF_SCOPE("SchedOperators.set_device_mesh");
+        FUSER_PERF_SCOPE("SchedOperators._set_device_mesh");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -2757,8 +2759,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("mesh"));
+  //! experimental API for multidevice support
   nvf_sched.def(
-      "parallelize",
+      "_parallelize",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
          int axis,
