@@ -32,7 +32,7 @@ but unfortunately it is not flexible enough and is not consistent with how we th
 For example, if we want to schedule a fusion containing only pure pointwise (i.e. no broadcasting) operations,
 regardless of the actual dimensionality of the input and output tensors, in our mental model, we always
 consider this problem as a 1D problem by viewing all tensors as flattened 1D tensor.
-For this case, ideally, we should also be using 1D TMA, instead of using the actual dimensionality of the tensor.
+For this case, ideally, we should be using 1D TMA, instead of using the actual dimensionality of the tensor.
 That is, the dimensionality of TMA is not necessarily the same as the dimensionality of the tensor.
 
 In order to support the flexibility of using a dimensionality of TMA different from the dimensionality of the tensor,
