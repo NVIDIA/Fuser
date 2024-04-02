@@ -19,7 +19,7 @@ Here we use two separate words *box* and *tile* to refer to different things.
 `(x1, x2, ..., xN)`, `(x1, x2, ..., xN + rN)`, ..., `(x1, x2, ..., xN + rN * (sN - 1))`,
 ..., `(x1 + r1 * (s1 - 1), x2 + r2 * (s2 - 1), ..., xN + rN * (sN - 1))`.
 
-In the above figure, we have box size `(6, 4)` for both diagram.
+In Figure 1, we have box size `(6, 4)` for both diagram.
 For the diagram on the left, we have tile size `(6, 4)` and stride `(1, 1)`.
 For the diagram on the right, we have tile size `(6, 2)`, and stride `(1, 3)`.
 
