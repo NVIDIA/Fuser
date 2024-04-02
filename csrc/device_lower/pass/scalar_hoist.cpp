@@ -339,9 +339,16 @@ std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
     if (loop->isTrivial()) {
       continue;
     }
-    assumptions.push_back(
-        IrBuilder::ltExpr(loop->index(), loop->simplifiedStop()));
-    assumptions.push_back(IrBuilder::geExpr(loop->index(), loop->start()));
+    Val* start = loop->start();
+    assumptions.push_back(IrBuilder::geExpr(loop->index(), start));
+    Val* stop = loop->simplifiedStop();
+    if (!stop->sameAs(start)) {
+      // If stop = start, then this loop will not be computed, so it's not
+      // important to simplify its index. However, it is important that we avoid
+      // contradicting assumptions, so we omit the index < stop assumption in
+      // these cases.
+      assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
+    }
   }
   return assumptions;
 }
