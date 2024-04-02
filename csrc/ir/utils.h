@@ -66,7 +66,9 @@ bool matchMatmulBiasCast(
     const UnaryOp* cast_op,
     Val*& mma_lhs,
     Val*& mma_rhs,
-    Val*& bias);
+    Val*& bias,
+    Val*& alpha,
+    Val*& beta);
 
 } // namespace nvfuser::MmaOpUtils
 

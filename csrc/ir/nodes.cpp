@@ -425,18 +425,34 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     }
 
     Val* bias = nullptr;
+    Val* alpha = nullptr;
+    Val* beta = nullptr;
     // Case 2: Matmul + Bias
     if (MmaOpUtils::matchMatmulBiasCast(
-            this, std::ref(mma_lhs), std::ref(mma_rhs), std::ref(bias))) {
+            this,
+            std::ref(mma_lhs),
+            std::ref(mma_rhs),
+            std::ref(bias),
+            std::ref(alpha),
+            std::ref(beta))) {
       // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
       const auto a =
           ee.evaluate(mma_lhs, known_values).as<at::Tensor>().squeeze(-1);
       const auto b =
           ee.evaluate(mma_rhs, known_values).as<at::Tensor>().squeeze(0);
-      // Bias is of shape [M,].
-      const auto bias_tensor =
-          ee.evaluate(bias, known_values).as<at::Tensor>().unsqueeze(-1);
-      return {at::addmm(bias_tensor, a, b)};
+      auto bias_tensor = ee.evaluate(bias, known_values).as<at::Tensor>();
+
+      if (bias_tensor.dim() != a.dim()) {
+        // Bias is of shape [M,].
+        bias_tensor = bias_tensor.unsqueeze(-1);
+      }
+
+      const auto alpha_tensor =
+          alpha ? toScalar(ee.evaluate(alpha, known_values)) : 1;
+      const auto beta_tensor =
+          beta ? toScalar(ee.evaluate(beta, known_values)) : 1;
+
+      return {at::addmm(bias_tensor, a, b, beta_tensor, alpha_tensor)};
     }
   }
 
