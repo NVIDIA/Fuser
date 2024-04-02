@@ -8,7 +8,7 @@ The tile can be dense, or strided, as shown in Figure 1 below:
 ![Figure 1: TMA dense and strided tile](tma/dense-and-strided-tile.svg)
 
 When using phrases like "tile size", it is important to be clear what we are referring to.
-Here we use two separate words **box** and **tile** to refer to different things.
+Here we use two separate words *box* and *tile* to refer to different things.
 
 **Definition 1**: In an N-dimensional tensor, a *box* of size `(s1, s2, ..., sN)` at
 `(x1, x2, ..., xN)` refers to all the `s1*s2*...*sN` items at `(x1, x2, ..., xN)`,
