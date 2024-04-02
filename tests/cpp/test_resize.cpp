@@ -28,7 +28,7 @@ using testing::Not;
 using testing::Property;
 
 // Simple pad test
-TEST_F(ResizeTest, FusionResizePad1) {
+TEST_F(ResizeTest, Pad1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -55,7 +55,7 @@ TEST_F(ResizeTest, FusionResizePad1) {
 }
 
 // pad + split
-TEST_F(ResizeTest, FusionResizePad2) {
+TEST_F(ResizeTest, Pad2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -84,7 +84,7 @@ TEST_F(ResizeTest, FusionResizePad2) {
 }
 
 // pad, merge + split, inlineMost
-TEST_F(ResizeTest, FusionResizePad3) {
+TEST_F(ResizeTest, Pad3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -128,7 +128,7 @@ TEST_F(ResizeTest, FusionResizePad3) {
 }
 
 // pad + parallelization
-TEST_F(ResizeTest, FusionResizePad4) {
+TEST_F(ResizeTest, Pad4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -157,7 +157,7 @@ TEST_F(ResizeTest, FusionResizePad4) {
 }
 
 // pad + parallelization + RAW sync
-TEST_F(ResizeTest, FusionResizePad5) {
+TEST_F(ResizeTest, Pad5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -205,7 +205,7 @@ TEST_F(ResizeTest, FusionResizePad5) {
 }
 
 // pad + merge + split parallelization
-TEST_F(ResizeTest, FusionResizePad6) {
+TEST_F(ResizeTest, Pad6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -248,7 +248,7 @@ TEST_F(ResizeTest, FusionResizePad6) {
 
 // pad + unswitch. Having different extents in an unswitched loop nest
 // needs a special care (see UnrollPass::canOmitElseClause)
-TEST_F(ResizeTest, FusionResizePad7) {
+TEST_F(ResizeTest, Pad7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -295,7 +295,7 @@ TEST_F(ResizeTest, FusionResizePad7) {
 // different transform propagator.
 #if 0
 // Stencil-like pattern
-TEST_F(ResizeTest, FusionResizePad8) {
+TEST_F(ResizeTest, Pad8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -338,7 +338,7 @@ TEST_F(ResizeTest, FusionResizePad8) {
 }
 #endif
 
-TEST_F(ResizeTest, FusionResizePadScheduler1) {
+TEST_F(ResizeTest, PadScheduler1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -363,7 +363,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler1) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, FusionResizePadScheduler2) {
+TEST_F(ResizeTest, PadScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -397,7 +397,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
 // Disabled due to the same reason as Pad8
 #if 0
 // Auto scheduled version of Pad8
-TEST_F(ResizeTest, FusionResizePadScheduler3) {
+TEST_F(ResizeTest, PadScheduler3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -434,7 +434,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler3) {
 // Two pad exprs, both using the same symbolic pad widths, segmented
 // into two kernels. Make sure the symbolic inputs are available to
 // both of the segmented kernels.
-TEST_F(ResizeTest, FusionResizePadScheduler4) {
+TEST_F(ResizeTest, PadScheduler4) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -471,7 +471,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler4) {
 
 // Pad a broadcast
 // See https://github.com/NVIDIA/Fuser/issues/798
-TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
+TEST_F(ResizeTest, PadBroadcastInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -503,7 +503,7 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
 }
 
 // Trivial cat
-TEST_F(ResizeTest, FusionResizeCat1) {
+TEST_F(ResizeTest, Cat1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -535,7 +535,7 @@ TEST_F(ResizeTest, FusionResizeCat1) {
 }
 
 // Trivial 2D inner cat
-TEST_F(ResizeTest, FusionResizeCat2) {
+TEST_F(ResizeTest, Cat2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -567,7 +567,7 @@ TEST_F(ResizeTest, FusionResizeCat2) {
 }
 
 // Trivial 2D outer cat
-TEST_F(ResizeTest, FusionResizeCat3) {
+TEST_F(ResizeTest, Cat3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -608,7 +608,7 @@ TEST_F(ResizeTest, FusionResizeCat3) {
 }
 
 // Cat + merge + split + parallelization + inlineMost
-TEST_F(ResizeTest, FusionResizeCat4) {
+TEST_F(ResizeTest, Cat4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -652,7 +652,7 @@ TEST_F(ResizeTest, FusionResizeCat4) {
 }
 
 // Cat + arith op
-TEST_F(ResizeTest, FusionResizeCat5) {
+TEST_F(ResizeTest, Cat5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -699,7 +699,7 @@ TEST_F(ResizeTest, FusionResizeCat5) {
 }
 
 // Cat 3 tensors
-TEST_F(ResizeTest, FusionResizeCat6) {
+TEST_F(ResizeTest, Cat6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -745,7 +745,7 @@ TEST_F(ResizeTest, FusionResizeCat6) {
 }
 
 // Cat many tensors
-TEST_F(ResizeTest, FusionResizeCat7) {
+TEST_F(ResizeTest, Cat7) {
   int num_tensors_to_concat = 10;
   std::vector<int64_t> base_shape({11, 13});
 
@@ -802,7 +802,7 @@ TEST_F(ResizeTest, FusionResizeCat7) {
 }
 
 // Auto scheduled version of Cat1
-TEST_F(ResizeTest, FusionResizeCatScheduler1) {
+TEST_F(ResizeTest, CatScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -834,7 +834,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler1) {
 }
 
 // Auto scheduled version of Cat5
-TEST_F(ResizeTest, FusionResizeCatScheduler2) {
+TEST_F(ResizeTest, CatScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -869,7 +869,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler2) {
 }
 
 // Auto scheduled version of Cat6
-TEST_F(ResizeTest, FusionResizeCatScheduler3) {
+TEST_F(ResizeTest, CatScheduler3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -904,7 +904,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler3) {
 }
 
 // Trivial slice
-TEST_F(ResizeTest, FusionResizeSlice1) {
+TEST_F(ResizeTest, Slice1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -935,7 +935,7 @@ TEST_F(ResizeTest, FusionResizeSlice1) {
 }
 
 // Split a tensor to half and add them up
-TEST_F(ResizeTest, FusionResizeSlice2) {
+TEST_F(ResizeTest, Slice2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -964,7 +964,7 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
 }
 
 // "Trivial" slice is converted to Set
-TEST_F(ResizeTest, FusionResizeSlice3) {
+TEST_F(ResizeTest, Slice3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -982,7 +982,7 @@ TEST_F(ResizeTest, FusionResizeSlice3) {
 }
 
 // Partition an input, reduce each and concatenate them
-TEST_F(ResizeTest, FusionResizeSlice4) {
+TEST_F(ResizeTest, Slice4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1062,7 +1062,7 @@ TEST_F(ResizeTest, FusionResizeSlice4) {
 }
 
 // Multiple slices of the same tensor with the same arguments
-TEST_F(ResizeTest, FusionResizeSlice5) {
+TEST_F(ResizeTest, Slice5) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1139,7 +1139,7 @@ std::vector<std::pair<int64_t, int64_t>> slice_cases(
      {-13, -11}});
 
 // Test slice with a variety of constant ranges
-TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
+TEST_F(NVFuserTest, SliceConstantShmoo_CUDA) {
   for (auto [start, stop] : slice_cases) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -1168,7 +1168,7 @@ TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
 }
 
 // Test slice with a variety of non-constant input ranges
-TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
+TEST_F(NVFuserTest, SliceInputShmoo_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1216,9 +1216,9 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
   }
 }
 
-// Same as FusionResizeSliceInputShmoo_CUDA but use FusionExecutorCache, which
+// Same as SliceInputShmoo_CUDA but use FusionExecutorCache, which
 // might re-concretize when output sizes change
-TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
+TEST_F(NVFuserTest, SliceInputShmooFusionExecutorCache_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1250,7 +1250,7 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
 }
 
 // Auto scheduled version of Slice1
-TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
+TEST_F(ResizeTest, SliceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1289,7 +1289,7 @@ TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, FusionResizeSliceExtentSimplification) {
+TEST_F(ResizeTest, SliceExtentSimplification) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1314,7 +1314,7 @@ TEST_F(ResizeTest, FusionResizeSliceExtentSimplification) {
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
-TEST_F(ResizeTest, FusionResizePadReduceScheduler1) {
+TEST_F(ResizeTest, PadReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1355,7 +1355,7 @@ TEST_F(ResizeTest, FusionResizePadReduceScheduler1) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, FusionResizeSliceReduceScheduler1) {
+TEST_F(ResizeTest, SliceReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1396,7 +1396,7 @@ TEST_F(ResizeTest, FusionResizeSliceReduceScheduler1) {
 }
 
 // Multiple slice+reduction. Different slices.
-TEST_F(ResizeTest, FusionResizeSliceReduceScheduler2) {
+TEST_F(ResizeTest, SliceReduceScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1479,7 +1479,7 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, FusionResizeCatReduceScheduler1) {
+TEST_F(ResizeTest, CatReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1509,7 +1509,7 @@ TEST_F(ResizeTest, FusionResizeCatReduceScheduler1) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, FusionResizeCatSoftmaxScheduler1) {
+TEST_F(ResizeTest, CatSoftmaxScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1539,7 +1539,7 @@ TEST_F(ResizeTest, FusionResizeCatSoftmaxScheduler1) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, FusionResizeReductionSliceScheduler1) {
+TEST_F(ResizeTest, ReductionSliceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1569,7 +1569,7 @@ TEST_F(ResizeTest, FusionResizeReductionSliceScheduler1) {
 }
 
 // Softmax followed by slicing of a non-normalized dimension
-TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler1) {
+TEST_F(ResizeTest, SoftmaxSliceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1600,7 +1600,7 @@ TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler1) {
 }
 
 // Softmax followed by slicing of a normalized dimension
-TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler2) {
+TEST_F(ResizeTest, SoftmaxSliceScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1631,7 +1631,7 @@ TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler2) {
 }
 
 // Same as Pad1 but pad by specified value
-TEST_F(ResizeTest, FusionResizePadWithValue) {
+TEST_F(ResizeTest, PadWithValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1661,7 +1661,7 @@ TEST_F(ResizeTest, FusionResizePadWithValue) {
 }
 
 // Same as Pad1 but pad by negative value to create an empty tensor
-TEST_F(ResizeTest, FusionResizePadToEmptyTensor) {
+TEST_F(ResizeTest, PadToEmptyTensor) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1692,7 +1692,7 @@ TEST_F(ResizeTest, FusionResizePadToEmptyTensor) {
 }
 
 // Test that padding Half tensor by Double does not promote output
-TEST_F(ResizeTest, FusionResizePadHalfWithDoubleValue) {
+TEST_F(ResizeTest, PadHalfWithDoubleValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2221,7 +2221,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/365
-TEST_F(ResizeTest, FusionResizeMultiSliceEmpty) {
+TEST_F(ResizeTest, MultiSliceEmpty) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
