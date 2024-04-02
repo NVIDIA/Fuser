@@ -64,7 +64,7 @@ Please note that the TMA domain is not a member of a TensorDomain like the root/
 Instead, it is a virtual domain that only exists in the user's mind.
 
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
-for example, we can not merge discontiguous IterDomains, and we can not have indivisible splits either.
+for example, we can not merge discontiguous IterDomains ([why?](../reading/indivisible-split.md#Merging-discontiguous-IterDomains)), and we can not have indivisible splits either.
 
 ### Step 2: create boxe
 
