@@ -52,7 +52,7 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
 Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
   Val* pred = nullptr;
 
-  auto index = SimplifyingIrBuilder::create<NamedScalar>(
+  auto index = IrBuilder::create<NamedScalar>(
       stringifyThread(pt_), DataType::Int);
 
   for (const auto& pred_id : ids()) {
@@ -61,8 +61,8 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         pred_id ==
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
-    auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
-    pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
+    auto new_pred = IrBuilder::ltExpr(index, pred_id->extent());
+    pred = IrBuilder::logicalAndExpr(pred, new_pred);
   }
 
   return pred;
@@ -230,7 +230,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
     if (pred_info_it != pred_map.end()) {
       const auto& pred_info = pred_info_it->second;
       auto tid_pred = pred_info.getPredicate();
-      pred = SimplifyingIrBuilder::logicalAndExpr(pred, tid_pred);
+      pred = IrBuilder::logicalAndExpr(pred, tid_pred);
     }
   }
 
@@ -440,7 +440,7 @@ Val* PredicateCompute::getInlinePredicate(
 
   Val* cond = preds[0];
   for (const auto i : c10::irange(1, preds.size())) {
-    cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
+    cond = IrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
   RECORD_AND_RETURN(cond);
@@ -455,7 +455,7 @@ Val* UnswitchPredicate::get(
 
   Val* unswitch_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pred : up.predicates_) {
-    unswitch_pred = SimplifyingIrBuilder::logicalAndExpr(unswitch_pred, pred);
+    unswitch_pred = IrBuilder::logicalAndExpr(unswitch_pred, pred);
   }
 
   return unswitch_pred;

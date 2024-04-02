@@ -35,9 +35,9 @@ Val* getPredicatePerParallelType(
   // reduction and only the last block index in that dimension has the right
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
-    return SimplifyingIrBuilder::eqExpr(
+    return IrBuilder::eqExpr(
         NamedScalar::getParallelIndex(pt),
-        SimplifyingIrBuilder::subExpr(
+        IrBuilder::subExpr(
             NamedScalar::getParallelDim(pt),
             GpuLower::current()->kernel()->oneVal()));
   }
@@ -50,13 +50,13 @@ Val* getPredicatePerParallelType(
     Val* zero = GpuLower::current()->kernel()->zeroVal();
     Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
-      pred = SimplifyingIrBuilder::logicalAndExpr(
-          pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
+      pred = IrBuilder::logicalAndExpr(
+          pred, IrBuilder::eqExpr(broadcast_rd_index, zero));
     }
     return pred;
   }
 
-  return SimplifyingIrBuilder::eqExpr(
+  return IrBuilder::eqExpr(
       NamedScalar::getParallelIndex(pt),
       GpuLower::current()->kernel()->zeroVal());
 }
@@ -76,7 +76,7 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
   Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
+    pred = IrBuilder::logicalAndExpr(pred, tp);
   }
   NVF_ERROR(pred != nullptr);
 

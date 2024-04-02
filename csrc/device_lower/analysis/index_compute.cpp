@@ -125,7 +125,7 @@ IndexingParameters getLinearIndexParameters(
         loop_domain[loop_idx], IdMappingMode::EXACT);
     loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
     if (rotated_loops.count(loop) > 0) {
-      loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
+      loop_index_map[index_domain] = IrBuilder::addExpr(
           loop_index_map.at(index_domain), loop->step());
     }
   }
@@ -161,9 +161,9 @@ IndexingParameters getLinearIndexParameters(
             (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
-            SimplifyingIrBuilder::addExpr(
+            IrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Val>(
+                IrBuilder::create<Val>(
                     stage_depth - 1L, DataType::Index));
       }
     }
@@ -365,7 +365,7 @@ IndexingParameters getPredicateInitialIndexParameters(
     }
     if (rotated_loops.count(fl) > 0) {
       loop_to_ind_map[fl] =
-          SimplifyingIrBuilder::addExpr(loop_to_ind_map.at(fl), fl->step());
+          IrBuilder::addExpr(loop_to_ind_map.at(fl), fl->step());
     }
   }
 
@@ -449,7 +449,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       } else {
         // Similar to the above, loop_id()->extent() is
         // used here instead of loop->stop(). See the above comment.
-        loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
+        loop_to_ind_map[loop] = IrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
       }
 
@@ -486,13 +486,13 @@ IndexingParameters getPredicateInitialIndexParameters(
               db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
-               ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
+               ? cur_index->sameAs(IrBuilder::addExpr(
                      db_loop->indexOrStartIfTrivial(), db_loop->step()))
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
-        loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
+        loop_to_ind_map[db_loop] = IrBuilder::addExpr(
             cur_index,
-            SimplifyingIrBuilder::create<Val>(
+            IrBuilder::create<Val>(
                 stage_depth - 1L, DataType::Index));
       }
     }

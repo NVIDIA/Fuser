@@ -561,7 +561,7 @@ class AllocationInserter : public kir::ExprMutator {
       mbarrier->setMemoryType(MemoryType::Shared);
       auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
           mbarrier,
-          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+          simplifyExpr(IrBuilder::maybeCastExpr(
               DataType::UInt32,
               lower_utils::getNumThreadsInTensorView(
                   expr->output(0)->as<TensorView>()))));

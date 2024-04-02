@@ -65,7 +65,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               ir_utils::isTvOp(vec_expr),
               "Vectorize predicate exprs only supported on tensor view operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
-            conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional = IrBuilder::logicalAndExpr(
                 conditional,
                 GpuLower::current()->threadPredMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
@@ -75,7 +75,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           auto thread_pred = GpuLower::current()->threadPredMap().getPredicate(
               ir_utils::getTvOutput(expr));
           NVF_ERROR(thread_pred->isConst() && thread_pred->value());
-          conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional = IrBuilder::logicalAndExpr(
               conditional,
               GpuLower::current()->threadPredMap().getPredicate(
                   ir_utils::getTvOutput(expr)));
@@ -104,7 +104,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   void invertPredicate(Expr* expr) {
     NVF_ERROR(expr != nullptr);
     auto pred = expr->predicate()->value();
-    Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
+    Val* invert = IrBuilder::logicalNotExpr(pred);
     invert =
         GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
     expr->predicate()->setValue(invert);

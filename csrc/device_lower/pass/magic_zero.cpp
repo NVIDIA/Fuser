@@ -150,7 +150,7 @@ void protectNonPredicateIndexWithMagicZero(
   if (magic_zero_loop != nullptr &&
       concrete_loop_idx_map.count(magic_zero_loop)) {
     auto& ind = concrete_loop_idx_map.at(magic_zero_loop);
-    ind = SimplifyingIrBuilder::addExpr(
+    ind = IrBuilder::addExpr(
         ind, GpuLower::current()->kernel()->magicZeroVal());
   }
 }
@@ -162,7 +162,7 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
     IterDomain* loop_id,
     Val* overall_index_val,
     Val* loop_index_to_protect) {
-  auto protected_loop_index = SimplifyingIrBuilder::addExpr(
+  auto protected_loop_index = IrBuilder::addExpr(
       loop_index_to_protect, GpuLower::current()->kernel()->magicZeroVal());
 
   std::unordered_map<Val*, Val*> replacement_map;
