@@ -2887,7 +2887,7 @@ Val* simplifyExpr(
 
   auto unflattened = assoc_comm::unflatten(simplified, context);
   logger->record(debug_print::kUnflattenName, unflattened);
-  value->fusion()->simplification_cache[value] = unflattened;
+  value->fusion()->simplification_cache[value] = simplified;
   return unflattened;
 }
 
