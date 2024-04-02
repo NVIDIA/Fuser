@@ -15,6 +15,9 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// returns allocation order to propagate adjusted for `tv`
+// Right now it merely removes all the entry corresponding to reduction iter
+// domains in tv,
 AllocationOrder adjustAllocationOrder(
     const TensorView* tv,
     const AllocationOrder& alloc_order) {
@@ -23,19 +26,23 @@ AllocationOrder adjustAllocationOrder(
   int64_t tv_rank = static_cast<int64_t>(tv->nDims());
   auto& rf_dom = tv->getMaybeRFactorDomain();
   std::stack<int64_t> idx_stack;
+  // we scan all rfactor domain of tv and remove all reduction iter domain entry
+  // in `ret`.
   for (auto idx : c10::irange(tv_rank)) {
     if (rf_dom[idx]->isReduction()) {
+      // we push indices of each reduction iter domain into `idx_stack` in
+      // ascending order
       idx_stack.push(idx);
-      auto erase_iter = ret.begin();
       for (auto i = ret.begin(); i != ret.end(); i++) {
         if (*i == idx) {
-          erase_iter = i;
+          ret.erase(i);
           break;
         }
       }
-      ret.erase(erase_iter);
     }
   }
+  // for any removed entry, we need to compensate the returned allocation order
+  // by decrement indices higher than the removed entry.
   while (!idx_stack.empty()) {
     auto idx = idx_stack.top();
     idx_stack.pop();
