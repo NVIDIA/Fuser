@@ -126,6 +126,8 @@ class NVF_API Fusion : public IrContainer {
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
 
+  std::unordered_map<Val*, Val*> simplification_cache;
+
   Fusion& operator=(const Fusion& other);
   Fusion& operator=(Fusion&& other) noexcept;
 

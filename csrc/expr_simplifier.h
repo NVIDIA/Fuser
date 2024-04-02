@@ -651,7 +651,8 @@ NVF_API Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
     std::vector<Val*> assumptions = {},
-    bool preserve_error = false);
+    bool preserve_error = false,
+    double fuel = 999999999999);
 
 class Context;
 namespace assoc_comm {

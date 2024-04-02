@@ -169,8 +169,9 @@ class Context {
   Context(
       const std::list<VarInfo>& variables,
       std::vector<Val*> assumptions,
-      bool preserve_error)
-      : preserve_error_(preserve_error) {
+      bool preserve_error,
+      double fuel)
+      : preserve_error_(preserve_error), fuel_(fuel) {
     var_order_.reserve(variables.size());
     var_set_.reserve(variables.size());
     less_than_.reserve(assumptions.size());
@@ -300,6 +301,9 @@ class Context {
   std::unordered_set<Val*> unrolled_loop_index_;
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
+
+ public:
+  double fuel_;
 };
 
 namespace {
@@ -360,6 +364,11 @@ std::unordered_set<Val*> getSubexprDependency(
 // Apply `rule` to `value`, if `rule` returns a new `Val*` to replace `value`,
 // then return that new `Val*`, otherwise recursively goes down to its inputs.
 Val* recurseDown(Val* value, std::function<Val*(Val*)> rule) {
+  auto it = value->fusion()->simplification_cache.find(value);
+  if (it != value->fusion()->simplification_cache.end()) {
+    return it->second;
+  }
+
   if (value->isOneOf<TensorView, kir::TensorIndex>()) {
     return value;
   }
@@ -1547,6 +1556,9 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return value
 
 bool lessThan(Val* x, Val* y, const Context& context, int depth) {
+  if (context.fuel_ < 10) {
+    return false;
+  }
   auto cache_it = context.less_than_cache_.find({x, y});
   if (cache_it != context.less_than_cache_.end()) {
     return cache_it->second;
@@ -1627,6 +1639,9 @@ bool lessThan(Val* x, Val* y, const Context& context, int depth) {
   return value
 
 bool lessEqual(Val* x, Val* y, const Context& context) {
+  if (context.fuel_ < 10) {
+    return false;
+  }
   auto cache_it = context.less_equal_cache_.find({x, y});
   if (cache_it != context.less_equal_cache_.end()) {
     return cache_it->second;
@@ -2810,9 +2825,16 @@ Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
     std::vector<Val*> assumptions,
-    bool preserve_error) {
+    bool preserve_error,
+    double fuel) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, assumptions, preserve_error);
+
+  auto it = value->fusion()->simplification_cache.find(value);
+  if (it != value->fusion()->simplification_cache.end()) {
+    return it->second;
+  }
+
+  const Context context(variables, assumptions, preserve_error, fuel);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
@@ -2843,8 +2865,11 @@ Val* simplifyExpr(
     logger->record(debug_print::kFlattenName, simplified);
 
     RUN_PASS(canonicalizeVariables);
-    RUN_PASS(cancelTermsInPredicate);
     RUN_PASS(eliminateTrivialComputation);
+    if (fuel < 100) {
+      continue;
+    }
+    RUN_PASS(cancelTermsInPredicate);
     RUN_PASS(eliminateTrivialPredicate);
     RUN_PASS(simplifyDivisibleDivMod);
     RUN_PASS(cancelDivMod);
@@ -2862,6 +2887,7 @@ Val* simplifyExpr(
 
   auto unflattened = assoc_comm::unflatten(simplified, context);
   logger->record(debug_print::kUnflattenName, unflattened);
+  value->fusion()->simplification_cache[value] = unflattened;
   return unflattened;
 }
 
