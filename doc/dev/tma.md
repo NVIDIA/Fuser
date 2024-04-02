@@ -29,7 +29,7 @@ In order to use TMA, we need to tell the hardware what is the dimensionality of 
 Most naively, we can make this dimensionality the size of the allocation domain.
 This naive mental model does provide us an easy way to reason about and start using TMA,
 but unfortunately it is not flexible enough and is not consistent with how we think about scheduling.
-For example, if we want to schedule a fusion containing only pure pointwise (i.e. no broadcasting) operations,
+For example, if we want to schedule a fusion containing only pure pointwise (i.e. no broadcasting) operations and all input and output tensors are contiguous,
 regardless of the actual dimensionality of the input and output tensors, in our mental model, we always
 consider this problem as a 1D problem by viewing all tensors as flattened 1D tensor.
 For this case, ideally, we should be using 1D TMA, instead of using the actual dimensionality of the tensor.
@@ -42,7 +42,7 @@ we design the scheduling of TMA as a multiple-step process:
 
 When a user is ready to schedule the consumer of the TMA expression,
 the user should already have an idea of how the problem should be viewed.
-For example, if the user is scheduling a fusion with only prure pointwise ops,
+For example, if the user is scheduling a fusion with only pure pointwise ops,
 the user would want to view the problem as a 1D problem.
 If the user is scheduling a transpose, then the user might want to view the problem as 2D.
 If the user is scheduling a matmul, then the user might want to view the problem as 3D.
