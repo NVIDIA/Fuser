@@ -23,8 +23,8 @@ AllocationOrder adjustAllocationOrder(
     const AllocationOrder& alloc_order) {
   AllocationOrder ret = alloc_order;
 
-  int64_t tv_rank = static_cast<int64_t>(tv->nDims());
-  auto& rf_dom = tv->getMaybeRFactorDomain();
+  auto tv_rank = static_cast<int64_t>(tv->nDims());
+  const auto& rf_dom = tv->getMaybeRFactorDomain();
   std::stack<int64_t> idx_stack;
   // we scan all rfactor domain of tv and remove all reduction iter domain entry
   // in `ret`.
@@ -104,7 +104,7 @@ class AllocationOrderInferencer : public IterVisitor {
   bool propagateAllocationOrder(TensorView* src, TensorView* dst) {
     if (auto iter = alloc_order_map_.find(src);
         iter != alloc_order_map_.end()) {
-      alloc_order_map_[dst] = adjustAllocationOrder(iter->first, iter->second);
+      alloc_order_map_[dst] = adjustAllocationOrder(src, iter->second);
       return true;
     }
     return false;
