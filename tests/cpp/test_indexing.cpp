@@ -1271,4 +1271,158 @@ TEST_F(IndexingTest, IndexSplitMerge) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST_F(IndexingTest, Normalization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  constexpr int ND = 3;
+  auto tv0 = makeSymbolicTensor(ND);
+  fusion.addInput(tv0);
+
+  TensorView* tv2 = nullptr;
+  tv2 = sum(tv0, {0, 2});
+  auto tv3 = broadcast(tv2, {true, false, true});
+  auto tv4 = sub(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  Fusion fusion_copy = fusion;
+
+  std::vector<int64_t> input_shape{20, 10, 35};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  if (getenv("CACHE")) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  } else {
+
+    auto persistent_params =
+        getInnerPersistentHeuristics(&fusion, aten_inputs);
+    NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
+    scheduleInnerPersistentKernel(&fusion, *persistent_params);
+
+    fusion.printKernel();
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+    testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(IndexingTest, Reshape1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape1({100});
+  const std::vector<int64_t> shape2({4, 25});
+  const std::vector<int64_t> shape3({5, 2, 10});
+
+  // [i0]
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // [i2, i3]
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // [i2, i3]
+  auto tv3 = add(tv2, fusion.oneVal());
+
+  // [i4, i5, i6]
+  auto tv4 = reshape(tv3, shape2, shape3);
+
+  // [i4, i5, i6]
+  auto tv5 = add(tv4, fusion.oneVal());
+
+  fusion.addOutput(tv5);
+
+
+  TransformPropagator propagator(tv5);
+  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+
+  inlineMost();
+
+  fusion.print();
+
+  //IdModel id_model(&fusion, true, false, false);
+
+}
+
+// Not a DAG due to a residual-like reshape path
+TEST_F(IndexingTest, Reshape2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape1({100});
+  const std::vector<int64_t> shape2({4, 25});
+  const std::vector<int64_t> shape3({5, 2, 10});
+
+  // [i0]
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // First path
+
+  // [i2, i3]
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // [i2, i3]
+  auto tv3 = add(tv2, fusion.oneVal());
+
+  // Second path
+
+  // [i4, i5, i6]
+  auto tv4 = reshape(tv1, shape1, shape3);
+
+  // [i4, i5, i6]
+  auto tv5 = add(tv4, fusion.oneVal());
+
+  // [i2, i3]
+  auto tv6 = reshape(tv5, shape3, shape2);
+
+  // [i2, i3]
+  auto tv7 = add(tv3, tv6);
+
+  fusion.addOutput(tv7);
+
+  // Schedule two tensor groups differently
+  // {tv2, tv3, tv7}
+  // {tv4, tv5, tv6}
+
+  for (auto tv: {tv2, tv3, tv7}) {
+    tv->merge(0);
+    tv->split(0, 4);
+    tv->split(0, 32);
+  }
+
+  for (auto tv: {tv4, tv5}) {
+    tv->merge(0);
+    tv->merge(0);
+    tv->split(0, shape2[0], false);
+  }
+  for (auto tv: {tv4, tv5, tv6}) {
+    tv->split(1, 4);
+    tv->merge(0, 1);
+    tv->split(0, 32);
+  }
+
+  for (auto tv : {tv2, tv3, tv4, tv5}) {
+    tv->inlineAt(-1);
+  }
+
+  fusion.printMath();
+  fusion.print();
+
+  IdModel id_model(&fusion, true, false, false);
+
+}
+
 } // namespace nvfuser
