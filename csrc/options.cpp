@@ -296,4 +296,65 @@ const std::vector<std::string>& getDisableOptionArguments(
   return ProfilerOptionsGuard::getCurOptions().getArgs(option);
 }
 
+void fillEnumSetDefaults(FeatureSet* feats) {
+  std::cout << "defaultFeatures()" << std::endl;
+}
+
+namespace {
+
+const std::vector<std::string>& featureNames() {
+  static std::vector<std::string> feature_names;
+  static bool initialized = false;
+  if (!initialized) {
+    feature_names.resize(enumSize<Feature>(), "UNDEFINED_FEATURE_NAME");
+
+    feature_names.at(toUnderlying(Feature::CompileToSass)) = "compile_to_sass";
+    feature_names.at(toUnderlying(Feature::ExprSimplify)) = "expr_simplify";
+    feature_names.at(toUnderlying(Feature::Fallback)) = "fallback";
+    feature_names.at(toUnderlying(Feature::Fma)) = "fma";
+    feature_names.at(toUnderlying(Feature::GroupedGridWelfordOuterOpt)) =
+        "grouped_grid_welford_outer_opt";
+    feature_names.at(toUnderlying(Feature::IdModel)) = "id_model";
+    feature_names.at(toUnderlying(Feature::IndexHoist)) = "index_hoist";
+    feature_names.at(toUnderlying(Feature::IoToLowerPrecision)) =
+        "io_to_lower_precision";
+    feature_names.at(toUnderlying(Feature::KernelDb)) = "kernel_db";
+    feature_names.at(toUnderlying(Feature::KernelProfile)) = "kernel_profile";
+    feature_names.at(toUnderlying(Feature::KernelReuse)) = "kernel_reuse";
+    feature_names.at(toUnderlying(Feature::MagicZero)) = "magic_zero";
+    feature_names.at(toUnderlying(Feature::MatmulExprEval)) =
+        "matmul_expr_eval";
+    feature_names.at(toUnderlying(Feature::MemoryPromotion)) =
+        "memory_promotion";
+    feature_names.at(toUnderlying(Feature::Nvtx)) = "nvtx";
+    feature_names.at(toUnderlying(Feature::ParallelCompile)) =
+        "parallel_compile";
+    feature_names.at(toUnderlying(Feature::ParallelSerde)) = "parallel_serde";
+    feature_names.at(toUnderlying(Feature::PredicateElimination)) =
+        "predicate_elimination";
+    feature_names.at(toUnderlying(Feature::ReuseMismatchedTypeRegisters)) =
+        "reuse_mismatched_type_registers";
+    feature_names.at(toUnderlying(Feature::ReuseZeroedMemory)) =
+        "reuse_zeroed_memory";
+    feature_names.at(toUnderlying(Feature::StaticFusionCount)) =
+        "static_fusion_count";
+    feature_names.at(toUnderlying(Feature::VarNameRemapping)) =
+        "var_name_remapping";
+    feature_names.at(toUnderlying(Feature::WarnRegisterSpill)) =
+        "warn_register_spill";
+    feature_names.at(toUnderlying(Feature::WelfordVectorization)) =
+        "welford_vectorization";
+
+    initialized = true;
+  }
+  return feature_names;
+}
+
+} // namespace
+
+std::ostream& operator<<(std::ostream& os, Feature f) {
+  os << featureNames().at(toUnderlying(f));
+  return os;
+}
+
 } // namespace nvfuser

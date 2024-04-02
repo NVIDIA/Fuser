@@ -8131,6 +8131,24 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
       fusion, args, persistent_params->lparams, persistent_params->cparams);
   auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
 }
+
+TEST_F(NVFuserTest, TestFeatures) {
+  FeatureSet feats;
+
+  feats.insert(Feature::IndexHoist);
+
+  std::cout << "feats.bitset(): " << feats.bitset() << std::endl;
+  std::cout << "Feature::IndexHoist: " << Feature::IndexHoist << std::endl;
+  std::cout << "feats: " << feats.toString() << std::endl;
+  std::cout << "enumSize<Feature>(): " << enumSize<Feature>() << std::endl;
+  std::cout << "sizeof(Feature): " << sizeof(Feature) << std::endl;
+  std::cout << "sizeof(std::underlying_type_t<Feature>): "
+            << sizeof(std::underlying_type_t<Feature>) << std::endl;
+  std::cout << "sizeof(FeatureSet): " << sizeof(FeatureSet) << std::endl;
+  std::cout << "sizeof(std::vector<EnableOption>): "
+            << sizeof(std::vector<EnableOption>) << std::endl;
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

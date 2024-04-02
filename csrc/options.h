@@ -8,9 +8,12 @@
 #pragma once
 
 #include <exceptions.h>
+#include <type.h>
 #include <visibility.h>
 
 #include <string>
+#include <type_traits>
+#include <typeinfo>
 #include <unordered_map>
 #include <vector>
 
@@ -85,6 +88,106 @@ enum class DebugDumpOption {
   PredicateElimination, //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
+
+template <typename Enum>
+constexpr auto enumSize() {
+  return static_cast<std::underlying_type_t<Enum>>(Enum::EndOfEnum);
+}
+
+template <typename Enum>
+class EnumSet {
+ public:
+  EnumSet() {
+    fillEnumSetDefaults(this);
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "{ ";
+    bool first = true;
+    for (auto i : c10::irange(enumSize<Enum>())) {
+      if (!bitset_[i]) {
+        continue;
+      }
+      if (!first) {
+        ss << ", ";
+      }
+      first = false;
+      // Note: this assumes Enum implements operator<<(std::ostream&, Enum)
+      ss << static_cast<Enum>(i);
+    }
+    ss << " }";
+    return ss.str();
+  }
+
+  void set(Enum feat, bool value) {
+    bitset_.set(toUnderlying(feat), value);
+  }
+
+  void insert(Enum feat) {
+    set(feat, true);
+  }
+
+  void erase(Enum feat) {
+    set(feat, false);
+  }
+
+  bool has(Enum feat) const {
+    return bitset_[toUnderlying(feat)];
+  }
+
+  const std::bitset<enumSize<Enum>()>& bitset() const {
+    return bitset_;
+  }
+
+ private:
+ private:
+  std::bitset<enumSize<Enum>()> bitset_;
+};
+
+//! These options control nvFuser behavior during scheduling and compilation.
+//! They include both default-disabled and default-enabled options.
+enum class Feature {
+  CompileToSass, //! Disable direct compilation to sass so the ptx can be
+                 //! examined
+  ExprSimplify, //! Disable expression simplifier
+  Fallback, //! Disable fallback
+  Fma, //! Disable FMA instructions
+  GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
+                              //! grouped grid welford kernel
+  IdModel, //! Enable IdModel
+  IndexHoist, //! Disable index hoisting
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
+  KernelProfile, //! Enable intra-kernel performance profiling
+  MagicZero, //! Disable nvfuser_zero
+  MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
+                  //! matmul
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  PredicateElimination, //! Disable predicate elimination
+  ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
+                                //! types match
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
+  StaticFusionCount, //! Enable using single static count in kernel name
+  VarNameRemapping, //! Disable variable name remapping
+  WelfordVectorization, //! Disable vectorizaton of Welford ops
+  // These do not affect the generated CUDA kernel
+  KernelDb, //! Enable Kernel Database
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
+  Nvtx, //! Disable NVTX instrumentation
+  ParallelCompile, //! Disable compiling Fusion segments in parallel
+  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
+  WarnRegisterSpill, //! Enable warnings of register spill
+  EndOfEnum //! Placeholder for counting the number of elements
+};
+
+std::ostream& operator<<(std::ostream& os, Feature);
+
+using FeatureSet = EnumSet<Feature>;
+
+//! Inspect env vars and fall back to compile-time defaults for features.
+void fillEnumSetDefaults(FeatureSet* feats);
 
 //! Types of features to enable
 //!
