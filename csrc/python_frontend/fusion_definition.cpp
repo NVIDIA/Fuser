@@ -7,10 +7,10 @@
 // clang-format on
 #include <debug.h>
 #include <instrumentation.h>
+#include <multidevice/communicator.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
-#include <multidevice/communicator.h>
 #include <scheduler/heuristic_types.h>
 #include <utils.h>
 #include <validator_utils.h>
@@ -185,7 +185,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
       NVF_CHECK(user_sched_id.has_value() && device > -1);
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
-      multi_device_executor = std::make_unique<MultiDeviceExecutor>(std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
+      multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+          std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
     }
     return multi_device_executor->runWithInput(inputs.vec());
   }

@@ -478,12 +478,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
-  device_mesh_class
-      .def(
-          "__repr__",
-	  [](DeviceMesh& self) {
-            return self.toString();
-          });
+  device_mesh_class.def(
+      "__repr__", [](DeviceMesh& self) { return self.toString(); });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -2743,7 +2739,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "create_device_mesh",
       [](FusionDefinition::SchedOperators& self, std::vector<int64_t> devices) {
         FUSER_PERF_SCOPE("SchedOperators.create_device_mesh");
-	return DeviceMesh(devices);
+        return DeviceMesh(devices);
       },
       py::arg("devices"),
       py::return_value_policy::reference);
@@ -2755,9 +2751,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
-	      fd->setMultiDevice();
-        auto tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
+        fd->setMultiDevice();
+        auto tv = fd->getFusionState(arg.index)->template as<TensorView>();
         tv->setDeviceMesh(mesh);
       },
       py::arg("arg"),
@@ -2765,18 +2760,17 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "parallelize",
       [](FusionDefinition::SchedOperators& self,
-          Tensor arg,
-	  int axis,
-	  ParallelType parallel_type) {
+         Tensor arg,
+         int axis,
+         ParallelType parallel_type) {
         FUSER_PERF_SCOPE("SchedOperators.merge");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
-        auto tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
+        auto tv = fd->getFusionState(arg.index)->template as<TensorView>();
         tv->axis(axis)->parallelize(parallel_type);
-	},
+      },
       py::arg("arg"),
       py::arg("axis"),
       py::arg("parallel_type"));
