@@ -982,16 +982,25 @@ Expr* findMatchingExpr(
 // domains are loop mapped with the outputs.
 //
 // i.e. if we have the inlined domains from:
-// T2[i0*i1] pa(1) = T0[i0*b1]ca(1) + T1[i0*i1]ca(1)
-// The inlined loop group would be:
+// Inputs:
+//   T0[i0]
+//   T1[i0, i1]
 //
-// i0, i1, b1, i0*i1, b0*i1
-// Then if we replayed the iel transformations they would be:
-// merge(i0, i1)
-// merge(i0, b1)
+// T2[i0, b2] = broadcast(T0)
+// T3[i0, i1] = T2 + T1
 //
-// So if we replayed them with loop promotion, then i0, i1, b1 would be
-// promoted to i0*i1, and the merges would be replayed.
+// {T1, T2, T3}->merge(0, 1)
+// inlineMost
+//
+// The inlined loop group would consist of:
+//
+// {i0, i1, b2, i0*b2, i0*i1}
+//
+// Note that all these domains would have promotion to i0*i1 at the
+// end of Step 3. When the IEL expression of merge(i0, i1) is visited by
+// propagatePromotionsInIELGraph again, the promotion to i0*i1 of both
+// inputs would be propagated to its output, resulting in promotion of
+// i0*i1 to (i0*i1)*(i0*i1), which is not the correct propagation.
 //
 // Therefore only promote i0*b1 to i0*i1, or i0*i1 to i0*i1 (i.e. don't
 // promote an input to any transformation within the loop group).
