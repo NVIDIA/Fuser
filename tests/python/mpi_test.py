@@ -3,10 +3,6 @@
 
 import torch
 import nvfuser
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from torch import Tensor
-from typing import Tuple
-
 from nvfuser import FusionDefinition, DataType
 
 import os
@@ -15,7 +11,7 @@ rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
 
 torch.cuda.set_device(rank)
 
-### Inputs
+# Inputs
 inputs = [
     torch.randn(2, 4, device="cuda")[rank : rank + 1, ...],
 ]
@@ -42,7 +38,7 @@ class MultiDeviceModel(FusionDefinition):
 
 fn = MultiDeviceModel()
 
-### Repro code
+# Repro code
 o = fn.execute(inputs)
 
 # multiple execution seems to be triggering a sync issue. at least the output doesn't look right
