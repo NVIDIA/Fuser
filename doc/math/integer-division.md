@@ -328,7 +328,7 @@ For all implementations, $|a \mathbin{\\%} b| < |b|$.
 
 Common implementations are:
 
-- **Truncation division (round to zero):**
+- **truncation division (round to zero):**
   - $a/b \coloneqq trunc(a \ b)$
   - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
@@ -345,7 +345,7 @@ The properties of truncation division are:
 2. Good: $(-a)\mathbin{\\%}b = -(a\mathbin{\\%}b) = a\mathbin{\\%}(-b)$
 3) Bad: $a \mathbin{\\%} b = a' \mathbin{\\%} b$ is not equivalent to $a = a' \pmod b$
 
-## 4. Properties of Div and Mod Under Trunc Div
+## 4. Properties of Truncation Division
 
 In this section, I will study trunc div and its properties. I will first
 redefine trunc div using the same language as in Euclid's division lemma,
