@@ -216,18 +216,24 @@ Because $c \neq 0$, we have $(a \times b)/c = a \times (b/c)$.
 
 from the fundamental division-with-remainder equation, we have:
 $$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
-  = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b) \text{ ... (eq 1)}$$
-where 0 \le a\mathbin{\\%}b < b and 0 \le (a/b)\mathbin{\\%}c*b \le (|c| - 1)*b,
-as a result, we have 0 \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b) < |bc|,
-from the fundamental division-with-remainder equation, we can uniquely
-decompose a as a = (a/(bc))*(bc) + a\mathbin{\\%}(bc)  ... (eq 2)
-since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
-uniqueness of this decomposition, comparing (eq 1) and (eq 2) have
-a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)}$$
+where
+$$0 \le a\mathbin{\\%}b < b$$
+$$0 \le (a/b)\mathbin{\\%}c \times b \le (|c| - 1) \times b$$
+
+as a result, we have:
+$$0 \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) < |bc|$$
+
+from the fundamental division-with-remainder equation, we can uniquely decompose $a$ as
+$$a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) \text{ ... (eq 2)}$$
+
+since $a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$ is in the correct range of $a\mathbin{\\%}(bc)$
+and due to the uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have:
+$$a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 </details>
 
-Theorem 2.12: If b > 0, then a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
+Theorem 2.12: If b > 0, then a \mathbin{\\%} (b  \times  c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c)  \times  b
 
 <details>
 
