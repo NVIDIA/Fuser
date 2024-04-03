@@ -96,9 +96,12 @@ class AllocationOrderInferencer : public IterVisitor {
       const std::vector<IterDomain*>& permutation_ref) {
     if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
+      // early termination to propagate empty allocation order
       if (iter->second.empty()) {
         alloc_order_map_[consumer] = {};
+        return true;
       }
+
       std::vector<IterDomain*> alloc_domain =
           propagateAllocationDomain(producer, consumer);
       // compute allocation order
