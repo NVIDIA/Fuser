@@ -6,26 +6,24 @@
 
 # A Brief Overview of Abstract Algebra
 
-**Note on notation:** We will use $*$ instead $\times$ for multiplication. $*$ is closer to how we write code.
-
 The real numbers together with binary operators $+$ $-$ $*$ $/$ form a [field](https://en.wikipedia.org/wiki/Field_(mathematics)),
 which is defined by its basic properties:
 
-1. **Associativity:** $a + (b + c) = (a + b) + c$, and $a * (b * c) = (a * b) * c$.
-2. **Commutativity:** $a + b = b + a$, and $a * b = b * a$.
-3. **Distributivity:** $a * (b + c) = (a * b) + (a * c)$.
-4. **Identity:** there exist two *different* elements $0$ and $1$ such that $a + 0 = a$ and $a * 1 = a$.
+1. **Associativity:** $a + (b + c) = (a + b) + c$, and $a \times (b \times c) = (a \times b) \times c$.
+2. **Commutativity:** $a + b = b + a$, and $a \times b = b \times a$.
+3. **Distributivity:** $a \times (b + c) = (a \times b) + (a \times c)$.
+4. **Identity:** there exist two *different* elements $0$ and $1$ such that $a + 0 = a$ and $a \times 1 = a$.
 5. **Additive inverses:** for every $a$, there exists an element, denoted $-a$, such that $a + (-a) = 0$.
 6. **Defition of subtraction:** $a - b \coloneqq a + (-b)$
-7. **Multiplicative inverses:** for every $a \neq 0$, there exists an element, denoted by $1/a$, such that $a * (1/a) = 1$.
-8. **Defition of division:** $a / b \coloneqq a * (1/b)$
+7. **Multiplicative inverses:** for every $a \neq 0$, there exists an element, denoted by $1/a$, such that $a \times (1/a) = 1$.
+8. **Defition of division:** $a / b \coloneqq a \times (1/b)$
 
 Thanks to the field properties, div of real number has the following properties:
 
 9. **Associativity:**
-   - $a*(b/c) = (a*b)/c$
-   - $a/(b*c) = (a/b)/c$
-   - $a/(b/c) = (a/b)*c = (a*c)/b$
+   - $a \times (b/c) = (a \times b)/c$
+   - $a/(b \times c) = (a/b)/c$
+   - $a/(b/c) = (a/b) \times c = (a \times c)/b $
 10. **Right Distributivity:** $(a+b)/c = a/c + b/c$
 
 For the set of integers $\mathbb{Z}$, (7) is no longer true, therefore,
@@ -52,5 +50,5 @@ properties of integers to the recipe. These properties include:
   - if $a \neq 0$ and $b \neq 0$, then $ab \neq 0$.
   - **cancellation property:** if $a \neq 0$, then $ab=ac$ implies $b=c$.
 - **GCD domains:** the existence of greatest common divisor
-- **unique factorization domains:** every non-zero element can be uniquely written as a product of prime elements (for example, 12 = 2*2*3)
+- **unique factorization domains:** every non-zero element can be uniquely written as a product of prime elements (for example, $12 = 2 \times 2 \times 3$)
 - **Euclidean domains:** [the fundamental division-with-remainder property](integer-division.md)
