@@ -562,7 +562,7 @@ Similar to above.
 
 **<summary>Proof:</summary>**
 
-This can be proved directly from Euclid's division lemma.
+This can be proved directly from Definition 4.0.
 
 </details>
 
