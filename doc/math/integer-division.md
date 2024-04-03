@@ -497,17 +497,35 @@ $a/b = q+k-sign(b)$
 
 </details>
 
-Theorem 4.4: a = a \mathbin{\\%} b \pmod b
+**Theorem 4.4:** $a = a \mathbin{\\%} b \pmod b$
 
-Proof: According to Definition 0, (a - a \mathbin{\\%} b) \div b = q is integer
+<details>
 
-Theorem 4.5: If -|a| < r < |a|, then r \mathbin{\\%} a = r, r / a = 0
+**<summary>Proof:</summary>**
 
-Proof: This can be proved directly from Definition 0
+According to Definition 4.0, $(a - a \mathbin{\\%} b) \div b = q$ is integer.
 
-Theorem 4.6: a/(-b) = -a/b, a\mathbin{\\%}(-b) = -a\mathbin{\\%}b
+</details>
 
-Proof: See "Implementations of Div and Mod", this is a written in the paper
+**Theorem 4.5:** If $-|a| < r < |a|$, then $r \mathbin{\\%} a = r$, $r / a = 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+This can be proved directly from Definition 4.0
+
+</details>
+
+**Theorem 4.6:** $a/(-b) = -a/b$, $a\mathbin{\\%}(-b) = -a\mathbin{\\%}b$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+See [the previous section](#3-implementations-of-div-and-mod), this is written in the paper.
+
+</details>
 
 Theorem 4.7: If compatible_sign(a, b), then (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
 where compatible_sign(a, b) is defined as ab \ge 0
