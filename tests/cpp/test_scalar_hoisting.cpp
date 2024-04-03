@@ -352,6 +352,21 @@ TEST_F(ScalarHoistTest, ARange) {
   fusion->addOutput(output1);
   fusion->addOutput(output2);
 
+  {
+    // output1 has Symbolic axes since the arange arguments are input scalars.
+    // That means we need to concretize the fusion first.
+    ExpressionEvaluator expr_eval;
+    expr_eval.bind(start_int, 0);
+    expr_eval.bind(end_int, 100);
+    expr_eval.bind(step_int, 1);
+    auto initial_info = DynamicTransform::getInitialInfo(fusion.get());
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+    DynamicTransform::concretizeFusion(fusion.get(), &info);
+    NVF_CHECK(
+        !fusion->hasDynamicTransform(),
+        "Expected to have no dynamic transform");
+  }
+
   int64_t start = 0, end = 100, step = 1;
 
   FusionExecutor fe;

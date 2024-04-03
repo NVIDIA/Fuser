@@ -97,6 +97,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
+  ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
@@ -505,7 +506,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_pipeline.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
@@ -574,6 +574,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_resharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
@@ -736,7 +737,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   get_filename_component(filename ${src} NAME_WE)
   set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
   add_custom_command(
-    COMMENT "Stringify NVFUSER runtime source file"
+    COMMENT "Stringify NVFUSER runtime source file ${src}"
     OUTPUT ${dst}
     DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
     COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
@@ -744,10 +745,13 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
   add_dependencies(codegen_internal nvfuser_rt_${filename})
 
-  # also generate the resource headers during the configuration step
-  # (so tools like clang-tidy can run w/o requiring a real build)
-  execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  # Do not overwrite resource header if it already exists. This avoids unnecessary rebuilds.
+  # If ${dst} doesn't exist, this `if` is also true, so header will be generated.
+  if (${src} IS_NEWER_THAN ${dst})
+    # also generate the resource headers during the configuration step
+    # (so tools like clang-tidy can run w/o requiring a real build)
+    execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  endif()
 endforeach()
 
 target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include")

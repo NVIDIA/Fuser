@@ -38,9 +38,13 @@ def gelu_fwd_fusion(
     fd.add_output(T10)
 
 
+def gelu_fwd_fn(inputs: list):  # [in_tensor, bias]
+    return torch.nn.functional.gelu(inputs[0] + inputs[1], approximate="tanh")
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_gelu_fwd_benchmark(
+def test_gelu_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -49,12 +53,34 @@ def test_gelu_fwd_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
-    bias = torch.ones(size[-1], device="cuda", dtype=dtype)
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
+        torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
+    ]
     with FusionDefinition() as fd:
         gelu_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
-        eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
-        fd.validate([inputs, bias], [eager_output])
+        eager_output = gelu_fwd_fn(inputs)
+        fd.validate(inputs, [eager_output])
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [inputs, bias])
+        run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_gelu_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
+        torch.ones(size[-1], device="cuda", dtype=dtype),  # bias
+    ]
+    # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
+    run_benchmark(
+        benchmark, torch.compile(gelu_fwd_fn) if compile else gelu_fwd_fn, inputs
+    )

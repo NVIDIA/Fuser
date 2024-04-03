@@ -573,6 +573,16 @@ class DoubleBufferInserter : private kir::ExprMutator {
     //   is more conceptual at the moment, aka low priority.
     if (has_cpasync) {
       insertCpAsyncCommitWaitInMainLoop(main_loop, loads);
+
+      // The main loop will generate some async loads from invalid regions.
+      // These populate the current cp.async group and they fill the smem with
+      // zero. Subsequent code might assume an empty cp.async group (for example
+      // an unparallelized batch matmul), or might re-use memory (WAW
+      // hazard, see https://github.com/NVIDIA/Fuser/issues/2000). For safety,
+      // we drain the group after the loops by waiting on these transfers.
+      auto cp_async_wait_all =
+          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, 0);
+      registerInsertAfter(double_buffer_loop, cp_async_wait_all);
     }
 
     if (requireEpilogue(loads)) {

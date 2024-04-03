@@ -132,12 +132,19 @@ TEST_F(PipelineTest, Pipeline) {
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
-// stage sharded?, do_reduction?, use_fusion_executor_cache?)
-using PipelineTestTwoStagesParams = std::
-    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
+// stage sharded?, do_reduction?, sharded dimension, use_fusion_executor_cache?)
+using PipelineTestTwoStagesParams = std::tuple<
+    CommunicatorBackend,
+    DeviceMesh,
+    DeviceMesh,
+    bool,
+    bool,
+    bool,
+    int,
+    bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
+      public testing::WithParamInterface<PipelineTestTwoStagesParams> {};
 
 TEST_P(PipelineTestTwoStages, Communication) {
   auto
@@ -147,6 +154,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction,
+       sharded_dim,
        use_fusion_executor_cache] = GetParam();
   if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
@@ -157,24 +165,22 @@ TEST_P(PipelineTestTwoStages, Communication) {
     mesh1 = mesh0;
   }
 
-  int first_axis_extent = 3;
+  std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    first_axis_extent = mesh0.vector().size();
-  } else if (is_stage1_sharded) {
-    first_axis_extent = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
   }
-  int second_axis_extent = 2;
-  if (is_stage1_sharded && do_reduction) {
-    GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-    second_axis_extent = mesh1.vector().size();
+  if (is_stage1_sharded) {
+    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    if (do_reduction) {
+      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+    }
   }
-  std::vector<int64_t> unsharded_input_sizes = {
-      first_axis_extent, second_axis_extent, 3, 5};
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
+  TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
   TensorView* tv3 = sum(tv2, {1});
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
@@ -184,15 +190,18 @@ TEST_P(PipelineTestTwoStages, Communication) {
   tv2->setDeviceMesh(mesh1);
   tv3->setDeviceMesh(mesh1);
   if (is_stage0_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
+    tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+    tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
     // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0;
+    int tv2_outmost_axis =
+        (do_reduction && unsharded_input_sizes[sharded_dim + 1] > 1)
+        ? sharded_dim + 1
+        : 0;
     tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
+    tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
@@ -207,7 +216,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
 namespace {
 auto all_backends =
-    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -215,94 +224,101 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = ::testing::Values(mesh2, mesh3, mesh4);
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
 
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
         all_meshes,
         all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
         all_meshes,
         all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
         all_meshes,
         all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(mesh3, mesh4),
+        testing::Values(mesh3, mesh4),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
-        ::testing::Values(mesh0, mesh1),
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
         all_nontrivial_meshes,
         all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Bool()));
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(0),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
+    testing::Combine(
         all_backends,
         all_nontrivial_meshes,
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Bool()));
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(0),
+        testing::Bool()));
 
 // Different scheduling modes used in
 // PipelineTestStagedReduction.StagedReduction
