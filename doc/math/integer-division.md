@@ -279,9 +279,9 @@ $$a = (a/(b/c))(b/c) + a\mathbin{\\%}(b/c) \text{ ... (eq 2)}$$
 Multiply $c$ to both side of (eq 2), and note that $b$ is a multiple of $c$:
 $$ac = (a/(b/c))b + (a\mathbin{\\%}(b/c)) \times c$$
 subtract the above equation with (eq 1), we get
-$$0 = \left( a/(b/c) - (ac)/b \right ) \times b + \left( (a\mathbin{\\%}(b/c)) \times c - (ac)\mathbin{\\%}b \right)$$
+$$0 = ( a/(b/c) - (ac)/b ) \times b + ( (a\mathbin{\\%}(b/c)) \times c - (ac)\mathbin{\\%}b)$$
 The second term in the above equation is $0$, so we have
-$$0 = [a/(b/c) - (ac)/b] \times b$$
+$$0 = (a/(b/c) - (ac)/b) \times b$$
 because $b \neq 0$, we get $a/(b/c) = (ac)/b$.
 
 </details>
@@ -299,9 +299,9 @@ $$(a + b) = ((a + b) / c) * c + (a + b) \mathbin{\\%} c$$
 $$a = (a / c) * c + a \mathbin{\\%} c$$
 $$b = (b / c) * c + b \mathbin{\\%} c$$
 Adding the last two equations and subtract with the first equation:
-$$0 = [(a/c + b/c) - (a+b)/c] * c + [a \mathbin{\\%} c + b \mathbin{\\%} c - (a + b) \mathbin{\\%} c]$$
+$$0 = ((a/c + b/c) - (a+b)/c) * c + (a \mathbin{\\%} c + b \mathbin{\\%} c - (a + b) \mathbin{\\%} c)$$
 The second term in the above equation is $0$, so we have
-$$0 = [(a/c + b/c) - (a+b)/c] * c$$
+$$0 = ((a/c + b/c) - (a+b)/c) * c$$
 Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
 
 </details>
