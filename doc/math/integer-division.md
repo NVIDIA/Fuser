@@ -35,29 +35,29 @@ $$a = (a/b)b + a\%b$$
 I will call the above equation "the fundamental division-with-remainder equation" in later contexts.
 We call this definition of division Euclidean division.
 Note that this is not how we define integer division in C++,
-as explained in later section "Implementations of Div and Mod".
+as explained [later](#s-3-implementations-of-div-and-mod).
 
 A very important concept in number theory is "congruence", as described below:
 
 **Definition 1.1 (Congruent):** For $c \neq 0$, if $(a-b)\div c$ is an integer, then we say $a$ is
 congruent to $b$ modulo $c$, written as $a = b \pmod c$.
 
-Note that the "(mod k)" in the statement "a = b (mod k)" should be understood
-as a qualifier for the statement "a = b" that modifies the meaning of the
+Note that the "$\pmod c$" in the statement "$a = b \pmod c$" should be understood
+as a qualifier for the statement "$a = b$" that modifies the meaning of the
 original statement [P] to "[P] under the modular arithmetic". It should NOT
-be understood as an operator operating on "b", i.e. "a = (b (mod k))".
+be understood as an operator operating on "$b$", i.e. "$a = (b \pmod c)$".
 
-Theorem 3.2: The congruence is an equivalence relationship, that is:
-- a = a (mod c)
-- if a = b (mod c), then b = a (mod c)
-- if a = b (mod c) and b = d (mod c), then a = d (mod c)
+**Theorem 1.2:** The congruence is an equivalence relationship, that is:
+- $a = a \pmod c$
+- if $a = b \pmod c$, then $b = a \pmod c$
+- if $a = b \pmod c$ and $b = d \pmod c$, then $a = d \pmod c$
 
-Theorem 3.3: The congruence also has the following properties:
-- a = b (mod c) iff a = b (mod (-c))
-- if a = a' (mod c), b = b' (mod c), then
-  - a + b = a' + b' (mod c)
-  - ab = a'b' (mod c)
-- if bd = bd' (mod c) and gcd(b, c) = 1, then d = d' (mod c)
+**Theorem 1.3:** The congruence also has the following properties:
+- $a = b \pmod c$ iff $a = b \pmod {(-c)}$
+- if $a = a' \pmod c$, $b = b' \pmod c$, then
+  - $a + b = a' + b' \pmod c$
+  - $ab = a'b' \pmod c$
+- if $bd = bd' \pmod c$ and $gcd(b, c) = 1$, then $d = d' \pmod c$
 
 ## $\S 2$ More Theorems Of Euclidean Division
 
@@ -116,8 +116,8 @@ Due to the uniqueness of q and r, we get our conclusion
 
 Theorem 4.7: (a + b) % c = (a % c + b % c) % c
 Proof: According to Theorem 4.3, this is just to prove
-a + b = a % c + b % c (mod c)
-Because of Theorem 4.4, we have a = a % c (mod c), b = b % c (mod c)
+a + b = a % c + b % c \pmod c
+Because of Theorem 4.4, we have a = a % c \pmod c, b = b % c \pmod c
 applying Theorem 3.3, we get what we need.
 
 Theorem 4.8: (a * b) % c = (a % c * b % c) % c
@@ -347,8 +347,8 @@ Proof: See "Implementations of Div and Mod", this is a written in the paper
 Theorem 6.7: If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
 where compatible_sign(a, b) is defined as ab>=0
 Proof: According to Theorem 6.3, this is just to prove
-a + b = a % c + b % c (mod c)
-Because of Theorem 6.4, we have a = a % c (mod c), b = b % c (mod c),
+a + b = a % c + b % c \pmod c
+Because of Theorem 6.4, we have a = a % c \pmod c, b = b % c \pmod c,
 applying Theorem 3.3, we get what we want
 
 Theorem 6.8: If compatible_sign(a, b), then (a * b) % c = (a % c * b % c) % c
