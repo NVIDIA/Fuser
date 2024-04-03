@@ -70,11 +70,12 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
 2) $a/(b \times c) \neq (a/b)/c$
 3) $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
 
-**Proof:** $a \times (b/c) \neq (a \times b)/c$ because of the counter example $2 \times (3/2) \neq (2 \times 3)/2$.
-$a/(b \times c) \neq (a/b)/c$ because of the counter example $4/((-1) \times 5) \neq (4/(-1))/5$
-(note that $4/(-5) = 0$, $(-4)/5 = -1$).
-$a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$ because of the counter example that
-$5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
+**Proof:**
+- $a \times (b/c) \neq (a \times b)/c$ because of the counter example $2 \times (3/2) \neq (2 \times 3)/2$.
+- $a/(b \times c) \neq (a/b)/c$ because of the counter example $4/((-1) \times 5) \neq (4/(-1))/5$
+  (note that $4/(-5) = 0$, $(-4)/5 = -1$).
+- $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$ because of the counter example that
+  $5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
 
 **Theorem 2.2:** Euclidean division is NOT right distributive
 **Proof:** Counter example: $(1+1)/2 \neq 1/2 + 1/2$
