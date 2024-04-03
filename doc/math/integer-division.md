@@ -208,7 +208,7 @@ Because $c \neq 0$, we have $(a*b)/c = a*(b/c)$.
 
 </details>
 
-Theorem 2.11: If b > 0, then a/(b*c) = (a/b)/c
+Theorem 2.11: If $b > 0$, then $a/(b*c) = (a/b)/c$
 
 <details>
 
