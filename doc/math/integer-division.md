@@ -229,7 +229,8 @@ $$a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) \text{ ... (eq 2)}$$
 
 since $a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$ is in the correct range of $a\mathbin{\\%}(bc)$
 and due to the uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have:
-$$a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
+$$a/(bc) = (a/b)/c$$
+$$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 </details>
 
