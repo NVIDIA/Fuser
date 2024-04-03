@@ -162,7 +162,7 @@ applying Theorem 1.3, we get what we need.
 
 </details>
 
-**Theorem 2.8:** $(a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c$
+**Theorem 2.8:** $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
 
 <details>
 
@@ -182,7 +182,7 @@ This can be proved directly from Euclid's division lemma
 
 </details>
 
-**Theorem 2.10:** If $b$ is a multiple of $c$, then we have: $a*(b/c) = (a*b)/c$.
+**Theorem 2.10:** If $b$ is a multiple of $c$, then we have: $a\times (b/c) = (a\times b)/c$.
 
 <details>
 
