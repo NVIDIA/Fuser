@@ -397,14 +397,18 @@ For (1) and (3), the same counter example as in Theorem 2.1 applies.
 
 For (2), from Definition 4.0, we have
 $$
-a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b \\
-  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)} \\
+a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)}
   = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)
 $$
 
-if $a \ge 0$, then $0 \le a\mathbin{\\%}b < |b|$, $0 \le (a/|b|)\mathbin{\\%}c \times |b| \le (|c| - 1)|b|$,
-as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|,
-from Definition 4.0, we can uniquely decompose a as
+if $a \ge 0$, then
+$$0 \le a\mathbin{\\%}b < |b|$$
+$$0 \le (a/|b|)\mathbin{\\%}c \times |b| \le (|c| - 1)|b|$$
+as a result, we have
+$$0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|$$
+
+From Definition 4.0, we can uniquely decompose $a$ as
 a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) ... (eq 2)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
