@@ -456,7 +456,7 @@ $a = a' = 0 \pmod b$
 For (2) Direction ==>:
 
 $a\mathbin{\\%}b = a'\mathbin{\\%}b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
-which is equivalent to $(a-a')\b = (a/b-a'/b) = \text{integer}$.
+which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$.
 So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$,
 also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
 
@@ -477,7 +477,7 @@ For (3) Direction ==>:
 If $a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|$, then $0 < a\mathbin{\\%}b < |b|$ and $|b| < a'\mathbin{\\%}b < 0$,
 that is, $a>0$ and $a'<0$.
 Also, we have $a-(a/b)b = a'-(a'/b)b + |b|$, that is,
-$$(a-a')\b = (a/b-a'/b+sign(b)) = \text{integer}$$
+$$(a-a')\div b = (a/b-a'/b+sign(b)) = \text{integer}$$
 so $a = a' \pmod b$.
 
 Also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
