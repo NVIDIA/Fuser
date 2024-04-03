@@ -244,7 +244,7 @@ size_t mergeReduction(TensorView* tv) {
 }
 
 size_t mergeNonReduction(TensorView* tv) {
-  bool has_outermost_device_dim = false;
+  bool has_device_dim = false;
   int prev_i = -1;
   size_t num_merged = 0;
   if (tv->nDims() == 0) {
@@ -255,8 +255,7 @@ size_t mergeNonReduction(TensorView* tv) {
       continue;
     }
     if (tv->axis(i)->isDeviceDim()) {
-      NVF_ERROR(i == 0, "Invalid device parallelization detected at ", i);
-      has_outermost_device_dim = true;
+      has_device_dim = true;
       continue;
     }
     if (prev_i == -1) {
@@ -270,7 +269,7 @@ size_t mergeNonReduction(TensorView* tv) {
   if (prev_i != -1) {
     tv->reorder({{prev_i, 0}});
   }
-  if (has_outermost_device_dim) {
+  if (has_device_dim) {
     // in this case the layout at this point is [i, r , d]
     // we want to put the device dim back to outmost
     tv->reorder({{prev_i != -1 ? 2 : 1, 0}});
