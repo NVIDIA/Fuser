@@ -52,6 +52,10 @@ NVF_API LstmResult lstm(
 // via strides. All restrictions from the matmul APIs also
 // apply here.
 TensorView* matmul(TensorView* a, TensorView* b);
+// This second matmul function is not exposed via
+// the Python interface, but it does the guts of the work and
+// can be used to create mamtuls without a cast operation following it.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
