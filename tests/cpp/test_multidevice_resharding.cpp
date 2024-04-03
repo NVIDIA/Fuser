@@ -228,6 +228,9 @@ class automaticReshardingTest
 };
 
 TEST_P(automaticReshardingTest, setInsertion) {
+  if (!distributedEnabled()) { // Test only works with distributed
+    GTEST_SKIP() << "Requires distributed API";
+  }
   auto
       [mesh0,
        mesh1,
