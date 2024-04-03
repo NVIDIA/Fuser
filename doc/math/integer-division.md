@@ -42,10 +42,10 @@ A very important concept in number theory is "congruence", as described below:
 **Definition 1.1 (Congruent):** For $c \neq 0$, if $(a-b)\div c$ is an integer, then we say $a$ is
 congruent to $b$ modulo $c$, written as $a = b \pmod c$.
 
-Note that the "$\pmod c$" in the statement "$a = b \pmod c$" should be understood
-as a qualifier for the statement "$a = b$" that modifies the meaning of the
+Note that the $\pmod c$ in the statement $a = b \pmod c$ should be understood
+as a qualifier for the statement $a = b$ that modifies the meaning of the
 original statement [P] to "[P] under the modular arithmetic". It should NOT
-be understood as an operator operating on "$b$", i.e. "$a = (b \pmod c)$".
+be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
 
 **Theorem 1.2:** The congruence is an equivalence relationship, that is:
 - $a = a \pmod c$
