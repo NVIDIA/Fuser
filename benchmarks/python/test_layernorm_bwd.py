@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
@@ -90,10 +90,6 @@ def layernorm_bwd_fusion(
     fd.add_output(T90)
     fd.add_output(T32)
     fd.add_output(T28)
-
-
-def unary_bwd_torch(inputs: list):  # [output, grad_out]
-    inputs[0].backward(inputs[1], retain_graph=True)
 
 
 def layernorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
