@@ -245,14 +245,16 @@ Already proved in the proof of Theorem 2.11
 </details>
 
 **Theorem 2.13:** If $d > 0$ and $d$ divides $a$ and $b$, then
-$$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d$$
+$$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$$
 
 <details>
 
 **<summary>Proof:</summary>**
 
 From the fundamental division-with-remainder equation, we have
-$$b = d \times (b / d), then a \mathbin{\\%} b = a \mathbin{\\%} (d \times (b / d))$$
+$$b = d \times (b / d)$$
+then
+$$a \mathbin{\\%} b = a \mathbin{\\%} (d \times (b / d))$$
 From Theorem 2.12, we have:
 $$a \mathbin{\\%} b = a \mathbin{\\%} (d \times (b / d)) = a \mathbin{\\%} d + ((a / d) \mathbin{\\%} (b / d)) \times d$$
 according to Theorem 2.9:
