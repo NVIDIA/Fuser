@@ -72,9 +72,8 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
 
 <details>
 
-**<summary>Proof</summary>**
+**<summary>Proof:</summary>**
 
-**Proof:**
 - $a \times (b/c) \neq (a \times b)/c$ because of the counter example $2 \times (3/2) \neq (2 \times 3)/2$.
 - $a/(b \times c) \neq (a/b)/c$ because of the counter example $4/((-1) \times 5) \neq (4/(-1))/5$
   (note that $4/(-5) = 0$, $(-4)/5 = -1$).
