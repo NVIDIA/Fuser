@@ -387,7 +387,8 @@ Theorems will be numbered consistently, that is, theorem 4.x is the modified ver
 1. $a \times (b/c) \neq (a \times b)/c$
 2. $a/(b \times c) = (a/b)/c$
 3. $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
-Note that for (2), it is now a "$=$" instead of a "$\neq$".
+
+Note that for (2), it is now a " $=$ " instead of a " $\neq$ ".
 
 <details>
 
