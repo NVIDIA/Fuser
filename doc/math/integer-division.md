@@ -383,30 +383,39 @@ Now let's review [the theorems of Euclidean division](#2-more-theorems-of-euclid
 how they should be modified when translating to the language of truncation division.
 Theorems will be numbered consistently, that is, theorem 4.x is the modified version of theorem 2.x.
 
-Theorem 6.1: Associativity of truncation division:
-1) a*(b/c) \neq (a*b)/c
-2) a/(b*c) = (a/b)/c
-3) a/(b/c) \neq (a/b)*c \neq (a*c)/b
-Note that for 2), it is now a "=" instead of a "\neq".
-Proof: for 1) and 3), the same counter example as in Theorem 2.1 applies.
-For 2), from Definition 4.0, we have
-a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
-  = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b)  ... (eq 1)
-  = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|)
-if a \ge 0, then 0 \le a\mathbin{\\%}b < |b|, 0 \le (a/|b|)\mathbin{\\%}c*|b| \le (|c| - 1)|b|,
-as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) < |bc|,
+Theorem 4.1: Associativity of truncation division:
+1. $a \times (b/c) \neq (a \times b)/c$
+2. $a/(b \times c) = (a/b)/c$
+3. $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
+Note that for (2), it is now a "$=$" instead of a "$\neq$".
+
+<details>
+
+**<summary>Proof:</summary>**
+
+For (1) and (3), the same counter example as in Theorem 2.1 applies.
+
+For (2), from Definition 4.0, we have
+$$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b)  ... (eq 1)
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)$$
+
+if $a \ge 0$, then $0 \le a\mathbin{\\%}b < |b|$, $0 \le (a/|b|)\mathbin{\\%}c \times |b| \le (|c| - 1)|b|$,
+as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|,
 from Definition 4.0, we can uniquely decompose a as
-a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 2)
-since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
+a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) ... (eq 2)
+since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
-a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
-if a < 0, then -|b| < a\mathbin{\\%}b \le 0, -(|c| - 1)|b| \le ((a/|b|)\mathbin{\\%}c)*|b| \le 0,
-as a result, we have -|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) \le 0,
+a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b
+if a < 0, then -|b| < a\mathbin{\\%}b \le 0, -(|c| - 1)|b| \le ((a/|b|)\mathbin{\\%}c) \times |b| \le 0,
+as a result, we have -|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) \le 0,
 from Definition 4.0, we can uniquely decompose a as
-a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 3)
-since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
+a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) ... (eq 3)
+since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
-a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
+a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b
+
+</details>
 
 Theorem 6.2: Integer div is NOT right distributive
 Proof: the same counter example as in Theorem 2.2 applies.
@@ -472,22 +481,22 @@ Proof: Similar to above
 Theorem 6.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
 Proof:  This can be proved directly from Euclid's division lemma
 
-Theorem 6.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
+Theorem 4.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
 Proof: Same proof as 2.10
 
-Theorem 6.11: a/(b*c) = (a/b)/c
-Proof: This is part of Theorem 6.1
+Theorem 4.11: a/(b*c) = (a/b)/c
+Proof: This is part of Theorem 4.1
 
-Theorem 6.12: a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
-Proof: Already proved in the proof of Theorem 6.1
+Theorem 4.12: a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
+Proof: Already proved in the proof of Theorem 4.1
 
-Theorem 6.13: If d divides a and b, then a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+Theorem 4.13: If d divides a and b, then a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
 Proof: Same proof as 2.13
 
-Theorem 6.14: If b is a multiple of c, then a/(b/c) = (a*c)/b
+Theorem 4.14: If b is a multiple of c, then a/(b/c) = (a*c)/b
 Proof: Same proof as 2.14
 
-Theorem 6.15: If compatible_sign(a, b) and -|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then
+Theorem 4.15: If compatible_sign(a, b) and -|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then
 (a+b)/c = a/c + b/c
 Proof: From Theorem 6.7 and Theorem 6.5
 (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
