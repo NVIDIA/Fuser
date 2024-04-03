@@ -15,55 +15,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// returns allocation order to propagate adjusted for `tv`
-// Right now it merely removes all the entry corresponding to reduction iter
-// domains in tv,
-AllocationOrder adjustAllocationOrder(
-    const TensorView* tv,
-    const AllocationOrder& alloc_order) {
-  AllocationOrder ret = alloc_order;
-
-  auto tv_rank = static_cast<int64_t>(tv->nDims());
-  const auto& rf_dom = tv->getMaybeRFactorDomain();
-  std::stack<int64_t> idx_stack;
-  // we scan all rfactor domain of tv and remove all reduction iter domain entry
-  // in `ret`.
-  for (auto idx : c10::irange(tv_rank)) {
-    if (rf_dom[idx]->isReduction()) {
-      // we push indices of each reduction iter domain into `idx_stack` in
-      // ascending order
-      idx_stack.push(idx);
-      for (auto i = ret.begin(); i != ret.end(); i++) {
-        if (*i == idx) {
-          ret.erase(i);
-          break;
-        }
-      }
-    }
-  }
-  // for any removed entry, we need to compensate the returned allocation order
-  // by decrement indices higher than the removed entry.
-  while (!idx_stack.empty()) {
-    auto idx = idx_stack.top();
-    idx_stack.pop();
-    for (auto i = ret.begin(); i != ret.end(); i++) {
-      if (*i > idx) {
-        --(*i);
-      }
-    }
-  }
-#ifndef NDEBUG
-  std::set<int> unique_check;
-  for (auto idx : ret) {
-    NVF_ERROR(
-        unique_check.count(idx) == 0 && idx >= 0 && idx < (int64_t)ret.size());
-    unique_check.insert(idx);
-  }
-#endif
-  return ret;
-}
-
-void allocationDomainUpdate(
+std::vector<IterDomain*> constructAllocationDomain(
     TensorView* tv,
     const AllocationOrder& alloc_order) {
   auto rfactor_dom = tv->getMaybeRFactorDomain();
@@ -75,7 +27,13 @@ void allocationDomainUpdate(
     allocation_domain[i] = rfactor_dom.at(alloc_order.at(i));
   }
 
-  tv->setAllocationDomain(allocation_domain, true);
+  return allocation_domain;
+}
+
+void allocationDomainUpdate(
+    TensorView* tv,
+    const AllocationOrder& alloc_order) {
+  tv->setAllocationDomain(constructAllocationDomain(tv, alloc_order), true);
 }
 
 class AllocationOrderInferencer : public IterVisitor {
@@ -99,12 +57,45 @@ class AllocationOrderInferencer : public IterVisitor {
   // void handle(ExpandOp*) override;
 
  private:
-  // propagate allocation order from src to dst. Returns true when src has a
-  // recorded allocation order, false otherwise.
-  bool propagateAllocationOrder(TensorView* src, TensorView* dst) {
-    if (auto iter = alloc_order_map_.find(src);
+  std::vector<IterDomain*> mapAllocDomainNoReductionP2C(
+      TensorView* producer,
+      TensorView* consumer) {
+    // constructing alloc_domain for producer from its root domain, while
+    // filtering out reduction.
+    std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
+        constructAllocationDomain(producer, alloc_order_map_.at(producer)));
+    // creating producer to consumer root domain map
+    std::unordered_map<IterDomain*, IterDomain*> p2c_map =
+        PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+    // map alloc_domain to consumer
+    std::transform(
+        alloc_domain.cbegin(),
+        alloc_domain.cend(),
+        alloc_domain.begin(),
+        [&p2c_map](IterDomain* id) { return p2c_map.at(id); });
+    return alloc_domain;
+  }
+
+  // propagate allocation order from producer to consumer. Returns true when
+  // producer has a recorded allocation order, false otherwise. This function
+  // assumes that all root domain in consumer can be mapped to producer.
+  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
+    if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
-      alloc_order_map_[dst] = adjustAllocationOrder(src, iter->second);
+      std::vector<IterDomain*> alloc_domain =
+          mapAllocDomainNoReductionP2C(producer, consumer);
+      // compute allocation order
+      std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
+          consumer->getMaybeRFactorDomain(), alloc_domain);
+
+      NVF_ERROR(
+          permutation.has_value(),
+          "allocation order propagation from ",
+          producer->toString(0),
+          " to ",
+          consumer->toString(0),
+          " failed!");
+      alloc_order_map_[consumer] = permutation.value();
       return true;
     }
     return false;
@@ -242,15 +233,15 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
     }
   }
 
-  // step 1: compute root domain map
-  auto in_to_out_map = PairwiseRootDomainMap(in, out).mapProducerToConsumer();
-  const auto& in_root_domain =
-      TensorDomain::noReductions(in->getMaybeRFactorDomain());
+  // step 1: computing iterdomain mapping from input to output
+  std::vector<IterDomain*> mapped_alloc_dom =
+      mapAllocDomainNoReductionP2C(in, out);
 
   // step 2: push each mapped iterdomain
-  for (auto index : adjustAllocationOrder(iter->first, iter->second)) {
-    alloc_domain.push_back(in_to_out_map.at(in_root_domain.at(index)));
-  }
+  std::copy(
+      mapped_alloc_dom.begin(),
+      mapped_alloc_dom.end(),
+      std::back_inserter(alloc_domain));
 
   // step 3: compute permutation
   std::optional<AllocationOrder> permutation =
