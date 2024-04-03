@@ -93,7 +93,7 @@ class AllocationOrderInferencer : public IterVisitor {
   bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
     if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
-      if (iter->second->empty()) {
+      if (iter->second.empty()) {
         alloc_order_map_[consumer] = {};
       }
       std::vector<IterDomain*> alloc_domain =
