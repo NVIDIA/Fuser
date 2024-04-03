@@ -308,46 +308,42 @@ Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
 
 ## 3. Implementations of Div and Mod
 
-Unfortunately, modern hardwares and programming languages does not implement
-div and mod consistent with Euclid's division lemma, although these
-implementations can be converted with Euclid's division easily. The
-implementations of div and mod depends on programming languages. The
-comparison of these implementations and their properties are discussed in the
-following paper:
+Unfortunately, modern hardwares and programming languages does not implement div and mod consistent with Euclid's division lemma,
+although these implementations can be converted with Euclid's division easily.
+The implementations of div and mod depends on programming languages.
+The comparison of these implementations and their properties are discussed in the following paper:
 
-Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
+> Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
 
-I will summarize some useful points from the above paper here, and add my own
-comments:
+I will summarize some useful points from the above paper here, and add my own comments:
 
-For a >= 0 and b > 0, all implementation of a/b and a\mathbin{\\%}b are the same and
-consistent with the Euclid's division. So no brainer in this region.
+For $a \ge 0$ and $b > 0$, all implementation of $a/b$ and $a\mathbin{\\%}b$ are the same
+and consistent with the Euclid's division.
+So no brainer in this region.
 
-Except for a few Languages (ISO Standard Pascal, Algol, Ada) all
-implementations are consistent with the fundamental division-with-remainder
-equation, although the range and sign of r can be different and the value of
-q can be different by 1. Implementations not satisfying the fundamental
-division-with-remainder equation is considered wrong because it has no
-mathematical properties. For all implementations, |a \mathbin{\\%} b| < |b|.
+Except for a few Languages (ISO Standard Pascal, Algol, Ada) all implementations are consistent with the fundamental division-with-remainder equation,
+although the range and sign of $r$ can be different and the value of $q$ can be different by $1$.
+Implementations not satisfying the fundamental division-with-remainder equation is considered wrong because it has no mathematical properties.
+For all implementations, $|a \mathbin{\\%} b| < |b|$.
 
 Common implementations are:
 
-trunc div (round to zero):
-a/b \coloneqq trunc(a \ b)
-a\mathbin{\\%}b defined by the fundamental division-with-remainder equation
+- **Truncation division (round to zero):**
+  - $a/b \coloneqq trunc(a \ b)$
+  - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
-floor div:
-a/b \coloneqq floor(a \ b)
-a\mathbin{\\%}b defined by the fundamental division-with-remainder equation
+- **floor division:**
+  - $a/b \coloneqq floor(a \ b)$
+  - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
-For C89, the result of negative div is not specified. C99 and C++ uses trunc
-div. Python and PyTorch uses floor div. We will only be interested in trunc
-div here because we use C++.
+For C89, the result of negative div is not specified. C99 and C++ uses truncation division.
+Python and PyTorch uses floor div.
+We will only be interested in truncation division in nvFuser because we use C++.
 
-The properties of trunc div are:
-1) Good: (-a)/b = -(a/b) = a/(-b)
-2) Good: (-a)\mathbin{\\%}b = -(a\mathbin{\\%}b) = a\mathbin{\\%}(-b)
-3) Bad: a \mathbin{\\%} b = a' \mathbin{\\%} b is not equivalent to a = a' \pmod b)
+The properties of truncation division are:
+1. Good: $(-a)/b = -(a/b) = a/(-b)$
+2. Good: $(-a)\mathbin{\\%}b = -(a\mathbin{\\%}b) = a\mathbin{\\%}(-b)$
+3) Bad: $a \mathbin{\\%} b = a' \mathbin{\\%} b$ is not equivalent to $a = a' \pmod b$
 
 ## 4. Properties of Div and Mod Under Trunc Div
 
@@ -366,7 +362,7 @@ representable, the expression (a/b)*b + a\mathbin{\\%}b shall equal a.
 
 Definition 6.0: For any integers a and b (b \neq 0), there exist unique
 integers q and r such that
-1) if a >= 0, 0 \le r < |b|; if a < 0, -|b| < r \le 0.
+1) if a \ge 0, 0 \le r < |b|; if a < 0, -|b| < r \le 0.
 2) a = bq + r
 We can then define a/b \coloneqq q, a\mathbin{\\%}b \coloneqq r
 
@@ -393,7 +389,7 @@ For 2), from Definition 6.0, we have
 a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b)  ... (eq 1)
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|)
-if a >= 0, then 0 \le a\mathbin{\\%}b < |b|, 0 \le (a/|b|)\mathbin{\\%}c*|b| \le (|c| - 1)|b|,
+if a \ge 0, then 0 \le a\mathbin{\\%}b < |b|, 0 \le (a/|b|)\mathbin{\\%}c*|b| \le (|c| - 1)|b|,
 as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) < |bc|,
 from Definition 6.0, we can uniquely decompose a as
 a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 2)
@@ -411,21 +407,21 @@ a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c
 Theorem 6.2: Integer div is NOT right distributive
 Proof: the same counter example as in Theorem 2.2 applies.
 
-For trunc div, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5), however,
+For trunc div, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5, however,
 -3 \mathbin{\\%} 5 = -3, but 2 \mathbin{\\%} 5 = 2.
 
 Theorem 6.3:
-1) a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a = a' = 0 \pmod b)
-2) a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0 is equivalent to a = a' \neq 0 \pmod b) and sign(a)=sign(a')
-3) a\mathbin{\\%}b = a'\mathbin{\\%}b + |b| is equivalent to a = a' \neq 0 \pmod b) and a>0 and a'<0
+1) a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a = a' = 0 \pmod b
+2) a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0 is equivalent to a = a' \neq 0 \pmod b and sign(a)=sign(a')
+3) a\mathbin{\\%}b = a'\mathbin{\\%}b + |b| is equivalent to a = a' \neq 0 \pmod b and a>0 and a'<0
 Proof: For 1):
 a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a=bq and a'=bq', which is equivalent to
 a = a' = 0 \pmod b)
 For 2) Direction ==>:
 a\mathbin{\\%}b = a'\mathbin{\\%}b is equivalent to a-(a/b)b = a'-(a'/b)b
 which is equivalent to (a-a')\b = (a/b-a'/b) = integer.
-So a\mathbin{\\%}b = a'\mathbin{\\%}b ==> a = a' \pmod b),
-also, from 1), we know that a \neq 0 \pmod b) and a' \neq 0 \pmod b)
+So a\mathbin{\\%}b = a'\mathbin{\\%}b ==> a = a' \pmod b,
+also, from 1), we know that a \neq 0 \pmod b and a' \neq 0 \pmod b
 From Definition 6.0, we know that since a\mathbin{\\%}b is not 0,there is no overlap on
 the range of a\mathbin{\\%}b for positive a and negative a. So the sign of a and a' must
 match, otherwise it is impossible to have a\mathbin{\\%}b = a'\mathbin{\\%}b.
@@ -438,10 +434,10 @@ For 3) Direction ==>:
 If a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|, then 0 < a\mathbin{\\%}b < |b| and |b| < a'\mathbin{\\%}b < 0,
 that is, a>0 and a'<0.
 Also, we have a-(a/b)b = a'-(a'/b)b + |b|, that is,
-(a-a')\b = (a/b-a'/b+sign(b)) = integer, so a = a' \pmod b)
-also, from 1), we know that a \neq 0 \pmod b) and a' \neq 0 \pmod b)
+(a-a')\b = (a/b-a'/b+sign(b)) = integer, so a = a' \pmod b
+also, from 1), we know that a \neq 0 \pmod b and a' \neq 0 \pmod b
 Direction <==:
-if a = a' \neq 0 \pmod b), then a = a' + kb.
+if a = a' \neq 0 \pmod b, then a = a' + kb.
 According to Definition 0, a' = q'b + r', where -|b| < r' \le 0.
 from 1), we know that r' \neq 0, so -|b| < r' < 0.
 So a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|.
@@ -449,7 +445,7 @@ Let q = q' + k, r = r' + |b|
 it is easy to verify that 0 < r < |b|
 Due to the uniqueness, a\mathbin{\\%}b = r' + |b|, a/b = q+k-sign(b)
 
-Theorem 6.4: a = a \mathbin{\\%} b \pmod b)
+Theorem 6.4: a = a \mathbin{\\%} b \pmod b
 Proof: According to Definition 0, (a - a \mathbin{\\%} b) \ b = q is integer
 
 Theorem 6.5: If -|a| < r < |a|, then r \mathbin{\\%} a = r, r / a = 0
@@ -459,14 +455,14 @@ Theorem 6.6: a/(-b) = -a/b, a\mathbin{\\%}(-b) = -a\mathbin{\\%}b
 Proof: See "Implementations of Div and Mod", this is a written in the paper
 
 Theorem 6.7: If compatible_sign(a, b), then (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
-where compatible_sign(a, b) is defined as ab>=0
+where compatible_sign(a, b) is defined as ab \ge 0
 Proof: According to Theorem 6.3, this is just to prove
 a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c
 Because of Theorem 6.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c,
 applying Theorem 1.3, we get what we want
 
 Theorem 6.8: If compatible_sign(a, b), then (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
-where compatible_sign(a, b) is defined as ab>=0
+where compatible_sign(a, b) is defined as ab \ge 0
 Proof: Similar to above
 
 Theorem 6.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
