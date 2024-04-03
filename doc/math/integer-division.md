@@ -136,7 +136,7 @@ This can be proved directly from Euclid's division lemma
 
 </details>
 
-**Theorem 4.6:** $a/(-b) = -a/b$, $a\mathbin{\\%}(-b) = a\mathbin{\\%}b$
+**Theorem 2.6:** $a/(-b) = -a/b$, $a\mathbin{\\%}(-b) = a\mathbin{\\%}b$
 
 <details>
 
