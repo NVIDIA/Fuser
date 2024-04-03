@@ -15,6 +15,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// performs permutation by `alloc_order` on `tv`'s rfactor_domain.
 std::vector<IterDomain*> constructAllocationDomain(
     TensorView* tv,
     const AllocationOrder& alloc_order) {
@@ -28,12 +29,6 @@ std::vector<IterDomain*> constructAllocationDomain(
   }
 
   return allocation_domain;
-}
-
-void allocationDomainUpdate(
-    TensorView* tv,
-    const AllocationOrder& alloc_order) {
-  tv->setAllocationDomain(constructAllocationDomain(tv, alloc_order), true);
 }
 
 class AllocationOrderInferencer : public IterVisitor {
@@ -57,6 +52,21 @@ class AllocationOrderInferencer : public IterVisitor {
   // void handle(ExpandOp*) override;
 
  private:
+  // mapping allocation domain from producer to consumer without reduction
+  //
+  // e.g.
+  //   producer rfactor dom [r0', i0', i1', i2'] @ allocation order {0, 1, 3, 2}
+  //    |       alloc dom [r0', i0', i2', i1']
+  //    |
+  //    Operation
+  //    |
+  //    v
+  //   consumer rfactor dom [..., i0, ..., i1, ..., i2, ...]
+  //
+  // we construct allocation domain on producer, filtering out reduction, apply
+  // root domain map from producer to consumer.
+  //   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
+  // so the function would return [i0, i2, i1]
   std::vector<IterDomain*> mapAllocDomainNoReductionP2C(
       TensorView* producer,
       TensorView* consumer) {
@@ -337,7 +347,8 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    allocationDomainUpdate(out_tv, mapped_entry->second);
+    out_tv->setAllocationDomain(
+        constructAllocationDomain(out_tv, mapped_entry->second), true);
   }
 }
 

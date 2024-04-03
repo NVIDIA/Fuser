@@ -228,20 +228,23 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor({-1, -1, -1, -1});
-  fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor({-1, 1});
-  fusion.addInput(tv1);
-  auto tv2 = sum(tv0, {1});
-  auto tv3 = sum(tv2, {1});
-  fusion.addOutput(tv3);
-  auto tv4 = add(tv1, tv3);
-  fusion.addOutput(tv4);
-  auto tv5 = broadcast(tv3, {true, false, false, true});
-  fusion.addOutput(tv5);
-
   std::vector<IterDomain*> tv0_order = {
       tv0->axis(1), tv0->axis(2), tv0->axis(3), tv0->axis(0)};
-  tv0->setAllocationDomain(tv0_order, true);
+  tv0->setAllocationDomain(tv0_order, true); // stride order: {1, 2, 3, 0}
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor({-1, 1}); // stride order: {0, 1}
+  fusion.addInput(tv1);
+  auto tv2 = sum(tv0, {1}); // stride order: {1, 2, 3, 0}
+  auto tv3 = sum(tv2, {1}); // stride order: {1, 2, 0}
+  fusion.addOutput(tv3);
+  // tv3 dominates the propagation since it has more non-broadcast dimension
+  auto tv4 = add(tv1, tv3); // stride order: {1, 0}
+  fusion.addOutput(tv4);
+  // tv5's new broadcast dimension are placed as outermost in allocation domain,
+  // it dropped the reduction dimension from tv3 and preserves other
+  // alloc_domain order from tv3. Hence tv5 has stride order: {0, 3, 2, 1}
+  auto tv5 = broadcast(tv3, {true, false, false, true});
+  fusion.addOutput(tv5);
 
   const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
   EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 2, 3, 0));
