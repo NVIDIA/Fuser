@@ -68,7 +68,7 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST_F(MatmulATenEvaluationTest, MmaOpAndCastWithTranspose) {
+TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -86,10 +86,6 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCastWithTranspose) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
-
-  fusion->printTransforms();
-  fusion->print();
-  fusion->printMath();
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
@@ -110,13 +106,9 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCastWithTranspose) {
 
   scheduleMatmul(fusion.get(), params);
 
-  // FusionExecutorCache fec(std::move(fusion));
-  // auto out = fec.runFusionWithInputs({t0, t1});
-
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
   auto out = fe.runFusion({t0, t1});
-
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
