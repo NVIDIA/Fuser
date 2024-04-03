@@ -19,10 +19,10 @@ Because unlike real numbers, integer division can be anti-intuitive:
 - $(a / b) \times c \neq a \times (c / b)$, for example: $(1 / 4) \times 256 \neq 1 \times (256 / 4)$
 
 
-## $\S 1$ A Review of Number theory
+## 1. A Review of Number theory
 
-The definition of div and mod comes from the **Division Theorem**
-(aka. the **Fundamental Division-With-Remainder Property**, aka. **Euclid's Division Lemma**)
+The definition of div and mod comes from the *Division Theorem*
+(aka. the *Fundamental Division-With-Remainder Property*, aka. *Euclid's Division Lemma*)
 described as below:
 
 **Theorem 1.1 (Division Theorem):** For any integers $a$ and $b$ ($b \neq 0$), there
@@ -35,7 +35,7 @@ $$a = (a/b)b + a\%b$$
 I will call the above equation "the fundamental division-with-remainder equation" in later contexts.
 We call this definition of division Euclidean division.
 Note that this is not how we define integer division in C++,
-as explained [later](#s-3-implementations-of-div-and-mod).
+as explained [later](#3-implementations-of-div-and-mod).
 
 A very important concept in number theory is "congruence", as described below:
 
@@ -59,13 +59,11 @@ be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
   - $ab = a'b' \pmod c$
 - if $bd = bd' \pmod c$ and $gcd(b, c) = 1$, then $d = d' \pmod c$
 
-## $\S 2$ More Theorems Of Euclidean Division
+## 2. More Theorems Of Euclidean Division
 
-In this section, I will prove a few theorems that I didn't find in textbooks,
-but still feel useful for us. The / and % are under the definition of number
-theory, not under the definition of C++. The properties of / and % with the
-definition of C++ will be revisited in later section "Properties of Div and
-Mod Under Trunc Div".
+In this section, I will prove a few theorems that I didn't find in textbooks but still feel useful for us.
+The / and % are defined under Euclidean division, not under truncation division as in C++.
+The properties of / and % under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div)
 
 Bad news comes first:
 
@@ -190,7 +188,7 @@ The second term in the above equation is 0, so we have
 0 = [(a/c + b/c) - (a+b)/c] * c
 Because c \neq 0, we have (a/c + b/c) = (a+b)/c
 
-## $\S 3$ Implementations of Div and Mod
+## 3. Implementations of Div and Mod
 
 Unfortunately, modern hardwares and programming languages does not implement
 div and mod consistent with Euclid's division lemma, although these
@@ -235,7 +233,7 @@ The properties of trunc div are:
 2) Good: (-a)%b = -(a%b) = a%(-b)
 3) Bad: a % b = a' % b is not equivalent to a = a' (mod b)
 
-## $\S 4$ Properties of Div and Mod Under Trunc Div
+## 4. Properties of Div and Mod Under Trunc Div
 
 In this section, I will study trunc div and its properties. I will first
 redefine trunc div using the same language as in Euclid's division lemma,
