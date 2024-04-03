@@ -6,7 +6,7 @@
 
 # A Brief Overview of Abstract Algebra
 
-*Note on notation: We will use $*$ instead $\times$ for multiplication. $*$ is closer to how we write code.*
+*Note on notation: We will use $\*$ instead $\times$ for multiplication. $\*$ is closer to how we write code.*
 
 The real numbers together with binary operators $+$ $-$ $*$ $/$ form a [field](https://en.wikipedia.org/wiki/Field_(mathematics)),
 which is defined by its basic properties:

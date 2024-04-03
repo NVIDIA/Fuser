@@ -7,7 +7,7 @@
 # Integer Division
 
 *Note on notation:*
-- *We will use $*$ instead $\times$ for multiplication. $*$ is closer to how we write code.*
+- *We will use $\*$ instead $\times$ for multiplication. $\*$ is closer to how we write code.*
 - *We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.*
 
 We learnt arithmetic from as early as elementary school,
