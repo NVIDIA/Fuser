@@ -67,11 +67,11 @@ class AllocationOrderInferencer : public IterVisitor {
   // root domain map from producer to consumer.
   //   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
   // so the function would return [i0, i2, i1]
-  std::vector<IterDomain*> mapAllocDomainNoReductionP2C(
+  std::vector<IterDomain*> propagateAllocationDomain(
       TensorView* producer,
       TensorView* consumer) {
     // constructing alloc_domain for producer from its root domain, while
-    // filtering out reduction because they won't appear in consumer's domain. 
+    // filtering out reduction because they won't appear in consumer's domain.
     std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
         constructAllocationDomain(producer, alloc_order_map_.at(producer)));
     // creating producer to consumer root domain map
@@ -96,7 +96,7 @@ class AllocationOrderInferencer : public IterVisitor {
     if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
       std::vector<IterDomain*> alloc_domain =
-          mapAllocDomainNoReductionP2C(producer, consumer);
+          propagateAllocationDomain(producer, consumer);
       // compute allocation order
       std::optional<AllocationOrder> permutation =
           ir_utils::computePermutation(permutation_ref, alloc_domain);
@@ -177,7 +177,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
 
     // check if current entry sets new record for num of non broadcast / non
     // reduction iterdomain
-    if (size_t non_bc_count = countLoopID(tv);
+    if (size_t non_bc_count = countLoopIterDomains(tv);
         non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
       src = tv;
@@ -253,7 +253,7 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
 
   // step 1: computing iterdomain mapping from input to output
   std::vector<IterDomain*> mapped_alloc_dom =
-      mapAllocDomainNoReductionP2C(in, out);
+      propagateAllocationDomain(in, out);
 
   // step 2: push each mapped iterdomain
   std::copy(
