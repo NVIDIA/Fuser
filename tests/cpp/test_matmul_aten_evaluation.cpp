@@ -73,7 +73,7 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
   FusionGuard fg(fusion.get());
 
   int64_t m = 32, n = 64, k = 128;
-  std::vector<int64_t> a_shape{m, k}, b_shape{n, k}, out_shape{m, n};
+  std::vector<int64_t> a_shape{m, k}, b_shape{n, k};
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
