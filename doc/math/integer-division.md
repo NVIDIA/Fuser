@@ -78,9 +78,11 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
   $5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
 
 **Theorem 2.2:** Euclidean division is NOT right distributive
+
 **Proof:** Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
 **Theorem 4.3:** $a\%b = a'\%b$ is equivalent to $a = a' \pmod b$
+
 **Proof:** Direction ==>:
 $a\%b = a'\%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
