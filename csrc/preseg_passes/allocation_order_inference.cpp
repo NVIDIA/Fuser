@@ -187,7 +187,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
       return nullptr;
     }
 
-    // skip entry that has an allocation order
+    // skip entry that has an empty allocation order
     if (iter->second.empty()) {
       // We still want to ensure that we propagate empty allocation order if
       // there's no candidate with a non-empty allocation order
