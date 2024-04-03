@@ -7,7 +7,6 @@
 # Integer Division
 
 **Note on notation:**
-- We will use $\*$ instead $\times$ for multiplication. $\*$ is closer to how we write code.
 - We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.
 
 We learnt arithmetic from as early as elementary school,
@@ -16,17 +15,17 @@ but extra care is needed when dealing with integer divisions
 (such as Euclidean division as defined in number theory, truncation division as used by C++, and floor division used by Python).
 Because unlike real numbers, integer division can be anti-intuitive:
 - $(a + b) / c \neq a/c + b/c$, for example: $(1 + 1) / 2 \neq 1/2 + 1/2$
-- $(a / b) * c \neq a / (b / c)$, for example: $(64 / 256) * 4 \neq 64 / (256 / 4)$
-- $(a / b) * c \neq a * (c / b)$, for example: $(1 / 4) * 256 \neq 1 * (256 / 4)$
+- $(a / b) \times c \neq a / (b / c)$, for example: $(64 / 256) \times 4 \neq 64 / (256 / 4)$
+- $(a / b) \times c \neq a \times (c / b)$, for example: $(1 / 4) \times 256 \neq 1 \times (256 / 4)$
 
 
-## A Review of Number theory
+## $\S 1$ A Review of Number theory
 
 The definition of div and mod comes from the **Division Theorem**
 (aka. the **Fundamental Division-With-Remainder Property**, aka. **Euclid's Division Lemma**)
 described as below:
 
-**Theorem 3.1 (Division Theorem):** For any integers $a$ and $b$ ($b \neq 0$), there
+**Theorem 1.1 (Division Theorem):** For any integers $a$ and $b$ ($b \neq 0$), there
 exist unique integers $q$ and $r$ such that:
 1. $0 \leq r < |b|$
 2. $a = bq + r$
@@ -38,11 +37,10 @@ We call this definition of division Euclidean division.
 Note that this is not how we define integer division in C++,
 as explained in later section "Implementations of Div and Mod".
 
-A very important concept in number theory is "congruence", as described
-below:
+A very important concept in number theory is "congruence", as described below:
 
-Definition 3.1: For c \neq 0, if (a-b)\c is an integer, then we say a is
-congruent to b modulo c, written as a = b (mod c).
+**Definition 1.1 (Congruent):** For $c \neq 0$, if $(a-b)\div c$ is an integer, then we say $a$ is
+congruent to $b$ modulo $c$, written as $a = b \pmod c$.
 
 Note that the "(mod k)" in the statement "a = b (mod k)" should be understood
 as a qualifier for the statement "a = b" that modifies the meaning of the
