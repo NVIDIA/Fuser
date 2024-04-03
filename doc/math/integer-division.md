@@ -189,26 +189,26 @@ This can be proved directly from Euclid's division lemma
 **<summary>Proof:</summary>**
 
 If $b$ is a multiple of $c$, then:
-$$(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$$
+$$(a \times b)\mathbin{\\%}c = a \times (b\mathbin{\\%}c) = 0$$
 
 From the fundamental division-with-remainder equation, we know that:
-$$b = (b/c)*c + b\mathbin{\\%}c \text{... (eq 1)}$$
-$$(a*b) = ((a*b)/c)*c + (a*b)\mathbin{\\%}c \text{... (eq 2)}$$
+$$b = (b/c) \times c + b\mathbin{\\%}c \text{... (eq 1)}$$
+$$(a \times b) = ((a \times b)/c) \times c + (a \times b)\mathbin{\\%}c \text{... (eq 2)}$$
 
 multiply $a$ to both side of (eq 1), we get:
-$$(a*b) = a*(b/c)*c + a*(b\mathbin{\\%}c)$$$
+$$(a \times b) = a \times (b/c) \times c + a \times (b\mathbin{\\%}c)$$$
 
 subtract (eq 2) by the above equation, we have:
-$$0 = [(a*b)/c - a*(b/c)]*c + [(a*b)\mathbin{\\%}c - a*(b\mathbin{\\%}c)]$$
+$$0 = [(a \times b)/c - a \times (b/c)] \times c + [(a \times b)\mathbin{\\%}c - a \times (b\mathbin{\\%}c)]$$
 
 The second term in the above equation is $0$, so we have
-$$0 = [(a*b)/c - a*(b/c)] * c$$
+$$0 = [(a \times b)/c - a \times (b/c)]  \times  c$$
 
-Because $c \neq 0$, we have $(a*b)/c = a*(b/c)$.
+Because $c \neq 0$, we have $(a \times b)/c = a \times (b/c)$.
 
 </details>
 
-Theorem 2.11: If $b > 0$, then $a/(b*c) = (a/b)/c$
+**Theorem 2.11:** If $b > 0$, then $a/(b \times c) = (a/b)/c$
 
 <details>
 
