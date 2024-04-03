@@ -91,24 +91,18 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1.transpose(0, 1));
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({t0, t1});
 
-  MatmulParams params;
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
+  // Verify that the io_alias_ set has the correct entry
+  kir::Kernel* kernel = executors.front().kernel();
+  EXPECT_EQ(
+      kernel->getOutputAlias(kernel->outputs()[0]).type,
+      AllocationType::Evaluate);
 
-  scheduleMatmul(fusion.get(), params);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-  auto out = fe.runFusion({t0, t1});
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
