@@ -68,6 +68,58 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+TEST_F(MatmulATenEvaluationTest, MmaOpAndCastWithTranspose) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t m = 32, n = 64, k = 128;
+  std::vector<int64_t> a_shape{m, k}, b_shape{n, k}, out_shape{m, n};
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  auto tv1_t = transpose(tv1, 0, 1);
+  auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
+  auto tv1b = broadcast(tv1_t, {true, false, false}); // [1, K, N]
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv3);
+
+  fusion->printTransforms();
+  fusion->print();
+  fusion->printMath();
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1.transpose(0,1));
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 4;
+
+  scheduleMatmul(fusion.get(), params);
+
+  // FusionExecutorCache fec(std::move(fusion));
+  // auto out = fec.runFusionWithInputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  auto out = fe.runFusion({t0, t1});
+
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
 TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
