@@ -383,7 +383,7 @@ Now let's review [the theorems of Euclidean division](#2-more-theorems-of-euclid
 how they should be modified when translating to the language of truncation division.
 Theorems will be numbered consistently, that is, theorem 4.x is the modified version of theorem 2.x.
 
-Theorem 4.1: Associativity of truncation division:
+**Theorem 4.1:** Associativity of truncation division:
 1. $a \times (b/c) \neq (a \times b)/c$
 2. $a/(b \times c) = (a/b)/c$
 3. $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
@@ -396,9 +396,13 @@ Note that for (2), it is now a "$=$" instead of a "$\neq$".
 For (1) and (3), the same counter example as in Theorem 2.1 applies.
 
 For (2), from Definition 4.0, we have
-$$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
-  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b)  ... (eq 1)
-  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)$$
+$$
+\begin{multline*}
+a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b \\
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)} \\
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)
+\end{multline*}
+$$
 
 if $a \ge 0$, then $0 \le a\mathbin{\\%}b < |b|$, $0 \le (a/|b|)\mathbin{\\%}c \times |b| \le (|c| - 1)|b|$,
 as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|,
