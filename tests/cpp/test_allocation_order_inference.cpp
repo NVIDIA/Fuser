@@ -233,6 +233,33 @@ TEST_F(AllocationOrderInferenceTest, TensorFactoryBinaryOpPropagation) {
   EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0));
 }
 
+TEST_F(AllocationOrderInferenceTest, TensorEmptyAllocationOrderPropagation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto s1 = IrBuilder::create<Val>(16L);
+  auto s2 = IrBuilder::create<Val>(32L);
+  auto fill_value = IrBuilder::create<Val>(1.0);
+  // factory method
+  auto tv1 = full({s1, s2}, fill_value, DataType::Float);
+  auto tv2 = full({s1, s2}, fill_value, DataType::Float);
+  // tv3 is produced by two tv from factory methods, where both have empty
+  // allocation order this test is to verify that empty allocation order does
+  // propagates across binary operations
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  std::vector<IterDomain*> tv0_c_last = {tv0->axis(1), tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_c_last, true);
+
+  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
+  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
+}
+
 TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
