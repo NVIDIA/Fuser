@@ -4,6 +4,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def rmsnorm_fwd_fusion(
@@ -41,9 +42,23 @@ def rmsnorm_fwd_fusion(
     fd.add_output(T15)
 
 
+def rmsnorm_fwd_fn(inputs: list):  # [inputs, weights]
+    squared_mean = (inputs[0] ** 2).mean(1, keepdim=True)
+    rms_eps = torch.sqrt(squared_mean + 1e-5)
+    return inputs[1] * (inputs[0] / rms_eps)
+
+
+def rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = in_tensor (size, dtype) + weights (size[1], dtype) +
+    #       rms_eps (size[0], float) + outputs (size, dtype)
+    return int(
+        dtype.itemsize * (2 * np.prod(size) + size[1]) + torch.float.itemsize * size[0]
+    )
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_rmsnorm_fwd_benchmark(
+def test_rmsnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -53,7 +68,7 @@ def test_rmsnorm_fwd_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = torch.randn(*size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
     with FusionDefinition() as fd:
@@ -67,3 +82,25 @@ def test_rmsnorm_fwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, weights])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_rmsnorm_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    inputs = torch.randn(size, device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+
+    run_benchmark(
+        benchmark,
+        torch.compile(rmsnorm_fwd_fn) if compile else rmsnorm_fwd_fn,
+        [inputs, weights],
+        iobytes=rmsnorm_fwd_iobytes(size, dtype),
+    )
