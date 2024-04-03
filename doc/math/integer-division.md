@@ -347,7 +347,7 @@ The properties of truncation division are:
 
 ## 4. Properties of Truncation Division
 
-In this section, I will study trunc div and its properties.
+In this section, I will study truncation division and its properties.
 I will first redefine truncation division using the same language as in Euclid's division lemma,
 which will be convenient for proving theorems.
 I will then prove that this new definition is equivalent to the definition of truncation division as described in [the previous section](#3-implementations-of-div-and-mod).
@@ -358,45 +358,51 @@ Note that the truncation division is the definition of div and mod in C and C++,
 > When integers are divided, the result of the $/$ operator is the algebraic quotient with any fractional part discarded.
 If the quotient $a/b$ is representable, the expression $(a/b)*b + a\mathbin{\\%}b$ shall equal $a$.
 
-Definition 6.0: For any integers a and b (b \neq 0), there exist unique
-integers q and r such that
-1) if a \ge 0, 0 \le r < |b|; if a < 0, -|b| < r \le 0.
-2) a = bq + r
-We can then define a/b \coloneqq q, a\mathbin{\\%}b \coloneqq r
+**Definition 4.0:** For any integers $a$ and $b$ ($b \neq 0$), there exist unique integers $q$ and $r$ such that
+1. if $a \ge 0$, $0 \le r < |b|$; if $a < 0$, $-|b| < r \le 0$.
+2. $a = bq + r$
+We can then define $a/b \coloneqq q$, $a\mathbin{\\%}b \coloneqq r$.
 
-Theorem 6.0: Definition 6.0 is equivalent to the definition of trunc div in
-section "Implementations of Div and Mod"
-Proof: trunc(a\b) is to remove the non-integer portion of a\b. To shift a by
-r, which obtains a - r, to the nearest multiple of b. To shift towards zero,
-r and a should have the same sign. Also, |r| must be smaller than |b|
-otherwise it won't be the nearest multiple of b, and this shift is unique.
-We therefore proved 1) and 2) above and the uniqueness.
+**Theorem 4.0:** Definition 4.0 is equivalent to the definition of truncation division in
+[the previous section](#3-implementations-of-div-and-mod).
 
-Now let's look at theorems in "Some More Theorems" to see how they should be
-modified when translating to the language of trunc div. Theorems will be
-numbered consistently, that is, theorem 6.x is the modified version of
-theorem 4.x.
+<details>
 
-Theorem 6.1: Associativity of trunc div:
+**<summary>Proof:</summary>**
+
+$\mathrm{trunc}(a\div b)$ is to remove the non-integer portion of $a \div b$.
+The trunction function can be implemented by shifting $a$ towards zero by $r$,
+which obtains $a - r$, to the nearest multiple of $b$.
+We are shifting towards zero if and only if $r$ and $a$ have the same sign.
+Also, $|r|$ must be smaller than $|b|$ otherwise it won't be the nearest multiple of $b$, and this shift is unique.
+We therefore proved (1) and (2) above and the uniqueness.
+
+</details>
+
+Now let's review [the theorems of Euclidean division](#2-more-theorems-of-euclidean-division) to see if they are still valid, and if not,
+how they should be modified when translating to the language of truncation division.
+Theorems will be numbered consistently, that is, theorem 4.x is the modified version of theorem 2.x.
+
+Theorem 6.1: Associativity of truncation division:
 1) a*(b/c) \neq (a*b)/c
 2) a/(b*c) = (a/b)/c
 3) a/(b/c) \neq (a/b)*c \neq (a*c)/b
 Note that for 2), it is now a "=" instead of a "\neq".
 Proof: for 1) and 3), the same counter example as in Theorem 2.1 applies.
-For 2), from Definition 6.0, we have
+For 2), from Definition 4.0, we have
 a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b)  ... (eq 1)
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|)
 if a \ge 0, then 0 \le a\mathbin{\\%}b < |b|, 0 \le (a/|b|)\mathbin{\\%}c*|b| \le (|c| - 1)|b|,
 as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) < |bc|,
-from Definition 6.0, we can uniquely decompose a as
+from Definition 4.0, we can uniquely decompose a as
 a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 2)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
 a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
 if a < 0, then -|b| < a\mathbin{\\%}b \le 0, -(|c| - 1)|b| \le ((a/|b|)\mathbin{\\%}c)*|b| \le 0,
 as a result, we have -|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) \le 0,
-from Definition 6.0, we can uniquely decompose a as
+from Definition 4.0, we can uniquely decompose a as
 a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 3)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
@@ -405,7 +411,7 @@ a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c
 Theorem 6.2: Integer div is NOT right distributive
 Proof: the same counter example as in Theorem 2.2 applies.
 
-For trunc div, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5, however,
+For truncation division, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5, however,
 -3 \mathbin{\\%} 5 = -3, but 2 \mathbin{\\%} 5 = 2.
 
 Theorem 6.3:
@@ -420,7 +426,7 @@ a\mathbin{\\%}b = a'\mathbin{\\%}b is equivalent to a-(a/b)b = a'-(a'/b)b
 which is equivalent to (a-a')\b = (a/b-a'/b) = integer.
 So a\mathbin{\\%}b = a'\mathbin{\\%}b ==> a = a' \pmod b,
 also, from 1), we know that a \neq 0 \pmod b and a' \neq 0 \pmod b
-From Definition 6.0, we know that since a\mathbin{\\%}b is not 0,there is no overlap on
+From Definition 4.0, we know that since a\mathbin{\\%}b is not 0,there is no overlap on
 the range of a\mathbin{\\%}b for positive a and negative a. So the sign of a and a' must
 match, otherwise it is impossible to have a\mathbin{\\%}b = a'\mathbin{\\%}b.
 Direction <==:
