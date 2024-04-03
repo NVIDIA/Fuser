@@ -31,18 +31,7 @@
 //   and mod in textbooks, it also describes some theorems that we proved
 //   ourselves that is useful for simplifying integer expressions.
 //
-// Note to reader: If you just want to know what rules we are using to simplify
-// integer expressions, please go to section "Summary" in the end directly. But
-// if you want to know why we are using these rules, why these rules are correct
-// and why some others are not correct, or why some rule has some specific
-// condition, please continue reading.
-//
-//
-// 7. Summary
-// ==========
-//
-// In summary, in nvFuser, we can use the following rules to simplify integer
-// expressions:
+// We can use the following rules to simplify integer expressions:
 //
 // A) Associativity of +: a + (b + c) = (a + b) + c
 // B) Associativity of *: a * (b * c) = (a * b) * c
@@ -64,6 +53,8 @@
 // P) If b is a multiple of c, then a/(b/c) = (a*c)/b
 // Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
 //    (a+b)/c = a/c + b/c
+//
+// See doc/math/integer-division.md for proofs of these rules.
 //
 // Some examples on applying the above rules to simplify expressions:
 //
@@ -106,6 +97,8 @@
 // = a
 
 // Note: [Simplification of boolean predicates]
+//
+// TODO: move this note to a markdown file.
 //
 // This note lists some rules we use to simplify boolean predicates, and provide
 // the proofs of these rules.
