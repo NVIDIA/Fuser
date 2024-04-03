@@ -70,18 +70,20 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
 2) $a/(b \times c) \neq (a/b)/c$
 3) $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
 
-**Proof:**
+<details>
+<summary>**Proof:**</summary>
 - $a \times (b/c) \neq (a \times b)/c$ because of the counter example $2 \times (3/2) \neq (2 \times 3)/2$.
 - $a/(b \times c) \neq (a/b)/c$ because of the counter example $4/((-1) \times 5) \neq (4/(-1))/5$
   (note that $4/(-5) = 0$, $(-4)/5 = -1$).
 - $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$ because of the counter example that
   $5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
+</details>
 
 **Theorem 2.2:** Euclidean division is NOT right distributive
 
 **Proof:** Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
-**Theorem 4.3:** $a\%b = a'\%b$ is equivalent to $a = a' \pmod b$
+**Theorem 2.3:** $a\%b = a'\%b$ is equivalent to $a = a' \pmod b$
 
 **Proof:** Direction ==>:
 $a\%b = a'\%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
@@ -95,10 +97,10 @@ It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
 then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
 Thanks to the uniqueness of $q$ and $r$, we have $a\%b = r = r' = a'\%b$
 
-Thanks to the great property of Theorem 4.3 some theorems below can be easily
+Thanks to the great property of Theorem 2.3 some theorems below can be easily
 proved by converting % into congruence. But unfortunately, as we can see in
 section "Implementations of Div and Mod", for the trunc div in C++, the
-beautiful Theorem 4.3 does not hold, so many theorems in this section needs
+beautiful Theorem 2.3 does not hold, so many theorems in this section needs
 to be modified in order to be used as a rule to simplify C++ integer
 expressions.
 
@@ -113,7 +115,7 @@ Proof: a = bq+r is equivalent to a = (-b)(-q) + r
 Due to the uniqueness of q and r, we get our conclusion
 
 Theorem 4.7: (a + b) % c = (a % c + b % c) % c
-Proof: According to Theorem 4.3, this is just to prove
+Proof: According to Theorem 2.3, this is just to prove
 a + b = a % c + b % c \pmod c
 Because of Theorem 4.4, we have a = a % c \pmod c, b = b % c \pmod c
 applying Theorem 3.3, we get what we need.
@@ -293,7 +295,7 @@ a/(bc) = (a/b)/c and a%(bc) = a%b + ((a/b)%c)*b
 Theorem 6.2: Integer div is NOT right distributive
 Proof: the same counter example as in Theorem 2.2 applies.
 
-For trunc div, Theorem 4.3 no longer holds, because -3 = 2 \pmod 5), however,
+For trunc div, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5), however,
 -3 % 5 = -3, but 2 % 5 = 2.
 
 Theorem 6.3:
