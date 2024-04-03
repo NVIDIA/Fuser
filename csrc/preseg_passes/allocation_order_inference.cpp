@@ -68,11 +68,11 @@ class AllocationOrderInferencer : public IterVisitor {
   // root domain map from producer to consumer.
   //   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
   // so the function would return [i0, i2, i1]
-  std::vector<IterDomain*> mapAllocDomainNoReductionP2C(
+  std::vector<IterDomain*> propagateAllocationDomain(
       TensorView* producer,
       TensorView* consumer) {
     // constructing alloc_domain for producer from its root domain, while
-    // filtering out reduction.
+    // filtering out reduction because they won't appear in consumer's domain.
     std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
         constructAllocationDomain(producer, alloc_order_map_.at(producer)));
     // creating producer to consumer root domain map
@@ -90,17 +90,20 @@ class AllocationOrderInferencer : public IterVisitor {
   // propagate allocation order from producer to consumer. Returns true when
   // producer has a recorded allocation order, false otherwise. This function
   // assumes that all root domain in consumer can be mapped to producer.
-  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
+  bool propagateAllocationOrder(
+      TensorView* producer,
+      TensorView* consumer,
+      const std::vector<IterDomain*>& permutation_ref) {
     if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
       if (iter->second.empty()) {
         alloc_order_map_[consumer] = {};
       }
       std::vector<IterDomain*> alloc_domain =
-          mapAllocDomainNoReductionP2C(producer, consumer);
+          propagateAllocationDomain(producer, consumer);
       // compute allocation order
-      std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-          consumer->getMaybeRFactorDomain(), alloc_domain);
+      std::optional<AllocationOrder> permutation =
+          ir_utils::computePermutation(permutation_ref, alloc_domain);
 
       NVF_ERROR(
           permutation.has_value(),
@@ -113,6 +116,11 @@ class AllocationOrderInferencer : public IterVisitor {
       return true;
     }
     return false;
+  }
+
+  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
+    return propagateAllocationOrder(
+        producer, consumer, consumer->getMaybeRFactorDomain());
   }
 
   // Returns the candidate operand that dominates the allocation order.
@@ -154,7 +162,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
 
   // helper utils to count the number of non broadcast / non reduction
   // iterdomain
-  auto countLoopID = [](const TensorView* tv) -> size_t {
+  auto countLoopIterDomains = [](const TensorView* tv) -> size_t {
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
         tv->getMaybeRFactorDomain().end(),
@@ -187,7 +195,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
 
     // check if current entry sets new record for num of non broadcast / non
     // reduction iterdomain
-    if (size_t non_bc_count = countLoopID(tv);
+    if (size_t non_bc_count = countLoopIterDomains(tv);
         non_bc_count > non_bc_high_water_mark) {
       non_bc_high_water_mark = non_bc_count;
       src = tv;
@@ -275,7 +283,7 @@ void AllocationOrderInferencer::handle(BroadcastOp* op) {
 
   // step 1: computing iterdomain mapping from input to output
   std::vector<IterDomain*> mapped_alloc_dom =
-      mapAllocDomainNoReductionP2C(in, out);
+      propagateAllocationDomain(in, out);
 
   // step 2: push each mapped iterdomain
   std::copy(
@@ -312,7 +320,9 @@ void AllocationOrderInferencer::handle(TernaryOp* op) {
 void AllocationOrderInferencer::handle(PadOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   auto* in = dynamic_cast<TensorView*>(op->in());
-  propagateAllocationOrder(in, out);
+  // Note: `out` from pad has rfactor domain that cannot be mapped back to
+  // `in`'s domain. Hence we use `out`'s root domain to match permutation.
+  propagateAllocationOrder(in, out, out->getRootDomain());
 }
 
 void AllocationOrderInferencer::handle(ReductionOp* op) {
