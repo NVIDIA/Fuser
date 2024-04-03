@@ -126,12 +126,26 @@ According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is in
 
 </details>
 
-Theorem 4.5: if 0 <= r < |a|, then r \mathbin{\\%} a = r, r / a = 0
-Proof: This can be proved directly from Euclid's division lemma
+**Theorem 2.5:** if $0 <= r < |a|$, then $r \mathbin{\\%} a = r$, $r / a = 0$
 
-Theorem 4.6: a/(-b) = -a/b, a\mathbin{\\%}(-b) = a\mathbin{\\%}b
-Proof: a = bq+r is equivalent to a = (-b)(-q) + r
-Due to the uniqueness of q and r, we get our conclusion
+<details>
+
+**<summary>Proof:</summary>**
+
+This can be proved directly from Euclid's division lemma
+
+</details>
+
+**Theorem 4.6:** $a/(-b) = -a/b$, $a\mathbin{\\%}(-b) = a\mathbin{\\%}b$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+$a = bq+r$ is equivalent to $a = (-b)(-q) + r$
+Due to the uniqueness of $q$ and $r$, we get our conclusion
+
+</details>
 
 Theorem 4.7: (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
 Proof: According to Theorem 2.3, this is just to prove
@@ -197,7 +211,7 @@ The second term in the above equation is 0, so we have
 because b \neq 0, we get a/(b/c) = (ac)/b
 
 Theorem 2.15: If a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then (a+b)/c = a/c + b/c
-Proof: From Theorem 4.7 and Theorem 4.5, we have
+Proof: From Theorem 4.7 and Theorem 2.5, we have
 (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
 From the fundamental division-with-remainder equation, we have:
 (a + b) = ((a + b) / c) * c + (a + b) \mathbin{\\%} c
