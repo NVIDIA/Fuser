@@ -61,39 +61,36 @@ be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
 
 ## 2. More Theorems Of Euclidean Division
 
-In this section, I will prove a few theorems that I didn't find in textbooks but still feel useful for us.
-The / and % are defined under Euclidean division, not under truncation division as in C++.
-The properties of / and % under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div)
+In this section, I will prove a few more theorems that I didn't find in textbooks but still feel useful for us.
+The $/$ and $\%$ are defined under Euclidean division, not under truncation division as in C++.
+The properties of $/$ and $\%$ under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div).
 
-Bad news comes first:
+**Theorem 2.1:** Euclidean division is NOT associative:
+1) $a \times (b/c) \neq (a \times b)/c$
+2) $a/(b \times c) \neq (a/b)/c$
+3) $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
 
-Theorem 4.1: Integer div is not associative:
-1) a*(b/c) \neq (a*b)/c
-2) a/(b*c) \neq (a/b)/c
-3) a/(b/c) \neq (a/b)*c \neq (a*c)/b
-Proof: a*(b/c) \neq (a*b)/c because of the counter example 2*(3/2) \neq (2*3)/2
-a/(b*c) \neq (a/b)/c because of the counter example 4/((-1)*5) \neq (4/(-1))/5
-Note that 4/(-5) = 0, (-4)/5 = -1
-a/(b/c) \neq (a/b)*c \neq (a*c)/b because of the counter example that
-5/(3/2), (5/3)*2, and (5*2)/3 are three different numbers
+**Proof:** $a \times (b/c) \neq (a \times b)/c$ because of the counter example $2 \times (3/2) \neq (2 \times 3)/2$.
+$a/(b \times c) \neq (a/b)/c$ because of the counter example $4/((-1) \times 5) \neq (4/(-1))/5$
+(note that $4/(-5) = 0$, $(-4)/5 = -1$).
+$a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$ because of the counter example that
+$5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
 
-Theorem 4.2: Integer div is NOT right distributive
-Proof: Counter example: (1+1)/2 \neq 1/2 + 1/2
+**Theorem 2.2:** Euclidean division is NOT right distributive
+**Proof:** Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
-Then comes good properties:
-
-Theorem 4.3: a%b = a'%b is equivalent to a = a' (mod b)
-Proof: Direction ==>:
-a%b = a'%b is equivalent to a-(a/b)b = a'-(a'/b)b
-which is equivalent to (a-a')\b = (a/b-a'/b) = integer
-So a%b = a'%b ==> a = a' (mod b)
+**Theorem 4.3:** $a\%b = a'\%b$ is equivalent to $a = a' \pmod b$
+**Proof:** Direction ==>:
+$a\%b = a'\%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
+which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
+So $a\%b = a'\%b$ ==> $a = a' \pmod b$
 Direction <==:
-if a = a' (mod b), then a = a' + kb.
-According to the Euclid's division lemma, a' = q'b + r',
-then a = (q'+k)b + r', where q'+k and r'. It is easy to verify that, if we
-define q = q'+k and r = r', then a = qb + r also satisfies the condition in
-Euclid's division lemma. Thanks to the uniqueness of q and r, we have
-a%b = r = r' = a'%b
+if $a = a' \pmod b$, then $a = a' + kb$.
+According to the Euclid's division lemma, $a' = q'b + r'$,
+then $a = (q'+k)b + r'$, where $q'+k$ and $r'$.
+It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
+then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
+Thanks to the uniqueness of $q$ and $r$, we have $a\%b = r = r' = a'\%b$
 
 Thanks to the great property of Theorem 4.3 some theorems below can be easily
 proved by converting % into congruence. But unfortunately, as we can see in
@@ -102,7 +99,7 @@ beautiful Theorem 4.3 does not hold, so many theorems in this section needs
 to be modified in order to be used as a rule to simplify C++ integer
 expressions.
 
-Theorem 4.4: a = a % b (mod b)
+Theorem 4.4: a = a % b \pmod b)
 Proof: According to Euclid's division lemma, (a - a % b) \ b = q is integer
 
 Theorem 4.5: if 0 <= r < |a|, then r % a = r, r / a = 0
@@ -124,7 +121,7 @@ Proof: Similar to above
 Theorem 4.9: If a is a multiple of b, then a % b = 0
 Proof: This can be proved directly from Euclid's division lemma
 
-Theorem 4.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
+Theorem 2.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
 Proof: If b is a multiple of c, then (a*b)%c = a*(b%c) = 0
 From the fundamental division-with-remainder equation, we know that:
 b = (b/c)*c + b%c ... (eq 1)
@@ -137,7 +134,7 @@ The second term in the above equation is 0, so we have
 0 = [(a*b)/c - a*(b/c)] * c
 Because c \neq 0, we have (a*b)/c = a*(b/c)
 
-Theorem 4.11: If b > 0, then a/(b*c) = (a/b)/c
+Theorem 2.11: If b > 0, then a/(b*c) = (a/b)/c
 Proof: from the fundamental division-with-remainder equation, we have
 a = (a/b)b + a%b = (((a/b)/c)c + (a/b)%c)b + a%b
   = ((a/b)/c)*bc + (a%b + ((a/b)%c)*b) ... (eq 1)
@@ -149,21 +146,21 @@ since a%b + ((a/b)%c)*b is in the correct range of a%(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2) have
 a/(bc) = (a/b)/c and a%(bc) = a%b + ((a/b)%c)*b
 
-Theorem 4.12: If b > 0, then a % (b * c) = a % b + ((a / b) % c) * b
-Proof: Already proved in the proof of Theorem 4.11
+Theorem 2.12: If b > 0, then a % (b * c) = a % b + ((a / b) % c) * b
+Proof: Already proved in the proof of Theorem 2.11
 
-Theorem 4.13: If d > 0 and d divides a and b, then
+Theorem 2.13: If d > 0 and d divides a and b, then
 a % b = ((a / d) % (b / d)) * d
 Proof: From the fundamental division-with-remainder equation, we have
 b = d * (b / d), then a % b = a % (d * (b / d))
-From Theorem 4.12, we have:
+From Theorem 2.12, we have:
 a % b = a % (d * (b / d)) = a % d + ((a / d) % (b / d)) * d
 according to Theorem 4.9, a % d = 0, so we have
 a % b = ((a / d) % (b / d)) * d
 
-Theorem 4.14: If b is a multiple of c and c > 0, then a/(b/c) = (a*c)/b
+Theorem 2.14: If b is a multiple of c and c > 0, then a/(b/c) = (a*c)/b
 Proof: If b is a multiple of c, then we have b % c = 0
-Also, according to Theorem 4.13, (ac) % b = (a % (b / c)) * c
+Also, according to Theorem 2.13, (ac) % b = (a % (b / c)) * c
 From the fundamental division-with-remainder equation, we have:
 ac = ((ac)/b)b + (ac)%b ... (eq 1)
 a = (a/(b/c))(b/c) + a%(b/c) ... (eq 2)
@@ -175,7 +172,7 @@ The second term in the above equation is 0, so we have
 0 = [a/(b/c) - (ac)/b] * b
 because b \neq 0, we get a/(b/c) = (ac)/b
 
-Theorem 4.15: If a % c + b % c < |c|, then (a+b)/c = a/c + b/c
+Theorem 2.15: If a % c + b % c < |c|, then (a+b)/c = a/c + b/c
 Proof: From Theorem 4.7 and Theorem 4.5, we have
 (a + b) % c = (a % c + b % c) % c = a % c + b % c
 From the fundamental division-with-remainder equation, we have:
@@ -197,9 +194,7 @@ implementations of div and mod depends on programming languages. The
 comparison of these implementations and their properties are discussed in the
 following paper:
 
-Boute, Raymond T. "The Euclidean definition of the functions div and mod."
-ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992):
-127-144.
+Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
 
 I will summarize some useful points from the above paper here, and add my own
 comments:
@@ -231,7 +226,7 @@ div here because we use C++.
 The properties of trunc div are:
 1) Good: (-a)/b = -(a/b) = a/(-b)
 2) Good: (-a)%b = -(a%b) = a%(-b)
-3) Bad: a % b = a' % b is not equivalent to a = a' (mod b)
+3) Bad: a % b = a' % b is not equivalent to a = a' \pmod b)
 
 ## 4. Properties of Div and Mod Under Trunc Div
 
@@ -272,7 +267,7 @@ Theorem 6.1: Associativity of trunc div:
 2) a/(b*c) = (a/b)/c
 3) a/(b/c) \neq (a/b)*c \neq (a*c)/b
 Note that for 2), it is now a "=" instead of a "\neq".
-Proof: for 1) and 3), the same counter example as in Theorem 4.1 applies.
+Proof: for 1) and 3), the same counter example as in Theorem 2.1 applies.
 For 2), from Definition 6.0, we have
 a = (a/b)b + a%b = (((a/b)/c)c + (a/b)%c)b + a%b
   = ((a/b)/c)*bc + (a%b + ((a/b)%c)*b)  ... (eq 1)
@@ -293,28 +288,28 @@ uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
 a/(bc) = (a/b)/c and a%(bc) = a%b + ((a/b)%c)*b
 
 Theorem 6.2: Integer div is NOT right distributive
-Proof: the same counter example as in Theorem 4.2 applies.
+Proof: the same counter example as in Theorem 2.2 applies.
 
-For trunc div, Theorem 4.3 no longer holds, because -3 = 2 (mod 5), however,
+For trunc div, Theorem 4.3 no longer holds, because -3 = 2 \pmod 5), however,
 -3 % 5 = -3, but 2 % 5 = 2.
 
 Theorem 6.3:
-1) a%b = a'%b = 0 is equivalent to a = a' = 0 (mod b)
-2) a%b = a'%b \neq 0 is equivalent to a = a' \neq 0 (mod b) and sign(a)=sign(a')
-3) a%b = a'%b + |b| is equivalent to a = a' \neq 0 (mod b) and a>0 and a'<0
+1) a%b = a'%b = 0 is equivalent to a = a' = 0 \pmod b)
+2) a%b = a'%b \neq 0 is equivalent to a = a' \neq 0 \pmod b) and sign(a)=sign(a')
+3) a%b = a'%b + |b| is equivalent to a = a' \neq 0 \pmod b) and a>0 and a'<0
 Proof: For 1):
 a%b = a'%b = 0 is equivalent to a=bq and a'=bq', which is equivalent to
-a = a' = 0 (mod b)
+a = a' = 0 \pmod b)
 For 2) Direction ==>:
 a%b = a'%b is equivalent to a-(a/b)b = a'-(a'/b)b
 which is equivalent to (a-a')\b = (a/b-a'/b) = integer.
-So a%b = a'%b ==> a = a' (mod b),
-also, from 1), we know that a \neq 0 (mod b) and a' \neq 0 (mod b)
+So a%b = a'%b ==> a = a' \pmod b),
+also, from 1), we know that a \neq 0 \pmod b) and a' \neq 0 \pmod b)
 From Definition 6.0, we know that since a%b is not 0,there is no overlap on
 the range of a%b for positive a and negative a. So the sign of a and a' must
 match, otherwise it is impossible to have a%b = a'%b.
 Direction <==:
-if a = a' (mod b), then a = a' + kb.
+if a = a' \pmod b), then a = a' + kb.
 According to Definition 0, a' = q'b + r', then a = (q'+k)b + r'.
 Because sign(a)=sign(a'), if r' is in the correct range for a', then it will
 also be in the correct range for a. Due to the uniqueness, a%b = r' = a'%b
@@ -322,10 +317,10 @@ For 3) Direction ==>:
 If a%b = a'%b + |b|, then 0 < a%b < |b| and |b| < a'%b < 0,
 that is, a>0 and a'<0.
 Also, we have a-(a/b)b = a'-(a'/b)b + |b|, that is,
-(a-a')\b = (a/b-a'/b+sign(b)) = integer, so a = a' (mod b)
-also, from 1), we know that a \neq 0 (mod b) and a' \neq 0 (mod b)
+(a-a')\b = (a/b-a'/b+sign(b)) = integer, so a = a' \pmod b)
+also, from 1), we know that a \neq 0 \pmod b) and a' \neq 0 \pmod b)
 Direction <==:
-if a = a' \neq 0 (mod b), then a = a' + kb.
+if a = a' \neq 0 \pmod b), then a = a' + kb.
 According to Definition 0, a' = q'b + r', where -|b| < r' <= 0.
 from 1), we know that r' \neq 0, so -|b| < r' < 0.
 So a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|.
@@ -333,7 +328,7 @@ Let q = q' + k, r = r' + |b|
 it is easy to verify that 0 < r < |b|
 Due to the uniqueness, a%b = r' + |b|, a/b = q+k-sign(b)
 
-Theorem 6.4: a = a % b (mod b)
+Theorem 6.4: a = a % b \pmod b)
 Proof: According to Definition 0, (a - a % b) \ b = q is integer
 
 Theorem 6.5: If -|a| < r < |a|, then r % a = r, r / a = 0
@@ -357,7 +352,7 @@ Theorem 6.9: If a is a multiple of b, then a % b = 0
 Proof:  This can be proved directly from Euclid's division lemma
 
 Theorem 6.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
-Proof: Same proof as 4.10
+Proof: Same proof as 2.10
 
 Theorem 6.11: a/(b*c) = (a/b)/c
 Proof: This is part of Theorem 6.1
@@ -366,13 +361,13 @@ Theorem 6.12: a % (b * c) = a % b + ((a / b) % c) * b
 Proof: Already proved in the proof of Theorem 6.1
 
 Theorem 6.13: If d divides a and b, then a % b = ((a / d) % (b / d)) * d
-Proof: Same proof as 4.13
+Proof: Same proof as 2.13
 
 Theorem 6.14: If b is a multiple of c, then a/(b/c) = (a*c)/b
-Proof: Same proof as 4.14
+Proof: Same proof as 2.14
 
 Theorem 6.15: If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
 (a+b)/c = a/c + b/c
 Proof: From Theorem 6.7 and Theorem 6.5
 (a + b) % c = (a % c + b % c) % c = a % c + b % c
-The rest of the proof is the same as 4.15
+The rest of the proof is the same as 2.15
