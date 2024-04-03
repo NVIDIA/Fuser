@@ -2394,8 +2394,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inps[0])
             t1 = fd.from_pytorch(inps[1])
             t2 = fd.ops.matmul(t0, t1)
-            t3 = fd.ops.cast(t2, dtype=DataType.Half)
-            fd.add_output(t3)
+            fd.add_output(t2)
 
         for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
             nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
