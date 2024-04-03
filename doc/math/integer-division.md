@@ -527,8 +527,7 @@ See [the previous section](#3-implementations-of-div-and-mod), this is written i
 
 </details>
 
-**Theorem 4.7:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$.
-
+**Theorem 4.7:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$,
 where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
@@ -544,8 +543,7 @@ applying Theorem 1.3, we get what we want.
 
 </details>
 
-**Theorem 4.8:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
-
+**Theorem 4.8:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$,
 where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
@@ -602,7 +600,7 @@ Already proved in the proof of Theorem 4.1.
 
 **<summary>Proof:</summary>**
 
-Same proof as 2.13
+Same proof as 2.13.
 
 </details>
 
@@ -612,7 +610,7 @@ Same proof as 2.13
 
 **<summary>Proof:</summary>**
 
-Proof: Same proof as 2.14
+Proof: Same proof as 2.14.
 
 </details>
 
@@ -625,6 +623,6 @@ then $(a+b)/c = a/c + b/c$.
 
 From Theorem 4.7 and Theorem 4.5
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
-The rest of the proof is the same as 2.15
+The rest of the proof is the same as 2.15.
 
 </details>
