@@ -397,13 +397,13 @@ Note that for (2), it is now a " $=$ " instead of a " $\neq$ ".
 For (1) and (3), the same counter example as in Theorem 2.1 applies.
 
 For (2), from Definition 4.0, we have
-$$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b)$$
+$$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)}$$
 which can also be written as
-$$a = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) \text{ ... (eq 1)}$$
+$$a = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)$$
 
 If $a \ge 0$, then
 $$0 \le a\mathbin{\\%}b < |b|$$
-$$0 \le (a/|b|)\mathbin{\\%}c \times |b| \le (|c| - 1)|b|$$
+$$0 \le ((a/b)\mathbin{\\%}c) \times b = ((a/|b|)\mathbin{\\%}c) \times |b| \le (|c| - 1)|b|$$
 as a result, we have
 $$0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|$$
 
@@ -416,7 +416,7 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 If $a < 0$, then
 $$-|b| < a\mathbin{\\%}b \le 0$$
-$$-(|c| - 1)|b| \le ((a/|b|)\mathbin{\\%}c) \times |b| \le 0$$
+$$-(|c| - 1)|b| \le ((a/b)\mathbin{\\%}c) \times b = ((a/|b|)\mathbin{\\%}c) \times |b| \le 0$$
 as a result, we have
 $$-|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) \le 0$$
 
