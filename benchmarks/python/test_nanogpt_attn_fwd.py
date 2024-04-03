@@ -88,7 +88,7 @@ def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_nanogpt_attn_fwd_benchmark(
+def test_nanogpt_attn_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
