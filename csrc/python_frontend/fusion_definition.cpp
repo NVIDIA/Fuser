@@ -134,6 +134,7 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
 
+#ifdef NVFUSER_DISTRIBUTED
   if (!multidevice_flag) {
     user_sched_->executor->compileFusion(
         user_sched_->schedule.get(),
@@ -141,6 +142,7 @@ void FusionDefinition::finalizeSchedule(
         user_sched_->fusion_id_,
         user_sched_->device_id_);
   }
+#endif
   user_sched_ = nullptr;
 }
 
@@ -165,7 +167,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool override_user_schedule,
     bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
-  static std::unique_ptr<Communicator> comm = nullptr;
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -174,6 +175,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
+#ifdef NVFUSER_DISTRIBUTED
+  static std::unique_ptr<Communicator> comm = nullptr;
   if (multidevice_flag) {
     if (comm == nullptr) {
       comm = std::make_unique<Communicator>();
@@ -190,6 +193,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
     return multi_device_executor->runWithInput(inputs.vec());
   }
+#endif
 
   std::vector<at::Tensor> outputs;
 

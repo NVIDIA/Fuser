@@ -185,7 +185,11 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Experimental API we'll redo this later!
   void setMultiDevice() {
+#ifdef NVFUSER_DISTRIBUTED
     multidevice_flag = true;
+#else
+    NVF_ERROR(false, "nvfuser is not built with multidevice support!");
+#endif
   }
 
  private:
@@ -247,6 +251,7 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
 
+#ifdef NVFUSER_DISTRIBUTED
   //! DO NOT COMMIT TO THESE CHANGES!
   //! The reason we have these is due to the lack of cache for multidevice
   //! executor
@@ -255,6 +260,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! The reason we have these is due to the lack of cache for multidevice
   //! executor
   mutable std::unique_ptr<MultiDeviceExecutor> multi_device_executor = nullptr;
+#endif
 };
 
 } // namespace nvfuser::python_frontend
