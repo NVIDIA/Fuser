@@ -71,7 +71,7 @@ class AllocationOrderInferencer : public IterVisitor {
       TensorView* producer,
       TensorView* consumer) {
     // constructing alloc_domain for producer from its root domain, while
-    // filtering out reduction.
+    // filtering out reduction because they won't appear in consumer's domain. 
     std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
         constructAllocationDomain(producer, alloc_order_map_.at(producer)));
     // creating producer to consumer root domain map
@@ -154,7 +154,7 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
 
   // helper utils to count the number of non broadcast / non reduction
   // iterdomain
-  auto countLoopID = [](const TensorView* tv) -> size_t {
+  auto countLoopIterDomains = [](const TensorView* tv) -> size_t {
     return std::count_if(
         tv->getMaybeRFactorDomain().begin(),
         tv->getMaybeRFactorDomain().end(),
