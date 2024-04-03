@@ -30,7 +30,7 @@ exist unique integers $q$ and $r$ such that:
 1. $0 \leq r < |b|$
 2. $a = bq + r$
 
-if we define $a/b \coloneqq q$, and $a \mathbin{\%} b \coloneqq r$, then we can write (2) as:
+if we define $a/b \coloneqq q$, and $a \mathbin{\\%} b \coloneqq r$, then we can write (2) as:
 $$a = (a/b)b + a\%b$$
 I will call the above equation "the fundamental division-with-remainder equation" in later contexts.
 We call this definition of division Euclidean division.
