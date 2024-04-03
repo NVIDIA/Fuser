@@ -16,11 +16,8 @@ inputs = [
     torch.randn(2, 4, device="cuda")[rank : rank + 1, ...],
 ]
 
-
 # dynamic shape isn't supported;
 # scalar inputs isn't supported;
-
-
 class MultiDeviceModel(FusionDefinition):
     def definition(self):
         self.t0 = self.define_tensor((2, 4), (False, False), dtype=DataType.Float)
@@ -35,17 +32,11 @@ class MultiDeviceModel(FusionDefinition):
         self.sched._set_device_mesh(self.t2, self.mesh)
         self.sched._parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
-
 fn = MultiDeviceModel()
 
-# Repro code
 o = fn.execute(inputs)
 
-# multiple execution seems to be triggering a sync issue. at least the output doesn't look right
-# torch.cuda.profiler.start()
-# for i in range(3):
-#    o = fn.execute(inputs)
-# torch.cuda.profiler.stop()
+for i in range(3):
+   o = fn.execute(inputs)
 
-print("input with rank\t", rank, "\t", inputs)
-print("output with rank\t", rank, "\t", o)
+assert((inputs[0]*2).relu().allclose(o[0][rank]))
