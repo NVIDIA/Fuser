@@ -7,7 +7,7 @@
 # Integer Division
 
 **Note on notation:**
-- We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.
+- We use $\div$ for true division, and $/$ for integer division (which may refer to different things in different sections). For example, $5\div 2 = 2.5$, $5/2=2$.
 
 We learnt arithmetic from as early as elementary school,
 and have been used to simplify expressions using rules like $a(b+c) = ab+ac$,
@@ -63,7 +63,7 @@ be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
 
 In this section, I will prove a few more theorems that I didn't find in textbooks but still feel useful for us.
 The $/$ and $\mathbin{\\%}$ are defined under Euclidean division, not under truncation division as in C++.
-The properties of $/$ and $\mathbin{\\%}$ under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div).
+The properties of $/$ and $\mathbin{\\%}$ under truncation division will be revisited [later](#4-properties-of-truncation-division).
 
 **Theorem 2.1:** Euclidean division is NOT associative:
 1) $a \times (b/c) \neq (a \times b)/c$
@@ -329,15 +329,15 @@ For all implementations, $|a \mathbin{\\%} b| < |b|$.
 Common implementations are:
 
 - **truncation division (round to zero):**
-  - $a/b \coloneqq trunc(a \ b)$
+  - $a/b \coloneqq \mathrm{trunc}(a \ b)$
   - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
 - **floor division:**
-  - $a/b \coloneqq floor(a \ b)$
+  - $a/b \coloneqq \mathrm{floor}(a \ b)$
   - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
-For C89, the result of negative div is not specified. C99 and C++ uses truncation division.
-Python and PyTorch uses floor div.
+For C89, the result of negative division is not specified. C99 and C++ uses truncation division.
+Python and PyTorch uses floor division.
 We will only be interested in truncation division in nvFuser because we use C++.
 
 The properties of truncation division are:
@@ -347,18 +347,16 @@ The properties of truncation division are:
 
 ## 4. Properties of Truncation Division
 
-In this section, I will study trunc div and its properties. I will first
-redefine trunc div using the same language as in Euclid's division lemma,
-which will be convenient for proving theorems. I will then prove that this
-new definition is equivalent to the definition of trunc div as described in
-section "Implementations of Div and Mod". Then I will study the theorems in
-section "Some More Theorems" to find out which is true and which needs
-change. All / and \mathbin{\\%} in this section are using trunc div.
+In this section, I will study trunc div and its properties.
+I will first redefine truncation division using the same language as in Euclid's division lemma,
+which will be convenient for proving theorems.
+I will then prove that this new definition is equivalent to the definition of truncation division as described in [the previous section](#3-implementations-of-div-and-mod).
+Then I will study the theorems in [section 2](#2-more-theorems-of-euclidean-division) to find out which is true and which needs change.
+All $/$ and $\mathbin{\\%}$ in this section are using truncation division.
 
-Note that the trunc div is the definition of div and mod in C and C++, as C99
-standard says: When integers are divided, the result of the / operator is the
-algebraic quotient with any fractional part discarded. If the quotient a/b is
-representable, the expression (a/b)*b + a\mathbin{\\%}b shall equal a.
+Note that the truncation division is the definition of div and mod in C and C++, as C99 standard says:
+> When integers are divided, the result of the $/$ operator is the algebraic quotient with any fractional part discarded.
+If the quotient $a/b$ is representable, the expression $(a/b)*b + a\mathbin{\\%}b$ shall equal $a$.
 
 Definition 6.0: For any integers a and b (b \neq 0), there exist unique
 integers q and r such that
