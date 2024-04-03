@@ -527,9 +527,9 @@ See [the previous section](#3-implementations-of-div-and-mod), this is written i
 
 </details>
 
-**Theorem 4.7:** If $\mathrm{compatible\_sign}(a, b)$, then $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$.
+**Theorem 4.7:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$.
 
-where $\mathrm{compatible\_sign}(a, b)$ is defined as $ab \ge 0$.
+where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
 
@@ -544,9 +544,9 @@ applying Theorem 1.3, we get what we want.
 
 </details>
 
-**Theorem 4.8:** If $\mathrm{compatible\_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
+**Theorem 4.8:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
 
-where $\mathrm{compatible\_sign}(a, b)$ is defined as $ab \ge 0$.
+where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
 
@@ -616,7 +616,7 @@ Proof: Same proof as 2.14
 
 </details>
 
-**Theorem 4.15:** If $\mathrm{compatible\_sign}(a, b)$ and $-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$,
+**Theorem 4.15:** If $\mathrm{compatible\\_sign}(a, b)$ and $-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$,
 then $(a+b)/c = a/c + b/c$.
 
 <details>
