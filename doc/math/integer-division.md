@@ -527,46 +527,104 @@ See [the previous section](#3-implementations-of-div-and-mod), this is written i
 
 </details>
 
-Theorem 4.7: If compatible_sign(a, b), then (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
-where compatible_sign(a, b) is defined as ab \ge 0
+**Theorem 4.7:** If $\mathrm{compatible_sign}(a, b)$, then $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$.
 
-Proof: According to Theorem 4.3, this is just to prove
-a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c
-Because of Theorem 4.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c,
-applying Theorem 1.3, we get what we want
+where $\mathrm{compatible_sign}(a, b)$ is defined as $ab \ge 0$.
 
-Theorem 4.8: If compatible_sign(a, b), then (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
-where compatible_sign(a, b) is defined as ab \ge 0
+<details>
 
-Proof: Similar to above
+**<summary>Proof:</summary>**
 
-Theorem 4.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
+According to Theorem 4.3, this is just to prove
+$$a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c$$
+Because of Theorem 4.4, we have
+$$a = a \mathbin{\\%} c \pmod c$$
+$$b = b \mathbin{\\%} c \pmod c$$
+applying Theorem 1.3, we get what we want.
 
-Proof:  This can be proved directly from Euclid's division lemma
+</details>
 
-Theorem 4.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
+**Theorem 4.8:** If $\mathrm{compatible_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
 
-Proof: Same proof as 2.10
+where $\mathrm{compatible_sign}(a, b)$ is defined as $ab \ge 0$.
 
-Theorem 4.11: a/(b*c) = (a/b)/c
+<details>
 
-Proof: This is part of Theorem 4.1
+**<summary>Proof:</summary>**
 
-Theorem 4.12: a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
+Similar to above.
 
-Proof: Already proved in the proof of Theorem 4.1
+</details>
 
-Theorem 4.13: If d divides a and b, then a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+**Theorem 4.9:** If $a$ is a multiple of $b$, then $a \mathbin{\\%} b = 0$.
 
-Proof: Same proof as 2.13
+<details>
 
-Theorem 4.14: If b is a multiple of c, then a/(b/c) = (a*c)/b
+**<summary>Proof:</summary>**
+
+This can be proved directly from Euclid's division lemma.
+
+</details>
+
+**Theorem 4.10:** If $b$ is a multiple of $c$, then we have: $a \times (b/c) = (a \times b)/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Same proof as 2.10.
+
+</details>
+
+**Theorem 4.11:** $a/(b \times c) = (a/b)/c$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+This is part of Theorem 4.1.
+
+</details>
+
+**Theorem 4.12:** $a \mathbin{\\%} (b \times c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c)  \times b$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Already proved in the proof of Theorem 4.1.
+
+</details>
+
+**Theorem 4.13:** If $d$ divides $a$ and $b$, then $a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Same proof as 2.13
+
+</details>
+
+**Theorem 4.14:** If $b$ is a multiple of $c$, then $a/(b/c) = (a \times c)/b$.
+
+<details>
+
+**<summary>Proof:</summary>**
 
 Proof: Same proof as 2.14
 
-Theorem 4.15: If compatible_sign(a, b) and -|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then
-(a+b)/c = a/c + b/c
+</details>
 
-Proof: From Theorem 4.7 and Theorem 4.5
-(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
+**Theorem 4.15:** If $\mathrm{compatible_sign}(a, b)$ and $-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$,
+then $(a+b)/c = a/c + b/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+From Theorem 4.7 and Theorem 4.5
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
 The rest of the proof is the same as 2.15
+
+</details>
