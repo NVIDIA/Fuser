@@ -71,6 +71,7 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
 3) $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$
 
 <details>
+
 **<summary>Proof</summary>**
 
 **Proof:**
