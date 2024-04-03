@@ -101,14 +101,14 @@ Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 Direction ==>:
 $a\mathbin{\\%}b = a'\mathbin{\\%}b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
-So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$
+So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$.
 Direction <==:
 if $a = a' \pmod b$, then $a = a' + kb$.
 According to the Euclid's division lemma, $a' = q'b + r'$,
 then $a = (q'+k)b + r'$, where $q'+k$ and $r'$.
 It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
 then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
-Thanks to the uniqueness of $q$ and $r$, we have $a\mathbin{\\%}b = r = r' = a'\mathbin{\\%}b$
+Thanks to the uniqueness of $q$ and $r$, we have $a\mathbin{\\%}b = r = r' = a'\mathbin{\\%}b$.
 
 </details>
 
@@ -122,7 +122,7 @@ the beautiful Theorem 2.3 does not hold, so many theorems in this section needs 
 
 **<summary>Proof:</summary>**
 
-According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is integer
+According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is integer.
 
 </details>
 
@@ -132,7 +132,7 @@ According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is in
 
 **<summary>Proof:</summary>**
 
-This can be proved directly from Euclid's division lemma
+This can be proved directly from Euclid's division lemma.
 
 </details>
 
@@ -143,7 +143,7 @@ This can be proved directly from Euclid's division lemma
 **<summary>Proof:</summary>**
 
 $a = bq+r$ is equivalent to $a = (-b)(-q) + r$
-Due to the uniqueness of $q$ and $r$, we get our conclusion
+Due to the uniqueness of $q$ and $r$, we get our conclusion.
 
 </details>
 
@@ -155,7 +155,9 @@ Due to the uniqueness of $q$ and $r$, we get our conclusion
 
 According to Theorem 2.3, this is just to prove
 $$a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c$$
-Because of Theorem 2.4, we have $a = a \mathbin{\\%} c \pmod c$, $b = b \mathbin{\\%} c \pmod c$
+Because of Theorem 2.4, we have
+$$a = a \mathbin{\\%} c \pmod c$$
+$$b = b \mathbin{\\%} c \pmod c$$
 applying Theorem 1.3, we get what we need.
 
 </details>
