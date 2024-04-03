@@ -615,7 +615,8 @@ Proof: Same proof as 2.14.
 </details>
 
 **Theorem 4.15:** If $\mathrm{compatible\\_sign}(a, b)$ and $-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$,
-then $(a+b)/c = a/c + b/c$.
+then $(a+b)/c = a/c + b/c$. ,
+The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
 
