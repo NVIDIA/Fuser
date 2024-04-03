@@ -327,9 +327,6 @@ enum class SchedulingMode {
   InterDeviceOnly,
   // Manual inter-/intra-device scheduling
   Manual,
-  // Manual inter-device scheduling, composed with ReductionOnly
-  // intra-device schedule
-  ReductionOnly,
   // Manual inter-device scheduling, composed with fully automated intra-device
   // scheduling (through FusionExecutorCache)
   Automatic,
@@ -341,8 +338,6 @@ std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
       return out << "SchedulingMode::InterDeviceOnly";
     case SchedulingMode::Manual:
       return out << "SchedulingMode::Manual";
-    case SchedulingMode::ReductionOnly:
-      return out << "SchedulingMode::ReductionOnly";
     case SchedulingMode::Automatic:
       return out << "SchedulingMode::Automatic";
     default:
@@ -430,14 +425,6 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       tv3->axis(-1)->parallelize(ParallelType::TIDx);
       break;
     }
-    case SchedulingMode::ReductionOnly: {
-      auto reduction_params = getReductionHeuristics(
-          fusion.get(), {at::empty(input_sizes, tensor_options)});
-      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-      l_params = reduction_params->lparams;
-      scheduleReduction(fusion.get(), *reduction_params);
-      break;
-    }
     case SchedulingMode::Automatic:
       multi_device_executor_params.use_fusion_executor_cache = true;
       break;
@@ -456,7 +443,6 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(
         SchedulingMode::InterDeviceOnly,
         SchedulingMode::Manual,
-        SchedulingMode::ReductionOnly,
         SchedulingMode::Automatic));
 } // namespace nvfuser
 
