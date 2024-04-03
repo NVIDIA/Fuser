@@ -96,7 +96,7 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
 
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
-  EXPECT_EQ(executors.size(), 1);
+  ASSERT_EQ(executors.size(), 1);
   // Verify that the io_alias_ set has the correct entry
   kir::Kernel* kernel = executors.front().kernel();
   EXPECT_EQ(
