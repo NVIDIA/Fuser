@@ -184,13 +184,15 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
       return nullptr;
     }
 
+    // skip entry that has an allocation order
     if (iter->second.empty()) {
-      // skip if unspecified
-      continue;
-
+      // We still want to ensure that we propagate empty allocation order if there's no candidate with a non-empty allocation order
       if (src == nullptr) {
         src = tv;
       }
+
+      // skip if unspecified
+      continue;
     }
 
     // check if current entry sets new record for num of non broadcast / non
