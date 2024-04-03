@@ -57,7 +57,7 @@ be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
 - if $a = a' \pmod c$, $b = b' \pmod c$, then
   - $a + b = a' + b' \pmod c$
   - $ab = a'b' \pmod c$
-- if $bd = bd' \pmod c$ and $gcd(b, c) = 1$, then $d = d' \pmod c$
+- if $bd = bd' \pmod c$ and $\mathrm{gcd}(b, c) = 1$, then $d = d' \pmod c$
 
 ## 2. More Theorems Of Euclidean Division
 
