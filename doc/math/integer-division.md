@@ -84,11 +84,21 @@ The properties of $/$ and $\%$ under truncation division will be revisited [late
 
 **Theorem 2.2:** Euclidean division is NOT right distributive
 
-**Proof:** Counter example: $(1+1)/2 \neq 1/2 + 1/2$
+<details>
+
+**<summary>Proof:</summary>**
+
+Counter example: $(1+1)/2 \neq 1/2 + 1/2$
+
+</details>
 
 **Theorem 2.3:** $a\%b = a'\%b$ is equivalent to $a = a' \pmod b$
 
-**Proof:** Direction ==>:
+<details>
+
+**<summary>Proof:</summary>**
+
+Direction ==>:
 $a\%b = a'\%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
 So $a\%b = a'\%b$ ==> $a = a' \pmod b$
@@ -100,15 +110,21 @@ It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
 then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
 Thanks to the uniqueness of $q$ and $r$, we have $a\%b = r = r' = a'\%b$
 
-Thanks to the great property of Theorem 2.3 some theorems below can be easily
-proved by converting % into congruence. But unfortunately, as we can see in
-section "Implementations of Div and Mod", for the trunc div in C++, the
-beautiful Theorem 2.3 does not hold, so many theorems in this section needs
-to be modified in order to be used as a rule to simplify C++ integer
-expressions.
+</details>
 
-Theorem 4.4: a = a % b \pmod b)
-Proof: According to Euclid's division lemma, (a - a % b) \ b = q is integer
+Thanks to the great property of Theorem 2.3 some theorems below can be easily proved by converting $\%$ into congruence.
+But unfortunately, as we can see [later](#3-implementations-of-div-and-mod), for the truncation division in C++,
+the beautiful Theorem 2.3 does not hold, so many theorems in this section needs to be modified if we are considering division in C++.
+
+**Theorem 2.4:** $a = a \% b \pmod b$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+According to Euclid's division lemma, $(a - a \% b) \div b = q$ is integer
+
+</details>
 
 Theorem 4.5: if 0 <= r < |a|, then r % a = r, r / a = 0
 Proof: This can be proved directly from Euclid's division lemma
@@ -120,7 +136,7 @@ Due to the uniqueness of q and r, we get our conclusion
 Theorem 4.7: (a + b) % c = (a % c + b % c) % c
 Proof: According to Theorem 2.3, this is just to prove
 a + b = a % c + b % c \pmod c
-Because of Theorem 4.4, we have a = a % c \pmod c, b = b % c \pmod c
+Because of Theorem 2.4, we have a = a % c \pmod c, b = b % c \pmod c
 applying Theorem 3.3, we get what we need.
 
 Theorem 4.8: (a * b) % c = (a % c * b % c) % c
