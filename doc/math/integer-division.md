@@ -234,33 +234,35 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 </details>
 
-Theorem 2.12: If b > 0, then a \mathbin{\\%} (b  \times  c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c)  \times  b
+**Theorem 2.12:** If $b > 0$, then $a \mathbin{\\%} (b \times c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) \times b$
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Proof: Already proved in the proof of Theorem 2.11
+Already proved in the proof of Theorem 2.11
 
 </details>
 
-Theorem 2.13: If d > 0 and d divides a and b, then
-a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+**Theorem 2.13:** If $d > 0$ and $d$ divides $a$ and $b$, then
+$$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d$$
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Proof: From the fundamental division-with-remainder equation, we have
-b = d * (b / d), then a \mathbin{\\%} b = a \mathbin{\\%} (d * (b / d))
+From the fundamental division-with-remainder equation, we have
+$$b = d \times (b / d), then a \mathbin{\\%} b = a \mathbin{\\%} (d \times (b / d))$$
 From Theorem 2.12, we have:
-a \mathbin{\\%} b = a \mathbin{\\%} (d * (b / d)) = a \mathbin{\\%} d + ((a / d) \mathbin{\\%} (b / d)) * d
-according to Theorem 2.9, a \mathbin{\\%} d = 0, so we have
-a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+$$a \mathbin{\\%} b = a \mathbin{\\%} (d \times (b / d)) = a \mathbin{\\%} d + ((a / d) \mathbin{\\%} (b / d)) \times d$$
+according to Theorem 2.9:
+$$a \mathbin{\\%} d = 0$$
+so we have:
+$$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$$
 
 </details>
 
-Theorem 2.14: If b is a multiple of c and c > 0, then a/(b/c) = (a*c)/b
+Theorem 2.14: If b is a multiple of c and c > 0, then a/(b/c) = (a \times c)/b
 
 <details>
 
