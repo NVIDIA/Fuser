@@ -188,8 +188,8 @@ This can be proved directly from Euclid's division lemma
 
 **<summary>Proof:</summary>**
 
-If $b$ is a multiple of $c$, then
-$$(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$.$
+If $b$ is a multiple of $c$, then:
+$$(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$$
 
 From the fundamental division-with-remainder equation, we know that:
 $$b = (b/c)*c + b\mathbin{\\%}c \text{... (eq 1)}$$
