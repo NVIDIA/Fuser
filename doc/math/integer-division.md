@@ -427,17 +427,23 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 </details>
 
-Theorem 6.2: Integer div is NOT right distributive
+**Theorem 4.2:** Truncation division is NOT right distributive
 
-Proof: the same counter example as in Theorem 2.2 applies.
+<details>
 
-For truncation division, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5, however,
--3 \mathbin{\\%} 5 = -3, but 2 \mathbin{\\%} 5 = 2.
+**<summary>Proof:</summary>**
 
-Theorem 6.3:
-1) a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a = a' = 0 \pmod b
-2) a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0 is equivalent to a = a' \neq 0 \pmod b and sign(a)=sign(a')
-3) a\mathbin{\\%}b = a'\mathbin{\\%}b + |b| is equivalent to a = a' \neq 0 \pmod b and a>0 and a'<0
+The same counter example as in Theorem 2.2 applies.
+
+</details>
+
+For truncation division, Theorem 2.3 no longer holds, because $-3 = 2 \pmod 5$, however,
+$-3 \mathbin{\\%} 5 = -3$, $but 2 \mathbin{\\%} 5 = 2$.
+
+**Theorem 4.3:**
+- $a\mathbin{\\%}b = a'\mathbin{\\%}b = 0$ is equivalent to $a = a' = 0 \pmod b$.
+- $a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0$ is equivalent to $a = a' \neq 0 \pmod b$ and $\mathrm{sign}(a)=\mathrm{sign}(a')$.
+- $a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|$ is equivalent to $a = a' \neq 0 \pmod b$ and $a>0$ and $a'<0$.
 
 Proof: For 1):
 a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a=bq and a'=bq', which is equivalent to
@@ -470,46 +476,58 @@ Let q = q' + k, r = r' + |b|
 it is easy to verify that 0 < r < |b|
 Due to the uniqueness, a\mathbin{\\%}b = r' + |b|, a/b = q+k-sign(b)
 
-Theorem 6.4: a = a \mathbin{\\%} b \pmod b
+Theorem 4.4: a = a \mathbin{\\%} b \pmod b
+
 Proof: According to Definition 0, (a - a \mathbin{\\%} b) \div b = q is integer
 
-Theorem 6.5: If -|a| < r < |a|, then r \mathbin{\\%} a = r, r / a = 0
+Theorem 4.5: If -|a| < r < |a|, then r \mathbin{\\%} a = r, r / a = 0
+
 Proof: This can be proved directly from Definition 0
 
-Theorem 6.6: a/(-b) = -a/b, a\mathbin{\\%}(-b) = -a\mathbin{\\%}b
+Theorem 4.6: a/(-b) = -a/b, a\mathbin{\\%}(-b) = -a\mathbin{\\%}b
+
 Proof: See "Implementations of Div and Mod", this is a written in the paper
 
-Theorem 6.7: If compatible_sign(a, b), then (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
+Theorem 4.7: If compatible_sign(a, b), then (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
 where compatible_sign(a, b) is defined as ab \ge 0
-Proof: According to Theorem 6.3, this is just to prove
+
+Proof: According to Theorem 4.3, this is just to prove
 a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c
-Because of Theorem 6.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c,
+Because of Theorem 4.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c,
 applying Theorem 1.3, we get what we want
 
-Theorem 6.8: If compatible_sign(a, b), then (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
+Theorem 4.8: If compatible_sign(a, b), then (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
 where compatible_sign(a, b) is defined as ab \ge 0
+
 Proof: Similar to above
 
-Theorem 6.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
+Theorem 4.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
+
 Proof:  This can be proved directly from Euclid's division lemma
 
 Theorem 4.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
+
 Proof: Same proof as 2.10
 
 Theorem 4.11: a/(b*c) = (a/b)/c
+
 Proof: This is part of Theorem 4.1
 
 Theorem 4.12: a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
+
 Proof: Already proved in the proof of Theorem 4.1
 
 Theorem 4.13: If d divides a and b, then a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+
 Proof: Same proof as 2.13
 
 Theorem 4.14: If b is a multiple of c, then a/(b/c) = (a*c)/b
+
 Proof: Same proof as 2.14
 
 Theorem 4.15: If compatible_sign(a, b) and -|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then
 (a+b)/c = a/c + b/c
-Proof: From Theorem 6.7 and Theorem 6.5
+
+Proof: From Theorem 4.7 and Theorem 4.5
 (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
 The rest of the proof is the same as 2.15
