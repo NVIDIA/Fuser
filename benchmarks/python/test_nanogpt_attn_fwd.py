@@ -65,6 +65,27 @@ def nanogpt_attn_fwd_fusion(
     fd.add_output(T11)
 
 
+def nanogpt_attn_fwd_fn(inputs: list):  # [inputs, bias, size, dropout_p]
+    input, bias, size, dropout_p = inputs
+    batch_size, seq_len, nh, n_embd = size
+    hs = n_embd // nh
+    attn = input / (hs**0.5)
+    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
+    attn = torch.nn.functional.softmax(attn, dim=-1)
+    return torch.nn.functional.dropout(attn, p=dropout_p)
+
+
+def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = in_tensor ([bs, nh, seq_len, seq_len], dtype) + bias ([seq_len, seq_len], float) +
+    #   output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs, nh, seq_len, seq_len], dtype) + dropout_mask ([bs, nh, seq_len, seq_len], bool) + bias_mask ([bs, nh, seq_len, seq_len], bool)
+    bs, seq_len, nh, n_embd = size
+
+    return int(
+        bs * nh * seq_len * seq_len * (3 * dtype.itemsize + 2 * torch.bool.itemsize)
+        + seq_len * seq_len * torch.float.itemsize
+    )
+
+
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_benchmark(
@@ -100,3 +121,28 @@ def test_nanogpt_attn_fwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, bias])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_attn_inputs())
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_nanogpt_attn_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    batch_size, seq_len, nh, n_embd = size
+    dropout_p = 0.0
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
+        1, 1, seq_len, seq_len
+    )
+    run_benchmark(
+        benchmark,
+        torch.compile(nanogpt_attn_fwd_fn) if compile else nanogpt_attn_fwd_fn,
+        [inputs, bias, size, dropout_p],
+        iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
+    )

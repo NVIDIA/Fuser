@@ -71,9 +71,26 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T47)
 
 
+def huggingface_attn_fwd_fn(
+    inputs: list,
+):  # [attention_mask, in_tensor, size, dropout_p]
+    attention_mask, input, size, dropout_p = inputs
+    batch_size, seq_len, nh, n_embd = size
+    attn = (input + attention_mask).view(batch_size * nh, seq_len, seq_len)
+    attn = torch.nn.functional.softmax(attn, dim=-1)
+    return torch.nn.functional.dropout(attn, p=dropout_p)
+
+
+def huggingface_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = attention_mask ([bs, nh, seq_len, seq_len], dtype) + in_tensor ([bs, nh, seq_len, seq_len], dtype) +
+    #   output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs * nh, seq_len, seq_len], dtype) + dropout_mask ([bs * nh, seq_len, seq_len], bool)
+    bs, seq_len, nh, n_embd = size
+    return int(bs * nh * seq_len * seq_len * (dtype.itemsize * 4 + torch.bool.itemsize))
+
+
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_huggingface_attn_fwd_benchmark(
+def test_huggingface_attn_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -103,3 +120,28 @@ def test_huggingface_attn_fwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [attention_mask, inputs])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_attn_inputs())
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_huggingface_attn_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    batch_size, seq_len, nh, n_embd = size
+    dropout_p = 0.0
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    attention_mask = torch.zeros(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
+    )
+    run_benchmark(
+        benchmark,
+        torch.compile(huggingface_attn_fwd_fn) if compile else huggingface_attn_fwd_fn,
+        [attention_mask, inputs, size, dropout_p],
+        iobytes=huggingface_attn_fwd_iobytes(size, dtype),
+    )

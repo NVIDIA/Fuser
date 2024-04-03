@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -55,9 +55,15 @@ def huggingface_attn_bwd_fusion(
     fd.add_output(T35)
 
 
+def huggingface_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = grad_output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs*nh, seq_len, seq_len], dtype) + dropout_mask ([bs*nh, seq_len, seq_len], bool) + grad_input ([bs, nh, seq_len, seq_len], dtype)
+    bs, seq_len, nh, n_embd = size
+    return int(bs * nh * seq_len * seq_len * (dtype.itemsize * 3 + torch.bool.itemsize))
+
+
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_huggingface_attn_bwd_benchmark(
+def test_huggingface_attn_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -95,3 +101,34 @@ def test_huggingface_attn_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [grads, attn, dropout_mask])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_attn_inputs())
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_huggingface_attn_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    batch_size, seq_len, nh, n_embd = size
+    dropout_p = 0.0
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    attention_mask = torch.zeros(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
+    )
+    attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
+    attn = torch.nn.functional.softmax(attn, dim=-1)
+    output = torch.nn.functional.dropout(attn, p=dropout_p)
+
+    grads = torch.randn(batch_size * nh, seq_len, seq_len, device="cuda", dtype=dtype)
+
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [output, grads],
+        iobytes=huggingface_attn_bwd_iobytes(size, dtype),
+    )
