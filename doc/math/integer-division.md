@@ -438,43 +438,64 @@ The same counter example as in Theorem 2.2 applies.
 </details>
 
 For truncation division, Theorem 2.3 no longer holds, because $-3 = 2 \pmod 5$, however,
-$-3 \mathbin{\\%} 5 = -3$, $but 2 \mathbin{\\%} 5 = 2$.
+$-3 \mathbin{\\%} 5 = -3$, but $2 \mathbin{\\%} 5 = 2$.
 
 **Theorem 4.3:**
-- $a\mathbin{\\%}b = a'\mathbin{\\%}b = 0$ is equivalent to $a = a' = 0 \pmod b$.
-- $a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0$ is equivalent to $a = a' \neq 0 \pmod b$ and $\mathrm{sign}(a)=\mathrm{sign}(a')$.
-- $a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|$ is equivalent to $a = a' \neq 0 \pmod b$ and $a>0$ and $a'<0$.
+1. $a\mathbin{\\%}b = a'\mathbin{\\%}b = 0$ is equivalent to $a = a' = 0 \pmod b$.
+2. $a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0$ is equivalent to $a = a' \neq 0 \pmod b$ and $\mathrm{sign}(a)=\mathrm{sign}(a')$.
+3. $a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|$ is equivalent to $a = a' \neq 0 \pmod b$ and $a>0$ and $a'<0$.
 
-Proof: For 1):
-a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a=bq and a'=bq', which is equivalent to
-a = a' = 0 \pmod b)
-For 2) Direction ==>:
-a\mathbin{\\%}b = a'\mathbin{\\%}b is equivalent to a-(a/b)b = a'-(a'/b)b
-which is equivalent to (a-a')\b = (a/b-a'/b) = integer.
-So a\mathbin{\\%}b = a'\mathbin{\\%}b ==> a = a' \pmod b,
-also, from 1), we know that a \neq 0 \pmod b and a' \neq 0 \pmod b
-From Definition 4.0, we know that since a\mathbin{\\%}b is not 0,there is no overlap on
-the range of a\mathbin{\\%}b for positive a and negative a. So the sign of a and a' must
-match, otherwise it is impossible to have a\mathbin{\\%}b = a'\mathbin{\\%}b.
+<details>
+
+**<summary>Proof:</summary>**
+
+For (1):
+$a\mathbin{\\%}b = a'\mathbin{\\%}b = 0$ is equivalent to $a=bq$ and $a'=bq'$, which is equivalent to
+$a = a' = 0 \pmod b$
+
+For (2) Direction ==>:
+
+$a\mathbin{\\%}b = a'\mathbin{\\%}b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
+which is equivalent to $(a-a')\b = (a/b-a'/b) = \text{integer}$.
+So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$,
+also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
+
+From Definition 4.0, we know that since $a\mathbin{\\%}b$ is not $0$,
+there is no overlap on the range of $a\mathbin{\\%}b$ for positive $a$ and negative $a$.
+So the sign of $a$ and $a'$ must match, otherwise it is impossible to have $a\mathbin{\\%}b = a'\mathbin{\\%}b$.
+
 Direction <==:
-if a = a' \pmod b), then a = a' + kb.
-According to Definition 0, a' = q'b + r', then a = (q'+k)b + r'.
-Because sign(a)=sign(a'), if r' is in the correct range for a', then it will
-also be in the correct range for a. Due to the uniqueness, a\mathbin{\\%}b = r' = a'\mathbin{\\%}b
-For 3) Direction ==>:
-If a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|, then 0 < a\mathbin{\\%}b < |b| and |b| < a'\mathbin{\\%}b < 0,
-that is, a>0 and a'<0.
-Also, we have a-(a/b)b = a'-(a'/b)b + |b|, that is,
-(a-a')\b = (a/b-a'/b+sign(b)) = integer, so a = a' \pmod b
-also, from 1), we know that a \neq 0 \pmod b and a' \neq 0 \pmod b
+
+if $a = a' \pmod b$, then $a = a' + kb$.
+According to Definition 0, $a' = q'b + r'$, then $a = (q'+k)b + r'$.
+Because $\mathrm{sign}(a)=\mathrm{sign}(a')$, if $r'$ is in the correct range for $a'$,
+then it will also be in the correct range for $a$.
+Due to the uniqueness, we have $a\mathbin{\\%}b = r' = a'\mathbin{\\%}b$.
+
+For (3) Direction ==>:
+
+If $a\mathbin{\\%}b = a'\mathbin{\\%}b + |b|$, then $0 < a\mathbin{\\%}b < |b|$ and $|b| < a'\mathbin{\\%}b < 0$,
+that is, $a>0$ and $a'<0$.
+Also, we have $a-(a/b)b = a'-(a'/b)b + |b|$, that is,
+$$(a-a')\b = (a/b-a'/b+sign(b)) = \text{integer}$$
+so $a = a' \pmod b$.
+
+Also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
+
 Direction <==:
-if a = a' \neq 0 \pmod b, then a = a' + kb.
-According to Definition 0, a' = q'b + r', where -|b| < r' \le 0.
-from 1), we know that r' \neq 0, so -|b| < r' < 0.
-So a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|.
-Let q = q' + k, r = r' + |b|
-it is easy to verify that 0 < r < |b|
-Due to the uniqueness, a\mathbin{\\%}b = r' + |b|, a/b = q+k-sign(b)
+
+if $a = a' \neq 0 \pmod b$, then $a = a' + kb$.
+According to Definition 0, $a' = q'b + r'$, where $-|b| < r' \le 0$.
+from (1), we know that $r' \neq 0$, so $-|b| < r' < 0$.
+So
+$$a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|$$
+Let $q = q' + k$, $r = r' + |b|$
+it is easy to verify that $0 < r < |b|$
+Due to the uniqueness:
+$a\mathbin{\\%}b = r' + |b|$
+$a/b = q+k-sign(b)$
+
+</details>
 
 Theorem 4.4: a = a \mathbin{\\%} b \pmod b
 
