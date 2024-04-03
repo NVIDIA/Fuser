@@ -126,7 +126,7 @@ According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is in
 
 </details>
 
-**Theorem 2.5:** if $0 <= r < |a|$, then $r \mathbin{\\%} a = r$, $r / a = 0$
+**Theorem 2.5:** if $0 \le r < |a|$, then $r \mathbin{\\%} a = r$, $r / a = 0$.
 
 <details>
 
@@ -147,56 +147,110 @@ Due to the uniqueness of $q$ and $r$, we get our conclusion
 
 </details>
 
-Theorem 4.7: (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c
-Proof: According to Theorem 2.3, this is just to prove
-a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c
-Because of Theorem 2.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c
-applying Theorem 3.3, we get what we need.
+**Theorem 2.7:** $(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c$
 
-Theorem 4.8: (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
-Proof: Similar to above
+<details>
 
-Theorem 4.9: If a is a multiple of b, then a \mathbin{\\%} b = 0
-Proof: This can be proved directly from Euclid's division lemma
+**<summary>Proof:</summary>**
 
-Theorem 2.10: If b is a multiple of c, then we have: a*(b/c) = (a*b)/c
-Proof: If b is a multiple of c, then (a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0
+According to Theorem 2.3, this is just to prove
+$$a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c$$
+Because of Theorem 2.4, we have $a = a \mathbin{\\%} c \pmod c$, $b = b \mathbin{\\%} c \pmod c$
+applying Theorem 1.3, we get what we need.
+
+</details>
+
+**Theorem 2.8:** $(a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to above
+
+</details>
+
+**Theorem 2.9:** If $a$ is a multiple of $b$, then $a \mathbin{\\%} b = 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+This can be proved directly from Euclid's division lemma
+
+</details>
+
+**Theorem 2.10:** If $b$ is a multiple of $c$, then we have: $a*(b/c) = (a*b)/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+If $b$ is a multiple of $c$, then $(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$.
 From the fundamental division-with-remainder equation, we know that:
-b = (b/c)*c + b\mathbin{\\%}c ... (eq 1)
-(a*b) = ((a*b)/c)*c + (a*b)\mathbin{\\%}c ... (eq 2)
-multiply a to both side of (eq 1), we get:
-(a*b) = a*(b/c)*c + a*(b\mathbin{\\%}c)
+$$b = (b/c)*c + b\mathbin{\\%}c ... (eq 1)$$
+$$(a*b) = ((a*b)/c)*c + (a*b)\mathbin{\\%}c ... (eq 2)$$
+multiply $a$ to both side of (eq 1), we get:
+$$(a*b) = a*(b/c)*c + a*(b\mathbin{\\%}c)$$$
 subtract (eq 2) by the above equation, we have:
-0 = [(a*b)/c - a*(b/c)]*c + [(a*b)\mathbin{\\%}c - a*(b\mathbin{\\%}c)]
-The second term in the above equation is 0, so we have
-0 = [(a*b)/c - a*(b/c)] * c
-Because c \neq 0, we have (a*b)/c = a*(b/c)
+$$0 = [(a*b)/c - a*(b/c)]*c + [(a*b)\mathbin{\\%}c - a*(b\mathbin{\\%}c)]$$
+The second term in the above equation is $0$, so we have
+$$0 = [(a*b)/c - a*(b/c)] * c$$
+Because $c \neq 0$, we have $(a*b)/c = a*(b/c)$.
+
+</details>
 
 Theorem 2.11: If b > 0, then a/(b*c) = (a/b)/c
+
+<details>
+
+**<summary>Proof:</summary>**
+
 Proof: from the fundamental division-with-remainder equation, we have
 a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b) ... (eq 1)
-where 0 <= a\mathbin{\\%}b < b and 0 <= (a/b)\mathbin{\\%}c*b <= (|c| - 1)*b,
-as a result, we have 0 <= (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b) < |bc|,
+where 0 \le a\mathbin{\\%}b < b and 0 \le (a/b)\mathbin{\\%}c*b \le (|c| - 1)*b,
+as a result, we have 0 \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b) < |bc|,
 from the fundamental division-with-remainder equation, we can uniquely
 decompose a as a = (a/(bc))*(bc) + a\mathbin{\\%}(bc)  ... (eq 2)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2) have
 a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
 
+</details>
+
 Theorem 2.12: If b > 0, then a \mathbin{\\%} (b * c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) * b
+
+<details>
+
+**<summary>Proof:</summary>**
+
 Proof: Already proved in the proof of Theorem 2.11
+
+</details>
 
 Theorem 2.13: If d > 0 and d divides a and b, then
 a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
+
+<details>
+
+**<summary>Proof:</summary>**
+
 Proof: From the fundamental division-with-remainder equation, we have
 b = d * (b / d), then a \mathbin{\\%} b = a \mathbin{\\%} (d * (b / d))
 From Theorem 2.12, we have:
 a \mathbin{\\%} b = a \mathbin{\\%} (d * (b / d)) = a \mathbin{\\%} d + ((a / d) \mathbin{\\%} (b / d)) * d
-according to Theorem 4.9, a \mathbin{\\%} d = 0, so we have
+according to Theorem 2.9, a \mathbin{\\%} d = 0, so we have
 a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) * d
 
+</details>
+
 Theorem 2.14: If b is a multiple of c and c > 0, then a/(b/c) = (a*c)/b
+
+<details>
+
+**<summary>Proof:</summary>**
+
 Proof: If b is a multiple of c, then we have b \mathbin{\\%} c = 0
 Also, according to Theorem 2.13, (ac) \mathbin{\\%} b = (a \mathbin{\\%} (b / c)) * c
 From the fundamental division-with-remainder equation, we have:
@@ -210,8 +264,15 @@ The second term in the above equation is 0, so we have
 0 = [a/(b/c) - (ac)/b] * b
 because b \neq 0, we get a/(b/c) = (ac)/b
 
+</details>
+
 Theorem 2.15: If a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then (a+b)/c = a/c + b/c
-Proof: From Theorem 4.7 and Theorem 2.5, we have
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Proof: From Theorem 2.7 and Theorem 2.5, we have
 (a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
 From the fundamental division-with-remainder equation, we have:
 (a + b) = ((a + b) / c) * c + (a + b) \mathbin{\\%} c
@@ -222,6 +283,8 @@ Adding the last two equations and subtract with the first equation:
 The second term in the above equation is 0, so we have
 0 = [(a/c + b/c) - (a+b)/c] * c
 Because c \neq 0, we have (a/c + b/c) = (a+b)/c
+
+</details>
 
 ## 3. Implementations of Div and Mod
 
@@ -283,7 +346,7 @@ representable, the expression (a/b)*b + a\mathbin{\\%}b shall equal a.
 
 Definition 6.0: For any integers a and b (b \neq 0), there exist unique
 integers q and r such that
-1) if a >= 0, 0 <= r < |b|; if a < 0, -|b| < r <= 0.
+1) if a >= 0, 0 \le r < |b|; if a < 0, -|b| < r \le 0.
 2) a = bq + r
 We can then define a/b \coloneqq q, a\mathbin{\\%}b \coloneqq r
 
@@ -310,15 +373,15 @@ For 2), from Definition 6.0, we have
 a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b)  ... (eq 1)
   = ((a/b)/c)*bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|)
-if a >= 0, then 0 <= a\mathbin{\\%}b < |b|, 0 <= (a/|b|)\mathbin{\\%}c*|b| <= (|c| - 1)|b|,
-as a result, we have 0 <= (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) < |bc|,
+if a >= 0, then 0 \le a\mathbin{\\%}b < |b|, 0 \le (a/|b|)\mathbin{\\%}c*|b| \le (|c| - 1)|b|,
+as a result, we have 0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) < |bc|,
 from Definition 6.0, we can uniquely decompose a as
 a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 2)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
 uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
 a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b
-if a < 0, then -|b| < a\mathbin{\\%}b <= 0, -(|c| - 1)|b| <= ((a/|b|)\mathbin{\\%}c)*|b| <= 0,
-as a result, we have -|bc| <= (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) <= 0,
+if a < 0, then -|b| < a\mathbin{\\%}b \le 0, -(|c| - 1)|b| \le ((a/|b|)\mathbin{\\%}c)*|b| \le 0,
+as a result, we have -|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c)*|b|) \le 0,
 from Definition 6.0, we can uniquely decompose a as
 a = (a/(bc))*(bc) + a\mathbin{\\%}(bc) ... (eq 3)
 since a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c)*b is in the correct range of a\mathbin{\\%}(bc) and due to the
@@ -359,7 +422,7 @@ Also, we have a-(a/b)b = a'-(a'/b)b + |b|, that is,
 also, from 1), we know that a \neq 0 \pmod b) and a' \neq 0 \pmod b)
 Direction <==:
 if a = a' \neq 0 \pmod b), then a = a' + kb.
-According to Definition 0, a' = q'b + r', where -|b| < r' <= 0.
+According to Definition 0, a' = q'b + r', where -|b| < r' \le 0.
 from 1), we know that r' \neq 0, so -|b| < r' < 0.
 So a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|.
 Let q = q' + k, r = r' + |b|
@@ -380,7 +443,7 @@ where compatible_sign(a, b) is defined as ab>=0
 Proof: According to Theorem 6.3, this is just to prove
 a + b = a \mathbin{\\%} c + b \mathbin{\\%} c \pmod c
 Because of Theorem 6.4, we have a = a \mathbin{\\%} c \pmod c, b = b \mathbin{\\%} c \pmod c,
-applying Theorem 3.3, we get what we want
+applying Theorem 1.3, we get what we want
 
 Theorem 6.8: If compatible_sign(a, b), then (a * b) \mathbin{\\%} c = (a \mathbin{\\%} c * b \mathbin{\\%} c) \mathbin{\\%} c
 where compatible_sign(a, b) is defined as ab>=0
