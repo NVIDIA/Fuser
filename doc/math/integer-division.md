@@ -403,7 +403,7 @@ If $a \ge 0$, then
 $$0 \le a\mathbin{\\%}b < |b|$$
 $$0 \le ((a/b)\mathbin{\\%}c) \times b = ((a/|b|)\mathbin{\\%}c) \times |b| \le (|c| - 1)|b|$$
 as a result, we have
-$$0 \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) < |bc|$$
+$$0 \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) < |bc|$$
 
 From Definition 4.0, we can uniquely decompose $a$ as
 $$a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) \text{ ... (eq 2)}$$
@@ -416,7 +416,7 @@ If $a < 0$, then
 $$-|b| < a\mathbin{\\%}b \le 0$$
 $$-(|c| - 1)|b| \le ((a/b)\mathbin{\\%}c) \times b = ((a/|b|)\mathbin{\\%}c) \times |b| \le 0$$
 as a result, we have
-$$-|bc| \le (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|) \le 0$$
+$$-|bc| \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \le 0$$
 
 From Definition 4.0, we can uniquely decompose $a$ as
 $$a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) ... (eq 3)$$
