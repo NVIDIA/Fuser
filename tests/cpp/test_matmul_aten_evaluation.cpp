@@ -89,7 +89,7 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
-  at::Tensor out_ref = at::matmul(t0, t1.transpose(0,1));
+  at::Tensor out_ref = at::matmul(t0, t1.transpose(0, 1));
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
