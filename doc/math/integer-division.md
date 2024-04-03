@@ -188,16 +188,22 @@ This can be proved directly from Euclid's division lemma
 
 **<summary>Proof:</summary>**
 
-If $b$ is a multiple of $c$, then $(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$.
+If $b$ is a multiple of $c$, then
+$$(a*b)\mathbin{\\%}c = a*(b\mathbin{\\%}c) = 0$.$
+
 From the fundamental division-with-remainder equation, we know that:
-$$b = (b/c)*c + b\mathbin{\\%}c ... (eq 1)$$
-$$(a*b) = ((a*b)/c)*c + (a*b)\mathbin{\\%}c ... (eq 2)$$
+$$b = (b/c)*c + b\mathbin{\\%}c \text{... (eq 1)}$$
+$$(a*b) = ((a*b)/c)*c + (a*b)\mathbin{\\%}c \text{... (eq 2)}$$
+
 multiply $a$ to both side of (eq 1), we get:
 $$(a*b) = a*(b/c)*c + a*(b\mathbin{\\%}c)$$$
+
 subtract (eq 2) by the above equation, we have:
 $$0 = [(a*b)/c - a*(b/c)]*c + [(a*b)\mathbin{\\%}c - a*(b\mathbin{\\%}c)]$$
+
 The second term in the above equation is $0$, so we have
 $$0 = [(a*b)/c - a*(b/c)] * c$$
+
 Because $c \neq 0$, we have $(a*b)/c = a*(b/c)$.
 
 </details>
