@@ -208,7 +208,7 @@ Because $c \neq 0$, we have $(a \times b)/c = a \times (b/c)$.
 
 </details>
 
-**Theorem 2.11:** If $b > 0$, then $a/(b \times c) = (a/b)/c$
+**Theorem 2.11:** If $b > 0$, then $a/(b \times c) = (a/b)/c$.
 
 <details>
 
@@ -234,7 +234,7 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 
 </details>
 
-**Theorem 2.12:** If $b > 0$, then $a \mathbin{\\%} (b \times c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) \times b$
+**Theorem 2.12:** If $b > 0$, then $a \mathbin{\\%} (b \times c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) \times b$.
 
 <details>
 
@@ -244,8 +244,7 @@ Already proved in the proof of Theorem 2.11
 
 </details>
 
-**Theorem 2.13:** If $d > 0$ and $d$ divides $a$ and $b$, then
-$$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$$
+**Theorem 2.13:** If $d > 0$ and $d$ divides $a$ and $b$, then $a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$.
 
 <details>
 
@@ -264,44 +263,46 @@ $$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$$
 
 </details>
 
-Theorem 2.14: If b is a multiple of c and c > 0, then a/(b/c) = (a \times c)/b
+**Theorem 2.14:** If $b$ is a multiple of $c$ and $c > 0$, then $a/(b/c) = (a \times c)/b$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Proof: If b is a multiple of c, then we have b \mathbin{\\%} c = 0
-Also, according to Theorem 2.13, (ac) \mathbin{\\%} b = (a \mathbin{\\%} (b / c)) * c
+If $b$ is a multiple of $c$, then we have:
+$$b \mathbin{\\%} c = 0$$
+Also, according to Theorem 2.13:
+$$(ac) \mathbin{\\%} b = (a \mathbin{\\%} (b / c)) \times c$$
 From the fundamental division-with-remainder equation, we have:
-ac = ((ac)/b)b + (ac)\mathbin{\\%}b ... (eq 1)
-a = (a/(b/c))(b/c) + a\mathbin{\\%}(b/c) ... (eq 2)
-Multiply c to both side of (eq 2), and note that b is a multiple of c:
-ac = (a/(b/c))b + (a\mathbin{\\%}(b/c)) * c
-subtrace the above equation with (eq 1), we get
-0 = [a/(b/c) - (ac)/b] * b + [(a\mathbin{\\%}(b/c))*c - (ac)\mathbin{\\%}b]
-The second term in the above equation is 0, so we have
-0 = [a/(b/c) - (ac)/b] * b
-because b \neq 0, we get a/(b/c) = (ac)/b
+$$ac = ((ac)/b)b + (ac)\mathbin{\\%}b \text{ ... (eq 1)}$$
+$$a = (a/(b/c))(b/c) + a\mathbin{\\%}(b/c) \text{ ... (eq 2)}$$
+Multiply $c$ to both side of (eq 2), and note that $b$ is a multiple of $c$:
+$$ac = (a/(b/c))b + (a\mathbin{\\%}(b/c)) \times c$$
+subtract the above equation with (eq 1), we get
+$$0 = [a/(b/c) - (ac)/b] \times b + [(a\mathbin{\\%}(b/c)) \times c - (ac)\mathbin{\\%}b]$$
+The second term in the above equation is $0$, so we have
+$$0 = [a/(b/c) - (ac)/b] \times b$$
+because $b \neq 0$, we get $a/(b/c) = (ac)/b$.
 
 </details>
 
-Theorem 2.15: If a \mathbin{\\%} c + b \mathbin{\\%} c < |c|, then (a+b)/c = a/c + b/c
+**Theorem 2.15:** If $a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$, then $(a+b)/c = a/c + b/c$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Proof: From Theorem 2.7 and Theorem 2.5, we have
-(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c
+From Theorem 2.7 and Theorem 2.5, we have
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
 From the fundamental division-with-remainder equation, we have:
-(a + b) = ((a + b) / c) * c + (a + b) \mathbin{\\%} c
-a = (a / c) * c + a \mathbin{\\%} c
-b = (b / c) * c + b \mathbin{\\%} c
+$$(a + b) = ((a + b) / c) * c + (a + b) \mathbin{\\%} c$$
+$$a = (a / c) * c + a \mathbin{\\%} c$$
+$$b = (b / c) * c + b \mathbin{\\%} c$$
 Adding the last two equations and subtract with the first equation:
-0 = [(a/c + b/c) - (a+b)/c] * c + [a \mathbin{\\%} c + b \mathbin{\\%} c - (a + b) \mathbin{\\%} c]
-The second term in the above equation is 0, so we have
-0 = [(a/c + b/c) - (a+b)/c] * c
-Because c \neq 0, we have (a/c + b/c) = (a+b)/c
+$$0 = [(a/c + b/c) - (a+b)/c] * c + [a \mathbin{\\%} c + b \mathbin{\\%} c - (a + b) \mathbin{\\%} c]$$
+The second term in the above equation is $0$, so we have
+$$0 = [(a/c + b/c) - (a+b)/c] * c$$
+Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
 
 </details>
 
