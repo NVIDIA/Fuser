@@ -16,6 +16,7 @@ inputs = [
     torch.randn(2, 4, device="cuda")[rank : rank + 1, ...],
 ]
 
+
 # dynamic shape isn't supported;
 # scalar inputs isn't supported;
 class MultiDeviceModel(FusionDefinition):
