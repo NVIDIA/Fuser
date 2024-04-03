@@ -59,7 +59,7 @@ Theorem 3.3: The congruence also has the following properties:
   - ab = a'b' (mod c)
 - if bd = bd' (mod c) and gcd(b, c) = 1, then d = d' (mod c)
 
-## More Theorems Of Euclidean Division
+## $\S 2$ More Theorems Of Euclidean Division
 
 In this section, I will prove a few theorems that I didn't find in textbooks,
 but still feel useful for us. The / and % are under the definition of number
@@ -190,7 +190,7 @@ The second term in the above equation is 0, so we have
 0 = [(a/c + b/c) - (a+b)/c] * c
 Because c \neq 0, we have (a/c + b/c) = (a+b)/c
 
-## Implementations of Div and Mod
+## $\S 3$ Implementations of Div and Mod
 
 Unfortunately, modern hardwares and programming languages does not implement
 div and mod consistent with Euclid's division lemma, although these
@@ -235,7 +235,7 @@ The properties of trunc div are:
 2) Good: (-a)%b = -(a%b) = a%(-b)
 3) Bad: a % b = a' % b is not equivalent to a = a' (mod b)
 
-## Properties of Div and Mod Under Trunc Div
+## $\S 4$ Properties of Div and Mod Under Trunc Div
 
 In this section, I will study trunc div and its properties. I will first
 redefine trunc div using the same language as in Euclid's division lemma,
