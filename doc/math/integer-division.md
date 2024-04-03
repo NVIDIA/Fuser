@@ -31,7 +31,7 @@ exist unique integers $q$ and $r$ such that:
 2. $a = bq + r$
 
 if we define $a/b \coloneqq q$, and $a \mathbin{\\%} b \coloneqq r$, then we can write (2) as:
-$$a = (a/b)b + a\%b$$
+$$a = (a/b)b + a%b$$
 I will call the above equation "the fundamental division-with-remainder equation" in later contexts.
 We call this definition of division Euclidean division.
 Note that this is not how we define integer division in C++,
@@ -62,8 +62,8 @@ be understood as an operator operating on $b$, i.e. $a = (b \pmod c)$.
 ## 2. More Theorems Of Euclidean Division
 
 In this section, I will prove a few more theorems that I didn't find in textbooks but still feel useful for us.
-The $/$ and $\%$ are defined under Euclidean division, not under truncation division as in C++.
-The properties of $/$ and $\%$ under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div).
+The $/$ and $%$ are defined under Euclidean division, not under truncation division as in C++.
+The properties of $/$ and $%$ under truncation division will be revisited [later](#4-properties-of-div-and-mod-under-trunc-div).
 
 **Theorem 2.1:** Euclidean division is NOT associative:
 1) $a \times (b/c) \neq (a \times b)/c$
@@ -92,37 +92,37 @@ Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
 </details>
 
-**Theorem 2.3:** $a\\% b = a'\% b$ is equivalent to $a = a' \pmod b$
+**Theorem 2.3:** $a% b = a'% b$ is equivalent to $a = a' \pmod b$
 
 <details>
 
 **<summary>Proof:</summary>**
 
 Direction ==>:
-$a\%b = a'\%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
+$a%b = a'%b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
-So $a\%b = a'\%b$ ==> $a = a' \pmod b$
+So $a%b = a'%b$ ==> $a = a' \pmod b$
 Direction <==:
 if $a = a' \pmod b$, then $a = a' + kb$.
 According to the Euclid's division lemma, $a' = q'b + r'$,
 then $a = (q'+k)b + r'$, where $q'+k$ and $r'$.
 It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
 then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
-Thanks to the uniqueness of $q$ and $r$, we have $a\%b = r = r' = a'\%b$
+Thanks to the uniqueness of $q$ and $r$, we have $a%b = r = r' = a'%b$
 
 </details>
 
-Thanks to the great property of Theorem 2.3 some theorems below can be easily proved by converting $\%$ into congruence.
+Thanks to the great property of Theorem 2.3 some theorems below can be easily proved by converting $%$ into congruence.
 But unfortunately, as we can see [later](#3-implementations-of-div-and-mod), for the truncation division in C++,
 the beautiful Theorem 2.3 does not hold, so many theorems in this section needs to be modified if we are considering division in C++.
 
-**Theorem 2.4:** $a = a \% b \pmod b$
+**Theorem 2.4:** $a = a % b \pmod b$
 
 <details>
 
 **<summary>Proof:</summary>**
 
-According to Euclid's division lemma, $(a - a \% b) \div b = q$ is integer
+According to Euclid's division lemma, $(a - a % b) \div b = q$ is integer
 
 </details>
 
