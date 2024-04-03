@@ -32,11 +32,12 @@ class MultiDeviceModel(FusionDefinition):
         self.sched._set_device_mesh(self.t2, self.mesh)
         self.sched._parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
+
 fn = MultiDeviceModel()
 
 o = fn.execute(inputs)
 
 for i in range(3):
-   o = fn.execute(inputs)
+    o = fn.execute(inputs)
 
-assert((inputs[0]*2).relu().allclose(o[0][rank]))
+assert (inputs[0] * 2).relu().allclose(o[0][rank])
