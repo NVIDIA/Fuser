@@ -6,7 +6,7 @@
 
 # A Brief Overview of Abstract Algebra
 
-The real numbers together with binary operators $+$ $-$ $*$ $/$ form a [field](https://en.wikipedia.org/wiki/Field_(mathematics)),
+The real numbers together with binary operators $+$ $-$ $\times$ $/$ form a [field](https://en.wikipedia.org/wiki/Field_(mathematics)),
 which is defined by its basic properties:
 
 1. **Associativity:** $a + (b + c) = (a + b) + c$, and $a \times (b \times c) = (a \times b) \times c$.
