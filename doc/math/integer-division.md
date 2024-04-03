@@ -457,8 +457,8 @@ For (2) Direction ==>:
 
 $a\mathbin{\\%}b = a'\mathbin{\\%}b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$.
-So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$,
-also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
+So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$.
+Also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
 
 From Definition 4.0, we know that since $a\mathbin{\\%}b$ is not $0$,
 there is no overlap on the range of $a\mathbin{\\%}b$ for positive $a$ and negative $a$.
@@ -484,13 +484,13 @@ Also, from (1), we know that $a \neq 0 \pmod b$ and $a' \neq 0 \pmod b$.
 
 Direction <==:
 
-if $a = a' \neq 0 \pmod b$, then $a = a' + kb$.
+If $a = a' \neq 0 \pmod b$, then $a = a' + kb$.
 According to Definition 0, $a' = q'b + r'$, where $-|b| < r' \le 0$.
 from (1), we know that $r' \neq 0$, so $-|b| < r' < 0$.
 So
 $$a = (q'+k)b + r' = (q+k-sign(b))b + r' + |b|$$
-Let $q = q' + k$, $r = r' + |b|$
-it is easy to verify that $0 < r < |b|$
+Let $q = q' + k$, $r = r' + |b|$,
+it is easy to verify that $0 < r < |b|$.
 Due to the uniqueness:
 $a\mathbin{\\%}b = r' + |b|$
 $a/b = q+k-sign(b)$
