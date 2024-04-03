@@ -329,11 +329,11 @@ For all implementations, $|a \mathbin{\\%} b| < |b|$.
 Common implementations are:
 
 - **truncation division (round to zero):**
-  - $a/b \coloneqq \mathrm{trunc}(a \ b)$
+  - $a/b \coloneqq \mathrm{trunc}(a \div b)$
   - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
 - **floor division:**
-  - $a/b \coloneqq \mathrm{floor}(a \ b)$
+  - $a/b \coloneqq \mathrm{floor}(a \div b)$
   - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
 
 For C89, the result of negative division is not specified. C99 and C++ uses truncation division.
@@ -450,7 +450,7 @@ it is easy to verify that 0 < r < |b|
 Due to the uniqueness, a\mathbin{\\%}b = r' + |b|, a/b = q+k-sign(b)
 
 Theorem 6.4: a = a \mathbin{\\%} b \pmod b
-Proof: According to Definition 0, (a - a \mathbin{\\%} b) \ b = q is integer
+Proof: According to Definition 0, (a - a \mathbin{\\%} b) \div b = q is integer
 
 Theorem 6.5: If -|a| < r < |a|, then r \mathbin{\\%} a = r, r / a = 0
 Proof: This can be proved directly from Definition 0
