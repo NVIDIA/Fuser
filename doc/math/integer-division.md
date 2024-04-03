@@ -279,7 +279,7 @@ $$a = (a/(b/c))(b/c) + a\mathbin{\\%}(b/c) \text{ ... (eq 2)}$$
 Multiply $c$ to both side of (eq 2), and note that $b$ is a multiple of $c$:
 $$ac = (a/(b/c))b + (a\mathbin{\\%}(b/c)) \times c$$
 subtract the above equation with (eq 1), we get
-$$0 = [a/(b/c) - (ac)/b] \times b + [(a\mathbin{\\%}(b/c)) \times c - (ac)\mathbin{\\%}b]$$
+$$0 = \left[ a/(b/c) - (ac)/b \right ] \times b + [(a\mathbin{\\%}(b/c)) \times c - (ac)\mathbin{\\%}b]$$
 The second term in the above equation is $0$, so we have
 $$0 = [a/(b/c) - (ac)/b] \times b$$
 because $b \neq 0$, we get $a/(b/c) = (ac)/b$.
