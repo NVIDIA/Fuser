@@ -89,14 +89,17 @@ class AllocationOrderInferencer : public IterVisitor {
   // propagate allocation order from producer to consumer. Returns true when
   // producer has a recorded allocation order, false otherwise. This function
   // assumes that all root domain in consumer can be mapped to producer.
-  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
+  bool propagateAllocationOrder(
+      TensorView* producer,
+      TensorView* consumer,
+      const std::vector<IterDomain*>& permutation_ref) {
     if (auto iter = alloc_order_map_.find(producer);
         iter != alloc_order_map_.end()) {
       std::vector<IterDomain*> alloc_domain =
           mapAllocDomainNoReductionP2C(producer, consumer);
       // compute allocation order
-      std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-          consumer->getMaybeRFactorDomain(), alloc_domain);
+      std::optional<AllocationOrder> permutation =
+          ir_utils::computePermutation(permutation_ref, alloc_domain);
 
       NVF_ERROR(
           permutation.has_value(),
@@ -109,6 +112,11 @@ class AllocationOrderInferencer : public IterVisitor {
       return true;
     }
     return false;
+  }
+
+  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
+    return propagateAllocationOrder(
+        producer, consumer, consumer->getMaybeRFactorDomain());
   }
 
   // Returns the candidate operand that dominates the allocation order.
@@ -282,7 +290,9 @@ void AllocationOrderInferencer::handle(TernaryOp* op) {
 void AllocationOrderInferencer::handle(PadOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   auto* in = dynamic_cast<TensorView*>(op->in());
-  propagateAllocationOrder(in, out);
+  // Note: `out` from pad has rfactor domain that cannot be mapped back to
+  // `in`'s domain. Hence we use `out`'s root domain to match permutation.
+  propagateAllocationOrder(in, out, out->getRootDomain());
 }
 
 void AllocationOrderInferencer::handle(ReductionOp* op) {
