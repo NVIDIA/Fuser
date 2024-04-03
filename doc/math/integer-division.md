@@ -92,7 +92,7 @@ Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
 </details>
 
-**Theorem 2.3:** $a\% b = a'\% b$ is equivalent to $a = a' \pmod b$
+**Theorem 2.3:** $a\\% b = a'\% b$ is equivalent to $a = a' \pmod b$
 
 <details>
 
