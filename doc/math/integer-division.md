@@ -396,11 +396,9 @@ Note that for (2), it is now a "$=$" instead of a "$\neq$".
 For (1) and (3), the same counter example as in Theorem 2.1 applies.
 
 For (2), from Definition 4.0, we have
-$$
-a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
+$$ a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
   = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)}
-  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)
-$$
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/|b|)\mathbin{\\%}c) \times |b|)$$
 
 if $a \ge 0$, then
 $$0 \le a\mathbin{\\%}b < |b|$$
@@ -424,6 +422,7 @@ a/(bc) = (a/b)/c and a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c
 </details>
 
 Theorem 6.2: Integer div is NOT right distributive
+
 Proof: the same counter example as in Theorem 2.2 applies.
 
 For truncation division, Theorem 2.3 no longer holds, because -3 = 2 \pmod 5, however,
@@ -433,6 +432,7 @@ Theorem 6.3:
 1) a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a = a' = 0 \pmod b
 2) a\mathbin{\\%}b = a'\mathbin{\\%}b \neq 0 is equivalent to a = a' \neq 0 \pmod b and sign(a)=sign(a')
 3) a\mathbin{\\%}b = a'\mathbin{\\%}b + |b| is equivalent to a = a' \neq 0 \pmod b and a>0 and a'<0
+
 Proof: For 1):
 a\mathbin{\\%}b = a'\mathbin{\\%}b = 0 is equivalent to a=bq and a'=bq', which is equivalent to
 a = a' = 0 \pmod b)
