@@ -441,8 +441,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead =
-      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+  int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
+      fusion,
+      reduction_tvs,
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
   int64_t available_regs = scheduler_utils::register_file_size_full;
@@ -636,19 +638,21 @@ namespace {
 // The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
 // ======= Method if hidden_size > 1024 =======
 // (1) Inner reduction is one reduction per block. Reduction domain is
-// parallelized by TIDx and TIDy, Iteration domain is parallelized by BIDy. (2)
-// Outer reduction is done in two-steps. The first step is partial reduction,
-// reduction domain is parallelized by BIDy, iteration domain is parallelized by
-// TIDx and TIDy. The partial results are written to gmem followed by a grid
-// sync. The second step is block reduction, the reduction domain is
-// parallelized by TIDy, the iteration domain is parallelized by TIDx and BIDy.
+// parallelized by TIDx and TIDy, Iteration domain is parallelized by BIDy.
+// (2) Outer reduction is done in two-steps. The first step is partial
+// reduction, reduction domain is parallelized by BIDy, iteration domain is
+// parallelized by TIDx and TIDy. The partial results are written to gmem
+// followed by a grid sync. The second step is block reduction, the reduction
+// domain is parallelized by TIDy, the iteration domain is parallelized by TIDx
+// and BIDy.
 // ======= Method if hidden_size <= 1024 =======
 // (1) Inner reduction is multi-reductions per blocks. Reduction domain is
-// parallelized by TIDx, Iteration domain is parallelized by BIDy and TIDy
+// parallelized by TIDx, Iteration domain is parallelized by BIDy and TIDy.
 // (2) Outer reduction is same to cases where hidden_size > 1024 except the
 // second step where in this case, the reduction domain is parallelized by TIDx
 // and the iteration domain is parallelized by TIDy and BIDy. This switch
-// between TIDx and TIDy is because (a) We can do warp reduction with TIDx and
+// between TIDx and TIDy is because:
+// (a) We can do warp reduction with TIDx
 // (b) TIDx*BIDy is usually much larger than hidden_size, e.g. 128*216 = 1024*27
 // this means without switch only 1/27 of the threads is used.
 std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
