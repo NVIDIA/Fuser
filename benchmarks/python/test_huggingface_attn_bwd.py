@@ -76,7 +76,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
 
     batch_size, seq_len, nh, n_embd = size
 
-    dropout_p = 0.0 
+    dropout_p = 0.0
     inputs = torch.randn(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
     )
@@ -98,7 +98,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
 
     if not disable_validation:
         # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
-        out = 1 / (1 - dropout_p) * dropout_mask * attn
+        out = torch.nn.functional.dropout(attn, p=dropout_p)
         out.backward(grads)
         fd.validate([grads, attn, dropout_mask], [inputs.grad])
 
@@ -118,7 +118,7 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.2
+    dropout_p = 0.0
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True)
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
