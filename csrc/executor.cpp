@@ -1674,6 +1674,17 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
       getStaticSmemSize() + dynamic_smem_size,
       ". Device limit size: ",
       device_smem_limit_);
+  // If specified, check that dynamic smem size matches what the scheduler
+  // expects
+  int64_t expected_dynamic_smem_size = fusion_->expectedDynamicSmemBytes();
+  if (expected_dynamic_smem_size >= 0) {
+    NVF_ERROR(
+        dynamic_smem_size == expected_dynamic_smem_size,
+        "Actual dynamic smem allocation ",
+        dynamic_smem_size,
+        " does not match expected size ",
+        expected_dynamic_smem_size);
+  }
 }
 
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
