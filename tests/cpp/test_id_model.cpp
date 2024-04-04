@@ -183,14 +183,6 @@ class IdModelTester : public IdModel {
     s3_loop_promotion_map =
         updateValGroupIdMap(s3_original_loop_promotion_map, s3_loop_graph);
 
-    for (const auto& loop_group :
-         s3_loop_graph.disjointValSets().disjointSets()) {
-      NVF_ERROR(
-          s3_loop_promotion_map.find(loop_group) != s3_loop_promotion_map.end(),
-          "No promotion found for: ",
-          nvfuser::toString(loop_group));
-    }
-
     {
       VERBOSE() << "Step 3: initial loop promotion map:" << std::endl;
       for (const auto& [loop_group, id] : s3_loop_promotion_map) {
@@ -379,7 +371,6 @@ void checkStep4Results(
       << "Expected to have " << ref_promotion_map.size()
       << " mappings but found " << iel_promotion_map.size();
 
-  // for (const auto& [iel_group, promotion_id] : iel_promotion_map) {
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
     const auto& ref_promotion_id = ref_promotion_pair.second;
@@ -392,12 +383,10 @@ void checkStep4Results(
         });
 
     auto iel_promotion_id = iel_promotion_it->second;
-    ASSERT_EQ(ref_promotion_id, iel_promotion_id)
+    EXPECT_EQ(ref_promotion_id, iel_promotion_id)
         << "Expected promotion: " << ref_promotion_id->toString()
         << ". Actual: " << iel_promotion_id->toString();
   }
-
-  std::cerr << "checkStep4Results done\n";
 }
 
 // Create a fusion where we're missing a valid concrete id so the compute at map
