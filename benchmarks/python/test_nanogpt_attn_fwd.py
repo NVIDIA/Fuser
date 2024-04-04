@@ -65,7 +65,8 @@ def nanogpt_attn_fwd_fusion(
     fd.add_output(T11)
 
 
-def nanogpt_attn_fwd_fn(inputs: list):  # [inputs, bias, size, dropout_p]
+def nanogpt_attn_fwd(inputs: list):
+    # Reference implementation from Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
     input, bias, size, dropout_p = inputs
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
@@ -98,7 +99,7 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
     clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
@@ -116,7 +117,8 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
         attn = inputs / (hs**0.5)
         attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        out = torch.nn.functional.dropout(attn, p=dropout_p)
+        # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
+        out = 1 / (1 - dropout_p) * dropout_mask * attn
         fd.validate([inputs, bias], [out, dropout_mask, attn, bias_mask])
 
     if not disable_benchmarking:
@@ -135,14 +137,15 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(nanogpt_attn_fwd_fn) if compile else nanogpt_attn_fwd_fn,
+        torch.compile(nanogpt_attn_fwd) if compile else nanogpt_attn_fwd,
         [inputs, bias, size, dropout_p],
         iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
     )

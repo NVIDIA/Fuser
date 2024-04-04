@@ -70,10 +70,10 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T37)
     fd.add_output(T47)
 
-
-def huggingface_attn_fwd_fn(
+def huggingface_attn_fwd(
     inputs: list,
-):  # [attention_mask, in_tensor, size, dropout_p]
+):
+    # Reference implementation in Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/888b46324462fba70f93d5017bc0d99025f05091/thunder/tests/hf_bart_self_attn.py#L73-L83
     attention_mask, input, size, dropout_p = inputs
     batch_size, seq_len, nh, n_embd = size
     attn = (input + attention_mask).view(batch_size * nh, seq_len, seq_len)
@@ -100,7 +100,7 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     dropout_mask = torch.lt(
         torch.rand(batch_size * nh, seq_len, seq_len, device="cuda"), 1 - dropout_p
@@ -115,7 +115,8 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     if not disable_validation:
         attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        out = torch.nn.functional.dropout(attn, p=dropout_p)
+        # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
+        out = 1 / (1 - dropout_p) * dropout_mask * attn
         fd.validate([attention_mask, inputs], [out, attn, dropout_mask])
 
     if not disable_benchmarking:
@@ -134,14 +135,16 @@ def test_huggingface_attn_fwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
+
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(huggingface_attn_fwd_fn) if compile else huggingface_attn_fwd_fn,
+        torch.compile(huggingface_attn_fwd) if compile else huggingface_attn_fwd,
         [attention_mask, inputs, size, dropout_p],
         iobytes=huggingface_attn_fwd_iobytes(size, dtype),
     )
