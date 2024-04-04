@@ -190,29 +190,29 @@ namespace {
 // threads_per_block * data_type_size. This function returns the maximum
 // possible shared memory buffer size considering all possible block sizes.
 int64_t roundUpSharedMemory(
-    TensorView* tv,
     int64_t tv_buffer_size,
+    int64_t data_type_size,
     int64_t vectorize_factor,
     int64_t threads_per_block_min,
     int64_t threads_per_block_max,
     int64_t threads_per_block_step) {
-  int64_t data_type_size = dataTypeSize(tv->getDataType().value());
-  int64_t n_elements = tv_buffer_size / data_type_size;
-  int64_t after_vect = n_elements / vectorize_factor;
+  int64_t dim_size = tv_buffer_size / data_type_size;
+  int64_t after_vect = dim_size / vectorize_factor;
   int64_t max_smem = 0;
-  for (int64_t threads = threads_per_block_min;
-       threads <= threads_per_block_max;
-       threads += threads_per_block_step) {
-    int64_t n_batch = ceilDiv(after_vect, threads);
+  for (int64_t threads_per_block = threads_per_block_min;
+       threads_per_block <= threads_per_block_max;
+       threads_per_block += threads_per_block_step) {
+    int64_t n_batch = ceilDiv(after_vect, threads_per_block);
     max_smem = std::max(
-        max_smem, n_batch * vectorize_factor * threads * data_type_size);
+        max_smem,
+        n_batch * vectorize_factor * threads_per_block * data_type_size);
   }
   return max_smem;
 }
 
 // Return the broadcast tvs that are broadcast to the iteration dimensions of
 // the inner reduction tv. These tvs are reused in the loop over the iteration
-// dimension. This resue reduced the number loads from gmem and this tensor
+// dimension. This reuse reduced the number loads from gmem and this tensor
 // is likely the first candidate to be moved to shared memory when the register
 // space runs low.
 std::vector<TensorView*> getOuterBroadcastTvs(
@@ -250,6 +250,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
 }
 
 // Size of buffers storing intermediate outer reduction results
+// TODO: check if we can directly start with [buffer_size = 1]
 int64_t partialOuterReductionBufferSize(
     const std::vector<TensorView*>& reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
@@ -291,23 +292,24 @@ int64_t partialOuterReductionBufferSize(
 // weight tensor) is almost always moved to shared memory before other buffers
 // unless the outer dimension is very small, e.g. less than 1 sm count or other
 // buffers are used 10 times more than the outer broadcast tensor.
-std::vector<TensorView*> sortPersistentBuffers(
+std::vector<TensorView*> sortProjectableBufferInputs(
     Fusion* fusion,
-    const std::vector<TensorView*>& persistent_buffers,
+    const std::vector<TensorView*>& persistent_buffers_original,
     const std::vector<TensorView*>& projectable_buffer_inputs,
+    const std::vector<TensorView*>& outer_broadcast_tvs,
     const std::vector<TensorView*>& reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
-  const int64_t n_buffers = (int64_t)persistent_buffers.size();
+  const int64_t n_buffer_inputs = (int64_t)projectable_buffer_inputs.size();
 
-  // Set the number of uses for each projected buffer.
-  // Includes direct use and the use of its corresponding persistent buffer.
-  // When project to inputs, we are replacing the use of the original persistent
-  // buffers except for the one goes to reduction.
-  std::vector<int> n_proj_buffer_uses(n_buffers, 0);
-  for (auto idx = 0; idx < n_buffers; idx++) {
+  // Set the number of uses for each projected buffer inputs.
+  // Includes direct use and the use of its corresponding original persistent
+  // buffer. When project to inputs, we are replacing the use of the original
+  // persistent buffers except for the one goes to reduction.
+  std::vector<int> n_proj_buffer_uses(n_buffer_inputs, 0);
+  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
     auto input_tv = projectable_buffer_inputs[idx];
     n_proj_buffer_uses[idx] = (int)input_tv->uses().size();
-    for (auto buffer : persistent_buffers) {
+    for (auto buffer : persistent_buffers_original) {
       if (DependencyCheck::isDependencyOf(input_tv, buffer)) {
         n_proj_buffer_uses[idx] += (int)buffer->uses().size() - 1;
       }
@@ -323,7 +325,7 @@ std::vector<TensorView*> sortPersistentBuffers(
   // e.g. weight tensor, it is reused in every outer loop, when calculate the
   // latency of global memory load, 1 is used instead of n_outer_loop. For other
   // tensors, each loop is loading a different row, so n_outer_loop is used.
-  std::vector<int> buffer_latency(n_buffers, 0);
+  std::vector<int> buffer_latency(n_buffer_inputs, 0);
   int sm_count =
       (int)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   int n_outer_loop = [&sm_count, &reduction_tvs, &runtime_info]() -> int {
@@ -352,15 +354,11 @@ std::vector<TensorView*> sortPersistentBuffers(
     return 1;
   }();
 
-  // Get the outer broadcast tensors to check which input buffer is reused in
-  // the loop over the outer dimension.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
-
   // set latency for each buffer.
   // Assume load from gmem to smem has a latency of 100, load from smem to
   // register has a latency of 10. Total latency is proportional to data type
-  // size.
-  for (auto idx = 0; idx < n_buffers; idx++) {
+  // size. Reused in each iteration if the buffer is an outer broadcast tensor.
+  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
     int latency = 0;
     auto input_buffer = projectable_buffer_inputs.at(idx);
     bool is_reused = std::any_of(
@@ -379,17 +377,31 @@ std::vector<TensorView*> sortPersistentBuffers(
 
   // reorder projectable_buffer_inputs based on the latency from smallest to
   // largest
-  std::vector<int> idxs(n_buffers);
+  std::vector<int> idxs(n_buffer_inputs);
   std::iota(idxs.begin(), idxs.end(), 0);
   std::stable_sort(idxs.begin(), idxs.end(), [&buffer_latency](int i, int j) {
     return buffer_latency[i] < buffer_latency[j];
   });
   std::vector<TensorView*> sorted_candidate_tvs;
-  sorted_candidate_tvs.reserve(n_buffers);
+  sorted_candidate_tvs.reserve(n_buffer_inputs);
   for (auto idx : idxs) {
     sorted_candidate_tvs.emplace_back(projectable_buffer_inputs.at(idx));
   }
   return sorted_candidate_tvs;
+}
+
+// Sort persistent buffers based on the number of uses from smallest to largest.
+// Used when buffers are not projected to inputs.
+std::vector<TensorView*> sortPersistentBuffers(
+    std::vector<TensorView*> persistent_buffers) {
+  // Directly sort the persistent_buffers vector based on the number of uses.
+  std::sort(
+      persistent_buffers.begin(),
+      persistent_buffers.end(),
+      [](TensorView* a, TensorView* b) {
+        return a->uses().size() < b->uses().size();
+      });
+  return persistent_buffers;
 }
 
 // Decide where to store persistent buffers.
@@ -427,12 +439,20 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
-  buffer_params.project_to_input = ir_utils::getViewOps(fusion).empty() &&
+  // Project to inputs when there is at least one outer broadcast tensor or
+  // projected persistent buffer size is smaller. When projecting to inputs, the
+  // outer broadcast tensor is reused in the loop over the iteration dimension,
+  // test shows it is faster than the non-projected version which requires
+  // reload from gmem for each iteration.
+  // Note: in current use cases (layer norm bwd and RMS norm bwd), there are
+  // outer broadcast tvs and always project to inputs.
+  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
-
-  const auto& persistent_buffers = buffer_params.project_to_input
-      ? persistent_buffer_info.projectable_buffer_inputs
-      : persistent_buffer_info.persistent_buffers;
+  buffer_params.project_to_input = can_project &&
+      (!outer_broadcast_tvs.empty() ||
+       persistent_buffer_size_info.projected_persistent_buffer_size <
+           persistent_buffer_size_info.persistent_buffer_size);
 
   auto total_buffer_size = buffer_params.project_to_input
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -457,25 +477,28 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
   if (buffer_params.regs_buffer_size > available_regs) {
-    const auto sorted_candidate_tvs = sortPersistentBuffers(
-        fusion,
-        persistent_buffers,
-        persistent_buffer_info.projectable_buffer_inputs,
-        reduction_tvs,
-        runtime_info);
+    const auto sorted_candidate_tvs = buffer_params.project_to_input
+        ? sortProjectableBufferInputs(
+              fusion,
+              persistent_buffer_info.persistent_buffers,
+              persistent_buffer_info.projectable_buffer_inputs,
+              outer_broadcast_tvs,
+              reduction_tvs,
+              runtime_info)
+        : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
     // calculate the accumulated buffer size of the first N buffers
-    const int64_t n_buffers = (int64_t)persistent_buffers.size();
+    const int64_t n_buffers = (int64_t)sorted_candidate_tvs.size();
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
     for (int i = 1; i <= n_buffers; i++) {
+      auto current_tv = sorted_candidate_tvs[i - 1];
       int64_t tv_buffer_size_regs =
           scheduler_utils::getPersistentBufferSizeOfTensor(
-              sorted_candidate_tvs[i - 1],
-              runtime_info,
-              persistent_buffer_info);
+              current_tv, runtime_info, persistent_buffer_info);
+
       int64_t tv_buffer_size_smem = roundUpSharedMemory(
-          sorted_candidate_tvs[i - 1],
           tv_buffer_size_regs,
+          dataTypeSize(current_tv->getDataType().value()),
           vectorize_factor,
           InnerOuterPersistentKernelScheduler::threads_per_block_min,
           InnerOuterPersistentKernelScheduler::threads_per_block_max,
@@ -777,9 +800,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t max_blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
   // check shared memory limitation on blocks per sm
-  int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+  int64_t max_blocks_per_sm_smem =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
-  int64_t blocks_per_sm = std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+  int64_t blocks_per_sm =
+      std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -935,11 +960,17 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
+  // Get dtype used to store partial outer reduction
+  // Get the first inner reduction tv and use it as the reference tv
+  int64_t max_outer_reduction_dtype_size = 1;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
       first_inner_reduction_tv = tv;
-      break;
+    } else {
+      max_outer_reduction_dtype_size = std::max(
+          max_outer_reduction_dtype_size,
+          dataTypeSize(tv->getDataType().value()));
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;
@@ -971,16 +1002,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       "Persistent scheduler requires persistent buffers.");
   auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
-
-  // dtype used to store partial outer reduction in combined reduction
-  int64_t max_outer_reduction_dtype_size = 1;
-  for (auto tv : reduction_tvs) {
-    if (!scheduler_utils::isFastestDimReduction(tv)) {
-      max_outer_reduction_dtype_size = std::max(
-          max_outer_reduction_dtype_size,
-          dataTypeSize(tv->getDataType().value()));
-    }
-  }
 
   std::shared_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
@@ -1177,7 +1198,10 @@ void scheduleInnerOuterPersistentKernel(
     };
     for (auto tv : persistent_buffers) {
       bool use_smem = isSharedMemoryPersistent(tv);
-      if (!use_smem &&
+      // If project to inputs, the buffer inputs are stored in
+      // [smem_persistent_tvs], after projection, the cached input becomes the
+      // new persistent buffer.
+      if (!use_smem && rparams.project_persistent_buffers &&
           std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
               cached_inputs.end()) {
         auto input_tv = ir_utils::producerTvsOf(tv).at(0);

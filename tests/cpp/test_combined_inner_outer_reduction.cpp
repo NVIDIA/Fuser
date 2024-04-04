@@ -1061,4 +1061,43 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+// innerOuter scheduler projects buffer to inputs when there is one or more
+// outer broadcast tvs, e.g. in layer norm backward and RMS norm backward.
+// This test covers the branch where the outer broadcast tensor is not exist
+// and data type is fp32, so the buffer is not projected to inputs.
+TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int dim0 = 1024, dim1 = 2048;
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv2, tv0);
+  auto tv4 = sum(tv0, {0});
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  auto heuristic =
+      getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
+  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
+  NVF_CHECK(
+      !heuristic->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto t1 = t0.sum({1});
+  auto t2 = t1.unsqueeze(-1);
+  auto t3 = t0 + t2;
+  auto t4 = t0.sum({0});
+  testValidate(&fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
