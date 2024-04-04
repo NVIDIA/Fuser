@@ -209,27 +209,34 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-  auto tv2 = makeConcreteTensor(out_shape, DataType::Half);
+  auto tv2 = makeConcreteTensor(
+      {
+          m,
+      },
+      DataType::Half);
 
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
   auto tv3 = fusedMultiplySum(tv0b, tv1b, {1});
-  auto tv4 = mul(s1, tv2); // beta * bias
-  auto tv5 = add(tv3, tv4);
 
-  auto tv6 = castOp(DataType::Half, tv5);
+  auto tv4 = broadcast(tv2, {false, true});
+  auto tv5 = mul(s1, tv4); // beta * bias
+
+  auto tv6 = add(tv3, tv5);
+
+  auto tv7 = castOp(DataType::Half, tv6);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(tv2);
   fusion->addInput(s1);
-  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
-  at::Tensor t2 = at::randn(out_shape, at::kHalf).cuda();
+  at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
   float beta = 1.5;
-  at::Tensor out_ref = at::addmm(t2, t0, t1, beta);
+  at::Tensor out_ref = at::addmm(t2.unsqueeze(-1), t0, t1, beta);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2, beta});
@@ -256,7 +263,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   auto s0 = IrBuilder::create<Val>(DataType::Float); // alpha
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-  auto tv2 = makeConcreteTensor({m}, DataType::Half);
+  auto tv2 = makeConcreteTensor(out_shape, DataType::Half);
 
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
@@ -264,7 +271,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   auto tv4 = mul(s0, tv3); // alpha * (A x B)
 
   auto tv5 = castOp(DataType::Float, tv2);
-  auto tv6 = biasEpilogue(tv4, tv5);
+  auto tv6 = add(tv4, tv5);
   auto tv7 = castOp(DataType::Half, tv6);
 
   fusion->addInput(tv0);
@@ -275,9 +282,9 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
-  at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
+  at::Tensor t2 = at::randn(out_shape, at::kHalf).cuda();
   float alpha = 2.5;
-  at::Tensor out_ref = at::addmm(t2.unsqueeze(-1), t0, t1, 1, alpha);
+  at::Tensor out_ref = at::addmm(t2, t0, t1, 1, alpha);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2, alpha});

@@ -1379,10 +1379,10 @@ bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
 }
 
 // Possible combinations:
-// 1. A [M, K] x B [K, N] + C [M,]
-// 2. alpha * A [M, K] x B [K, N] + C [M,]
-// 3. A [M, K] x B [K, N] + beta * C [M, N]
-// 4. alpha * A [M, K] x B [K, N] + beta * C [M, N]
+// 1. A x B + C
+// 2. alpha * A x B + C
+// 3. A x B + beta * C
+// 4. alpha * A x B  + beta * C
 bool matchMatmulBiasCast(
     const UnaryOp* cast_op,
     Val*& mma_lhs,
@@ -1396,13 +1396,13 @@ bool matchMatmulBiasCast(
   }
 
   // Check for alpha in first input: alpha * (MmaOp(A, B))
-  MmaOp* mma;
+  MmaOp* mma = nullptr;
   auto* mul_alpha = dynamic_cast<BinaryOp*>(binary->input(0)->definition());
-  if (mul_alpha != nullptr && mul_alpha->getBinaryOpType() == BinaryOpType::Mul) {
+  if (mul_alpha != nullptr &&
+      mul_alpha->getBinaryOpType() == BinaryOpType::Mul) {
     alpha = mul_alpha->input(0);
     mma = dynamic_cast<MmaOp*>(mul_alpha->input(1)->definition());
-  }
-  else {
+  } else {
     // Alpha parameter is not present
     mma = dynamic_cast<MmaOp*>(binary->input(0)->definition());
   }
@@ -1418,20 +1418,24 @@ bool matchMatmulBiasCast(
   mma_rhs = mma->inB();
 
   // Based on the presence of beta parameter, the expected ops are:
-  // 1. beta * C[M, N]: CastOp(Implicit) -> Mul -> Add. Explicit CastOp is not present here since Binary::Mul will upcast implicitly.
-  // 2. C[M, ]: CastOp(bias, fp32) -> Broadcast -> Add
-  auto* binary_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
-  if (binary_beta != nullptr && binary_beta->getBinaryOpType() == BinaryOpType::Mul) {
-    // Case 1: beta * C[M, N]
-    beta = binary_beta->input(0);
-    bias = binary_beta->input(1);
-  }
-  else {
-    // Case 2: C[M,]
-    bias = binary->input(1); // Broadcasted bias tensor in fp32
-    auto* bcast = dynamic_cast<BroadcastOp*>(bias->definition());
-    NVF_ERROR(bcast != nullptr, "Expected bias tensor to be broadcasted.");
+  // CastOp(bias, fp32) -> -> Broadcast (Optional) -> Mul (if beta is present)
+  // -> Add
 
+  // Check for beta parameter
+  auto* mul_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
+  if (mul_beta != nullptr && mul_beta->getBinaryOpType() == BinaryOpType::Mul) {
+    // Case 1: beta * C
+    beta = mul_beta->input(0);
+    bias = mul_beta->input(1);
+  } else {
+    // Case 2: C
+    bias = binary->input(1); // Broadcasted bias tensor in fp32
+  }
+
+  // Check if bias was broadcasted
+  auto* bcast = dynamic_cast<BroadcastOp*>(bias->definition());
+  if (bcast != nullptr) { // mma_lhs is broadcasted
+    // Bias of shape [M, 1]
     NVF_ERROR(
         bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
         "Expected last dimension to be broadcasted for bias tensor.");
