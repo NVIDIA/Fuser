@@ -72,9 +72,27 @@ def dropout_rmsnorm_fwd_fusion(
     fd.add_output(T28)
 
 
+def dropout_rmsnorm_fwd_fn(inputs: list):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
+    return torch.nn.functional.layer_norm(
+        inputs[1] + torch.nn.functional.dropout(inputs[0], p = inputs[-1]),
+        normalized_shape=inputs[0].shape[1:],
+        weight=inputs[2],
+        bias=inputs[3],
+    )
+
+
+def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes:
+    # Inputs: in_tensor1 (size, dtype) + in_tensor2 (size, dtype), weights (size[1], dtype) + bias (size[1], dtype)
+    # Outputs: mean (size[0], float) + invstd (size[0], float) + outputs (size, dtype) + dropout_mask (size, bool)
+    return int(
+        dtype.itemsize  * (3 * np.prod(size) + 2 * size[1])
+        + torch.float.itemsize * 2 * size[0] + torch.bool.itemsize * np.prod(size)
+    )
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_rmsnorm_fwd_benchmark(
+def test_rmsnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,

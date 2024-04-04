@@ -78,7 +78,7 @@ def dropout_layernorm_fwd_fn(inputs: list):  # [in_tensor1, in_tensor2, weights,
     )
 
 
-def dropout_ln_fwd_iobytes(size: tuple, dtype: torch.dtype):
+def dropout_layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Total IO bytes:
     # Inputs: in_tensor1 (size, dtype) + in_tensor2 (size, dtype), weights (size[1], dtype) + bias (size[1], dtype)
     # Outputs: mean (size[0], float) + invstd (size[0], float) + outputs (size, dtype) + dropout_mask (size, bool)
