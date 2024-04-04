@@ -141,25 +141,6 @@ void SegmentedGroup::deserialize(
   is_fusion_input_ = buffer->is_fusion_input();
 }
 
-void SegmentedGroup::makeClonedFusion() {
-  auto&& [ir_cloner, fusion_segment] = segmented_fusion_->makeFusion(this);
-  NVF_ERROR(fusion_segment != nullptr, "Failed to create segmented fusion.");
-
-  cloned_fusion_ = std::move(fusion_segment);
-
-  // Map inputs for original fusion to the segmented fusion through IrCloner
-  const std::vector<Val*>& complete_inputs =
-      segmented_fusion_->completeFusion()->inputs();
-  original_inputs_in_cloned_fusion_.reserve(complete_inputs.size());
-  std::transform(
-      complete_inputs.begin(),
-      complete_inputs.end(),
-      std::back_inserter(original_inputs_in_cloned_fusion_),
-      [&complete_to_segment_map = ir_cloner](Val* v) {
-        return complete_to_segment_map.clone(v);
-      });
-}
-
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
@@ -1902,8 +1883,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
-std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
-    SegmentedGroup* sg) {
+IrCloner SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   auto fusion_segment = std::make_unique<Fusion>();
 
   IrCloner complete_to_segment_map =
@@ -1941,7 +1921,40 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   // new Vals so that they can be bound to the segment inputs.
   convertInputRfactorsToRoots(fusion_segment.get());
 
-  return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
+  NVF_ERROR(
+      group_to_subfusion_.try_emplace(sg, std::move(fusion_segment)).second);
+  return complete_to_segment_map;
+}
+
+Fusion* SegmentedFusion::getFusion(const SegmentedGroup* group) const {
+  return group_to_subfusion_.at(group).get();
+}
+
+void SegmentedFusion::precomputeValues(
+    SegmentedGroup* group,
+    const KernelArgumentHolder& group_args,
+    const KernelArgumentHolder& complete_fusion_args,
+    IrCloner& ir_cloner) {
+  auto precomputed_values =
+      std::make_unique<PrecomputedValues>(getFusion(group));
+  precomputed_values->bindInputs(group_args);
+
+  std::vector<Val*> complete_fusion_inputs;
+  complete_fusion_inputs.reserve(completeFusion()->inputs().size());
+  for (Val* complete_fusion_input : completeFusion()->inputs()) {
+    complete_fusion_inputs.push_back(ir_cloner.clone(complete_fusion_input));
+  }
+  precomputed_values->bindValues(complete_fusion_inputs, complete_fusion_args);
+  precomputed_values->evaluate();
+
+  NVF_ERROR(group_to_precomputed_values_
+                .try_emplace(group, std::move(precomputed_values))
+                .second);
+}
+
+PrecomputedValues* SegmentedFusion::getPrecomputedValues(
+    const SegmentedGroup* group) const {
+  return group_to_precomputed_values_.at(group).get();
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(

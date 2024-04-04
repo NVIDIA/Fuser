@@ -124,19 +124,6 @@ class SegmentedGroup {
     return exprs_;
   }
 
-  //! Returns the complete fusion inputs mapped to this segmented group's fusion
-  const auto& getCompleteFusionInputs() const {
-    return original_inputs_in_cloned_fusion_;
-  }
-
-  Fusion* getFusion() {
-    // Build cloned fusion for this segmented group
-    if (cloned_fusion_ == nullptr) {
-      makeClonedFusion();
-    }
-    return cloned_fusion_.get();
-  }
-
   //! Debug print function
   void print() const;
 
@@ -253,12 +240,6 @@ class SegmentedGroup {
 
   //! SegmentedFusion this group belongs to
   SegmentedFusion* segmented_fusion_;
-
-  //! The cloned segmented fusion
-  std::unique_ptr<Fusion> cloned_fusion_;
-
-  //! These are the complete fusion's inputs mapped to the cloned fusion
-  std::vector<Val*> original_inputs_in_cloned_fusion_;
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
@@ -375,7 +356,14 @@ class SegmentedFusion {
 
   //! Get the fusion for the segmented group and return the IrCloner used to
   //! clone the complete fusion
-  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
+  IrCloner makeFusion(SegmentedGroup* sg);
+  Fusion* getFusion(const SegmentedGroup* sg) const;
+  void precomputeValues(
+      SegmentedGroup* sg,
+      const KernelArgumentHolder& group_args,
+      const KernelArgumentHolder& complete_fusion_args,
+      IrCloner& ir_cloner);
+  PrecomputedValues* getPrecomputedValues(const SegmentedGroup* sg) const;
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
@@ -491,6 +479,11 @@ class SegmentedFusion {
 
   //! A Copy of original full fusion
   std::unique_ptr<Fusion> complete_fusion_;
+
+  std::unordered_map<const SegmentedGroup*, std::unique_ptr<Fusion>>
+      group_to_subfusion_;
+  std::unordered_map<const SegmentedGroup*, std::unique_ptr<PrecomputedValues>>
+      group_to_precomputed_values_;
 
   //! A set of intermediate tensors that need to be cast to fp16
   std::unordered_set<TensorView*> force_fp16_tv_set_;

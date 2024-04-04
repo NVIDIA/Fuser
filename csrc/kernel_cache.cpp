@@ -1150,13 +1150,13 @@ void FusionKernelRuntime::deserialize(
     NVF_ERROR(
         !sg || scheduler_entry->heuristic() == sg->heuristic(),
         "Heuristics do not match.");
-    auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
-    FusionGuard fg(fusion_to_run.get());
-    scheduler_entry->schedule(fusion_to_run.get());
+    Fusion* fusion_to_run = segmented_fusion_->getFusion(sg);
+    FusionGuard fg(fusion_to_run);
+    scheduler_entry->schedule(fusion_to_run);
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
-        fusion_to_run.get(),
+        fusion_to_run,
         device_index,
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
@@ -1213,8 +1213,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "\nRun kernel:\n";
     if (sg) {
-      auto&& [ir_cloner, local_fusion] = segmented_fusion_->makeFusion(sg);
-      local_fusion->printMath();
+      segmented_fusion_->getFusion(sg)->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
     }
@@ -1302,11 +1301,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto&& [ir_cloner, fusion_to_run] =
-        segmented_fusion_->makeFusion(group_to_run);
+    Fusion* fusion_to_run = segmented_fusion_->getFusion(group_to_run);
+    PrecomputedValues* precomputed_values =
+        segmented_fusion_->getPrecomputedValues(group_to_run);
     auto group_runtime_outputs =
         executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+            fusion_to_run, group_runtime_inputs, precomputed_values);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1343,19 +1343,19 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
+  Fusion* fusion_to_run = segmented_fusion_->getFusion(sg);
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
-  FusionGuard fg(fusion_to_run.get());
+  FusionGuard fg(fusion_to_run);
   if (auto_schedule_) {
-    scheduler_entry->schedule(fusion_to_run.get());
+    scheduler_entry->schedule(fusion_to_run);
   }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
-      fusion_to_run.get(),
+      fusion_to_run,
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,
@@ -1606,8 +1606,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   // order. Instead of using FusionHeuristics::emplaceBack, we initialize
   // FusionHeuristics with the desired number of groups.
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  FusionKernelRuntime::HeuristicsPtr heuristics =
-      std::make_unique<FusionHeuristics>(num_groups);
+  auto heuristics = std::make_unique<FusionHeuristics>(num_groups);
 
   // Store metadata copy of arguments for ArgumentManager
   KernelArgumentHolder args_metadata = copyMetadataArg(args);
@@ -1623,33 +1622,36 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
-    // Create fusion for this segmented group
-    Fusion* fusion_to_run = group_to_run->getFusion();
-    NVF_ERROR(fusion_to_run != nullptr);
-    FusionGuard fg(fusion_to_run);
-
     // Get input arguments for SchedulerRuntimeInfo
     KernelArgumentHolder group_runtime_inputs;
     for (auto input : group_to_run->inputs()) {
       group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
-    // Create PrecomputedValues initialized with original fusion inputs
-    auto evaluator_precomputed_values =
-        std::make_unique<PrecomputedValues>(fusion_to_run);
-    evaluator_precomputed_values->bindInputs(group_runtime_inputs);
-    evaluator_precomputed_values->bindValues(
-        group_to_run->getCompleteFusionInputs(), complete_fusion_metadata_args);
-    evaluator_precomputed_values->evaluate();
+    // Create fusion for this segmented group
+    if (heuristics_ == nullptr) {
+      auto ir_cloner = segmented_fusion_->makeFusion(group_to_run);
+      segmented_fusion_->precomputeValues(
+          group_to_run,
+          group_runtime_inputs,
+          complete_fusion_metadata_args,
+          ir_cloner);
+    }
+
+    Fusion* fusion_to_run = segmented_fusion_->getFusion(group_to_run);
+    NVF_ERROR(fusion_to_run != nullptr);
+    FusionGuard fg(fusion_to_run);
 
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
         ir_utils::allTvs(fusion_to_run);
 
+    PrecomputedValues* precomputed_values =
+        segmented_fusion_->getPrecomputedValues(group_to_run);
     SchedulerRuntimeInfo fusion_to_run_info(
         fusion_to_run,
         group_runtime_inputs,
-        evaluator_precomputed_values.get(),
+        precomputed_values,
         all_tvs_for_fusion_to_run,
         forced_index_type);
 
@@ -1678,11 +1680,10 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = executors_.at(group_to_run->groupId())
-                                     .inferOutputSizes(
-                                         fusion_to_run,
-                                         group_runtime_inputs,
-                                         evaluator_precomputed_values.get());
+    auto group_runtime_outputs =
+        executors_.at(group_to_run->groupId())
+            .inferOutputSizes(
+                fusion_to_run, group_runtime_inputs, precomputed_values);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }

@@ -123,7 +123,9 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
-    auto&& [cloner, fusion] = staged_fusion_->makeFusion(group);
+    auto fusion = std::make_unique<Fusion>();
+    staged_fusion_->makeFusion(group);
+    *fusion = *staged_fusion_->getFusion(group);
     fec_.try_emplace(
         group, std::move(fusion), 0, !params_.skip_auto_scheduling);
     outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
@@ -131,7 +133,9 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
     auto [it, has_emplaced] = fe_.try_emplace(group);
     auto& fe = it->second;
     if (has_emplaced) {
-      auto&& [cloner, fusion] = staged_fusion_->makeFusion(group);
+      auto fusion = std::make_unique<Fusion>();
+      staged_fusion_->makeFusion(group);
+      *fusion = *staged_fusion_->getFusion(group);
       fe.compileFusion(fusion.get(), group_input_IValues);
     }
     outputs = fe.runFusion(group_input_IValues);
@@ -260,7 +264,7 @@ std::ostream& MultiDeviceExecutor::print() {
       communication_counter++;
     } else {
       debug() << "Compute segment " << compute_segment_counter << ":{\n";
-      auto&& [cloner, fusion] = staged_fusion_->makeFusion(group);
+      Fusion* fusion = staged_fusion_->getFusion(group);
       fusion->print();
       debug() << "}\n";
       compute_segment_counter++;
