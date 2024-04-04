@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 # TMA support in nvFuser
 
 ## Introduction
@@ -66,6 +72,6 @@ Instead, it is a virtual domain that only exists in the user's mind.
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
 for example, we can not merge discontiguous IterDomains ([why?](../reading/divisibility-of-split.md#merging-discontiguous-iterdomains)), and we can not have indivisible splits either.
 
-### Step 2: create boxe
+### Step 2: create box
 
 TODO: this documentation is under construction
