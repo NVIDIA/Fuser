@@ -68,6 +68,8 @@ def nanogpt_attn_bwd_fusion(
 
 
 def nanogpt_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOByte computation is required since nvFuser input/outputs (grad_out, attn, dropout_mask, bias_mask, grad_input]) differ from baseline input/outputs (output, grad_output).
+
     # Total IO bytes = grad_out ([bs, nh, seq_len, seq_len], dtype) + attn ([bs, nh, seq_len, seq_len], dtype) +
     #       dropout_mask ([bs, nh, seq_len, seq_len], bool) + bias_mask ([bs, nh, seq_len, seq_len], bool) + grad_in ([bs, nh, seq_len, seq_len], dtype)
     bs, seq_len, nh, n_embd = size

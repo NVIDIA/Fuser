@@ -82,8 +82,11 @@ def huggingface_attn_fwd(
 
 
 def huggingface_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOByte computation is required since nvFuser outputs (output, attn, dropout_mask) differ from baseline outputs (output).
+
     # Total IO bytes = attention_mask ([bs, nh, seq_len, seq_len], dtype) + in_tensor ([bs, nh, seq_len, seq_len], dtype) +
     #   output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs * nh, seq_len, seq_len], dtype) + dropout_mask ([bs * nh, seq_len, seq_len], bool)
+
     bs, seq_len, nh, n_embd = size
     return int(bs * nh * seq_len * seq_len * (dtype.itemsize * 4 + torch.bool.itemsize))
 
@@ -100,7 +103,7 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.2
+    dropout_p = 0.0
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     dropout_mask = torch.lt(
         torch.rand(batch_size * nh, seq_len, seq_len, device="cuda"), 1 - dropout_p
@@ -115,8 +118,7 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     if not disable_validation:
         attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
-        out = 1 / (1 - dropout_p) * dropout_mask * attn
+        out = torch.nn.functional.dropout(attn, p = dropout_p)
         fd.validate([attention_mask, inputs], [out, attn, dropout_mask])
 
     if not disable_benchmarking:
@@ -135,7 +137,7 @@ def test_huggingface_attn_fwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.2
+    dropout_p = 0.0
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype

@@ -56,6 +56,8 @@ def huggingface_attn_bwd_fusion(
 
 
 def huggingface_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOByte computation is required since nvFuser input/outputs (grad_out, attn, dropout_mask, grad_input]) differ from baseline input/outputs (output, grad_output).
+
     # Total IO bytes = grad_output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs*nh, seq_len, seq_len], dtype) + dropout_mask ([bs*nh, seq_len, seq_len], bool) + grad_input ([bs, nh, seq_len, seq_len], dtype)
     bs, seq_len, nh, n_embd = size
     return int(bs * nh * seq_len * seq_len * (dtype.itemsize * 3 + torch.bool.itemsize))
@@ -74,7 +76,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
 
     batch_size, seq_len, nh, n_embd = size
 
-    dropout_p = 0.2 
+    dropout_p = 0.0 
     inputs = torch.randn(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
     )
@@ -117,7 +119,7 @@ def test_huggingface_attn_bwd_baseline_benchmark(
 
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
-    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True)
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
