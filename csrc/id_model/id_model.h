@@ -169,7 +169,7 @@ class IdModel : public PolymorphicBase {
   // fusion.
   void buildIterDomainDefinitionsAndUses();
 
-  /// Start loop map by grouping inlined iter domains
+  // Start loop map by grouping inlined iter domains
   void initializeLoopGraph(const StatefulInliningInfo& info);
 
   // Build a map of loop groups to IterDomains that represent actual
@@ -192,7 +192,35 @@ class IdModel : public PolymorphicBase {
   // input is promoted, the output needs to be promoted too. If
   // there's already an equivalent expr that uses the promoted inputs,
   // create a mapping from the outputs of the IEL expr to the outputs
-  // of the equivalent expr.
+  // of the equivalent expr. When require_loop_mapped_promotion is
+  // true, the equivalent expr needs to be already loop mapped. If no
+  // such expr is found, the IEL expr is replayed with the promoted
+  // inputs. require_loop_mapped_promotion is true when this function
+  // is used for step 3.
+  //
+  // This is used twice when building the promotion map. The first time
+  // it is used there's no loop graph promotion yet, so only the IEL
+  // promotions are propagated. In that case, loop_graph_promotion_map
+  // should be just empty.
+  //
+  // Propagation uses iel_promotion_map and
+  // loop_graph_promotion_map. If both are available for an IEL group,
+  // the former has the precedence. This is because when this function
+  // is used for step 4, the given iel_promotion_map starts as an
+  // empty map and gets populated during this propagation, so any
+  // mapping in the map is guaranteed to be the correct final mapping,
+  // whereas the loop graph may have invalid mappings for partially
+  // inlined domains.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
+      bool require_loop_mapped_promotion);
+
+  // Same as the other propagatePromotionsInIELGraph but without loop
+  // graph map. This is used for step 2, where there's no loop
+  // graph map yet.
   void propagatePromotionsInIELGraph(
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
@@ -280,5 +308,12 @@ class IdModel : public PolymorphicBase {
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
+
+// A utility function to update a map of ValGroups to ID from an old
+// Valgraph to a new ValGraph. The new graph must be a superset of the
+// old graph.
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph);
 
 } // namespace nvfuser

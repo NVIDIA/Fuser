@@ -3117,6 +3117,70 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
   }
 }
 
+// Avoid lowering error https://github.com/NVIDIA/Fuser/issues/1808
+TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  auto layout = MmaLayout::TN;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DTuring(-1, -1, -1, layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, DataType::Half);
+  auto tv1 = makeContigConcreteTensor(shapes.second, DataType::Half);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(160, 144, 16);
+  gemm_tile.warp_tile = GemmTile(80, 24, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto inputs = matmulAtInput3DTuring(M, N, K, layout);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(
+          &fusion,
+          {inputs.first, inputs.second},
+          LaunchParams(),
+          matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+
+  // Check that computed smem matches actually allocated smem
+  mma_utils::MmaDataTypes data_types = {
+      DataType::Half, DataType::Half, DataType::Float};
+  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+      params, data_types, true, true);
+  int64_t actual_smem = fe.lastLaunchParams().smem();
+  EXPECT_EQ(estimated_smem, actual_smem);
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
