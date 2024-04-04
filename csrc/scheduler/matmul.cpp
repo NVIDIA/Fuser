@@ -1246,7 +1246,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   NVF_ERROR(!cached_outputs.empty());
   mma_utils::MmaDataTypes data_types = {
-      a->dtype(), b->dtype(), cached_outputs.at(0).second->dtype()};
+      a->dtype(), b->dtype(), mma_result->dtype()};
   // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
   // batch loop
   bool guaranteed_operand_reuse = num_batch_dims == 0 || num_splitk_dims == 0;
