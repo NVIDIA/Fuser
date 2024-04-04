@@ -654,7 +654,7 @@ int64_t getPersistentBufferSizeOfTensor(
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
-    const int64_t threads_per_block = -1);
+    int64_t threads_per_block = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
