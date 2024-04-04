@@ -107,7 +107,8 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
   std::vector<IterDomain*> index_domains;
   std::vector<std::optional<bool>> contiguity;
 
-  if (tv->hasAllocation()) {
+  // Ignore allocation of non-global tensors for now
+  if (tv->hasAllocation() && tv->getMemoryType() == MemoryType::Global) {
     VERBOSE() << "Tv has allocation of " << tv->toString() << ", "
               << toDelimitedString(tv->getAllocationDomain()) << std::endl;
     index_domains = tv->getAllocationDomain();
@@ -122,6 +123,11 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
                 << std::endl;
       index_domains = tv->getMaybeRFactorDomain();
       contiguity = tv->domain()->contiguity();
+    } else if (tv->getMemoryType() == MemoryType::Shared) {
+      index_domains = {
+          tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
+          tv->getLeafDomain().end()};
+      contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
     } else {
       index_domains = {
           tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
@@ -379,7 +385,14 @@ TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
 }
 
 void TensorIndexer::buildLoopIndexMap() {
-  Fusion* fusion = id_model_.idGraph(IdMappingMode::LOOP)
+  if (id_model_.idGraph(IdMappingMode::EXACT)
+          .disjointValSets()
+          .disjointSets()
+          .empty()) {
+    return;
+  }
+
+  Fusion* fusion = id_model_.idGraph(IdMappingMode::EXACT)
                        .disjointValSets()
                        .disjointSets()
                        .front()

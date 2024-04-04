@@ -949,8 +949,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   // The loop map is built for loop_graph_copy. Update the map to the
   // latest loop graph
-  final_loop_promotion_map =
-      updateValGroupIdMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+  final_loop_promotion_map = updateValGroupIdMap(
+      final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
@@ -1795,7 +1795,10 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
   ValGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
+    NVF_ERROR(
+        covered_it != exact_covered_ids.end(),
+        "Couldn't find covered ids for exact group: ",
+        nvfuser::toString(exact_group));
     loop_group_covered_ids.pushBack(covered_it->second);
   }
 
