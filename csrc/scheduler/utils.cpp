@@ -2512,7 +2512,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
   }
   int64_t reduction_broadcast_workspace =
-      max_threads_per_block * dtype_size * welford_factor;
+      threads_per_block * dtype_size * welford_factor;
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
