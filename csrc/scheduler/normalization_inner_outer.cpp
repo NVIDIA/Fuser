@@ -774,12 +774,12 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t reg_per_thread =
       getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-  int64_t blocks_per_sm_regs =
+  int64_t max_blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
   // check shared memory limitation on blocks per sm
-  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+  int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
-  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
+  int64_t blocks_per_sm = std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
