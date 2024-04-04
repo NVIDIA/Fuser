@@ -232,7 +232,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   }
   NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
 
-  // find the brodcast tensor whose broadcast makse is same to the reference
+  // find the broadcast tensor whose broadcast mask is same to the reference
   std::vector<TensorView*> outer_broadcast_tvs;
   for (auto tv : ir_utils::allTvs(fusion)) {
     if (std::any_of(
