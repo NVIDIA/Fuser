@@ -1010,10 +1010,8 @@ TEST_F(IdModelTest, LoopPromotion4) {
 
   auto id10 = getParentId(tv4->axis(0), 1);
   ASSERT_EQ(id10->name(), 10);
-  auto id32 =
-      getValByName(ir_utils::consumerValsOf(id10), 32)->as<IterDomain>();
-  auto id33 =
-      getValByName(ir_utils::consumerValsOf(id10), 33)->as<IterDomain>();
+  auto id32 = getChildIdByName(id10, 32);
+  auto id33 = getChildIdByName(id10, 33);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {

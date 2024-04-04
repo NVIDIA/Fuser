@@ -219,6 +219,8 @@ ParallelizedDomainPredicate::getPredicateMap(
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
+  DEBUG_PRINT_SCOPE_NAME(
+      "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
 
   Val* pred = GpuLower::current()->kernel()->trueVal();
@@ -233,7 +235,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
   }
 
   NVF_ERROR(pred != nullptr);
-  return pred;
+  RECORD_AND_RETURN(pred);
 }
 
 UnswitchPredicateKey::UnswitchPredicateKey()
@@ -337,6 +339,13 @@ Val* PredicateCompute::getInlinePredicate(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
+  DEBUG_PRINT_SCOPE(
+      "expr = ",
+      expr,
+      "thread_pred = ",
+      thread_pred,
+      "pred_type = ",
+      pred_type);
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
 
   const auto gpu_lower = GpuLower::current();
@@ -346,20 +355,30 @@ Val* PredicateCompute::getInlinePredicate(
     thread_pred = gpu_lower->kernel()->trueVal();
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
-      return thread_pred;
+      RECORD_AND_RETURN(thread_pred);
     }
   }
 
   if (loops.empty()) {
     NVF_ERROR(thread_pred != nullptr);
-    return thread_pred;
+    RECORD_AND_RETURN(thread_pred);
   }
 
   auto out_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    return thread_pred;
+    RECORD_AND_RETURN(thread_pred);
+  }
+
+  auto parallel_dom_pred =
+      ParallelizedDomainPredicate::getPredicate(expr, loops);
+  NVF_ERROR(parallel_dom_pred != nullptr);
+
+  // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
+  // itself is sufficient to predicate the accesses.
+  if (ir_utils::isCpAsyncBulk(expr)) {
+    RECORD_AND_RETURN(parallel_dom_pred);
   }
 
   auto pred_info_vec = Index::getReferenceRootPredicates(
@@ -406,12 +425,8 @@ Val* PredicateCompute::getInlinePredicate(
   // use the same predicate for reads. nullptr is returned then.
   if (pred_type == PredicateType::ReductionWrite && !non_zero_start_found &&
       !out_tv->domain()->hasGridReduction()) {
-    return nullptr;
+    RECORD_AND_RETURN(nullptr);
   }
-
-  auto parallel_dom_pred =
-      ParallelizedDomainPredicate::getPredicate(expr, loops);
-  NVF_ERROR(parallel_dom_pred != nullptr);
 
   preds.push_back(parallel_dom_pred);
 
@@ -420,7 +435,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   if (preds.empty()) {
-    return GpuLower::current()->kernel()->trueVal();
+    RECORD_AND_RETURN(GpuLower::current()->kernel()->trueVal());
   }
 
   Val* cond = preds[0];
@@ -428,7 +443,7 @@ Val* PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
-  return cond;
+  RECORD_AND_RETURN(cond);
 }
 
 Val* UnswitchPredicate::get(

@@ -1413,14 +1413,14 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
   auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
+  // gmem indexing and expect_bytes for mbarrier
+  auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
+      in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
+
   // arrive and expect_tx mbarrier
   auto state = IrBuilder::create<Val>(DataType::UInt);
   pushBack(IrBuilder::create<kir::Allocate>(
       state, MemoryType::Local, ldst->container()->oneVal()));
-
-  // expect_bytes for mbarrier
-  auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-      in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
       state, mbarrier_index, expect_bytes));
 

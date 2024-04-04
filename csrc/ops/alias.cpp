@@ -362,8 +362,8 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
 
 TensorView* permute(
     TensorView* x,
-    const std::initializer_list<std::pair<const int, int>>& new2old) {
-  return permute(x, std::unordered_map<int, int>(new2old));
+    const std::initializer_list<std::pair<const int, int>>& old2new) {
+  return permute(x, std::unordered_map<int, int>(old2new));
 }
 
 TensorView* permute(
