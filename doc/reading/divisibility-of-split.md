@@ -1,4 +1,6 @@
-# Introduction
+# Divisibility of Split
+
+## Introduction
 
 Indivisible splits has many interesting properties that deserve us thinking.
 
@@ -39,9 +41,9 @@ What if the split is divisible? They are equivalent!
 
 TODO: explain why?
 
-# Implications
+## Implications
 
-## Merging discontiguous IterDomains
+### Merging discontiguous IterDomains
 
 - Q1: Can I merge two discontiguous IterDomains to create a larger IterDomain, and split out a vectorization IterDomain from this larger IterDomain?
 - Q2: In TMA scheduling, can I create the TMA domain by merging two discontiguous IterDomains, and then split out a box?
