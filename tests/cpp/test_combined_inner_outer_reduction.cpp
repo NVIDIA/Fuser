@@ -1071,7 +1071,7 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
   FusionGuard fg(&fusion);
 
   const int dim0 = 1024, dim1 = 2048;
-  auto tv0 = makeContigTensor(3);
+  auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
   auto tv2 = broadcast(tv1, {false, true});
