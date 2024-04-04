@@ -235,12 +235,13 @@ TEST_P(automaticReshardingTest, setInsertion) {
        is_tv0_tv3_tv5_sharded,
        is_tv1_tv4_sharded,
        is_tv2_sharded] = GetParam();
+  int sharded_axis = 1;
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
   TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
-  TensorView* tv3 = sum(tv2, {0});
-  TensorView* tv4 = broadcast(tv3, {true, false, false});
+  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv4 = broadcast(tv3, {false, true, false});
   TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
 
   tv0->setDeviceMesh(mesh0);
@@ -254,19 +255,20 @@ TEST_P(automaticReshardingTest, setInsertion) {
   fusion->addOutput(tv5);
 
   if (is_tv0_tv3_tv5_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
-    tv5->axis(0)->parallelize(ParallelType::DIDx);
+    tv0->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    tv3->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    tv5->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
   if (is_tv1_tv4_sharded) {
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
-    tv4->axis(0)->parallelize(ParallelType::DIDx);
+    tv1->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    tv4->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
   if (is_tv2_sharded) {
-    tv2->axis(0)->parallelize(ParallelType::DIDx);
+    tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
 
   insertReshardings(fusion.get());
+  insertShardedAxisReordering(fusion.get());
   validate();
 }
 

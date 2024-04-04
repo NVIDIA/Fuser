@@ -100,8 +100,9 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
   std::vector<int64_t> input_size = {2, 3, 2, 4};
+  int sharded_output_dim = 3;
   input_size[sharded_dim] = num_devices;
-  input_size[sharded_dim + 1] = num_devices;
+  input_size[sharded_output_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor ? makeConcreteTensor(input_size)
                                             : makeSymbolicTensor(4);
@@ -116,7 +117,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 
   tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-  tv3->axis(sharded_dim + 1)->parallelize(ParallelType::DIDx);
+  tv3->axis(sharded_output_dim)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
   for (auto tv : tvs) {

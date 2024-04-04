@@ -25,8 +25,11 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     TvIterator tvs);
 
-// Returns whether an Expr embbeds multi-device resharding
+// Returns whether an Expr embeds multi-device resharding
 bool isResharding(Expr* expr);
+
+// Returns whether a resharding expr reshards an inner axis
+bool isInnerResharding(Expr* expr);
 
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);

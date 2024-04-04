@@ -38,7 +38,7 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
     if (i == id) {
       return true;
     }
-    if (!i->isDeviceDim() && !i->isReduction()) {
+    if (!i->isDeviceDim() && !i->isReduction() && !i->isBroadcast()) {
       return false;
     }
   }
@@ -55,14 +55,16 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
 // i.e. sharded IterDomains that are present in the input, but not the output.
 // TODO: Analyze leaf domain for unsharded/sharded IDs and return their
 // parent root IDs.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
-getShardingChanges(Expr* expr) {
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
+    Expr* expr) {
+  NVF_ERROR(
+      ir_utils::isTvOp(expr), "Expression must be a TvOp ", expr->toString());
   NVF_ERROR(
       expr->outputs().size() == 1,
-      "Resharding operations can only have one output");
+      "Resharding expression can only have one output");
   NVF_ERROR(
       expr->inputs().size() == 1,
-      "Resharding operations can have only one input");
+      "Resharding expression can have only one input");
   auto output = expr->outputs().at(0)->as<TensorView>();
   auto input = expr->inputs().at(0)->as<TensorView>();
 
@@ -76,10 +78,10 @@ getShardingChanges(Expr* expr) {
     // Ignore sharded reductions on the output
     // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
-    if (in_root->isDeviceDim() && !out_root->isParallelized() &&
+    if (in_root->isDeviceDim() && !out_root->isDeviceDim() &&
         !out_root->isReduction()) {
       shard_deletions.push_back(in_root);
-    } else if (!in_root->isParallelized() && out_root->isDeviceDim()) {
+    } else if (!in_root->isDeviceDim() && out_root->isDeviceDim()) {
       shard_additions.push_back(out_root);
     } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
       NVF_ERROR(
@@ -176,6 +178,32 @@ bool isResharding(Expr* expr) {
   return !getTvsWithDifferentSharding(tv_ref, tvs).empty();
 }
 
+bool isInnerResharding(Expr* expr) {
+  NVF_ERROR(
+      ir_utils::isTvOp(expr),
+      "Non-tv op is not supported : ",
+      expr->toString());
+  NVF_ERROR(
+      expr->outputs().size() == 1,
+      "Resharding operations can only have one output");
+  NVF_ERROR(
+      expr->inputs().size() == 1,
+      "Resharding operations can have only one input");
+  auto output = expr->outputs().at(0)->as<TensorView>();
+  auto input = expr->inputs().at(0)->as<TensorView>();
+  auto [shard_additions, shard_deletions] = getShardingChanges(expr);
+  NVF_ERROR(
+      shard_additions.size() + shard_deletions.size() <= 1,
+      "Resharding expr can only support one axis")
+
+  if (!shard_deletions.empty()) {
+    return !isOutermostAllocatedId(input, shard_deletions[0]);
+  } else if (!shard_additions.empty()) {
+    return !isOutermostAllocatedId(output, shard_additions[0]);
+  }
+  return false;
+}
+
 namespace {
 
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
@@ -228,7 +256,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
   for (auto expr : reshard_exprs) {
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
+        "Non-tv op is not supported : ",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
@@ -247,17 +275,16 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // this will rematerialize a sharded axis.
     // ProcessGroup expects contiguous tensors.
     // Update input to push the rematerialized axis to the front -> collective
-    // -> permute the rematerizlied axis to the proper location Example: [i0
-    // DIDx(i1)] -> [i0 i1] Rewritten to: [DIDx(i1) i0] -> [i1 i0] -> [i0 i1]
-    // Note: there are no reduction based collectives that materializes an axis
-    // so expr is guaranteed to be a set.
-    if (!shard_deletions.empty()) {
+    // -> permute the rematerialized axis to the proper location
+    // Example: [i0 DIDx(i1)] -> [i0 i1]
+    // Rewritten to: [i0 DIDx(i1)] -> [DIDx(i1) i0] -> [i1 i0] -> [i0 i1]
+    // Note: there are no reduction based collectives that
+    // materializes an axis so expr is guaranteed to be a set.
+    if (!shard_deletions.empty() && isInnerResharding(expr)) {
       IterDomain* shard_deleted_id = shard_deletions[0];
       int sharding_axis =
           static_cast<int>(input->domain()->rootPosOf(shard_deleted_id));
-      if (isOutermostAllocatedId(input, shard_deleted_id)) {
-        continue;
-      }
+
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);
       TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
@@ -273,17 +300,16 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
     // permute the sharded axis to the proper location.
-    // Example: [i0 DIDx(i1) i2] -> [i0 r1 DIDx(i2)]
+    // Scatter example: [i0 i1] -> [i0 DIDx(i1)]
+    // Rewritten to [i0 i1] -> [i1 i0] -> [DIDx(i1) i0] -> [i0 DIDx(i1)]
+    // Reduce Scatter example: [i0 DIDx(i1) i2] -> [i0 r1 DIDx(i2)]
     // Rewritten to: [i0 DIDx(i1) i2] -> [i2 i0 DIDx(i1)] ->
     //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
     // Note that reduction axis shifts from axis=1 to axis=2.
-    else if (!shard_additions.empty()) {
+    else if (!shard_additions.empty() && isInnerResharding(expr)) {
       auto shard_added_id = shard_additions[0];
       int sharding_axis =
           static_cast<int>(output->domain()->rootPosOf(shard_added_id));
-      if (isOutermostAllocatedId(output, shard_added_id)) {
-        continue;
-      }
 
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = nullptr;
@@ -297,6 +323,12 @@ void insertShardedAxisReordering(Fusion* fusion) {
           ? 1
           : 0;
       if (expr->isA<ReductionOp>()) {
+        auto num_reduction_dims =
+            output->domain()->nDims() - output->domain()->noReductions().size();
+        NVF_ERROR(
+            num_reduction_dims == 1,
+            "Cannot support reducing multiple reduction axes ",
+            expr->toString())
         int reduction_axis_after_permute =
             static_cast<int>(reduction_axis.value()) +
             num_reduction_axes_before_sharding_axis;
@@ -307,11 +339,11 @@ void insertShardedAxisReordering(Fusion* fusion) {
             red_expr->init(),
             input_permute);
       } else {
-        // Note this is a no-op and is moving a device parallel axis back
         output_permute = set(input_permute);
       }
       int sharding_axis_after_permute =
           sharding_axis - num_reduction_axes_before_sharding_axis;
+      // Note this is a no-op and is moving a device parallel axis back
       TensorView* new_output =
           permute(output_permute, {{0, sharding_axis_after_permute}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);

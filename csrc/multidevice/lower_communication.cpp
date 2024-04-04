@@ -449,6 +449,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       "Lowering expression ",
       original_expr->toString(),
       " to communication is not supported");
+  NVF_ERROR(
+      !isInnerResharding(original_expr),
+      "Resharding on an inner axis is not lowerable ",
+      original_expr->toString());
   bool is_reduction = original_expr->isA<ReductionOp>();
 
   auto input_sharded_dim = getShardedAxis(input_tv);
