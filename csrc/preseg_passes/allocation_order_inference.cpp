@@ -31,8 +31,53 @@ std::vector<IterDomain*> constructAllocationDomain(
   return allocation_domain;
 }
 
+// NOTE: [Allocation Order Inference]
+//
+// AllocationOrderInferencer ctor takes a map of allocation order for inputs as
+// `unordered_map<const TensorView*, AllocationOrder>`. It propagates
+// AllocationOrder on a fusion and updates the the map with allocation order for
+// other TensorView in the fusion.
+//
+// e.g.
+//   std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
+//   // ... update alloc_order_map with AllocationOrder for tensors
+//   //     (i.e. usually inputs)
+//
+//   // create AllocationOrderInferencer
+//   AllocationOrderInferencer infer(alloc_order_map);
+//   // propagates AllocationOrder from entries already in alloc_order_map
+//   infer.traverse(fusion);
+//   // all tensor that's propagated successfully will have their allocation
+//   // order in alloc_order_map
+//
+// The protocol for AllocationOrder in alloc_order_map_ has three states. For
+// each `tv`, its corresponding allocation order `alloc_order_map_[tv]`:
+// 1. The allocation order has the same size as the `tv`'s rfactor domain;
+//    This means it has a preferred allocation order and the entry should
+//    participate in propagation.
+// 2. The allocation order is an empty array;
+//    This means it's a wild card and shouldn't dictate output allocation
+//    order. But it marks that propagation is successful for `tv`.
+//    i.e. This currently happens for TensorViews that's created by factory
+//    methods and its consumers.
+// 3. alloc_order_map_ does not have an entry for `tv`.
+//    This is the case where propagation has not reach the `tv`, likely due to
+//    lack of allocation order on inputs or certain operation not yet supported
+//    by propagation rule.
+//
+// Identify the difference between case 2. and 3. above allows us to better
+// handle `resolveAllocationOrder` among multiple candidates.
+// i. We do not want to ignore candidates where propagation has failed and
+// aggressively propagates allocatoin order through unresolved candidates. So we
+// would want to identify case 3. ii. Tensors created by factory methods should
+// carry a wild-card and should not actively participate propagation. Because
+// those tensors are not going to affect vectorization. Hence we need to
+// identify case 2.
 class AllocationOrderInferencer : public IterVisitor {
  public:
+  // Note: alloc_order_map_ is a reference to the ground truth of
+  // alloc_order_map. The pass here tries to propagate the allocation order from
+  // the ground truth.
   AllocationOrderInferencer(
       std::unordered_map<const TensorView*, AllocationOrder>& alloc_order_map)
       : alloc_order_map_(alloc_order_map) {}
@@ -87,9 +132,15 @@ class AllocationOrderInferencer : public IterVisitor {
     return alloc_domain;
   }
 
-  // propagate allocation order from producer to consumer. Returns true when
-  // producer has a recorded allocation order, false otherwise. This function
-  // assumes that all root domain in consumer can be mapped to producer.
+  // Propagate allocation order from producer to consumer via:
+  // 1. Constructs producer allocation_domain with its allocation order;
+  // 2. Mapping it to consumer's root domain to create alloc_domain;
+  // 3. Compute allocation order of consumer as the permutation between
+  //    alloc_domain and `permutation_ref`.
+  //
+  // Returns true when producer has a recorded allocation order, false
+  // otherwise. This function assumes that all root domain in consumer can be
+  // mapped to producer.
   bool propagateAllocationOrder(
       TensorView* producer,
       TensorView* consumer,
@@ -121,6 +172,7 @@ class AllocationOrderInferencer : public IterVisitor {
     return false;
   }
 
+  // Propagate allocation order from producer to consumer's rfactor_domain
   bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
     return propagateAllocationOrder(
         producer, consumer, consumer->getMaybeRFactorDomain());
@@ -130,7 +182,7 @@ class AllocationOrderInferencer : public IterVisitor {
   //
   // It scans through each candidate to find the first one that:
   //   1. is a TensorView
-  //   2. has the highest number of non_broadcast IterDomain
+  //   2. has the most non_broadcast IterDomains
   //
   // The function returns a nullptr when it encounters a TensorView that does
   // not have an entry in alloc_order_map_, since this means we failed to
@@ -182,7 +234,8 @@ TensorView* AllocationOrderInferencer::resolveAllocationOrder(
     }
 
     auto iter = alloc_order_map_.find(tv);
-    // skip entry that doesn't have an allocation order
+    // stopping propagation when we encounter an entry that does not have an
+    // allocation order. See NOTE: [Allocation Order Inference]
     if (iter == alloc_order_map_.end()) {
       return nullptr;
     }
@@ -327,7 +380,7 @@ void AllocationOrderInferencer::handle(PadOp* op) {
   auto* out = dynamic_cast<TensorView*>(op->out());
   auto* in = dynamic_cast<TensorView*>(op->in());
   // Note: `out` from pad has rfactor domain that cannot be mapped back to
-  // `in`'s domain. Hence we use `out`'s root domain to match permutation.
+  // `in`'s root domain. Hence we use `out`'s root domain to match permutation.
   propagateAllocationOrder(in, out, out->getRootDomain());
 }
 
