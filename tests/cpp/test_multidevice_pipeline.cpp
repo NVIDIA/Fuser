@@ -181,7 +181,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv3 = add(tv2, tv2);
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
@@ -194,13 +194,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
+    // in case of reduction, tv2's sharded_dim is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis =
-        (do_reduction && unsharded_input_sizes[sharded_dim + 1] > 1)
-        ? sharded_dim + 1
-        : 0;
-    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
+    int axis = (do_reduction) ? sharded_dim + 1 : sharded_dim;
+    tv2->axis(axis)->parallelize(ParallelType::DIDx);
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
@@ -239,7 +236,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -252,7 +249,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -265,7 +262,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -278,7 +275,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -291,7 +288,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -304,7 +301,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(true),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -317,7 +314,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(true),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 // Different scheduling modes used in
