@@ -2482,7 +2482,10 @@ kir::TensorIndex* Index::getProducerIndex(
     TensorIndexer* tensor_indexer) {
   Val* index = nullptr;
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
+  // tensor_indexer may be null even when opted in when a given fusion
+  // is not supported
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
     std::cerr << "Using the new indexer for producer: " << producer->toString()
               << std::endl;
     index = getProducerStridedIndices2(producer, consumer, tensor_indexer);
@@ -2595,9 +2598,12 @@ kir::TensorIndex* Index::getConsumerIndex(
     TensorIndexer* tensor_indexer) {
   Val* index = nullptr;
 
-  // Use the new IdModel-based indexer if enabled
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
-    std::cerr << "Using the new indexer for consumer: " << consumer->toString() << std::endl;
+  // tensor_indexer may be null even when opted in when a given fusion
+  // is not supported
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
+    std::cerr << "Using the new indexer for consumer: " << consumer->toString()
+              << std::endl;
     index = getConsumerStridedIndices2(consumer, tensor_indexer);
     std::cerr << "New index: " << index->toInlineString() << std::endl;
     auto old_index = getConsumerStridedIndices(

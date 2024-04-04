@@ -436,4 +436,16 @@ std::optional<SelfMapping> hasSelfMapping(
     const TensorView* tv,
     const ValGraph& id_graph);
 
+class ValGraphDotPrinter {
+ private:
+  ValGraphDotPrinter(const ValGraph& graph);
+
+ public:
+  static std::string getString(const ValGraph& graph);
+
+ private:
+  const ValGraph& graph_;
+  std::stringstream dot_;
+};
+
 } // namespace nvfuser

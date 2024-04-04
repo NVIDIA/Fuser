@@ -22,11 +22,14 @@
 
 namespace nvfuser {
 
-IndexLowering::IndexLowering() {
+IndexLowering::IndexLowering() : tensor_indexer_(nullptr) {
   if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
       hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
-    tensor_indexer_ =
-        std::make_unique<TensorIndexer>(GpuLower::current()->idModel());
+    // Disable if unsupported features found in the fusion
+    if (TensorIndexer::isSupported(GpuLower::current()->kernel())) {
+      tensor_indexer_ =
+          std::make_unique<TensorIndexer>(GpuLower::current()->idModel());
+    }
   }
 }
 

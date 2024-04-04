@@ -14,6 +14,8 @@
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
+
 namespace nvfuser {
 
 namespace {
@@ -124,15 +126,96 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
       index_domains = tv->getMaybeRFactorDomain();
       contiguity = tv->domain()->contiguity();
     } else if (tv->getMemoryType() == MemoryType::Shared) {
-      index_domains = {
-          tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-          tv->getLeafDomain().end()};
+      for (const auto i : c10::irange(tv->nDims())) {
+        auto leaf_id = tv->axis(i);
+        std::cerr << "Smem leaf domain: " << leaf_id->toString() << " of "
+                  << tv->toString() << std::endl;
+        auto pt = leaf_id->getParallelType();
+        if (isParallelTypeDeviceDim(pt) || isParallelTypeBlockDim(pt)) {
+          continue;
+        }
+        if (i < tv->getComputeAtPosition() && !isParallelTypeThreadDim(pt)) {
+          continue;
+        }
+        index_domains.push_back(leaf_id);
+      }
       contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
     } else {
       index_domains = {
           tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
           tv->getLeafDomain().end()};
       contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
+    }
+  }
+
+  // TODO: Fix alloation domains with vectorization
+  // This is an ugly workaround, but the allocation domain of a tensor
+  // with vectorized domains may not be the same as the leaf fomain
+  // since the vectorized domain must be at the innermost position in
+  // the allocation domain, but it's allowed to be located anywhwere
+  // in the leaf domain.
+  // This shouldn't be necessary for global memory tensors as their
+  // allocation domains are rfactor domains
+  {
+    if (tv->getMemoryType() != MemoryType::Global) {
+      IterDomain* id_to_move_back = nullptr;
+      // Vectorized load
+      if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
+          tv->definition()->as<LoadStoreOp>()->opType() ==
+              LoadStoreOpType::Set) {
+        auto vec_it = std::find_if(
+            index_domains.begin(),
+            index_domains.end(),
+            [](auto index_domain) -> bool {
+              return isParallelTypeVectorize(index_domain->getParallelType());
+            });
+        if (vec_it != index_domains.end() && *vec_it != index_domains.back()) {
+          id_to_move_back = *vec_it;
+        }
+      } else {
+        for (const auto ls_use :
+             ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
+          if (ls_use->opType() != LoadStoreOpType::Set) {
+            continue;
+          }
+          auto consumer_tv = ls_use->out()->as<TensorView>();
+          auto vec_it = std::find_if(
+              consumer_tv->getLeafDomain().begin(),
+              consumer_tv->getLeafDomain().end(),
+              [](auto consumer_leaf_id) -> bool {
+                return isParallelTypeVectorize(
+                    consumer_leaf_id->getParallelType());
+              });
+          if (vec_it == consumer_tv->getLeafDomain().end()) {
+            continue;
+          }
+          const auto& vec_group =
+              id_model.idGraph(IdMappingMode::EXACT).toGroup(*vec_it);
+          auto index_it = std::find_if(
+              index_domains.begin(),
+              index_domains.end(),
+              [&](auto index_id) -> bool { return vec_group->has(index_id); });
+          if (index_it == index_domains.end() ||
+              *index_it == index_domains.back()) {
+            continue;
+          }
+
+          id_to_move_back = *index_it;
+        }
+      }
+
+      if (id_to_move_back != nullptr) {
+        // reorder the vec domain to the end of the index domains
+        std::vector<IterDomain*> reordered_index_domains;
+        reordered_index_domains.reserve(index_domains.size());
+        for (const auto id : index_domains) {
+          if (id != id_to_move_back) {
+            reordered_index_domains.push_back(id);
+          }
+        }
+        reordered_index_domains.push_back(id_to_move_back);
+        index_domains = reordered_index_domains;
+      }
     }
   }
 
@@ -284,9 +367,9 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
       "Index already set: ",
       id->toString(),
       ". Preious: ",
-      getIndex(id)->toString(),
-      ". New: ",
-      idx->toString());
+      getIndex(id)->toString(), " (", getIndex(id)->toInlineString(),
+      "). New: ",
+      idx->toString(), ", (", idx->toInlineString(), ")");
 }
 
 bool IndexCompute::isForward(Expr* expr) const {
@@ -390,6 +473,22 @@ void TensorIndexer::buildLoopIndexMap() {
           .disjointSets()
           .empty()) {
     return;
+  }
+
+  std::cerr << "Exact Graph:\n";
+  for (const auto& g : id_model_.idGraph(IdMappingMode::EXACT)
+                           .disjointValSets()
+                           .disjointSets()) {
+    std::cerr << nvfuser::toString(g) << std::endl;
+  }
+
+  if (getenv("DOT")) {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        ValGraphDotPrinter::getString(id_model_.idGraph(IdMappingMode::EXACT));
+    std::cerr << dot_string << std::endl;
+    ofs << dot_string;
+    ofs.close();
   }
 
   Fusion* fusion = id_model_.idGraph(IdMappingMode::EXACT)
@@ -583,6 +682,56 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   VERBOSE() << "Index: " << index->toInlineString() << std::endl;
 
   return index;
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = ir_utils::allTvs(fusion);
+
+  bool supported = true;
+  std::stringstream reason;
+
+  for (const auto& tv : all_tvs) {
+    for (const auto& id : ir_utils::allIDsOf(tv)) {
+      if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+        supported = false;
+        reason << "MialignedVectorize is used: " << id->toString();
+        break;
+      } else if (auto resize = dynamic_cast<Resize*>(id->definition())) {
+        supported = false;
+        reason << "Resize not supported: " << resize->toString();
+        break;
+      } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
+        supported = false;
+        reason << "Swizzle not supported: " << swizzle->toString();
+        break;
+      } else if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+        supported = false;
+        reason << "Swizzle2D not supported: " << swizzle2d->toString();
+        break;
+      }
+    }
+
+    // Transpose not working. Disable it for now.
+    if (tv->hasRFactor() && tv->getRootDomain() != tv->getRFactorDomain()) {
+      std::unordered_set<IterDomain*> root_set(
+          tv->getRootDomain().begin(), tv->getRootDomain().end());
+      std::unordered_set<IterDomain*> rf_set(
+          tv->getRFactorDomain().begin(), tv->getRFactorDomain().end());
+      if (root_set == rf_set) {
+        // Root and rfactor are just reordered, meaning this tv is transposed
+        supported = false;
+        reason << "Transpose not supported: " << tv->definition()->toString();
+        break;
+      }
+    }
+  }
+
+  if (!supported) {
+    std::cerr << "TensorIndexer disabled due to: " << reason.str() << std::endl;
+    return false;
+  } else {
+    return true;
+  }
 }
 
 } // namespace nvfuser

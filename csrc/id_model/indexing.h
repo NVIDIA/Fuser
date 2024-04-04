@@ -22,6 +22,8 @@ class TensorIndexer {
 
   Val* getIndex(TensorView* tv, Expr* expr);
 
+  static bool isSupported(Fusion* fusion);
+
  private:
   void buildLoopIndexMap();
 

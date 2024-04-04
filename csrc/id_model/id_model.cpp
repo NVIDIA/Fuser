@@ -1660,7 +1660,7 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
           return view_rfactor_ids.find(id->as<IterDomain>()) !=
               view_rfactor_ids.end();
         })) {
-      covered_ids[id_group] = {id_group};
+      //covered_ids[id_group] = {id_group};
     }
 
     // Initialize broadcast groups to empty since broadcast domains
@@ -1744,6 +1744,8 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
 
   std::unordered_map<ValGroup, IterDomain*> promotion_map;
 
+  //VERBOSE() << "Finding the projection for " << nvfuser::toString(loop_group) << std::endl;
+
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
@@ -1802,6 +1804,8 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     loop_group_covered_ids.pushBack(covered_it->second);
   }
 
+  //VERBOSE() << "loop_group_covered_ids: " << nvfuser::toString(loop_group_covered_ids) << std::endl;
+
   // Check if any of the candidate Iter Domains we collected cover all the
   // exact groups of loop_group_covered_ids. If so, that's the correct
   // promoted iter domain of this group.
@@ -1810,6 +1814,10 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     IterDomain* terminal_id = entry.second;
     auto covered_it = exact_covered_ids.find(terminal_id_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
+
+    //VERBOSE() << "Projection candidate: "
+    //<< terminal_id->toString()
+    //<< ", covering: " << nvfuser::toString(covered_it->second) << std::endl;
     if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
       return terminal_id;
     }

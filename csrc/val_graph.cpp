@@ -1038,4 +1038,84 @@ std::optional<SelfMapping> hasSelfMapping(
   return std::nullopt;
 }
 
+ValGraphDotPrinter::ValGraphDotPrinter(const ValGraph& graph) : graph_(graph) {
+  dot_ << "digraph ValGraph {\n";
+
+  const std::string indent = "  ";
+
+  // Use the pointer value as the name and attach a label with the
+  // val names
+  std::unordered_map<ValGroup, std::string> val_names;
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    std::stringstream name;
+    name << "val_" << val_group.get();
+    val_names.emplace(val_group, name.str());
+  }
+
+  std::unordered_map<ExprGroup, std::string> expr_names;
+  for (const auto& group : graph_.disjointExprSets().disjointSets()) {
+    std::stringstream name;
+    name << "expr_" << group.get();
+    expr_names.emplace(group, name.str());
+  }
+
+  auto getGroupLabel = [](const auto& group) -> std::string {
+    std::set<StmtNameType> names;
+    for (const auto val : *group) {
+      names.insert(val->name());
+    }
+    std::stringstream ss;
+    const int line_limit = 5;
+    int wrap_counter = 0;
+    bool first_name = true;
+    for (const auto& name : names) {
+      if (wrap_counter == line_limit) {
+        ss << "\n";
+        wrap_counter = 0;
+      } else if (!first_name) {
+        ss << " ";
+      }
+      ss << name;
+      first_name = false;
+      ++wrap_counter;
+    }
+    return ss.str();
+  };
+
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    dot_ << indent << val_names.at(val_group)
+         << " [label=\"V: " << getGroupLabel(val_group) << "\"];\n";
+  }
+
+  for (const auto& expr_group : graph_.disjointExprSets().disjointSets()) {
+    dot_ << indent << expr_names.at(expr_group)
+         << " [label=\"E: " << getGroupLabel(expr_group) << "\"];\n";
+  }
+
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    dot_ << indent << "// Definitions of " << nvfuser::toString(val_group)
+         << "\n";
+    for (const auto& def : graph_.getDefinitions(val_group)) {
+      dot_ << indent << expr_names.at(def) << " -> " << val_names.at(val_group)
+           << "\n";
+    }
+
+    dot_ << indent << "// Uses of " << nvfuser::toString(val_group) << "\n";
+
+    for (const auto& use : graph_.getUses(val_group)) {
+      dot_ << indent << val_names.at(val_group) << " -> " << expr_names.at(use)
+           << "\n";
+    }
+
+    dot_ << "\n";
+  }
+
+  dot_ << "}\n";
+}
+
+std::string ValGraphDotPrinter::getString(const ValGraph& graph) {
+  ValGraphDotPrinter printer(graph);
+  return printer.dot_.str();
+}
+
 } // namespace nvfuser
