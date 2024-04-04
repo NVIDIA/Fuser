@@ -176,11 +176,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
 #ifdef NVFUSER_DISTRIBUTED
-  static std::unique_ptr<Communicator> comm = nullptr;
+  static Communicator* comm = new Communicator();
   if (multidevice_flag) {
-    if (comm == nullptr) {
-      comm = std::make_unique<Communicator>();
-    }
     if (multi_device_executor == nullptr) {
       // NOTE: we are always using cache and it's bad.
       auto device = getCommonDeviceCUDA(inputs, selected_device);
@@ -189,7 +186,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*user_sched.schedule.get()), *comm.get());
+          std::make_unique<Fusion>(*user_sched.schedule.get()), *comm);
     }
     return multi_device_executor->runWithInput(inputs.vec());
   }
@@ -212,6 +209,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
+  // when `!override_user_schedule == true`, it *could* have produced an output
+  // already at this point and we would not want to overwrite generated output
+  // through user scheduled kernel.
   if (outputs.empty()) {
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
