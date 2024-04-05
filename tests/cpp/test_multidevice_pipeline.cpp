@@ -181,7 +181,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv3 = add(tv2, tv2);
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
@@ -194,13 +194,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
+    // in case of reduction, tv2's sharded_dim is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis =
-        (do_reduction && unsharded_input_sizes[sharded_dim + 1] > 1)
-        ? sharded_dim + 1
-        : 0;
-    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
+    int axis = (do_reduction) ? sharded_dim + 1 : sharded_dim;
+    tv2->axis(axis)->parallelize(ParallelType::DIDx);
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
@@ -239,7 +236,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -252,7 +249,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -265,7 +262,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -278,7 +275,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -291,7 +288,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -304,7 +301,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(false),
         testing::Values(true),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -317,20 +314,34 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(true),
         testing::Values(true),
-        testing::Values(0),
+        testing::Values(0, 1),
         testing::Bool()));
 
+// Different scheduling modes used in
+// PipelineTestStagedReduction.StagedReduction
 enum class SchedulingMode {
+  // Manual interdevice scheduling, no intra-device scheduling
   InterDeviceOnly,
+  // Manual inter-/intra-device scheduling
   Manual,
+  // Manual inter-device scheduling, composed with ReductionOnly
+  // intra-device schedule
+  ReductionOnly,
+  // Manual inter-device scheduling, composed with fully automated intra-device
+  // scheduling (through FusionExecutorCache)
+  Automatic,
 };
 
 std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
   switch (mode) {
     case SchedulingMode::InterDeviceOnly:
-      return out << "InterDeviceOnly";
+      return out << "SchedulingMode::InterDeviceOnly";
     case SchedulingMode::Manual:
-      return out << "Manual";
+      return out << "SchedulingMode::Manual";
+    case SchedulingMode::ReductionOnly:
+      return out << "SchedulingMode::ReductionOnly";
+    case SchedulingMode::Automatic:
+      return out << "SchedulingMode::Automatic";
     default:
       NVF_ERROR(false);
   }
@@ -416,6 +427,17 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       tv3->axis(-1)->parallelize(ParallelType::TIDx);
       break;
     }
+    case SchedulingMode::ReductionOnly: {
+      auto reduction_params = getReductionHeuristics(
+          fusion.get(), {at::empty(input_sizes, tensor_options)});
+      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+      l_params = reduction_params->lparams;
+      scheduleReduction(fusion.get(), *reduction_params);
+      break;
+    }
+    case SchedulingMode::Automatic:
+      multi_device_executor_params.use_fusion_executor_cache = true;
+      break;
   }
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
@@ -428,8 +450,11 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
 INSTANTIATE_TEST_SUITE_P(
     SchedulingModes,
     PipelineTestStagedReduction,
-    ::testing::Values(SchedulingMode::InterDeviceOnly, SchedulingMode::Manual));
-
+    testing::Values(
+        SchedulingMode::InterDeviceOnly,
+        SchedulingMode::Manual,
+        SchedulingMode::ReductionOnly,
+        SchedulingMode::Automatic));
 } // namespace nvfuser
 
 #endif

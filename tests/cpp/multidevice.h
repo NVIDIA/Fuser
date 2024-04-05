@@ -59,7 +59,7 @@ class MultiDeviceTest : public NVFuserTest {
     if (!isSharded(tv)) {
       return tensor;
     }
-    auto sharded_dim = 0;
+    auto sharded_dim = getShardedAxis(tv);
     int i = 0;
     const auto& devices = tv->getDeviceMesh().vector();
     auto it = std::find(devices.begin(), devices.end(), deviceId);
@@ -112,6 +112,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
   MultiDeviceExecutorParams multi_device_executor_params;
+  LaunchParams l_params = {};
 };
 
 } // namespace nvfuser

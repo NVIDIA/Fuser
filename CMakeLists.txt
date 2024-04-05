@@ -737,7 +737,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   get_filename_component(filename ${src} NAME_WE)
   set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
   add_custom_command(
-    COMMENT "Stringify NVFUSER runtime source file"
+    COMMENT "Stringify NVFUSER runtime source file ${src}"
     OUTPUT ${dst}
     DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
     COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
@@ -745,10 +745,13 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
   add_dependencies(codegen_internal nvfuser_rt_${filename})
 
-  # also generate the resource headers during the configuration step
-  # (so tools like clang-tidy can run w/o requiring a real build)
-  execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  # Do not overwrite resource header if it already exists. This avoids unnecessary rebuilds.
+  # If ${dst} doesn't exist, this `if` is also true, so header will be generated.
+  if (${src} IS_NEWER_THAN ${dst})
+    # also generate the resource headers during the configuration step
+    # (so tools like clang-tidy can run w/o requiring a real build)
+    execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  endif()
 endforeach()
 
 target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include")

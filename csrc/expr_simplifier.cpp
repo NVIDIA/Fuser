@@ -2240,6 +2240,8 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   return value;
 }
 
+// TODO: move the proof to doc/math/integer-division.md
+//
 // Use the following rule to simplify div and mod:
 // J) Distributivity of % over +:
 //    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
@@ -2251,7 +2253,7 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
 //  (a + b) % c = a % c + b
 // Proof:
 //  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
-//  Theorem 6.5, we have b % c = b.
+//  Theorem 4.5, we have b % c = b.
 //  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
 //  So, a % c + b % c = ((a/g) % (c/g)) * g + b
 //  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
