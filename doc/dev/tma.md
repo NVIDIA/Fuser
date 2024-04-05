@@ -29,8 +29,6 @@ In Figure 1, we have box size `(6, 4)` for both diagram.
 For the diagram on the left, we have tile size `(6, 4)` and stride `(1, 1)`.
 For the diagram on the right, we have tile size `(6, 2)`, and stride `(1, 3)`.
 
-TODO: update svg adding numbers for coordinate
-
 Conceptually, we can consider TMA as a function:
 > $\mathrm{tma}(\vec{x}, sa; ga, \vec{gs}, \vec{bs}, \vec{gr}, \vec{er}, op)$.
 
@@ -135,8 +133,17 @@ There are two ways of defining box: partitioning and compositing.
 
 #### Define box by partitioning
 
-For illustration purposes, let's consider a simple 2D case,
-that is, the TMA domain only contains two IterDomains, and we want to create a 2D box.
-It is straightforward to generalize our 2D example to higher dimensionalities.
+Defining box by partitioning is as simple as: select an IterDomain in the TMA domain, then
+inner split that IterDomain by the box size of that dimension.
+
+We call this split expression a "*boxing split*", the input of this split a "*partitioned IterDomain*",
+the inner output of this split a "*box IterDomain*", and the outer output of this split a "*coordinate IterDomain*".
+
+TODO: currently "partitioned IterDomain" is called "TMA-global IterDomain" in the code. I need to update the code.
+
+For the case of Figure 1, if both box dimensions are defined by partitioning,
+the schedule should look like the Figure 3 below:
+
+![Figure 2: Box by partitioning](tma/box-by-partitioning.svg)
 
 #### Define box by compositing
