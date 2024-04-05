@@ -106,7 +106,9 @@ If the out-of-bound items are never read, then 1, 2, or 3 makes no difference.
 If the out-of-bound items are actually read,
 then it needs to be filled with some neutral value that effectively leads to a no-op.
 For example, if we are doing an un-predicated reduction on an over-allocated buffer,
-such as when using tensor core, we must fill the out-of-bound items as zero.
+such as when using tensor core, we must fill the out-of-bound items correctly.
+If the reduction is sum, then the out-of-bound items must be filled with 0.
+If the reduction is product, then the out-of-bound items must be filled with 1.
 
 We call 1 "*weak correctness*", and 2 and 3 "*strong correctness*".
 
