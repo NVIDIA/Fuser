@@ -412,23 +412,11 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
   if (is_downcast() && input(0)->definition() != nullptr) {
     Val* mma_lhs = nullptr;
     Val* mma_rhs = nullptr;
-
-    // Case 1: MmaOp + Cast (Matmul)
-    if (MmaOpUtils::matchMatmulCast(
-            this, std::ref(mma_lhs), std::ref(mma_rhs))) {
-      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
-      const auto a =
-          ee.evaluate(mma_lhs, known_values).as<at::Tensor>().squeeze(-1);
-      const auto b =
-          ee.evaluate(mma_rhs, known_values).as<at::Tensor>().squeeze(0);
-      return {a.matmul(b)};
-    }
-
     Val* bias_val = nullptr;
     Val* alpha_val = nullptr;
     Val* beta_val = nullptr;
-    // Case 2: Matmul + Bias
-    if (MmaOpUtils::matchMatmulBiasCast(
+
+    if (MmaOpUtils::matchMatmulPatterns(
             this,
             std::ref(mma_lhs),
             std::ref(mma_rhs),
@@ -440,16 +428,18 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
           ee.evaluate(mma_lhs, known_values).as<at::Tensor>().squeeze(-1);
       const auto b =
           ee.evaluate(mma_rhs, known_values).as<at::Tensor>().squeeze(0);
-      auto bias = ee.evaluate(bias_val, known_values).as<at::Tensor>();
+      const c10::Scalar alpha =
+          alpha_val ? toScalar(ee.evaluate(alpha_val, known_values)) : 1;
 
+      if (bias_val == nullptr) {
+        return {alpha * a.matmul(b)};
+      }
+      auto bias = ee.evaluate(bias_val, known_values).as<at::Tensor>();
       if (bias.dim() != a.dim()) {
         // Bias is of shape [M,].
         NVF_ERROR(bias.dim() == a.dim() - 1);
         bias = bias.unsqueeze(-1);
       }
-
-      const c10::Scalar alpha =
-          alpha_val ? toScalar(ee.evaluate(alpha_val, known_values)) : 1;
       const c10::Scalar beta =
           beta_val ? toScalar(ee.evaluate(beta_val, known_values)) : 1;
 

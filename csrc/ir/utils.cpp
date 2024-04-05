@@ -1366,53 +1366,52 @@ void verifyMmaOpForEvaluation(
       "MmaOp inputs should be the same dtype as the output dtype of the final castOp.");
 }
 
-bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
-  auto* mma = dynamic_cast<MmaOp*>(cast_op->input(0)->definition());
-  if (mma == nullptr) {
-    return false;
-  }
-  MmaOpUtils::verifyMmaOpForEvaluation(
-      mma, cast_op->out()->getDataType().value());
-  mma_lhs = mma->inA();
-  mma_rhs = mma->inB();
-  return true;
-}
-
 // Possible combinations:
 // 1. A x B + C
 // 2. alpha * A x B + C
 // 3. A x B + beta * C
 // 4. alpha * A x B  + beta * C
+// 5. A x B
+// 6. alpha * A x B
 // Note: We assume the first operand to be the MmaOp output
-bool matchMatmulBiasCast(
+bool matchMatmulPatterns(
     const UnaryOp* cast_op,
     Val*& mma_lhs,
     Val*& mma_rhs,
     Val*& bias,
     Val*& alpha,
     Val*& beta) {
+  // Check if there may be a bias present.
+  bool has_bias = true;
   auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition());
-  if (binary == nullptr || binary->getBinaryOpType() != BinaryOpType::Add) {
+  if (binary == nullptr) {
+    // Bias is not present
+    has_bias = false;
+  } else if (binary->getBinaryOpType() != BinaryOpType::Add) {
     return false;
   }
 
   // Check for alpha in first input: alpha * (MmaOp(A, B))
   MmaOp* mma = nullptr;
-  auto* mul_alpha = dynamic_cast<BinaryOp*>(binary->input(0)->definition());
-  if (mul_alpha != nullptr &&
-      mul_alpha->getBinaryOpType() == BinaryOpType::Mul) {
+  auto* mma_branch_root_op = has_bias ? (Expr*)binary : (Expr*)cast_op;
+
+  auto* mul_alpha =
+      dynamic_cast<BinaryOp*>(mma_branch_root_op->input(0)->definition());
+
+  if (mul_alpha == nullptr) { // Alpha is not present
+    mma = dynamic_cast<MmaOp*>(mma_branch_root_op->input(0)->definition());
+  } else {
+    NVF_ERROR(
+        mul_alpha->getBinaryOpType() == BinaryOpType::Mul,
+        "Unrecognized pattern.");
     alpha = mul_alpha->input(0);
     mma = dynamic_cast<MmaOp*>(mul_alpha->input(1)->definition());
-    if (!alpha->isScalar()) {
-      // Swap alpha and mma
+    if (!alpha->isScalar()) { // Swap alpha and mma
       alpha = mul_alpha->input(1);
       mma = dynamic_cast<MmaOp*>(mul_alpha->input(0)->definition());
     }
-
-  } else {
-    // Alpha parameter is not present
-    mma = dynamic_cast<MmaOp*>(binary->input(0)->definition());
   }
+
   if (mma == nullptr) {
     return false;
   }
@@ -1424,23 +1423,28 @@ bool matchMatmulBiasCast(
   mma_lhs = mma->inA();
   mma_rhs = mma->inB();
 
+  if (!has_bias) {
+    return true;
+  }
+
   // Based on the presence of beta parameter, the expected ops are:
   // CastOp(bias, fp32) -> -> Broadcast (Optional) -> Mul (if beta is present)
   // -> Add
 
   // Check for beta parameter
   auto* mul_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
-  if (mul_beta != nullptr && mul_beta->getBinaryOpType() == BinaryOpType::Mul) {
-    // Case 1: beta * C / C * beta
+  if (mul_beta == nullptr) { // Case 1: bias
+    bias = binary->input(1); // Broadcasted bias tensor in fp32
+  } else { // Case 2: beta * bias
+    NVF_ERROR(
+        mul_beta->getBinaryOpType() == BinaryOpType::Mul,
+        "Unrecognized pattern.");
     beta = mul_beta->input(0);
     bias = mul_beta->input(1);
     if (!beta->isScalar()) {
-      // C * beta
+      // bias * beta
       std::swap(beta, bias);
     }
-  } else {
-    // Case 2: C
-    bias = binary->input(1); // Broadcasted bias tensor in fp32
   }
 
   // Check if bias was broadcasted

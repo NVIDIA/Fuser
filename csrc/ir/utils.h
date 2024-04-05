@@ -60,9 +60,12 @@ MmaOpDetails getMmaOpDetails(
 
 void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
 
-bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs);
-
-bool matchMatmulBiasCast(
+//! Matches the following matmul patterns.
+//! Matmul: A x B, alpha * A x B
+//! Matmul + Bias: A x B + C,  alpha * A x B + C, A x B + beta * C, alpha * A x
+//! B  + beta * C Note: For simplicity, we assume the MmaOp to be in the first
+//! operand.
+bool matchMatmulPatterns(
     const UnaryOp* cast_op,
     Val*& mma_lhs,
     Val*& mma_rhs,
