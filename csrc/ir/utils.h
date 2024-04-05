@@ -66,6 +66,7 @@ struct MatmulInputs {
   Val* bias = nullptr;
   Val* alpha = nullptr;
   Val* beta = nullptr;
+  MmaLayout mma_layout;
 };
 
 //! Matches the following matmul patterns.

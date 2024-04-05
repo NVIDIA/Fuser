@@ -413,19 +413,18 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     MmaOpUtils::MatmulInputs matmul_inp;
 
     if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
+      // Inputs to MmaOp are of the shape [M, K] x [K, N] (matmul) / [M, K] x [N, K] (linear)
       const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(-1);
+                         .as<at::Tensor>();
       const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(0);
+                         .as<at::Tensor>();
       const c10::Scalar alpha = matmul_inp.alpha
           ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
           : 1;
 
       if (matmul_inp.bias == nullptr) {
-        return {alpha * a.matmul(b)};
+        auto out = matmul_inp.mma_layout == MmaLayout::TT ? alpha * a.matmul(b) : at::linear(a, b);
+        return {out};
       }
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
       if (bias.dim() != a.dim()) {
@@ -437,7 +436,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
           ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
           : 1;
 
-      return {at::addmm(bias, a, b, beta, alpha)};
+      auto out = matmul_inp.mma_layout == MmaLayout::TT ? at::addmm(bias, a, b, beta, alpha) : at::linear(a, b, bias);
+      return {out};
     }
   }
 

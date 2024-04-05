@@ -1335,18 +1335,14 @@ void verifyMmaOpForEvaluation(
       "MmaOp::evaluate is not implemented for size: ",
       tv_a->nDims());
 
+  NVF_ERROR(*mma_op->layout() == MmaLayout::TT || *mma_op->layout() == MmaLayout::TN);
+
   NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
   NVF_ERROR(
       in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_ERROR(
-      tv_a->getRootDomain().back()->isBroadcast(),
-      "Expected last dimension to be broadcasted for first operand.");
-  NVF_ERROR(
-      tv_b->getRootDomain().front()->isBroadcast(),
-      "Expected first dimension to be broadcasted for second operand.");
 
   // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
   // outputs. To preserve numerical equivalence and precision, the output of
@@ -1414,8 +1410,10 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
 
   // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
   MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
-  matmul_inp->mma_lhs = mma->inA();
-  matmul_inp->mma_rhs = mma->inB();
+  // Get the non-broadcasted values to avoid inferring squeeze dimensions.
+  matmul_inp->mma_lhs = mma->inA()->definition()->input(0);
+  matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
+  matmul_inp->mma_layout = mma->layout().value();
 
   if (!has_bias) {
     return true;
