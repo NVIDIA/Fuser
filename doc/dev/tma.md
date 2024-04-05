@@ -144,6 +144,12 @@ TODO: currently "partitioned IterDomain" is called "TMA-global IterDomain" in th
 For the case of Figure 1, if both box dimensions are defined by partitioning,
 the schedule should look like the Figure 3 below:
 
-![Figure 2: Box by partitioning](tma/box-by-partitioning.svg)
+![Figure 3: Boxing by partitioning](tma/box-by-partitioning.svg)
+
+Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
+
+When the split is not divisible, some interesting interaction could happen:
+
+
 
 #### Define box by compositing
