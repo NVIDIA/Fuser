@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
 
@@ -358,7 +359,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     HeuristicSummary* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
-  (void)runtime_info;
   auto params = std::make_shared<MatmulParams>();
 
   // Set kernel index mode
@@ -367,6 +367,11 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
     return params;
   }
+  // We should have forced MatmulExprEval by now if we detect missing plugin
+  NVF_ERROR(
+      matmul_heuristic_plugin::hasPlugin(),
+      "Tried to schedule a matmul without heuristic plugin. ",
+      "For example: NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
 
   // Check initial conditions
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
@@ -393,12 +398,23 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
 
-  // Set whether to use shared memory for epilogue
   const auto& roles_map_opt =
       mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-
   const auto roles_map = roles_map_opt.getData();
+
+  const MmaLayout layout = mma_utils::getMmaLayout(fusion);
+
+  // Fill in proper values with plugin
+  matmul_heuristic_plugin::updateMatmulParams(
+      *params,
+      /*M=*/problem_shape[0],
+      /*N=*/problem_shape[1],
+      /*K=*/problem_shape[2],
+      layout,
+      roles_map);
+
+  // Set whether to use shared memory for epilogue
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,

@@ -183,6 +183,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
