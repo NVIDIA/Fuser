@@ -392,23 +392,22 @@ class DomainMap : public pointwise_utils::DomainMap {
   // In the transpose scheculing, unlike the pointwise scheduling, the
   // permissive map is required to find reference tensors. See also PR
   // #661
-  IterDomain* getMappedInputConcreteID(
-      const std::unordered_set<IterDomain*>& in_concrete_ids,
-      IterDomain* out_id) const override {
-    auto in_concrete_id_iter = std::find_if(
-        in_concrete_ids.begin(),
-        in_concrete_ids.end(),
-        [&](IterDomain* in_concrete_id) {
-          return ca_map_.areMapped(
-              in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
-        });
-    if (in_concrete_id_iter != in_concrete_ids.end()) {
-      return *in_concrete_id_iter;
-    } else {
-      return nullptr;
-    }
+ IterDomain* getMappedInputConcreteID(
+    const std::unordered_set<IterDomain*>& in_concrete_ids,
+    const IterDomain* out_id) const override {
+  auto in_concrete_id_iter = std::find_if(
+      in_concrete_ids.begin(),
+      in_concrete_ids.end(),
+      [&](IterDomain* in_concrete_id) {
+        return ca_map_.areMapped(
+            in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
+      });
+  if (in_concrete_id_iter != in_concrete_ids.end()) {
+    return *in_concrete_id_iter;
+  } else {
+    return nullptr;
   }
-};
+}
 
 // Note: [Supporting small transpose dimensions]
 // We prefer to make tiles of size 32x32 if there are enough elements to achieve
