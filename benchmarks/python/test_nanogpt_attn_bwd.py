@@ -11,7 +11,7 @@ from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 def nanogpt_attn_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, head_size: int, dropout_p: float
 ):
-    S0 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
+    S0 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     S1 = fd.define_scalar(1 / head_size**0.5, dtype=DataType.Double)
 
     T2 = fd.define_tensor(
@@ -91,7 +91,7 @@ def test_nanogpt_attn_bwd_nvf_benchmark(
     clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
     )
@@ -113,7 +113,8 @@ def test_nanogpt_attn_bwd_nvf_benchmark(
         nanogpt_attn_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p)
 
     if not disable_validation:
-        out = torch.nn.functional.dropout(attn, p=dropout_p)
+        # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
+        out = attn * dropout_mask * 1 / (1 - dropout_p)
         out.backward(grads)
         fd.validate([grads, attn, dropout_mask, bias_mask], [inputs.grad])
 
@@ -133,7 +134,7 @@ def test_nanogpt_attn_bwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
     )

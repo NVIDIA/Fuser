@@ -78,10 +78,10 @@ def nanogpt_attn_fwd(inputs: list):
 
 def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser outputs (out, dropout_mask, attn, bias_mask) differ from baseline outputs (out).
-    
+
     # Total IO bytes = in_tensor ([bs, nh, seq_len, seq_len], dtype) + bias ([seq_len, seq_len], float) +
     #   output ([bs, nh, seq_len, seq_len], dtype) + attn ([bs, nh, seq_len, seq_len], dtype) + dropout_mask ([bs, nh, seq_len, seq_len], bool) + bias_mask ([bs, nh, seq_len, seq_len], bool)
-    
+
     bs, seq_len, nh, n_embd = size
 
     return int(
@@ -102,28 +102,36 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
     clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )
-    dropout_mask = torch.lt(
-        torch.rand(batch_size, nh, seq_len, seq_len, device="cuda"), 1 - dropout_p
-    )
+
     bias_mask = bias[:, :, :seq_len, :seq_len] == 0
     bias_mask = bias_mask.broadcast_to(batch_size, nh, seq_len, seq_len)
 
-    with FusionDefinition() as fd:
-        nanogpt_attn_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p)
-
     if not disable_validation:
+        # For validating use a fusion definition with dropout_p=0.0
+        with FusionDefinition() as val_fd:
+            nanogpt_attn_fwd_fusion(
+                val_fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p=0.0
+            )
         attn = inputs / (hs**0.5)
+        dropout_mask = torch.ones(
+            batch_size, nh, seq_len, seq_len, dtype=torch.bool, device="cuda"
+        )
         attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        out = torch.nn.functional.dropout(attn, p=dropout_p)
-        fd.validate([inputs, bias], [out, dropout_mask, attn, bias_mask])
+        out = torch.nn.functional.dropout(attn, p=0.0)
+
+        val_fd.validate([inputs, bias], [out, dropout_mask, attn, bias_mask])
 
     if not disable_benchmarking:
+        with FusionDefinition() as fd:
+            nanogpt_attn_fwd_fusion(
+                fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p
+            )
         run_benchmark(benchmark, fd.execute, [inputs, bias])
 
 
@@ -139,7 +147,7 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len

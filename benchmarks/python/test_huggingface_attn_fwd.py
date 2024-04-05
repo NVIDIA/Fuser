@@ -70,6 +70,7 @@ def huggingface_attn_fwd_fusion(
     fd.add_output(T37)
     fd.add_output(T47)
 
+
 def huggingface_attn_fwd(
     inputs: list,
 ):
@@ -103,25 +104,33 @@ def test_huggingface_attn_fwd_nvf_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
-    dropout_mask = torch.lt(
-        torch.rand(batch_size * nh, seq_len, seq_len, device="cuda"), 1 - dropout_p
-    )
+
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
 
-    with FusionDefinition() as fd:
-        huggingface_attn_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
-
     if not disable_validation:
+        # For validating use a fusion definition with dropout_p=0.0
+        with FusionDefinition() as val_fd:
+            huggingface_attn_fwd_fusion(
+                val_fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p=0.0
+            )
+
+        dropout_mask = torch.ones(
+            batch_size * nh, seq_len, seq_len, dtype=torch.bool, device="cuda"
+        )
         attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
         attn = torch.nn.functional.softmax(attn, dim=-1)
-        out = torch.nn.functional.dropout(attn, p = dropout_p)
-        fd.validate([attention_mask, inputs], [out, attn, dropout_mask])
+        out = torch.nn.functional.dropout(attn, p=0.0)
+        val_fd.validate([attention_mask, inputs], [out, attn, dropout_mask])
 
     if not disable_benchmarking:
+        with FusionDefinition() as fd:
+            huggingface_attn_fwd_fusion(
+                fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p
+            )
         run_benchmark(benchmark, fd.execute, [attention_mask, inputs])
 
 
@@ -137,7 +146,7 @@ def test_huggingface_attn_fwd_baseline_benchmark(
     clear_cuda_cache()
 
     batch_size, seq_len, nh, n_embd = size
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
