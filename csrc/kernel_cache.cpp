@@ -1150,13 +1150,13 @@ void FusionKernelRuntime::deserialize(
     NVF_ERROR(
         !sg || scheduler_entry->heuristic() == sg->heuristic(),
         "Heuristics do not match.");
-    auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
-    FusionGuard fg(fusion_to_run.get());
-    scheduler_entry->schedule(fusion_to_run.get());
+    Fusion* fusion_to_run = sg->getFusion();
+    FusionGuard fg(fusion_to_run);
+    scheduler_entry->schedule(fusion_to_run);
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
-        fusion_to_run.get(),
+        fusion_to_run,
         device_index,
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
@@ -1213,7 +1213,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "\nRun kernel:\n";
     if (sg) {
-      auto&& [ir_cloner, local_fusion] = segmented_fusion_->makeFusion(sg);
+      Fusion* local_fusion = sg->getFusion();
       local_fusion->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
@@ -1302,11 +1302,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto&& [ir_cloner, fusion_to_run] =
-        segmented_fusion_->makeFusion(group_to_run);
+    Fusion* fusion_to_run = group_to_run->getFusion();
     auto group_runtime_outputs =
         executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+            fusion_to_run, group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1343,19 +1342,19 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
+  Fusion* fusion_to_run = sg->getFusion();
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
-  FusionGuard fg(fusion_to_run.get());
+  FusionGuard fg(fusion_to_run);
   if (auto_schedule_) {
-    scheduler_entry->schedule(fusion_to_run.get());
+    scheduler_entry->schedule(fusion_to_run);
   }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
-      fusion_to_run.get(),
+      fusion_to_run,
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,
