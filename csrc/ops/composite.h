@@ -47,16 +47,15 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul functions are temporary internal functions for testing purposes only
-// NOTE: These functions have the following restrictions:
-// 1. M, N, and K dimensions must be multiples of 8
-// 2. Tensors must be contiguously defined.
-// 3. Inputs must be FP16/BF16
-// 4. Heuristic support only exists for Ampere
-NVF_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
+// Matmul function which takes in tensors with the shapes
+// A[M,K] B[K,N], but the tensors may have different layouts
+// via strides. All restrictions from the matmul APIs also
+// apply here.
+TensorView* matmul(TensorView* a, TensorView* b);
+// This second matmul function is not exposed via
+// the Python interface, but it does the guts of the work and
+// can be used to create mamtuls without a cast operation following it.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);

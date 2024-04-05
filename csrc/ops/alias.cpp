@@ -117,7 +117,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     return static_reshape_output;
   }
 
-  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+  auto root_domain = ops::newOutputDomain({inp_tv});
 
   // Create placeholder rfactor domain. Note it's not connected with the root
   // domain.
@@ -362,8 +362,8 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
 
 TensorView* permute(
     TensorView* x,
-    const std::initializer_list<std::pair<const int, int>>& new2old) {
-  return permute(x, std::unordered_map<int, int>(new2old));
+    const std::initializer_list<std::pair<const int, int>>& old2new) {
+  return permute(x, std::unordered_map<int, int>(old2new));
 }
 
 TensorView* permute(
@@ -631,10 +631,11 @@ TensorView* cat(
         //
         // TODO: what to do if inp_id is not a normal iterdomain, i.e.,
         // broadcast, partial, etc? For now, assume it's a normal
-        // IterDomain.
+        // IterDomain or Symbolic, i.e. Broadcast or Iteration.
         NVF_ERROR(
-            (inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
-                !inp_root_id->maybePartial(),
+            inp_root_id->isSymbolic() ||
+                ((inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
+                 !inp_root_id->maybePartial()),
             "Unsupported IterDomain to concatenate: ",
             inp_root_id->toString());
         // The right pad of the last tensor is just zero

@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/reduction.h>
@@ -835,7 +836,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     debug() << "\n===== Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "vectorize_factor: " << iter_unroll_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
@@ -1183,6 +1184,10 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
         scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
   }
 
+  NVF_ERROR(
+      !(rparams.schedule_3D && isSharded(reduction_tv)),
+      "Multidevice nvFuser does not support 3D reduction schedules");
+
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
       fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
 
@@ -1210,12 +1215,17 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
 
-  // allow iter domain grouped reduction for block outer reduction.
+  // allow iter domain grouped reduction for block and grid outer reductions.
   // TODO: the var name is confusing, should rename
   // [cross_grid/block_inner_reduction] to [cross_grid/block_reduction], see
   // https://github.com/NVIDIA/Fuser/issues/1863
-  const bool use_iter_grouped_reduction = !rparams.cross_grid_inner_reduction &&
-      !rparams.fastest_dim && rparams.cross_block_inner_reduction;
+  // grouped welford is only enabled for grid persistent.
+  // see validateAndConvertIterDomainGrouping
+  const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
+  const bool use_iter_grouped_reduction = !rparams.fastest_dim &&
+      (has_welford
+           ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
+           : rparams.cross_block_inner_reduction);
 
   reduction_scheduler_utils::multiReductionInliner(
       fusion,

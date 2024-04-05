@@ -157,7 +157,8 @@ NVF_API TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* rand_like(
     TensorView*,
     Val* philox_seed,
@@ -176,7 +177,8 @@ NVF_API TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* randn_like(
     TensorView*,
     Val* philox_seed,
@@ -191,27 +193,36 @@ NVF_API TensorView* uniform(
     Val* high,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
     Val* std,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 
 // TENSOR FACTORIES
 NVF_API TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype);
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
-NVF_API TensorView* zeros(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* zeros(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* zeros_like(TensorView*);
 Val* zeros_like(Val*);
-NVF_API TensorView* ones(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* ones(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* ones_like(TensorView*);
 Val* ones_like(Val*);
 NVF_API TensorView* iota(

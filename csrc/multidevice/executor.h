@@ -68,12 +68,31 @@ namespace nvfuser {
   *) Need to work on auto-scheduling, in particular, to combine inter-/intra-
      device scheduling.
 */
+
+struct MultiDeviceExecutorParams {
+  // Experimental: whether to use FusionExecutorCache rather than
+  // FusionExecutor.
+  bool use_fusion_executor_cache = false;
+  // Experimental: whether to apply auto-scheduling in FusionExecutorCache if
+  // use_fusion_executor_cache=true. WAR: temporary hack mainly use for
+  // development
+  bool skip_auto_scheduling = false;
+  // Experimental: whether to cache fusion executor. WAR: avoid recompilation
+  // but implicitely assumes that the input shape don't change over iterations
+  bool cache_fusion_executor = false;
+};
+
 class MultiDeviceExecutor {
  public:
-  MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm);
+  MultiDeviceExecutor(
+      std::unique_ptr<Fusion> fusion,
+      Communicator& comm,
+      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
+  std::vector<at::Tensor> runWithInput(
+      const std::vector<c10::IValue>& inputs,
+      const LaunchParams& launch_params = LaunchParams());
 
   // Returns the Communicator
   Communicator* comm() const {
@@ -94,14 +113,11 @@ class MultiDeviceExecutor {
 
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
-  // communication
-  void postKernel(SegmentedGroup* group);
+  // communication. Launch Params are used only if
+  // params_.use_fusion_executor_cache = false
+  void postKernel(SegmentedGroup* group, const LaunchParams& launch_params);
   // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);
-
-  // allocate inter-device communication recv buffers
-  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(
-      std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
@@ -116,12 +132,19 @@ class MultiDeviceExecutor {
   // Stores the order in which the pipeline's stage should be executed
   RuntimeWorkSpace workspace;
   // Cache Fusions, FusionExecutors, and Communications
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
+  std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
+  std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication
   std::unordered_map<SegmentedGroup*, bool> is_resharding_;
+  // Cached objects used for MultiDevice allocation
+  std::unique_ptr<Fusion> allocator_fusion_;
+  // Cache the tensors that need to be allocated at runtime, which correspond to
+  // the destination buffers of interdevice communications.
+  std::vector<Val*> vals_to_allocate_;
+
+  MultiDeviceExecutorParams params_;
 };
 
 } // namespace nvfuser

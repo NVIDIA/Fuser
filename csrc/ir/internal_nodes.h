@@ -322,7 +322,8 @@ class NVF_API UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1448,10 +1449,6 @@ class NVF_API MmaOp : public Expr {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
-
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
@@ -2240,7 +2237,8 @@ class NVF_API CatOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   int64_t concatenatedDim() const {
     return attribute<int64_t>(0);

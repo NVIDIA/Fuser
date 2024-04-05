@@ -270,8 +270,9 @@ std::pair<bool, bool> canonicalDimReduction(
     TensorView* tv,
     bool schedule_3D = false);
 
-// Return a list of tensor views that are outputs of reduction operations. If
-// multiple outputs of an expression are found, only include one in the list
+// Return a list of tensor views that are outputs of reduction operations,
+// excluding resharding reduce expressions. If multiple outputs of an expression
+// are found, only include one in the list
 NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 
 // Returns a list of TensorViews that are the consumer tv for a view operation.
@@ -636,6 +637,12 @@ NVF_API void promoteProducerMemoryTypes(
 NVF_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
+
+//! Get the persistent buffer size of a tensor
+int64_t getPersistentBufferSizeOfTensor(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

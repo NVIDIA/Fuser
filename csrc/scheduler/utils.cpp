@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
@@ -243,6 +244,7 @@ size_t mergeReduction(TensorView* tv) {
 }
 
 size_t mergeNonReduction(TensorView* tv) {
+  bool has_device_dim = false;
   int prev_i = -1;
   size_t num_merged = 0;
   if (tv->nDims() == 0) {
@@ -250,6 +252,10 @@ size_t mergeNonReduction(TensorView* tv) {
   }
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (tv->axis(i)->isReduction()) {
+      continue;
+    }
+    if (tv->axis(i)->isDeviceDim()) {
+      has_device_dim = true;
       continue;
     }
     if (prev_i == -1) {
@@ -262,6 +268,11 @@ size_t mergeNonReduction(TensorView* tv) {
   }
   if (prev_i != -1) {
     tv->reorder({{prev_i, 0}});
+  }
+  if (has_device_dim) {
+    // in this case the layout at this point is [i, r , d]
+    // we want to put the device dim back to outmost
+    tv->reorder({{prev_i != -1 ? 2 : 1, 0}});
   }
 
   return prev_i == -1 ? 0 : num_merged + 1;
@@ -865,6 +876,48 @@ bool canProjectToPersistentProducer(
   }
 }
 
+int64_t getPersistentBufferSizeOfTensor(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info) {
+  int64_t buffer_bytes = -1;
+  bool is_input =
+      std::find(
+          persistent_buffer_info.projectable_buffer_inputs.begin(),
+          persistent_buffer_info.projectable_buffer_inputs.end(),
+          buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
+
+  for (auto id : buffer->getMaybeRFactorDomain()) {
+    if (id->isReduction() || id->isBroadcast()) {
+      continue;
+    }
+    // Unmappable dimensions are those that we cannot inline into other
+    // tensor views. So they're the ones that need to be persistent.
+    if (!is_input && !persistent_buffer_info.unmappable_dims.count(id)) {
+      continue;
+    }
+
+    if (is_input &&
+        !persistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
+      continue;
+    }
+
+    auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+    NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
+    if (buffer_bytes == -1) {
+      buffer_bytes = id_size.as<int64_t>();
+    } else {
+      buffer_bytes *= id_size.as<int64_t>();
+    }
+  }
+
+  buffer_bytes = buffer_bytes == -1 ? 0
+                                    : buffer_bytes *
+          (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                runtime_info.getIndexType());
+  return buffer_bytes;
+}
+
 PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -883,9 +936,6 @@ PersistentBufferSizeReturn persistentBufferSize(
       persistent_buffer_info.projectable_persistent_buffers;
   const auto& projectable_buffers_inputs =
       persistent_buffer_info.projectable_buffer_inputs;
-  const auto& unmappable_dims = persistent_buffer_info.unmappable_dims;
-  const auto& input_unmappable_dims =
-      persistent_buffer_info.unamppable_dims_projected_to_inputs;
 
   std::vector<TensorView*> all_buffers = persistent_buffers;
   all_buffers.insert(
@@ -896,37 +946,9 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {
-    bool is_input = buffer_i >= persistent_buffers.size();
     auto buffer = all_buffers[buffer_i];
-
-    for (auto id : buffer->getMaybeRFactorDomain()) {
-      if (id->isReduction() || id->isBroadcast()) {
-        continue;
-      }
-      // Unmappable dimensions are those that we cannot inline into other
-      // tensor views. So they're the ones that need to be persistent.
-      if (!is_input && !unmappable_dims.count(id)) {
-        continue;
-      }
-
-      if (is_input && !input_unmappable_dims.count(id)) {
-        continue;
-      }
-
-      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-      if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
-      } else {
-        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
-      }
-    }
-
-    persistent_buffer_sizes[buffer_i] = persistent_buffer_sizes[buffer_i] == -1
-        ? 0
-        : persistent_buffer_sizes[buffer_i] *
-            (int64_t)dataTypeSize(
-                buffer->getDataType().value(), runtime_info.getIndexType());
+    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
+        buffer, runtime_info, persistent_buffer_info);
   }
 
   // Buffers involved in normal persistence
@@ -1043,7 +1065,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
         std::any_of(
             tv->getLeafDomain().begin(),
             tv->getLeafDomain().end(),
-            [](IterDomain* id) { return id->isReduction(); })) {
+            [](IterDomain* id) { return id->isReduction(); }) &&
+        !isResharding(tv->definition())) {
       reduction_tvs.emplace_back(tv);
     }
   }
@@ -1475,6 +1498,12 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
+    // At this moment, vectorization through resize is not
+    // supported. This is not required currently as we always insert
+    // cacheBefore, but just in case.
+    if (ir_utils::hasResizedRfactor(output_tv)) {
+      continue;
+    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
@@ -1488,6 +1517,23 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
+
+    auto expr_resizes = [](Expr* e) -> bool {
+      return std::any_of(
+          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
+            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+              return ir_utils::hasResizedRfactor(out_tv);
+            }
+            return false;
+          });
+    };
+
+    // At this moment, vectorization through resize is not supported
+    if (std::any_of(
+            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
+      continue;
+    }
+
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
     }

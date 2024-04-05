@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <algorithm>
@@ -317,7 +318,10 @@ void SegmentedGroup::finalize() {
   for (auto expr : exprs_) {
     for (auto i : expr->inputs()) {
       if (i->isIntegralScalar() && i->definition() == nullptr &&
-          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i)) {
+          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i) &&
+          !(i->isA<NamedScalar>() &&
+            (i->as<NamedScalar>()->getParallelDim() ||
+             i->as<NamedScalar>()->getParallelIndex()))) {
         input_set.insert(i);
         input_vals.push_back(i);
       }
@@ -1202,6 +1206,10 @@ void SegmentedFusion::finalize() {
 std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
     const std::vector<SegmentedEdge*>& edges,
     const std::vector<SegmentedGroup*>& groups_to_merge) {
+  if (!isOptionEnabled(EnableOption::IoToLowerPrecision)) {
+    return {};
+  }
+
   // A map to keep track of the tv's that have been inserted cast
   //  and its fp16 version. Used to avoid cast insertion multiple
   //  times.
@@ -1302,8 +1310,11 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
             uses_to_modify.begin(),
             uses_to_modify.end(),
             [&](Expr* edge_val_use_expr) {
-              return edge_val_use_expr
-                         ->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
+              return edge_val_use_expr->isOneOf<
+                         SelectOp,
+                         SliceOp,
+                         IndexSelectOp,
+                         TorchGatherOp>() &&
                   edge_val_use_expr->input(0) == edge_tv;
             }),
         uses_to_modify.end());
@@ -1929,10 +1940,13 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
       return SegmentedFusion::fromCompleteFusion(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
     }
+  } else {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Has segment hints, skip un-segmented scheduling.\n");
   }
   if (fusion) {
     scheduler_debug_utils::canScheduleMessage(
-        "***Runtime***: Has segment hints, try to schedule fusion segmented:\n");
+        "\n***Runtime***: Try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
     NVF_ERROR(false, "unreachable!");
@@ -4232,10 +4246,13 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   SegmentedGroup* aux_group = input2group_.at(forwarded_input);
   NVF_ERROR(aux_group->producer_edges.empty());
 
-  std::vector<SegmentedGroup*> consumers;
-  consumers.reserve(aux_group->consumer_edges.size());
+  // use unordered_set to avoid duplicated group in consumers.
+  // duplicated entry in consumer would make use call
+  // codeGenSupportedMerge(input_group, consumer) twice. Where the second time
+  // the connection has already been severed by mergeNodes().
+  GroupSet consumers;
   for (SegmentedEdge* edge : aux_group->consumer_edges) {
-    consumers.push_back(edge->to);
+    consumers.pushBack(edge->to);
   }
   aux_group->consumer_edges.clear();
 

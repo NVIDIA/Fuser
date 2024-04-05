@@ -671,25 +671,6 @@ void validateMisalignedVectorizedTensors(
       "All global tensors must have the same stride for misaligned vectorization.");
 }
 
-// Check if there's any split that is non-divisible and vectorized. If
-// found, Vectorize is illegal.
-void validateVectorizedSplits(
-    kir::Kernel* kernel,
-    ExpressionEvaluator& expr_eval) {
-  for (const auto& extent_factor : kernel->summary().splits_to_validate) {
-    auto input_extent = expr_eval.evaluate(extent_factor.first);
-    auto split_factor = expr_eval.evaluate(extent_factor.second);
-    auto divisible = (input_extent % split_factor == 0);
-    NVF_ERROR(
-        divisible,
-        "Non-divisible split with vectorization is detected. ",
-        "Extent: ",
-        input_extent,
-        ". Factor: ",
-        split_factor);
-  }
-}
-
 } // namespace
 
 void validateVectorizedTensors(
@@ -705,8 +686,6 @@ void validateVectorizedTensors(
 
   validateMisalignedVectorizedTensors(
       kernel, args, outputs, data_cache, expr_eval);
-
-  validateVectorizedSplits(kernel, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(
