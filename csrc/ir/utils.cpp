@@ -1383,6 +1383,7 @@ bool matchMatmulCast(const UnaryOp* cast_op, Val*& mma_lhs, Val*& mma_rhs) {
 // 2. alpha * A x B + C
 // 3. A x B + beta * C
 // 4. alpha * A x B  + beta * C
+// Note: We assume the first operand to be the MmaOp output
 bool matchMatmulBiasCast(
     const UnaryOp* cast_op,
     Val*& mma_lhs,
@@ -1402,6 +1403,12 @@ bool matchMatmulBiasCast(
       mul_alpha->getBinaryOpType() == BinaryOpType::Mul) {
     alpha = mul_alpha->input(0);
     mma = dynamic_cast<MmaOp*>(mul_alpha->input(1)->definition());
+    if (!alpha->isScalar()) {
+      // Swap alpha and mma
+      alpha = mul_alpha->input(1);
+      mma = dynamic_cast<MmaOp*>(mul_alpha->input(0)->definition());
+    }
+
   } else {
     // Alpha parameter is not present
     mma = dynamic_cast<MmaOp*>(binary->input(0)->definition());
@@ -1424,9 +1431,13 @@ bool matchMatmulBiasCast(
   // Check for beta parameter
   auto* mul_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
   if (mul_beta != nullptr && mul_beta->getBinaryOpType() == BinaryOpType::Mul) {
-    // Case 1: beta * C
+    // Case 1: beta * C / C * beta
     beta = mul_beta->input(0);
     bias = mul_beta->input(1);
+    if (!beta->isScalar()) {
+      // C * beta
+      std::swap(beta, bias);
+    }
   } else {
     // Case 2: C
     bias = binary->input(1); // Broadcasted bias tensor in fp32
@@ -1442,6 +1453,7 @@ bool matchMatmulBiasCast(
     bias = bcast->input(0); // Bias tensor in fp32
   }
 
+  // Verify the dimensions of the bias
   auto* bias_cast = dynamic_cast<UnaryOp*>(bias->definition());
 
   // The bias tensor and matmul inputs should be of the same dtype.
@@ -1451,7 +1463,9 @@ bool matchMatmulBiasCast(
   NVF_ERROR(
       *(bias_cast->input(0)->getDataType()) == final_out_dtype,
       "Bias should be originally of the same type as the final output dtype.");
-  bias = bias_cast->input(0); // Original input bias tensor of shape [M, ]
+  bias =
+      bias_cast->input(0); // Original input bias tensor of shape [M] / [M, N]
+
   return true;
 }
 

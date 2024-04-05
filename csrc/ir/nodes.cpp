@@ -444,6 +444,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 
       if (bias_tensor.dim() != a.dim()) {
         // Bias is of shape [M,].
+        NVF_ERROR(bias_tensor.dim() == a.dim() - 1);
         bias_tensor = bias_tensor.unsqueeze(-1);
       }
 

@@ -220,7 +220,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
   auto tv3 = fusedMultiplySum(tv0b, tv1b, {1});
 
   auto tv4 = broadcast(tv2, {false, true});
-  auto tv5 = mul(s1, tv4); // beta * bias
+  auto tv5 = mul(tv4, s1); // bias * beta
 
   auto tv6 = add(tv3, tv5);
 
@@ -268,7 +268,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
   auto tv3 = fusedMultiplySum(tv0b, tv1b, {1});
-  auto tv4 = mul(s0, tv3); // alpha * (A x B)
+  auto tv4 = mul(tv3, s0); // (A x B) * alpha
 
   auto tv5 = castOp(DataType::Float, tv2);
   auto tv6 = add(tv4, tv5);
