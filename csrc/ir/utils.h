@@ -73,7 +73,10 @@ struct MatmulInputs {
 //! Matmul: A x B, alpha * A x B
 //! Matmul + Bias: A x B + C,  alpha * A x B + C, A x B + beta * C,
 //!   alpha * A x B  + beta * C
-//! Note: For simplicity, we assume the MmaOp to be in the first operand.
+//! Assumptions:
+//! 1. For simplicity, we assume the MmaOp to be in the first operand.
+//! 2. If mma layout is TN ([M, K], [N, K]), alpha, beta parameters are ignored
+//! in evaluation.
 bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
 
 } // namespace nvfuser::MmaOpUtils

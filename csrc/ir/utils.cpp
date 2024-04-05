@@ -1335,7 +1335,8 @@ void verifyMmaOpForEvaluation(
       "MmaOp::evaluate is not implemented for size: ",
       tv_a->nDims());
 
-  NVF_ERROR(*mma_op->layout() == MmaLayout::TT || *mma_op->layout() == MmaLayout::TN);
+  NVF_ERROR(
+      *mma_op->layout() == MmaLayout::TT || *mma_op->layout() == MmaLayout::TN);
 
   NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),

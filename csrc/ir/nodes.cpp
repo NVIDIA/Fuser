@@ -413,17 +413,21 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     MmaOpUtils::MatmulInputs matmul_inp;
 
     if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to MmaOp are of the shape [M, K] x [K, N] (matmul) / [M, K] x [N, K] (linear)
-      const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
-                         .as<at::Tensor>();
-      const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
-                         .as<at::Tensor>();
+      // Inputs to MmaOp are of the shape [M, K] x [K, N] (matmul) / [M, K] x
+      // [N, K] (linear).
+      // Note: alpha, beta parameters are not used when linear pattern is
+      // detected (TN layout).
+      const auto a =
+          ee.evaluate(matmul_inp.mma_lhs, known_values).as<at::Tensor>();
+      const auto b =
+          ee.evaluate(matmul_inp.mma_rhs, known_values).as<at::Tensor>();
       const c10::Scalar alpha = matmul_inp.alpha
           ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
           : 1;
 
       if (matmul_inp.bias == nullptr) {
-        auto out = matmul_inp.mma_layout == MmaLayout::TT ? alpha * a.matmul(b) : at::linear(a, b);
+        auto out = matmul_inp.mma_layout == MmaLayout::TT ? alpha * a.matmul(b)
+                                                          : at::linear(a, b);
         return {out};
       }
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
@@ -436,7 +440,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
           ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
           : 1;
 
-      auto out = matmul_inp.mma_layout == MmaLayout::TT ? at::addmm(bias, a, b, beta, alpha) : at::linear(a, b, bias);
+      auto out = matmul_inp.mma_layout == MmaLayout::TT
+          ? at::addmm(bias, a, b, beta, alpha)
+          : at::linear(a, b, bias);
       return {out};
     }
   }
