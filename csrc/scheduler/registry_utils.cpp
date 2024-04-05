@@ -617,7 +617,9 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         for (auto entry : forward_p2c_root_map) {
           auto p_id = entry.first;
           auto c_id = entry.second;
-          if (p_id->isBroadcast() && !c_id->isBroadcast()) {
+          // If a broadcast ID has expanded extent, it's already resolved.
+          if (p_id->isBroadcast() && !p_id->hasExpandedExtent() &&
+              !c_id->isBroadcast()) {
             ids_to_resolve.emplace_back(c_id, c_id);
           }
         }
