@@ -52,7 +52,7 @@ def layernorm_fwd_fusion(
     fd.add_output(T14)
 
 
-def layernorm_fwd_fn(inputs: list):  # [in_tensor, weights, bias]
+def layernorm_fwd(inputs: list):  # [in_tensor, weights, bias]
     return torch.nn.functional.layer_norm(
         inputs[0],
         normalized_shape=inputs[0].shape[1:],
@@ -62,6 +62,7 @@ def layernorm_fwd_fn(inputs: list):  # [in_tensor, weights, bias]
 
 
 def layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOBytes computation required since nvFuser outputs (out, mean, invstd) differs from baselines (out)
     # Total IO bytes = in_tensor (size, dtype) + weights (size[1], dtype) + bias (size[1], dtype) +
     #       mean (size[0], float) + invstd (size[0], float) + outputs (size, dtype)
     return int(
@@ -82,17 +83,18 @@ def test_layernorm_fwd_nvf_benchmark(
 ):
     clear_cuda_cache()
 
+    batch_size, hidden_size = size
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(size[1], device="cuda", dtype=dtype),
-        torch.randn(size[1], device="cuda", dtype=dtype),
+        torch.randn(hidden_size, device="cuda", dtype=dtype),
+        torch.randn(hidden_size, device="cuda", dtype=dtype),
     ]
 
     with FusionDefinition() as fd:
         layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = layernorm_fwd_fn(inputs)
+        eager_output = layernorm_fwd(inputs)
         mean = inputs[0].to(torch.float).mean(dim=-1)
         variance = inputs[0].to(torch.float).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
@@ -113,14 +115,17 @@ def test_layernorm_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
+    batch_size, hidden_size = size
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(size[1], device="cuda", dtype=dtype),
-        torch.randn(size[1], device="cuda", dtype=dtype),
+        torch.randn(hidden_size, device="cuda", dtype=dtype),
+        torch.randn(hidden_size, device="cuda", dtype=dtype),
     ]
+    
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(layernorm_fwd_fn) if compile else layernorm_fwd_fn,
+        torch.compile(layernorm_fwd) if compile else layernorm_fwd,
         inputs,
         iobytes=layernorm_fwd_iobytes(size, dtype),
     )

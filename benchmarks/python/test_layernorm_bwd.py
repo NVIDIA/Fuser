@@ -93,6 +93,7 @@ def layernorm_bwd_fusion(
 
 
 def layernorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOBytes computation since nvfuser input/outputs (in_tensor, grad_out, mean, invstd, weigts) differ from baselines (out, grad_out)
     # Total IO bytes = in_tensor (size, dtype) + grad_out (size, dtype) + mean (size[0], float) +
     #       invstd (size[0], float) + weights (size[1], dtype) +
     #       grad_in (size, dtype) + grad_weights (size[1], dtype)+ grad_bias (size[1], dtype)
@@ -164,6 +165,7 @@ def test_layernorm_bwd_baseline_benchmark(
         bias=bias,
     )
 
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
