@@ -1374,13 +1374,7 @@ void verifyMmaOpForEvaluation(
 // 5. A x B
 // 6. alpha * A x B
 // Note: We assume the first operand to be the MmaOp output
-bool matchMatmulPatterns(
-    const UnaryOp* cast_op,
-    Val*& mma_lhs,
-    Val*& mma_rhs,
-    Val*& bias,
-    Val*& alpha,
-    Val*& beta) {
+bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   // Check if there may be a bias present.
   bool has_bias = true;
   auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition());
@@ -1404,10 +1398,10 @@ bool matchMatmulPatterns(
     NVF_ERROR(
         mul_alpha->getBinaryOpType() == BinaryOpType::Mul,
         "Unrecognized pattern.");
-    alpha = mul_alpha->input(0);
+    matmul_inp->alpha = mul_alpha->input(0);
     mma = dynamic_cast<MmaOp*>(mul_alpha->input(1)->definition());
-    if (!alpha->isScalar()) { // Swap alpha and mma
-      alpha = mul_alpha->input(1);
+    if (!matmul_inp->alpha->isScalar()) { // Swap alpha and mma
+      matmul_inp->alpha = mul_alpha->input(1);
       mma = dynamic_cast<MmaOp*>(mul_alpha->input(0)->definition());
     }
   }
@@ -1420,8 +1414,8 @@ bool matchMatmulPatterns(
 
   // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
   MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
-  mma_lhs = mma->inA();
-  mma_rhs = mma->inB();
+  matmul_inp->mma_lhs = mma->inA();
+  matmul_inp->mma_rhs = mma->inB();
 
   if (!has_bias) {
     return true;
@@ -1434,31 +1428,34 @@ bool matchMatmulPatterns(
   // Check for beta parameter
   auto* mul_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
   if (mul_beta == nullptr) { // Case 1: bias
-    bias = binary->input(1); // Broadcasted bias tensor in fp32
+    matmul_inp->bias = binary->input(1); // Broadcasted bias tensor in fp32
   } else { // Case 2: beta * bias
     NVF_ERROR(
         mul_beta->getBinaryOpType() == BinaryOpType::Mul,
         "Unrecognized pattern.");
-    beta = mul_beta->input(0);
-    bias = mul_beta->input(1);
-    if (!beta->isScalar()) {
+    matmul_inp->beta = mul_beta->input(0);
+    matmul_inp->bias = mul_beta->input(1);
+    if (!matmul_inp->beta->isScalar()) {
       // bias * beta
-      std::swap(beta, bias);
+      std::swap(matmul_inp->beta, matmul_inp->bias);
     }
   }
 
   // Check if bias was broadcasted
-  auto* bcast = dynamic_cast<BroadcastOp*>(bias->definition());
+  auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
   if (bcast != nullptr) { // mma_lhs is broadcasted
     // Bias of shape [M, 1]
     NVF_ERROR(
-        bias->as<TensorView>()->getRootDomain().back()->isBroadcast(),
+        matmul_inp->bias->as<TensorView>()
+            ->getRootDomain()
+            .back()
+            ->isBroadcast(),
         "Expected last dimension to be broadcasted for bias tensor.");
-    bias = bcast->input(0); // Bias tensor in fp32
+    matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
 
   // Verify the dimensions of the bias
-  auto* bias_cast = dynamic_cast<UnaryOp*>(bias->definition());
+  auto* bias_cast = dynamic_cast<UnaryOp*>(matmul_inp->bias->definition());
 
   // The bias tensor and matmul inputs should be of the same dtype.
   NVF_ERROR(
@@ -1467,7 +1464,9 @@ bool matchMatmulPatterns(
   NVF_ERROR(
       *(bias_cast->input(0)->getDataType()) == final_out_dtype,
       "Bias should be originally of the same type as the final output dtype.");
-  bias = bias_cast->input(0); // Input bias tensor of [M]/[M, N] shape.
+
+  matmul_inp->bias =
+      bias_cast->input(0); // Input bias tensor of [M]/[M, N] shape.
 
   return true;
 }
