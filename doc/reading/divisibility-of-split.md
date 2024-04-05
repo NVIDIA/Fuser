@@ -86,6 +86,32 @@ we can consider the allocation of this example as Figure 1:
 
 ![Figure 1](divisibility-of-split/allocate-6-as-2,4.svg)
 
+We call the above situation *over-allocated*.
+
+## Correctness model
+
+Because there are holes in the allocation due to indivisible split,
+a natural question to ask is: When we write to an over-allocated buffer,
+what value should we fill these holes as?
+Possible answers are:
+
+1. As long as there is no "Illegal Memory Access" killing my kernel,
+   I don't care about what values these holes have.
+2. The holes should be filled with 0.
+3. The holes should be filled with x (something different from zero).
+
+Which answer is correct? There is no certain answer.
+It totally depends on how these values are read:
+If the out-of-bound items are never read, then 1, 2, or 3 makes no difference.
+If the out-of-bound items are actually read,
+then it needs to be filled with some neutral value that effectively leads to a no-op.
+For example, if we are doing an un-predicated reduction on an over-allocated buffer,
+such as when using tensor core, we must fill the out-of-bound items as zero.
+
+We call 1 "*weak correctness*", and 2 and 3 "*strong correctness*".
+
+## 
+
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
 - **Schedule 1:** `[I1, I2] -- split -> [I1, I2/4, 4] -- merge -> [I1*(I2/4), 4]`.
