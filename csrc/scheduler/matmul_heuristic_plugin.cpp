@@ -137,6 +137,14 @@ bool updateMatmulParams(
   setTile(params.tile_sizes.cta_tile, config.cta_tile);
   setTile(params.tile_sizes.warp_tile, config.warp_tile);
   setTile(params.tile_sizes.instruction_tile, config.instruction_tile);
+
+  // Update mma macro if necessary to match instruction tile
+  MmaMacroEncode menc(params.mma_macro); // this will record the family
+  menc.m = config.instruction_tile[0]; // update instruction tile size
+  menc.n = config.instruction_tile[1];
+  menc.k = config.instruction_tile[2];
+  params.mma_macro = menc; // cast back to uint64_t
+
   params.splitk_factor = config.splitk_factor;
   params.grid_swizzle_factor = config.grid_swizzle_factor;
   switch (config.cta_order) {
