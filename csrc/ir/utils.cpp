@@ -1463,12 +1463,11 @@ bool matchMatmulPatterns(
   // The bias tensor and matmul inputs should be of the same dtype.
   NVF_ERROR(
       bias_cast == nullptr || bias_cast->getUnaryOpType() == UnaryOpType::Cast,
-      "Expected the bias tensor to casted to Float.");
+      "Expected the bias tensor to be casted to Float.");
   NVF_ERROR(
       *(bias_cast->input(0)->getDataType()) == final_out_dtype,
       "Bias should be originally of the same type as the final output dtype.");
-  bias =
-      bias_cast->input(0); // Original input bias tensor of shape [M] / [M, N]
+  bias = bias_cast->input(0); // Input bias tensor of [M]/[M, N] shape.
 
   return true;
 }
