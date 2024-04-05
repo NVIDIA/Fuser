@@ -368,11 +368,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
     return params;
   }
-  // We should have forced MatmulExprEval by now if we detect missing plugin
-  NVF_ERROR(
-      matmul_heuristic_plugin::hasPlugin(),
-      "Tried to schedule a matmul without heuristic plugin. ",
-      "For example: NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
 
   // Check initial conditions
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
@@ -409,15 +404,24 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
   const MmaLayout layout = layout_opt.getData();
 
-  // Fill in proper values using plugin
-  matmul_heuristic_plugin::updateMatmulParams(
-      *params,
-      /*M=*/problem_shape[0],
-      /*N=*/problem_shape[1],
-      /*K=*/problem_shape[2],
-      /*batch_size=*/1, // TODO: extract actual batch size
-      layout,
-      roles_map);
+  // We should probably have forced MatmulExprEval by now if we detect missing
+  // plugin
+  if (matmul_heuristic_plugin::hasPlugin()) {
+    // Fill in proper values using plugin
+    matmul_heuristic_plugin::updateMatmulParams(
+        *params,
+        /*M=*/problem_shape[0],
+        /*N=*/problem_shape[1],
+        /*K=*/problem_shape[2],
+        /*batch_size=*/1, // TODO: extract actual batch size
+        layout,
+        roles_map);
+  } else {
+    TORCH_WARN_ONCE(
+        "Scheduling a matmul without heuristic plugin. "
+        "Specify plugin location like this: "
+        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+  }
 
   // Set whether to use shared memory for epilogue
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =

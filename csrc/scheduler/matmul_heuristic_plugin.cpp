@@ -23,7 +23,10 @@ namespace {
 class PluginInterface {
  public:
   PluginInterface() {
-    handle_ = dlopen(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN"), RTLD_LAZY);
+    filepath_ = getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN");
+    if (filepath_ != nullptr) {
+      handle_ = dlopen(filepath_, RTLD_LAZY);
+    }
   }
 
   bool available() const {
@@ -41,12 +44,17 @@ class PluginInterface {
 
     if (func_ == nullptr) {
       func_ = (HeuristicFunc*)dlsym(handle_, "getConfig");
+      NVF_CHECK(
+          func_ != nullptr,
+          "Failed to load symbol \"getConfig\" from plugin file ",
+          filepath_);
     }
 
     return (*func_)(problem);
   }
 
  private:
+  char* filepath_ = nullptr;
   void* handle_ = nullptr;
   HeuristicFunc* func_ = nullptr;
 } plugin;
