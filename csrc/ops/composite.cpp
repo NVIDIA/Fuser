@@ -53,6 +53,42 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
+// This function will add a castOp to the output of the matrix multiplication
+// The implementation of linear can use this but will skip the cast (set cast
+// flag as false) and add the bias.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input) {
+  NVF_CHECK(
+      a->nDims() == b->nDims(),
+      "The number of dimension of A and B do not match");
+  // TODO: We'll need to suppor nDims == 3 for bmm.
+  NVF_CHECK(
+      a->nDims() == 2,
+      "Only 2-D Tensors are supported, in the future we'll support 3-D as well!");
+
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  // A: [M, K, Bcast]
+  // B: [Bcast, K, N]
+  bcast_dims.at(bcast_dims.size() - 1) = true;
+  auto* tv0b = broadcast(a, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 1) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  auto* tv1b = broadcast(b, bcast_dims);
+
+  NVF_CHECK(
+      a->getDataType().value() == b->getDataType().value(),
+      "data types of inputs to matmul don't match");
+  auto* output = fusedMultiplySum(tv0b, tv1b, {-2});
+  if (cast_output_to_input) {
+    // For matmul, the output dtype should match input.
+    return maybeCastOp(a->getDataType().value(), output);
+  }
+  return output;
+}
+
+TensorView* matmul(TensorView* a, TensorView* b) {
+  return matmul(a, b, true /* cast output to input dtype */);
+}
+
 LstmResult lstm(
     TensorView* prev_cell,
     TensorView* in_x,

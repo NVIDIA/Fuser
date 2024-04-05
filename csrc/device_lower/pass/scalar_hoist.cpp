@@ -41,20 +41,33 @@ int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
 int64_t findOutermostPosWithSatisfiedDependency(
     Val* value,
     const std::vector<kir::ForLoop*>& loops) {
+  DEBUG_PRINT_SCOPE(value->toInlineString());
   // We don't recursively look into tensor indexing to find its dependency.
   // Instead, we always assume tensor indices to have dependency on all loop
   // variables and prefer to put it at the innermost loop.
   if (value->isA<kir::TensorIndex>()) {
-    return getInnermostNonTrivialLoop(loops);
+    RECORD_AND_RETURN(getInnermostNonTrivialLoop(loops));
   }
   // For TensorView, we must find its allocation to determine which loop it
   // belongs to. TensorView is handled differently from TensorIndex because
   // TensorIndex is a tensor data access, but TensorView only contains meta data
   // access like `T1.data`, or `toSmem(T1)`.
   if (TensorView* tv = dynamic_cast<TensorView*>(value)) {
-    // In getAllocInformation, position i means before the ith loop, in this
-    // function, i means after the ith loop, so we need to -1 here.
-    return (int64_t)lower_utils::getAllocInformation(tv, loops).alloc_pos - 1;
+    // Can not use lower_utils::getAllocInformation to get the allocation
+    // position of TensorView here, because the TensorView might be a special
+    // purposed tensor view, like a mbarrier, whose IterDomains are unrelated to
+    // the actual allocation.
+    for (int64_t pos = (int64_t)loops.size() - 1; pos >= 0; pos--) {
+      auto loop = loops.at(pos);
+      for (auto expr : loop->body().exprs()) {
+        if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+          if (alloc->buffer() == tv) {
+            RECORD_AND_RETURN(pos);
+          }
+        }
+      }
+    }
+    RECORD_AND_RETURN(-1);
   }
 
   auto def = value->definition();
@@ -74,7 +87,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
         continue;
       }
       if (loop->index()->sameAs(value)) {
-        return (int64_t)i;
+        RECORD_AND_RETURN((int64_t)i);
       }
     }
     // If no loop found, then `value` would could only depend on constants and
@@ -82,7 +95,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
     // value = blockIdx.x * 256 + threadIdx.x
     // For this case, return -1, which indicates that the computation of this
     // value should be placed at top-level exprs.
-    return -1;
+    RECORD_AND_RETURN(-1);
   }
 
   int64_t pos = -1;
@@ -91,7 +104,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
     pos = std::max(pos, findOutermostPosWithSatisfiedDependency(v, loops));
   }
 
-  return pos;
+  RECORD_AND_RETURN(pos);
 }
 
 // Get the key for `common_scalar_map_`
@@ -326,9 +339,24 @@ std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
     if (loop->isTrivial()) {
       continue;
     }
-    assumptions.push_back(
-        IrBuilder::ltExpr(loop->index(), loop->simplifiedStop()));
-    assumptions.push_back(IrBuilder::geExpr(loop->index(), loop->start()));
+    Val* start = loop->start();
+    assumptions.push_back(IrBuilder::geExpr(loop->index(), start));
+    Val* stop = loop->simplifiedStop();
+    if (stop->sameAs(start)) {
+      // If stop = start, then this loop will not be computed, so it's not
+      // important to simplify its index. However, it is important that we avoid
+      // contradicting assumptions, so we omit the index < stop assumption in
+      // these cases.
+      TORCH_WARN_ONCE(
+          "Encountered loop with no iterations. Stop value ",
+          stop->toInlineString(),
+          " is same as start value ",
+          start->toInlineString(),
+          ". This could indicate a suboptimal schedule such as double-buffering a ",
+          "loop that has only a single iteration.");
+    } else {
+      assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
+    }
   }
   return assumptions;
 }

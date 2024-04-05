@@ -22,7 +22,17 @@
 
 namespace nvfuser {
 
-class MatmulSASSTest : public NVFuserTest {};
+class MatmulSASSTest : public NVFuserTest {
+ protected:
+  MatmulSASSTest() {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
+ private:
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard opt_guard_;
+};
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference

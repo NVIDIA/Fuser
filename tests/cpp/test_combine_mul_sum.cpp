@@ -26,6 +26,7 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -38,6 +39,11 @@
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
+ protected:
+  CombineMulSumAsMmaTest() {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -54,6 +60,11 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
     }
     NVFuserTest::SetUp();
   }
+
+ private:
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard opt_guard_;
 };
 
 // Test checks to see that the combiner can correctly replace
@@ -211,6 +222,10 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
     tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
     auto tv2 = sum(mul(tv0, tv1), {-1});
+    // setting output alloc_domain to avoid allocation order propagation, which
+    // breaks the assumption of matmul scheduler. see issue:
+    // https://github.com/NVIDIA/Fuser/issues/2014
+    tv2->setAllocationDomain(tv2->getMaybeRFactorDomain(), true);
 
     fusion->addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());

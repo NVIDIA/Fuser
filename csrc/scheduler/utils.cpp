@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
@@ -245,6 +246,7 @@ size_t mergeReduction(TensorView* tv) {
 }
 
 size_t mergeNonReduction(TensorView* tv) {
+  bool has_device_dim = false;
   int prev_i = -1;
   size_t num_merged = 0;
   if (tv->nDims() == 0) {
@@ -252,6 +254,10 @@ size_t mergeNonReduction(TensorView* tv) {
   }
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (tv->axis(i)->isReduction()) {
+      continue;
+    }
+    if (tv->axis(i)->isDeviceDim()) {
+      has_device_dim = true;
       continue;
     }
     if (prev_i == -1) {
@@ -264,6 +270,11 @@ size_t mergeNonReduction(TensorView* tv) {
   }
   if (prev_i != -1) {
     tv->reorder({{prev_i, 0}});
+  }
+  if (has_device_dim) {
+    // in this case the layout at this point is [i, r , d]
+    // we want to put the device dim back to outmost
+    tv->reorder({{prev_i != -1 ? 2 : 1, 0}});
   }
 
   return prev_i == -1 ? 0 : num_merged + 1;
@@ -1056,7 +1067,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
         std::any_of(
             tv->getLeafDomain().begin(),
             tv->getLeafDomain().end(),
-            [](IterDomain* id) { return id->isReduction(); })) {
+            [](IterDomain* id) { return id->isReduction(); }) &&
+        !isResharding(tv->definition())) {
       reduction_tvs.emplace_back(tv);
     }
   }
