@@ -145,31 +145,33 @@ class AllocationOrderInferencer : public IterVisitor {
       TensorView* producer,
       TensorView* consumer,
       const std::vector<IterDomain*>& permutation_ref) {
-    if (auto iter = alloc_order_map_.find(producer);
-        iter != alloc_order_map_.end()) {
-      // early termination to propagate empty allocation order
-      if (iter->second.empty()) {
-        alloc_order_map_[consumer] = {};
-        return true;
-      }
+    auto iter = alloc_order_map_.find(producer);
+    // early return is producer doesn't have an entry in alloc_order_map_
+    if (iter == alloc_order_map_.end()) {
+      return false;
+    }
 
-      std::vector<IterDomain*> alloc_domain =
-          propagateAllocationDomain(producer, consumer);
-      // compute allocation order
-      std::optional<AllocationOrder> permutation =
-          ir_utils::computePermutation(permutation_ref, alloc_domain);
-
-      NVF_ERROR(
-          permutation.has_value(),
-          "allocation order propagation from ",
-          producer->toString(0),
-          " to ",
-          consumer->toString(0),
-          " failed!");
-      alloc_order_map_[consumer] = permutation.value();
+    // early termination to propagate empty allocation order
+    if (iter->second.empty()) {
+      alloc_order_map_[consumer] = {};
       return true;
     }
-    return false;
+
+    std::vector<IterDomain*> alloc_domain =
+        propagateAllocationDomain(producer, consumer);
+    // compute allocation order
+    std::optional<AllocationOrder> permutation =
+        ir_utils::computePermutation(permutation_ref, alloc_domain);
+
+    NVF_ERROR(
+        permutation.has_value(),
+        "allocation order propagation from ",
+        producer->toString(0),
+        " to ",
+        consumer->toString(0),
+        " failed!");
+    alloc_order_map_[consumer] = permutation.value();
+    return true;
   }
 
   // Propagate allocation order from producer to consumer's rfactor_domain
