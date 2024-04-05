@@ -89,13 +89,15 @@ class MultiDeviceExecutor {
       Communicator* comm,
       const MultiDeviceExecutorParams& params = MultiDeviceExecutorParams());
 
-  MultiDeviceExecutor();
+  MultiDeviceExecutor() = default;
 
+  // initialization function, populates comm_ and other private members.
   void init(
       std::unique_ptr<Fusion> fusion,
       Communicator* comm,
       const MultiDeviceExecutorParams& params = MultiDeviceExecutorParams());
 
+  // returns whether the instance has been initialized.
   bool isInitialized() const {
     return initialized_;
   }
@@ -134,7 +136,7 @@ class MultiDeviceExecutor {
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // holds the Communicator to be used for execution
-  Communicator* comm_;
+  Communicator* comm_ = nullptr;
   // holds the fusion after segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
   // 1) a Fusion which doesn't involve inter-device communication
@@ -156,6 +158,7 @@ class MultiDeviceExecutor {
   std::vector<Val*> vals_to_allocate_;
 
   MultiDeviceExecutorParams params_;
+  // Flag marking `init` function has been called.
   bool initialized_ = false;
 };
 
