@@ -24,7 +24,8 @@ namespace matmul_heuristic_plugin {
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libfoo.so to use the plugin to
 //! determine matmul parameters automatically.
 
-//! This is the information available to the plugin to determine the kernel configuration
+//! This is the information available to the plugin to determine the kernel
+//! configuration
 struct ProblemDescription {
   struct Shapes {
     uint32_t M;
@@ -42,12 +43,13 @@ struct ProblemDescription {
 struct KernelConfig {
   uint16_t cta_tile[3];
   uint16_t warp_tile[3];
-  uint16_t instr_tile[3];
+  uint16_t instruction_tile[3];
   uint16_t splitk_factor;
   uint8_t load_stages;
-  uint8_t grid_swizzle;
-  uint8_t cta_order;
-  // CGA configuration describing cluster X and Y dimensions. This is currently unused.
+  uint8_t grid_swizzle_factor;
+  uint8_t cta_order; // 0 for row major, 1 for column major
+  // CGA configuration describing cluster X and Y dimensions. This is currently
+  // unused.
   uint8_t cga_config[2];
 };
 
@@ -69,10 +71,10 @@ bool updateMatmulParams(
     int64_t M,
     int64_t N,
     int64_t K,
+    int64_t batch_size,
     MmaLayout layout,
     const mma_utils::RolesMap& roles_map);
 
 } // namespace matmul_heuristic_plugin
 
 } // namespace nvfuser
-

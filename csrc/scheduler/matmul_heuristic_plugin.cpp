@@ -6,9 +6,10 @@
  */
 // clang-format on
 
+#include <ir/interface_nodes.h>
 #include <mma_type.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/matmul_heuristic_plugin.h>
+#include <scheduler/mma_utils.h>
 #include <utils.h>
 
 #include <dlfcn.h>
@@ -35,14 +36,14 @@ class PluginInterface {
     }
   }
 
-  KernelConfig getConfig(ProblemDescription& problem) {
+  KernelConfig getConfig(const ProblemDescription& problem) {
     NVF_ERROR(available());
 
     if (func_ == nullptr) {
       func_ = (HeuristicFunc*)dlsym(handle_, "getConfig");
     }
 
-    return func_(problem);
+    return (*func_)(problem);
   }
 
  private:
@@ -52,19 +53,16 @@ class PluginInterface {
 
 // TODO: This should probably be in mma_type.cpp
 char dtypeToChar(const DataType& dtype) {
-  switch (dtype) {
-    case DataType::Half:
-      return 'H';
-    case DataType::BFloat16:
-      return 'T';
-    case DataType::Float:
-      return 'S';
-    default:
-      NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  if (dtype == DataType::Half) {
+    return 'H';
+  } else if (dtype == DataType::BFloat16) {
+    return 'T';
+  } else if (dtype == DataType::Float) {
+    return 'S';
   }
+  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
   return 0;
 }
-
 
 } // namespace
 
@@ -78,6 +76,8 @@ uint8_t layoutToByte(MmaLayout layout) {
       return 2;
     case MmaLayout::TT:
       return 3;
+    default:
+      return 255;
   }
 }
 
@@ -90,6 +90,7 @@ bool updateMatmulParams(
     int64_t M,
     int64_t N,
     int64_t K,
+    int64_t batch_size,
     MmaLayout layout,
     const mma_utils::RolesMap& roles_map) {
   if (!hasPlugin()) {
@@ -101,10 +102,8 @@ bool updateMatmulParams(
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* c = roles_map.at(MatmulRole::INPUT_C).front();
-  TensorView* d = roles_map.at(MatmulRole::INPUT_D).front();
+  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
   precision[0] = dtypeToChar(a->dtype());
-  precision[1] = dtypeToChar(c->dtype());
   precision[2] = dtypeToChar(d->dtype());
 
   // Set up problem description
@@ -116,9 +115,38 @@ bool updateMatmulParams(
           .batch_size = (uint32_t)batch_size,
           .layout = layoutToByte(layout),
       },
-      .precision = &precision};
+      .precision = precision};
 
   const KernelConfig config = plugin.getConfig(problem);
+
+  const auto setTile = [](GemmTile& gemm_tile, const uint16_t(&input)[3]) {
+    gemm_tile.m = input[0];
+    gemm_tile.n = input[1];
+    gemm_tile.k = input[2];
+  };
+
+  params.double_buffer_options.smem_double_buffer_stage = config.load_stages;
+  setTile(params.tile_sizes.cta_tile, config.cta_tile);
+  setTile(params.tile_sizes.warp_tile, config.warp_tile);
+  setTile(params.tile_sizes.instruction_tile, config.instruction_tile);
+  params.splitk_factor = config.splitk_factor;
+  params.grid_swizzle_factor = config.grid_swizzle_factor;
+  switch (config.cta_order) {
+    case 0:
+      params.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+      break;
+    case 1:
+      params.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+      break;
+    default:
+      NVF_ERROR(
+          false,
+          "Unrecognized cta_order returned by plugin: ",
+          config.cta_order,
+          ". Expected 0 (row-major) or 1 (column-major)");
+  }
+
+  return true;
 }
 
 } // namespace matmul_heuristic_plugin
