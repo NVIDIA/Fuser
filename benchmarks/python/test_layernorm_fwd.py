@@ -121,7 +121,7 @@ def test_layernorm_fwd_baseline_benchmark(
         torch.randn(hidden_size, device="cuda", dtype=dtype),
         torch.randn(hidden_size, device="cuda", dtype=dtype),
     ]
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
