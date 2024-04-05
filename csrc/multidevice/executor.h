@@ -86,8 +86,19 @@ class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
-      Communicator& comm,
-      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
+      Communicator* comm,
+      const MultiDeviceExecutorParams& params = MultiDeviceExecutorParams());
+
+  MultiDeviceExecutor();
+
+  void init(
+      std::unique_ptr<Fusion> fusion,
+      Communicator* comm,
+      const MultiDeviceExecutorParams& params = MultiDeviceExecutorParams());
+
+  bool isInitialized() const {
+    return initialized_;
+  }
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(
@@ -96,7 +107,7 @@ class MultiDeviceExecutor {
 
   // Returns the Communicator
   Communicator* comm() const {
-    return &comm_;
+    return comm_;
   }
 
   // Returns the Fusion
@@ -123,7 +134,7 @@ class MultiDeviceExecutor {
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // holds the Communicator to be used for execution
-  Communicator& comm_;
+  Communicator* comm_;
   // holds the fusion after segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
   // 1) a Fusion which doesn't involve inter-device communication
@@ -145,6 +156,7 @@ class MultiDeviceExecutor {
   std::vector<Val*> vals_to_allocate_;
 
   MultiDeviceExecutorParams params_;
+  bool initialized_ = false;
 };
 
 } // namespace nvfuser

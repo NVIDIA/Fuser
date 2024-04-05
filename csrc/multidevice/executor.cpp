@@ -46,11 +46,12 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
 
 } // namespace
 
-MultiDeviceExecutor::MultiDeviceExecutor(
+void MultiDeviceExecutor::init(
     std::unique_ptr<Fusion> fusion,
-    Communicator& comm,
-    MultiDeviceExecutorParams params)
-    : comm_(comm), params_(params) {
+    Communicator* comm,
+    const MultiDeviceExecutorParams& params) {
+  comm_ = comm;
+  params_ = params;
   insertReshardings(fusion.get());
   insertShardedAxisReordering(fusion.get());
   SegmentCandidateFinderOptions options{
@@ -73,7 +74,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
         !is_resharding_[group] || group->exprs().size() == 1,
         "Communications cannot be fused");
     auto expr = group->exprs().at(0);
-    should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
+    should_run_[group] = involvedDevices(expr).count(comm_->deviceId());
   }
   // prepare the order in which to launch the kernels/comms
   prepareRuntimeOrder(staged_fusion_.get(), workspace);
@@ -90,13 +91,21 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       NVF_ERROR(val->isA<TensorView>());
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
-      if (tv->getDeviceMesh().has(comm_.deviceId())) {
+      if (tv->getDeviceMesh().has(comm_->deviceId())) {
         vals_to_allocate_.push_back(val);
       }
     }
   }
   allocator_fusion_ =
       copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
+  initialized_ = true;
+}
+
+MultiDeviceExecutor::MultiDeviceExecutor(
+    std::unique_ptr<Fusion> fusion,
+    Communicator* comm,
+    const MultiDeviceExecutorParams& params) {
+  init(std::move(fusion), comm, params);
 }
 
 void MultiDeviceExecutor::postKernel(
@@ -111,7 +120,7 @@ void MultiDeviceExecutor::postKernel(
     NVF_ERROR(
         val_to_IValue_.find(input) != val_to_IValue_.end(),
         "Device ",
-        comm_.deviceId(),
+        comm_->deviceId(),
         " has no buffer associated with Val ",
         input,
         " for handling group ",
@@ -175,11 +184,11 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   auto communications =
-      lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
+      lowerCommunication(comm_->deviceId(), expr, input_tensor, output_tensor);
 
   // post and wait communications
   for (auto& communication : communications) {
-    auto work = communication->post(comm_);
+    auto work = communication->post(*comm_);
     if (work) {
       work->wait();
     }
@@ -234,19 +243,19 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 }
 
 std::string MultiDeviceExecutor::validate() const {
-  if (!comm_.is_available()) {
+  if (!comm_->is_available()) {
     return "distributed configuration required";
   }
 
-  if (requestedNumberOfDevices(completeFusion()) > comm_.size()) {
+  if (requestedNumberOfDevices(completeFusion()) > comm_->size()) {
     return "the pipeline requests " +
         std::to_string(requestedNumberOfDevices(completeFusion())) +
-        " GPUs to run, but there are only " + std::to_string(comm_.size()) +
+        " GPUs to run, but there are only " + std::to_string(comm_->size()) +
         " ranks in the communicator";
   }
 
-  if (comm_.size() > at::cuda::getNumGPUs()) {
-    return std::to_string(comm_.local_size()) +
+  if (comm_->size() > at::cuda::getNumGPUs()) {
+    return std::to_string(comm_->local_size()) +
         " processes are spawn on the node but only " +
         std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
   }
@@ -260,8 +269,8 @@ std::ostream& MultiDeviceExecutor::print() {
   for (auto group : workspace.group_run_order) {
     if (is_resharding_[group]) {
       debug() << "Communication " << communication_counter << ":{\n";
-      for (const auto& comm :
-           lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
+      for (const auto& comm : lowerCommunication(
+               comm_->deviceId(), group->exprs().at(0), {}, {})) {
         debug() << comm->toString(2) << "\n";
       }
       debug() << "}\n";
