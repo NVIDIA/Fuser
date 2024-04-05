@@ -209,11 +209,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-  auto tv2 = makeConcreteTensor(
-      {
-          m,
-      },
-      DataType::Half);
+  auto tv2 = makeConcreteTensor({m}, DataType::Half);
 
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
