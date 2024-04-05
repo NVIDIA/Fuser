@@ -8,9 +8,75 @@
 
 ## Introduction
 
-Indivisible splits has many interesting properties that deserve us thinking.
+In nvFuser, `Split` is an IterDomain expression that partitions the original IterDomain into nested sub-IterDomains,
+where the outer IterDomain iterates over the quotient and the inner IterDomain iterates over the remainder of the original extent divided by the split factor.
 
-Let's begin the discussion with a simple question:
+For example, suppose that I have an IterDomain whose extent is `6`.
+It is helpful to think of this IterDomain as the following loop:
+
+```python
+for i in range(6):
+    print(i)
+```
+
+If I do a `split(2)` on this IterDomain, I will get two IterDomains whose extents are `3` and `2`.
+It is helpful to think of these two IterDomains as two nested loops:
+
+```python
+for i0 in range(3):
+    for i1 in range(2):
+        print(i0 * 2 + i1)
+```
+
+If the split is divisible, everything is simple and elegant like above.
+However, when splits are indivisible, things start to get complicated.
+For example, let's still consider the IterDomain with extent `6` in the example.
+But this time, we do a `split(4)` instead of `split(2)`.
+With `split(4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
+These two extents can be think of as two nested loops:
+
+```python
+for i0 in range(2):
+    for i1 in range(4):
+        print(i0 * 4 + i1)
+```
+
+But wait, is this correct? No, this is not.
+Because now we are printing `0 1 2 3 4 5 6 7` instead of `0 1 2 3 4 5`.
+The correct code should be:
+
+```python
+for i0 in range(2):
+    for i1 in range(4):
+        i = i0 * 4 + i1
+        if i < 6:
+            print(i)
+```
+
+That is, whenever we do an indivisible split on an IterDomain, we will index out-of-bound for that IterDomain.
+Therefore, we must generate a predicate for the IterDomain being split.
+
+Personally, I feel it helpful to consider indivisible split as resize + divisible split.
+For example, I can consider `Split(I{6}, 4)` as `DivisibleSplit(Resize(I{6}, 8), 4)`.
+This way, `DivisibleSplit` just converts one loop into two loops without hurting the correctness,
+and `Resize(I{size1}, size2)` converts a
+
+```python
+for i in range(size1):
+    print(i)
+```
+
+into
+
+```python
+for i in range(size2):
+    if i < size1:
+        print(i)
+```
+
+Indivisible split also impact the allocation size.
+
+For example, 
 
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
