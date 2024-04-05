@@ -76,7 +76,15 @@ for i in range(size2):
 
 Indivisible split also impact the allocation size.
 
-For example, 
+For example, if I have a tensor `T0[I0{6}]`, when allocating this tensor,
+I will allocate 6 items for this tensor.
+If I do an indivisible split on `I0{6}` by `4` to get `I1{2}` and `I2{4}`,
+and set the allocation domain of this tensor as `[I1, I2]`,
+then I will need to allocate `2*4 = 8` items.
+With the mental model of considering indivisible split as resize + divisible split,
+we can consider the allocation of this example as Figure 1:
+
+![Figure 1](divisibility-of-split/allocate-6-as-2,4.svg)
 
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
