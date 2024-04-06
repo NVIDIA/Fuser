@@ -112,7 +112,7 @@ If the reduction is product, then the out-of-bound items must be filled with 1.
 
 We call 1 "*weak correctness*", and 2 and 3 "*strong correctness*".
 
-## 
+## Case studies
 
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 

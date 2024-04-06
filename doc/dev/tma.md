@@ -29,60 +29,6 @@ In Figure 1, we have box size `(6, 4)` for both diagram.
 For the diagram on the left, we have tile size `(6, 4)` and stride `(1, 1)`.
 For the diagram on the right, we have tile size `(6, 2)`, and stride `(1, 3)`.
 
-Conceptually, we can consider TMA as a function:
-> $\mathrm{tma}(\vec{x}, sa; ga, \vec{gs}, \vec{bs}, \vec{gr}, \vec{er}, op)$.
-
-In the parameter list of the above function signature,
-we intentionally used `;` instead of `,` to separate $sa$ with $ga$.
-we call everything before `;` "inputs", and everything after `;` except $op$ "parameters".
-
-The meanings of inputs, parameters, and $op$ are:
-
-- $op$ defines the direction of transfer, it can be either "load" (global -> shared) or "store" (shared -> global).
-- $\vec{x}$ is the N-dimensional coordinate of the starting of the box in tensor.
-  In the example in Figure 1, it is $(9, 1)$.
-- $sa$ stands for "Shared memory base Address".
-  In the example in Figure 1, it is the address of the purple item on the top left cornor of the box in shared memory.
-- $ga$ stands for "Global memory base Address".
-  In the example in Figure 1, it is the address of the blue item on the top left cornor of the tensor in global memory.
-- $\vec{gs}$ stands for "Global Size". It is a vector of the same dimensionality as $\vec{x}$.
-  In the example in Figure 1, it is $(12, 16)$.
-- $\vec{bs}$ stands for "Box Size". It is a vector of the same dimensionality as $\vec{x}$.
-  In the example in Figure 1, it is $(6, 4)$.
-- $\vec{gr}$ stands for "Global stRide". It is a vector of the same dimensionality as $\vec{x}$.
-  In the example in Figure 1, it is $(1, 14)$.
-- $\vec{er}$ stands for "Element stRide". It is a vector of the same dimensionality as $\vec{x}$.
-  In the example in Figure 1, it is $(1, 1)$ for the left diagram, and $(1, 3)$ for the right diagram.
-
-We separate inputs, parameters, and $op$ because in the implementation,
-inputs are provided as operands for the PTX instruction,
-parameters are encoded inside the TensorMap descriptor,
-and $op$ defines which PTX instruction to use.
-When looking at the kernel level, only $\vec{x}$ and $sa$ can change;
-parameters and op are predefined constants.
-
-The thing that this $tma$ function does is demonstrated in the following code
-(here, assuming the TMA is 2D, we can easily generalize to other dimensionalities):
-
-```python
-def tma(op, x, sa, *, ga, gs, bs, gr, er):
-    ts = [ceildiv(bs[0], er[0]), ceildiv(bs[1], er[1])] # tile size
-    for i0 in range(ts[0]):
-        for i1 in range(ts[1]):
-            smem_idx = i1 * ts[0] + i0
-            gmem_idx0 = x[0] + i0 * er[0]
-            gmem_idx1 = x[1] + i1 * er[1]
-            gmem_idx = gmem_idx0 * gr[0] + gmem_idx1 * gr[1]
-            if op == "load":
-                if gmem_idx0 < gs[0] and gmem_idx1 < gs[1]:
-                    sa[smem_idx] = ga[gmem_idx]
-                else:
-                    sa[smem_idx] = 0
-            else:
-                if gmem_idx0 < gs[0] and gmem_idx1 < gs[1]:
-                    ga[gmem_idx] = sa[smem_idx]
-```
-
 ## Schedule
 
 In order to use TMA, we need to tell the hardware what is the dimensionality of our tensor.
@@ -126,6 +72,8 @@ Instead, it is a virtual domain that only exists in the user's mind.
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
 for example, we can not merge discontiguous IterDomains ([why?](../reading/divisibility-of-split.md#merging-discontiguous-iterdomains)), and we can not have indivisible splits either.
 
+TODO: fix the link for "why?".
+
 ### Step 2: Define box
 
 After having scheduled a TMA domain, the next step is to define box.
@@ -148,8 +96,8 @@ the schedule should look like the Figure 3 below:
 
 Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
 
-When the split is not divisible, some interesting interaction could happen:
-
-
+The case where the split is not divisible deserve a deeper look at,
+but because this is an introductory document, we will not cover this topic here.
+Please refer to []
 
 #### Define box by compositing
