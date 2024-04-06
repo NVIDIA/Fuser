@@ -95,11 +95,12 @@ nothing more, nothing less.
 the expressions between the allocation IterDomains and the TMA domain, except boxing splits,
 does not create any hole, and the desired filling value is 0.
 
-Note that the word used here is *allocation IterDomains*, not *allocation domain*.
-*Allocation IterDomains* refer to the IterDomains that are actually being allocated in the allocation domain.
-We do not care about IterDomains that are not allocated,
-even if it is located inside the allocation dimain,
-such as BIDx parallelized IterDomain in shared memory tensor.
+> [!NOTE]
+> The word used here is *allocation IterDomains*, not *allocation domain*.
+> *Allocation IterDomains* refer to the IterDomains that are actually being allocated in the allocation domain.
+> We do not care about IterDomains that are not allocated,
+> even if it is located inside the allocation dimain,
+> such as BIDx parallelized IterDomain in shared memory tensor.
 
 **Proof:**
 It is helpful to use the mental model that considers indivisible split as resize + divisible split.
