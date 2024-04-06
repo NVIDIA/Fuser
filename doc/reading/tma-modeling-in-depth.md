@@ -91,9 +91,29 @@ When the boxing split is indivisible, it also needs to be predicated.
 It is easy to see that, the set of predicates for all indivisible boxing splits is exactly the predicate in CodeBlock 1,
 nothing more, nothing less.
 
-**Theorem 2:** TMA load provides strong correctness if and only if in the consumer, there is no allocation-size-changing expressions between the allocation domain and the TMA domain except boxing splits.
+**Theorem 2:** TMA load provides strong correctness if and only if in the consumer,
+the expressions between the allocation IterDomains and the TMA domain, except boxing splits,
+does not create any hole, and the desired filling value is 0.
+
+Note that the word used here is *allocation IterDomains*, not *allocation domain*.
+*Allocation IterDomains* refer to the IterDomains that are actually being allocated in the allocation domain.
+We do not care about IterDomains that are not allocated,
+even if it is located inside the allocation dimain,
+such as BIDx parallelized IterDomain in shared memory tensor.
 
 **Proof:**
+It is helpful to use the mental model that considers indivisible split as resize + divisible split.
+If we consider all boxing splits this way,
+conceptually, we can think as TMA does a pre-processing that
+resizes the global memory tensor as a multiple of boxes and fill all the padding values as 0.
+Let's call the domain that we get by grabbing the TMA domain and replacing all partitioned IterDomains
+with their corresponding resized IterDomains the "resized domain".
+
+With this perspective in mind,
+"TMA load provides strong correctness" is equivalent to say
+"each item in the shared memory buffer correspond to a value in the resized tensor"
+which is equivalent to say that in the consumer,
+the expressions between the allocation IterDomains and the resized domain does not create any hole. □
+
 
 That is:
-
