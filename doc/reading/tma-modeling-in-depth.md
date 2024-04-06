@@ -114,6 +114,3 @@ With this perspective in mind,
 "each item in the shared memory buffer correspond to a value in the resized tensor"
 which is equivalent to say that in the consumer,
 the expressions between the allocation IterDomains and the resized domain does not create any hole. □
-
-
-That is:
