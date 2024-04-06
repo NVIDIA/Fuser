@@ -16,6 +16,11 @@ We will focus on tiled TMA here, im2col TMA is not supported yet.
 
 ## What is TMA?
 
+TMA is a hardware feature that allows the GPU to load a tile from a tensor of up to 5D.
+The tile can be dense, or strided, as shown in Figure 1 below (the same figure as in the [introduction doc](../dev/tma.md)):
+
+![Figure 1: TMA dense and strided tile](../dev/tma/dense-and-strided-tile.svg)
+
 Conceptually, we can consider TMA as a function:
 > $\mathrm{tma}(\vec{x}, sa; ga, \vec{gs}, \vec{bs}, \vec{gr}, \vec{er}, op)$.
 
@@ -70,16 +75,14 @@ def tma(op, x, sa, *, ga, gs, bs, gr, er):
                     ga[gmem_idx] = sa[smem_idx]
 ```
 
+TMA has the following properties:
+
+**Theorem 1:** TMA provides weak correctness.
+
+**Proof:** From CodeBlock 1, we see that TMA automatically predicates global memory access so we are sure there is no out-of-bound memory accesses.
+We do not care about the value in out-of-bound area in weak correctness. □
+
 ## Indivisible boxing split
-
-Note to reader: please refer to ["Divisibility of Split"](../reading/divisibility-of-split.md) for the definition of weak and strong correctness.
-
-**Theorem 1:** TMA provides weak correctness.
-
-**Proof:** Because TMA automatically predicates global memory access, we are sure there is no out-of-bound memory accesses.
-We do not care about the value in out-of-bound area in weak correctness. $\qedsymbol{}$
-
-**Theorem 1:** TMA provides weak correctness.
 
 As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
 when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
@@ -87,6 +90,10 @@ when we indivisibly split an IterDomain, we will need to predicate the IterDomai
 When the boxing split is indivisible, it also needs to be predicated.
 It is easy to see that, the set of predicates for all indivisible boxing splits is exactly the predicate in CodeBlock 1,
 nothing more, nothing less.
+
+**Theorem 2:** TMA load provides strong correctness if and only if in the consumer all indivisible splits on the path between the allocation domain and the TMA domain are boxing splits.
+
+**Proof:**
 
 That is:
 
