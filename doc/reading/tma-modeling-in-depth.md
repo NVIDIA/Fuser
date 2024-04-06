@@ -91,7 +91,7 @@ When the boxing split is indivisible, it also needs to be predicated.
 It is easy to see that, the set of predicates for all indivisible boxing splits is exactly the predicate in CodeBlock 1,
 nothing more, nothing less.
 
-**Theorem 2:** TMA load provides strong correctness if and only if in the consumer all indivisible splits on the path between the allocation domain and the TMA domain are boxing splits.
+**Theorem 2:** TMA load provides strong correctness if and only if in the consumer, there is no allocation-size-changing expressions between the allocation domain and the TMA domain except boxing splits.
 
 **Proof:**
 
