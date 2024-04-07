@@ -104,7 +104,7 @@ The above theorem tells us that, if we are already predicating `I0`, then there 
 We can derive similar theorems for other IterDomain expressions:
 
 **Theorem 2** Suppose that there is a merge `I2 = Merge(I0, I1)`.
-Then "the index of `I0` is in bound" implies "the index of `I2` is in bound".
+Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
 
 **Proof:** Suppose the index of `I2` is $i_2$, the extent of `I1` is $N$.
 Then the index of `I0` is $i_0 = i_2 / N$.
