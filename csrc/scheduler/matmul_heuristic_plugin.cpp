@@ -20,6 +20,9 @@ namespace matmul_heuristic_plugin {
 
 namespace {
 
+//! Defines HeuristicFun as type of the "getConfig" symbol
+typedef void (*HeuristicFunc)(KernelConfig*, const ProblemDescription*);
+
 class PluginInterface {
  public:
   PluginInterface() {
@@ -39,7 +42,7 @@ class PluginInterface {
     }
   }
 
-  KernelConfig getConfig(const ProblemDescription& problem) {
+  void getConfig(KernelConfig* config, const ProblemDescription* problem) {
     NVF_ERROR(available());
 
     if (func_ == nullptr) {
@@ -47,10 +50,12 @@ class PluginInterface {
       NVF_CHECK(
           func_ != nullptr,
           "Failed to load symbol \"getConfig\" from plugin file ",
-          filepath_);
+          filepath_,
+          ". Error message: ",
+          dlerror());
     }
 
-    return (*func_)(problem);
+    (*func_)(config, problem);
   }
 
  private:
@@ -72,8 +77,7 @@ char dtypeToChar(const DataType& dtype) {
   return 0;
 }
 
-} // namespace
-
+//! Utility to standardize conversion of MmaLayout to uint8_t
 uint8_t layoutToByte(MmaLayout layout) {
   switch (layout) {
     case MmaLayout::NN:
@@ -87,6 +91,80 @@ uint8_t layoutToByte(MmaLayout layout) {
     default:
       return 255;
   }
+}
+
+//! Utility to standardize conversion of MmaLayout to uint8_t
+uint8_t layoutToByte(MmaLayout layout);
+
+} // namespace
+
+struct ProblemDescription {
+  uint32_t M;
+  uint32_t N;
+  uint32_t K;
+  uint32_t batch_size;
+  // layout is in row-major and takes values 0 thru 3 in order NN NT TN TT
+  uint8_t layout;
+  const char* precision; // e.g. HSH, TST, HSS, etc.
+};
+uint32_t getProblemM(const ProblemDescription* problem) {
+  return problem->M;
+}
+uint32_t getProblemN(const ProblemDescription* problem) {
+  return problem->N;
+}
+uint32_t getProblemK(const ProblemDescription* problem) {
+  return problem->K;
+}
+uint32_t getProblemBatchSize(const ProblemDescription* problem) {
+  return problem->batch_size;
+}
+uint8_t getProblemLayout(const ProblemDescription* problem) {
+  return problem->layout;
+}
+const char* getProblemPrecision(const ProblemDescription* problem) {
+  return problem->precision;
+}
+
+struct KernelConfig {
+  uint16_t cta_tile[3];
+  uint16_t warp_tile[3];
+  uint16_t instruction_tile[3];
+  uint16_t splitk_factor;
+  uint8_t load_stages;
+  uint8_t grid_swizzle_factor;
+  uint8_t cta_order; // 0 for row major, 1 for column major
+};
+void setCtaTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k) {
+  config->cta_tile[0] = m;
+  config->cta_tile[1] = n;
+  config->cta_tile[2] = k;
+}
+void setWarpTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k) {
+  config->warp_tile[0] = m;
+  config->warp_tile[1] = n;
+  config->warp_tile[2] = k;
+}
+void setInstructionTile(
+    KernelConfig* config,
+    uint16_t m,
+    uint16_t n,
+    uint16_t k) {
+  config->instruction_tile[0] = m;
+  config->instruction_tile[1] = n;
+  config->instruction_tile[2] = k;
+}
+void setSplitKFactor(KernelConfig* config, uint16_t f) {
+  config->splitk_factor = f;
+}
+void setLoadStages(KernelConfig* config, uint8_t s) {
+  config->load_stages = s;
+}
+void setGridSwizzleFactor(KernelConfig* config, uint8_t g) {
+  config->grid_swizzle_factor = g;
+}
+void setCtaOrder(KernelConfig* config, uint8_t o) {
+  config->cta_order = o;
 }
 
 bool hasPlugin() {
@@ -116,16 +194,15 @@ bool updateMatmulParams(
 
   // Set up problem description
   const ProblemDescription problem{
-      {
-          .M = (uint32_t)M,
-          .N = (uint32_t)N,
-          .K = (uint32_t)K,
-          .batch_size = (uint32_t)batch_size,
-          .layout = layoutToByte(layout),
-      },
+      .M = (uint32_t)M,
+      .N = (uint32_t)N,
+      .K = (uint32_t)K,
+      .batch_size = (uint32_t)batch_size,
+      .layout = layoutToByte(layout),
       .precision = precision};
 
-  const KernelConfig config = plugin.getConfig(problem);
+  KernelConfig config;
+  plugin.getConfig(&config, &problem);
 
   const auto setTile = [](GemmTile& gemm_tile, const uint16_t(&input)[3]) {
     gemm_tile.m = input[0];

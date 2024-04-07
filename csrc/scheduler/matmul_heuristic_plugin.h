@@ -17,47 +17,42 @@ namespace nvfuser {
 
 namespace matmul_heuristic_plugin {
 
-//! This is intended as a minimal interface for enabling matmul heuristics.
-//! In order to plug in your own custom heuristic, create a dynamic library
-//! that exports a function whose signature matches HeuristicFunc (see below).
-//! If that library is located at /path/to/libfoo.so you can set
-//! NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libfoo.so to use the plugin to
-//! determine matmul parameters automatically.
-
 //! This is the information available to the plugin to determine the kernel
-//! configuration
-struct ProblemDescription {
-  struct Shapes {
-    uint32_t M;
-    uint32_t N;
-    uint32_t K;
-    uint32_t batch_size;
-    // layout is in row-major and takes values 0 thru 3 in order NN NT TN TT
-    uint8_t layout;
-  } shapes;
-  const char* precision; // e.g. HSH, TST, HSS, etc.
-};
+//! configuration. For API stability, these should not be accessed directly when
+//! implementing plugins, but rather through these accessors.
+//! matmul_heuristic_plugin_api.h
+struct NVF_API ProblemDescription;
+NVF_API uint32_t getProblemM(const ProblemDescription* problem);
+NVF_API uint32_t getProblemN(const ProblemDescription* problem);
+NVF_API uint32_t getProblemK(const ProblemDescription* problem);
+NVF_API uint32_t getProblemBatchSize(const ProblemDescription* problem);
+NVF_API uint8_t getProblemLayout(const ProblemDescription* problem);
+NVF_API const char* getProblemPrecision(const ProblemDescription* problem);
 
 //! This is the return type of a HeuristicFunc (defined below) implemented in a
-//! plugin. This is used to set values in MatmulParams
-struct KernelConfig {
-  uint16_t cta_tile[3];
-  uint16_t warp_tile[3];
-  uint16_t instruction_tile[3];
-  uint16_t splitk_factor;
-  uint8_t load_stages;
-  uint8_t grid_swizzle_factor;
-  uint8_t cta_order; // 0 for row major, 1 for column major
-  // CGA configuration describing cluster X and Y dimensions. This is currently
-  // unused.
-  uint8_t cga_config[2];
-};
-
-//! Utility to standardize conversion of MmaLayout to uint8_t
-uint8_t layoutToByte(MmaLayout layout);
-
-//! Defines HeuristicFun as type of the "getConfig" symbol
-typedef KernelConfig (*HeuristicFunc)(const ProblemDescription&);
+//! plugin. This is used to set values in MatmulParams. For API stability, these
+//! should not be accessed directly when implementing plugins, but rather
+//! through the accessors defined in matmul_heuristic_plugin_api.h
+struct NVF_API KernelConfig;
+NVF_API void setCtaTile(
+    KernelConfig* config,
+    uint16_t m,
+    uint16_t n,
+    uint16_t k);
+NVF_API void setWarpTile(
+    KernelConfig* config,
+    uint16_t m,
+    uint16_t n,
+    uint16_t k);
+NVF_API void setInstructionTile(
+    KernelConfig* config,
+    uint16_t m,
+    uint16_t n,
+    uint16_t k);
+NVF_API void setSplitKFactor(KernelConfig* config, uint16_t f);
+NVF_API void setLoadStages(KernelConfig* config, uint8_t s);
+NVF_API void setGridSwizzleFactor(KernelConfig* config, uint8_t g);
+NVF_API void setCtaOrder(KernelConfig* config, uint8_t o);
 
 //! Try to load plugin whose location is provided by the environment variable
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN and return whether or not we succeed.
