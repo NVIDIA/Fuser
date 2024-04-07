@@ -22,7 +22,7 @@ for i in range(6):
     print(i)
 ```
 
-If I do a `split(2)` on this IterDomain, I will get two IterDomains whose extents are `3` and `2`.
+If I do a `Split(2)` on this IterDomain, I will get two IterDomains whose extents are `3` and `2`.
 It is helpful to think of these two IterDomains as two nested loops:
 
 ```python
@@ -34,8 +34,8 @@ for i0 in range(3):
 If the split is divisible, everything is simple and elegant like above.
 However, when splits are indivisible, things start to get complicated.
 For example, let's still consider the IterDomain with extent `6` in the example.
-But this time, we do a `split(4)` instead of `split(2)`.
-With `split(4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
+But this time, we do a `Split(4)` instead of `Split(2)`.
+With `Split(4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
 These two extents can be think of as two nested loops:
 
 ```python
@@ -60,9 +60,9 @@ That is, whenever we do an indivisible split on an IterDomain, we will index out
 Therefore, we must generate a predicate for the IterDomain being split.
 
 Personally, I feel it helpful to consider indivisible split as resize + divisible split.
-For example, I can consider `Split(I{6}, 4)` as `DivisibleSplit(Resize(I{6}, 8), 4)`.
+For example, I can consider `Split(I{6}, 4)` as `DivisibleSplit(Resize(I{6}, 0, 2), 4)`.
 This way, `DivisibleSplit` just converts one loop into two loops without hurting the correctness,
-and `Resize(I{size1}, size2)` converts a
+and `Resize(I{size1}, 0, right_expand)` converts a
 
 ```python
 for i in range(size1):
@@ -72,7 +72,7 @@ for i in range(size1):
 into
 
 ```python
-for i in range(size2):
+for i in range(size1 + right_expand):
     if i < size1:
         print(i)
 ```
@@ -114,6 +114,17 @@ $$i_2 / N < P$$
 According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
 (TODO: move this theorem to a md file)
 $$i_2 / N < P \Leftrightarrow i_2 < Q$$
+□
+
+**Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
+Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $R >= 0$.
+
+**Proof:** Suppose the index of `I1` is $i_1$, the extent of `I0` is $N$.
+The index of `I0` is then $i_0 = i_1 - L$.
+The extent of `I1` is `N + L + R`
+"the index of `I0` is in bound" means $i_0 < N$.
+Because $R \ge 0$,
+$$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
 □
 
 ## Allocation and correctness model
