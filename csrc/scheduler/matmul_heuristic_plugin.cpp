@@ -13,6 +13,7 @@
 #include <utils.h>
 
 #include <dlfcn.h>
+#include <cstdint>
 
 namespace nvfuser {
 
@@ -54,6 +55,9 @@ class PluginInterface {
           ". Error message: ",
           dlerror());
     }
+
+    NVF_ERROR(config != nullptr);
+    NVF_ERROR(problem != nullptr);
 
     (*func_)(config, problem);
   }

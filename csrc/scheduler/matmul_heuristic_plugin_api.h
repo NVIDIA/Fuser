@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 namespace nvfuser {
 
 namespace matmul_heuristic_plugin {
