@@ -82,7 +82,7 @@ TMA has the following properties:
 **Proof:** From CodeBlock 1, we see that TMA automatically predicates global memory access so we are sure there is no out-of-bound memory accesses.
 We do not care about the value in out-of-bound area in weak correctness. □
 
-## Indivisible boxing split
+## Correctness and predication
 
 As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
 when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
