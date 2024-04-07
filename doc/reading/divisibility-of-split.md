@@ -6,6 +6,9 @@
 
 # Divisibility of Split
 
+> [!NOTE]
+> We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.
+
 ## Introduction
 
 In nvFuser, `Split` is an IterDomain expression that partitions the original IterDomain into nested sub-IterDomains,
@@ -74,6 +77,47 @@ for i in range(size2):
         print(i)
 ```
 
+## Predication
+
+As we have seen in the above example, indivisible split introduces predicate on the IterDomain being split.
+Let's consider the following example in Figure 1:
+
+![Figure 1](TODO)
+
+I1, I2 = split(I0)
+I3, I4 = split(I1)
+
+In this example, there are two indivisible splits, and we need to predicate `I0` and `I1`.
+But is it really necessary to predicate both? No, it is not:
+
+**Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
+Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
+
+**Proof:** Suppose the index of `I1` is $i_1$, the index of `I2` is $i_2$, the extent of `I0` is $S$.
+The index of `I0` is then $i_0 = i_1 \times N + i_2$.
+"the index of `I0` is in bound" means $i_0 < S$.
+Because $i_2 \ge 0$,
+$$i_0 < S \implies i_1 \times N < S \implies i_1 < S \div N \implies i_1 < \mathrm{ceilDiv}(S, N)$$
+□
+
+The above theorem tells us that, if we are already predicating `I0`, then there is no need to additionally predicate `I1`.
+We can derive similar theorems for other IterDomain expressions:
+
+**Theorem 2** Suppose that there is a merge `I2 = Merge(I0, I1)`.
+Then "the index of `I0` is in bound" implies "the index of `I2` is in bound".
+
+**Proof:** Suppose the index of `I2` is $i_2$, the extent of `I1` is $N$.
+Then the index of `I0` is $i_0 = i_2 / N$.
+Suppose that the extents of `I0` and `I2` are $P$ and $Q = N \times P$.
+"the index of `I0` is in bound" means $i_0 < P$, which is:
+$$i_2 / N < P$$
+According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
+(TODO: move this theorem to a md file)
+$$i_2 / N < P \Leftrightarrow i_2 < Q$$
+□
+
+## Allocation and correctness model
+
 Indivisible split also impact the allocation size.
 
 For example, if I have a tensor `T0[I0{6}]`, when allocating this tensor,
@@ -82,13 +126,11 @@ If I do an indivisible split on `I0{6}` by `4` to get `I1{2}` and `I2{4}`,
 and set the allocation domain of this tensor as `[I1, I2]`,
 then I will need to allocate `2*4 = 8` items.
 With the mental model of considering indivisible split as resize + divisible split,
-we can consider the allocation of this example as Figure 1:
+we can consider the allocation of this example as Figure 2:
 
-![Figure 1](divisibility-of-split/allocate-6-as-2,4.svg)
+![Figure 2](divisibility-of-split/allocate-6-as-2,4.svg)
 
 We call the above situation *over-allocated*.
-
-## Correctness model
 
 Because there are holes in the allocation due to indivisible split,
 a natural question to ask is: When we write to an over-allocated buffer,
