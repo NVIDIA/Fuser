@@ -58,6 +58,23 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b);
 
+void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
+
+struct MatmulInputs {
+  Val* mma_lhs = nullptr;
+  Val* mma_rhs = nullptr;
+  Val* bias = nullptr;
+  Val* alpha = nullptr;
+  Val* beta = nullptr;
+};
+
+//! Matches the following matmul patterns.
+//! Matmul: A x B, alpha * A x B
+//! Matmul + Bias: A x B + C,  alpha * A x B + C, A x B + beta * C,
+//!   alpha * A x B  + beta * C
+//! Note: For simplicity, we assume the MmaOp to be in the first operand.
+bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
+
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {

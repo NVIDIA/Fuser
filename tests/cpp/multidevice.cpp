@@ -161,7 +161,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   if (error_msg != "") {
     return;
   }
-  outputs = runtime->runWithInput(inputs);
+  outputs = runtime->runWithInput(inputs, l_params);
 
   if (debug_print) {
     if (!communicator->deviceId()) {

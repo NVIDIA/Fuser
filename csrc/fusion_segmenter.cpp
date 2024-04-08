@@ -318,7 +318,10 @@ void SegmentedGroup::finalize() {
   for (auto expr : exprs_) {
     for (auto i : expr->inputs()) {
       if (i->isIntegralScalar() && i->definition() == nullptr &&
-          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i)) {
+          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i) &&
+          !(i->isA<NamedScalar>() &&
+            (i->as<NamedScalar>()->getParallelDim() ||
+             i->as<NamedScalar>()->getParallelIndex()))) {
         input_set.insert(i);
         input_vals.push_back(i);
       }
@@ -4243,10 +4246,13 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   SegmentedGroup* aux_group = input2group_.at(forwarded_input);
   NVF_ERROR(aux_group->producer_edges.empty());
 
-  std::vector<SegmentedGroup*> consumers;
-  consumers.reserve(aux_group->consumer_edges.size());
+  // use unordered_set to avoid duplicated group in consumers.
+  // duplicated entry in consumer would make use call
+  // codeGenSupportedMerge(input_group, consumer) twice. Where the second time
+  // the connection has already been severed by mergeNodes().
+  GroupSet consumers;
   for (SegmentedEdge* edge : aux_group->consumer_edges) {
-    consumers.push_back(edge->to);
+    consumers.pushBack(edge->to);
   }
   aux_group->consumer_edges.clear();
 
