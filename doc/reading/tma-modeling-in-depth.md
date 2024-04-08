@@ -108,7 +108,7 @@ Because tensor core has unpredicated reduction, strong correctness is required.
 Strong correctness means that, when an IterDomain expression create holes (indivisible split, resize),
 the holes must be filled with a certain value.
 
-Understanding strong correctness requires the following definition:
+Understanding strong correctness of TMA requires the following definition:
 
 **Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if and only if it satisfies one of the following condition:
 
