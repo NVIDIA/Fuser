@@ -590,6 +590,9 @@ class DistributedMatmul : public MultiDeviceTest {
   }
 
   void SetUp() {
+    if (!deviceMajorMinorCheck(8)) {
+      GTEST_SKIP() << "Distributed matmul tests require Ampere or newer";
+    }
     MultiDeviceTest::SetUp();
     num_devices = communicator->size();
   }
@@ -811,11 +814,9 @@ TEST_F(DistributedMatmul, LayoutNT_AllReduce) {
 TEST_F(DistributedMatmul, LayoutNT_ReduceScatter) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // A, B are sharded on K. C is sharded on M
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = getDeviceMesh();
+  DeviceMesh mesh = createDeviceMesh();
 
   // Note: Manually split K and M
   int M = 64, N = 256, K = 512;
