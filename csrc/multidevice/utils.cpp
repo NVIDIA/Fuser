@@ -237,7 +237,10 @@ void propagateShardings(Expr* expr) {
       input_with_mesh.push_back(tv);
     }
   }
-  NVF_ERROR(!input_with_mesh.empty(), "At least one input requires a DeviceMesh ", expr->toString());
+  NVF_ERROR(
+      !input_with_mesh.empty(),
+      "At least one input requires a DeviceMesh ",
+      expr->toString());
   std::vector<TensorView*> outputs_without_mesh;
   for (auto tv : outputs) {
     if (!tv->hasDeviceMesh()) {

@@ -27,15 +27,15 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
+#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <tests/cpp/validator.h>
 #include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
@@ -583,42 +583,128 @@ INSTANTIATE_TEST_SUITE_P(
         SchedulingMode::Automatic));
 
 // option = is output sharded
-class DistributedMatmul : public MultiDeviceTest,
-                          public ::testing::WithParamInterface<bool> {
-  protected:
+class DistributedMatmul : public MultiDeviceTest {
+ protected:
   DistributedMatmul() : optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
-  
-  private:
+
+  void SetUp() {
+    MultiDeviceTest::SetUp();
+    num_devices = communicator->size();
+  }
+
+  // use_fusion_executor cache=true, skip_auto_scheduling=false
+  // cache_fusion_executor=false
+  MultiDeviceExecutorParams executor_params{true, false, false};
+  int num_devices;
+
+  DeviceMesh createDeviceMesh() {
+    std::vector<int64_t> devices(num_devices);
+    std::iota(devices.begin(), devices.end(), 0);
+    return DeviceMesh(devices);
+  }
+
+  ValidationConstants getTolerances() {
+    ValidationConstants tolerance_overwrite = ValidationConstants();
+    std::array<std::array<double, 2>, 20> relaxed_sum_tol;
+    for (auto& arr : relaxed_sum_tol) {
+      arr = {128, 2e-4};
+    }
+    tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
+    return tolerance_overwrite;
+  }
+
+  std::tuple<at::Tensor, at::Tensor, at::Tensor> getAtenInputOutputs(
+      MmaLayout layout,
+      int M,
+      int N,
+      int K) {
+    int device = communicator->deviceId();
+    c10::ScalarType type = c10::ScalarType::Half;
+    auto a = matmulAtInput2D(
+        layout, TensorMatmulPos::A, type, M, N, K, 0, device);
+    auto b = matmulAtInput2D(
+        layout, TensorMatmulPos::B, type, M, N, K, 0, device);
+    auto c = atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kFloat);
+    return std::make_tuple(a, b, c);
+  }
+
+ private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
   DisableOptionsGuard option_guard_;
 };
 
-TEST_P(DistributedMatmul, LayoutTN) {
+TEST_F(DistributedMatmul, LayoutTN_NoComms) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
-  // Table shows whether axis M is sharded on A,C
-  // and what comms are required.
-  //  A     B     C   |   Comms
-  //  t     n/a   t   |   none
-  //  t     n/a   f   |   allgather
-  auto is_output_sharded = GetParam();
+  // A and C are sharded on dimension M
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  DeviceMesh mesh = createDeviceMesh();
 
-  int64_t M = 1024, N = 512, K = 256;
+  int M = 1024, N = 512, K = 256;
   // TODO: until we support split, manually split axes
-  int64_t Mo = num_devices;
-  int64_t Mi = M / Mo;
-  std::vector<int64_t> a_shape = {Mo, Mi, K};
-  std::vector<int64_t> b_shape = {N, K};
+  int Mo = num_devices;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {Mo, Mi, K};
+  std::vector<int> b_shape = {N, K};
 
-  // MmaLayout::TN matmul
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
+  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
+  TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
+  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
+  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
+  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  // Sharding M dimension
+  auto all_sharded_tvs = {a, a_b, b_b, ab, c};
+  for (auto tv : all_sharded_tvs) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+  b->setDeviceMesh(mesh);
+
+  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::TN, M, N, K);
+  a_ = a_.view({Mo, Mi, K});
+  c_ = c_.view({Mo, Mi, N});
+  std::vector<c10::IValue> inputs = {
+      shardTensor(a_, a, communicator->deviceId()), b_};
+  auto expected_output = shardTensor(c_, c, communicator->deviceId());
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params);
+  auto outputs = runtime.runWithInput(inputs);
+
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__,
+      "",
+      LaunchParams(),
+      getTolerances());
+}
+
+TEST_F(DistributedMatmul, LayoutTN_Allgather) {
+  // MmaLayout::TN matmul A(T), B(N), C(T)
+  // A is sharded on dimension M
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh = createDeviceMesh();
+
+  int M = 1024, N = 512, K = 256;
+  int Mo = num_devices;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {Mo, Mi, K};
+  std::vector<int> b_shape = {N, K};
+
   TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
   TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
   TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
@@ -638,34 +724,18 @@ TEST_P(DistributedMatmul, LayoutTN) {
   }
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
-  if (is_output_sharded) {
-    c->axis(0)->parallelize(ParallelType::DIDx);
-  }
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kHalf).device(communicator->device());
-  auto a_ = at::randn(a_shape, tensor_options);
-  auto b_ = at::randn(b_shape, tensor_options);
-  auto c_ =
-      at::matmul(
-          a_.view({M, K}).to(at::kDouble), b_.transpose(0, 1).to(at::kDouble))
-          .view({Mo, Mi, N})
-          .to(at::kFloat);
+  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::TN, M, N, K);
+  a_ = a_.view({Mo, Mi, K});
+  c_ = c_.view({Mo, Mi, N});
 
   std::vector<c10::IValue> inputs = {
       shardTensor(a_, a, communicator->deviceId()), b_};
-  auto expected_output =
-      is_output_sharded ? shardTensor(c_, c, communicator->deviceId()) : c_;
-
-  MultiDeviceExecutorParams params{true, false, false};
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
+  auto expected_output = shardTensor(c_, c, communicator->deviceId());
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params);
   auto outputs = runtime.runWithInput(inputs);
-  auto tolerance_overwrite = ValidationConstants();
-  std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-  for (auto& arr : relaxed_sum_tol) {
-    arr = {128, 2e-4};
-  }
-  tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
+
   testValidate(
       runtime.completeFusion(),
       outputs,
@@ -673,51 +743,35 @@ TEST_P(DistributedMatmul, LayoutTN) {
       {expected_output},
       __LINE__,
       __FILE__,
-       "",
+      "",
       LaunchParams(),
-      tolerance_overwrite);
+      getTolerances());
 }
 
-INSTANTIATE_TEST_SUITE_P(NoComms, DistributedMatmul, ::testing::Values(true));
-INSTANTIATE_TEST_SUITE_P(
-    AllGather,
-    DistributedMatmul,
-    ::testing::Values(false));
-
-TEST_F(MultiDeviceTest, MatmulNT_AllReduce) {
+TEST_F(DistributedMatmul, LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  DeviceMesh mesh = createDeviceMesh();
 
   // Note: Manually split K into Ko(device dim), Ki until split supported.
-  int64_t M = 64, N = 32, K = 64;
-  int64_t Ko = num_devices, Ki = K / Ko;
-  std::vector<int64_t> a_shape = {Ko, Ki, M};
-  std::vector<int64_t> b_shape = {Ko, Ki, N};
+  int M = 64, N = 32, K = 64;
+  int Ko = num_devices, Ki = K / Ko;
+  std::vector<int> a_shape = {Ko, Ki, M};
+  std::vector<int> b_shape = {Ko, Ki, N};
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
   TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
   // Transpose into TN layout, keep Ko (device axis) as the outermost.
-  TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
-  TensorView* b_t = transpose(b, 1, 2); // (Ko, N, Ki)
+  TensorView* a_t = transpose(a, 1, 2); // (Ko,M,Ki)
+  TensorView* b_t = transpose(b, 1, 2); // (Ko,N,Ki)
   TensorView* a_b = broadcast(a_t, {false, false, true, false}); // (Ko,M,b,Ki)
   TensorView* b_b = broadcast(b_t, {false, true, false, false}); // (Ko,b,N,Ki)
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   TensorView* c = sum(c0, {0}); // (r,M,N)
 
-  // For architectures with NT support
-  // TensorView* a_b = broadcast(a, {false, false, false, true}); // (Ko,Ki,M,b)
-  // TensorView* b_b = broadcast(b, {false, false, true, false}); // (Ko,Ki,b,N)
-  // TensorView* ab = mul(a_b, b_b); // (Ko,Ki,M,N)
-  // TensorView* c0 = sum(ab, {1}); // (Ko,r,M,N)
-  // TensorView* c = sum(c0, {0}); // (r,M,N)
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
@@ -728,60 +782,46 @@ TEST_F(MultiDeviceTest, MatmulNT_AllReduce) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
   }
-  // output is replicated on all devices.
   c->setDeviceMesh(mesh);
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kHalf).device(communicator->device());
-  auto a_ = at::randn(a_shape, tensor_options) * 10;
-  auto b_ = at::randn(b_shape, tensor_options) * 10;
-  auto c_ = at::matmul(
-                a_.view({K, M}).transpose(0, 1).to(at::kDouble),
-                b_.view({K, N}).to(at::kDouble))
-                .view({M, N})
-                .to(at::kFloat);
-
+  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NT, M, N, K);
+  a_ = a_.view({Ko, Ki, M});
+  b_ = b_.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {
       shardTensor(a_, a, communicator->deviceId()),
       shardTensor(b_, b, communicator->deviceId())};
 
-  MultiDeviceExecutorParams params{true, false, false};
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params);
   auto outputs = runtime.runWithInput(inputs);
-  // TODO: tolerance needed for this test seems high.
-  // TODO: check percision of AllReduce.
-  auto tolerance_overwrite = ValidationConstants();
-  std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-  for (auto& arr : relaxed_sum_tol) {
-    arr = {128, 2e-4};
-  }
-  tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
+
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {c_}, __LINE__, __FILE__,
-       "",
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {c_},
+      __LINE__,
+      __FILE__,
+      "",
       LaunchParams(),
-      tolerance_overwrite);
+      getTolerances());
 }
 
-TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
+TEST_F(DistributedMatmul, LayoutNT_ReduceScatter) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // A, B are sharded on K. C is sharded on M
-  DisableOptionsGuard::getCurOptions().set(DisableOption::ParallelCompile);
   DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  
+
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  DeviceMesh mesh = getDeviceMesh();
 
   // Note: Manually split K and M
-  int64_t M = 64, N = 256, K = 512;
-  int64_t Ko = num_devices, Ki = K / Ko;
-  int64_t Mo = num_devices, Mi = M / Mo;
-  std::vector<int64_t> a_shape = {Ko, Ki, M};
-  std::vector<int64_t> b_shape = {Ko, Ki, N};
+  int M = 64, N = 256, K = 512;
+  int Ko = num_devices, Ki = K / Ko;
+  int Mo = num_devices, Mi = M / Mo;
+  std::vector<int> a_shape = {Ko, Ki, M};
+  std::vector<int> b_shape = {Ko, Ki, N};
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
   TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
@@ -792,12 +832,12 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  // TODO: Reshape works using sharded sizes. Should use unsharded size to 
+  // TODO: Reshape works using sharded sizes. Should use unsharded size to
   // stay consistent.
   std::vector<int64_t> orig_size = {1, M, N};
-  std::vector<int64_t> new_size = {1, Mo, Mi, N}; 
-  TensorView* c1 = reshape(c0, orig_size, new_size); 
-  TensorView* c = sum(c1, {0}); 
+  std::vector<int64_t> new_size = {1, Mo, Mi, N};
+  TensorView* c1 = reshape(c0, orig_size, new_size);
+  TensorView* c = sum(c1, {0});
 
   fusion->addInput(a);
   fusion->addInput(b);
@@ -813,35 +853,19 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   c->setDeviceMesh(mesh);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kHalf).device(communicator->device());
-  auto a_ = at::randn(a_shape, tensor_options) * 10;
-  auto b_ = at::randn(b_shape, tensor_options) * 10;
-
+  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NT, M, N, K);
+  a_ = a_.view({Ko, Ki, M});
+  b_ = b_.view({Ko, Ki, N});
+  c_ = c_.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
       shardTensor(a_, a, communicator->deviceId()),
       shardTensor(b_, b, communicator->deviceId())};
-
-  auto c_ = at::matmul(
-                a_.view({K, M}).transpose(0, 1).to(at::kDouble),
-                b_.view({K, N}).to(at::kDouble))
-                .view({Mo, Mi, N})
-                .to(at::kFloat);
   auto expected_output =
-      shardTensor(c_, c, communicator->deviceId())
-          .view({1, Mi, N});
-  
-  MultiDeviceExecutorParams params{true, false, false};
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator, params);
+      shardTensor(c_, c, communicator->deviceId()).view({1, Mi, N});
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params);
   auto outputs = runtime.runWithInput(inputs);
-  // TODO: error is higher than expected. 
-  // Check precision of ReduceScatter.
-  auto tolerance_overwrite = ValidationConstants();
-  std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-  for (auto& arr : relaxed_sum_tol) {
-    arr = {128, 2e-4};
-  }
-  tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
   testValidate(
       runtime.completeFusion(),
       outputs,
@@ -849,9 +873,9 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
       {expected_output},
       __LINE__,
       __FILE__,
-       "",
+      "",
       LaunchParams(),
-      tolerance_overwrite);
+      getTolerances());
 }
 
 } // namespace nvfuser
