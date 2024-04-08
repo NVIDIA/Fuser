@@ -98,8 +98,8 @@ we neither need to predicate nor need to initialize the output of TMA to achieve
 
 The following example Figure 2 shows that,
 if no additional predicate is used to guard the TMA expression,
-some holes in allocation domain are filled with in boundary data,
-and some holes are filled with out of boundary zeros:
+some holes in allocation domain will be filled with in boundary data,
+and some holes will be filled with out of boundary zeros:
 
 ![Figure 2: Holes in allocation domain filled with in boundary data](tma-modeling-in-depth/weak-correctness-holes-nonzero.svg)
 
