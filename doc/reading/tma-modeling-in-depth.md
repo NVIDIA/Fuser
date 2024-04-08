@@ -96,6 +96,11 @@ Having weak correctness is great in the sense that,
 if weak correctness is sufficient for us,
 we neither need to predicate nor need to initialize the output of TMA to achieve correct functionality.
 
+In the following example Figure 2, some holes in allocation domain are filled with in boundary data,
+and some holes are filled with out of boundary zeros:
+
+![Figure 2: Holes in allocation domain filled with in boundary data](tma-modeling-in-depth/weak-correctness-holes-nonzero.svg)
+
 A common use case for TMA is to load data for tensor core.
 Because tensor core has unpredicated reduction, strong correctness is required.
 Strong correctness means that, when an IterDomain expression create holes (indivisible split, resize),
@@ -119,6 +124,10 @@ TMA-protected IterDomain has the following very important property:
 
 With the above theorem, we can easily see that:
 
-**Theorem 4:** A schedule of TMA load provides strong correctness if in the consumer,
+**Theorem 5:** A schedule of TMA load provides strong correctness if in the consumer,
 the inputs of all hole-creating IterDomain expressions between the allocation domain and the TMA domain are TMA-protected,
 and the desired filling value is 0.
+
+TODO example: does this schedule provide strong correct ness?
+
+Having strong correctness means that all the out-of-boundary items are filled with zero.
