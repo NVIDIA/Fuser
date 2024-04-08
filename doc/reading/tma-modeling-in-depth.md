@@ -110,7 +110,7 @@ the holes must be filled with a certain value.
 
 Understanding strong correctness of TMA requires the following definition:
 
-**Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if and only if it satisfies one of the following condition:
+**Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if it satisfies any of the following conditions:
 
 1. It is a partitioned IterDomain.
 2. It is the outer output of a split of a TMA-protected IterDomain.
