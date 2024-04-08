@@ -30,6 +30,12 @@ class PluginInterface {
     filepath_ = getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN");
     if (filepath_ != nullptr) {
       handle_ = dlopen(filepath_, RTLD_LAZY);
+      NVF_CHECK(
+          handle_ != nullptr,
+          "Error occurred when loading matmul heuristic plugin ",
+          filepath_,
+          ". Error msg: ",
+          dlerror());
     }
   }
 
