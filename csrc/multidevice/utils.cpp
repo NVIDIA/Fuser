@@ -226,6 +226,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
 } // namespace
 
 void insertReshardings(Fusion* fusion) {
+  // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {

@@ -27,10 +27,10 @@ class MultiDeviceModel(FusionDefinition):
         self.add_output(self.t2)
 
     def schedule(self):
-        self.mesh = self.sched._create_device_mesh((0, 1))
-        self.sched._set_device_mesh(self.t0, self.mesh)
-        self.sched._set_device_mesh(self.t1, self.mesh)
-        self.sched._set_device_mesh(self.t2, self.mesh)
+        mesh = self.sched._create_device_mesh((0, 1))
+        self.sched._set_device_mesh(self.t0, mesh)
+        self.sched._set_device_mesh(self.t1, mesh)
+        self.sched._set_device_mesh(self.t2, mesh)
         self.sched._parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
 

@@ -2738,7 +2738,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
-      [](FusionDefinition::SchedOperators& self, std::vector<int64_t> devices) {
+      [](FusionDefinition::SchedOperators& self, const std::vector<int64_t>& devices) {
         FUSER_PERF_SCOPE("SchedOperators._create_device_mesh");
         return DeviceMesh(devices);
       },
@@ -2747,34 +2747,34 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! experimental API for multidevice support
   nvf_sched.def(
       "_set_device_mesh",
-      [](FusionDefinition::SchedOperators& self, Tensor arg, DeviceMesh mesh) {
+      [](FusionDefinition::SchedOperators& self, Tensor tensor, const DeviceMesh& mesh) {
         FUSER_PERF_SCOPE("SchedOperators._set_device_mesh");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
         fd->setMultiDevice();
-        auto tv = fd->getFusionState(arg.index)->template as<TensorView>();
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
         tv->setDeviceMesh(mesh);
       },
-      py::arg("arg"),
+      py::arg("tensor"),
       py::arg("mesh"));
   //! experimental API for multidevice support
   nvf_sched.def(
       "_parallelize",
       [](FusionDefinition::SchedOperators& self,
-         Tensor arg,
+         Tensor tensor,
          int axis,
-         ParallelType parallel_type) {
+         const ParallelType& parallel_type) {
         FUSER_PERF_SCOPE("SchedOperators.merge");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
-        auto tv = fd->getFusionState(arg.index)->template as<TensorView>();
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
         tv->axis(axis)->parallelize(parallel_type);
       },
-      py::arg("arg"),
+      py::arg("tensor"),
       py::arg("axis"),
       py::arg("parallel_type"));
   nvf_sched.def(
