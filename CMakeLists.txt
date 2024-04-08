@@ -49,7 +49,6 @@ find_package(pybind11 REQUIRED)
 
 # need this since the pytorch execution uses a different name
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 
 # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
