@@ -123,9 +123,9 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
 
 // TODO: Very simple sharding propagation pass.
 // Auto inserted ops like castOps don't propagate shardings
-// Note: we cannot perform this when the Op is inserted into the fusion, because
+// This cannot be done when the Op is inserted into the fusion, because
 // the multidevice shcheduling hasn't been applied.
-void shardOpsWithoutMesh(Expr* expr) {
+void propagateShardings(Expr* expr) {
   auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
   std::vector<TensorView*> input_with_mesh;
@@ -134,6 +134,7 @@ void shardOpsWithoutMesh(Expr* expr) {
       input_with_mesh.push_back(tv);
     }
   }
+  NVF_ERROR(!input_with_mesh.empty(), "At least one input requires a DeviceMesh ", expr->toString());
   std::vector<TensorView*> outputs_without_mesh;
   for (auto tv : outputs) {
     if (!tv->hasDeviceMesh()) {
@@ -147,7 +148,7 @@ void shardOpsWithoutMesh(Expr* expr) {
 void insertReshardings(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
-    shardOpsWithoutMesh(expr);
+    propagateShardings(expr);
     if (isLowerableToCommunication(expr)) {
       continue;
     }
