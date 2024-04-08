@@ -50,6 +50,7 @@ class FusionExecutor : public NonCopyable {
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
     bool zero_init = false;
+    bool resets_to_zero = false;
     bool is_profile_buffer = false;
   };
 

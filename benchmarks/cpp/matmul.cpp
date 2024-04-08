@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/mma_utils.h>
 #include <utils.h>
 
 #include <benchmark/benchmark.h>
@@ -145,6 +146,9 @@ static void SingleMatmulBase(
   int64_t n = benchmark_state.range(1);
   int64_t k = benchmark_state.range(2);
 
+  // inputs
+  at::manual_seed(0);
+
   // Tensor inputs
   auto inputs = matmulAtInput2D(m, n, k, layout);
   auto expected_output = atMatmul(
@@ -158,9 +162,6 @@ static void SingleMatmulBase(
   setupMatmul(fusion, layout, params);
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
-
-  // inputs
-  at::manual_seed(0);
 
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
@@ -250,6 +251,14 @@ MatmulParams getMatmulParams(
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
+  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          gemm_tile,
+          stage_number,
+          {DataType::Half, DataType::Half, DataType::Float},
+          /*smem_a_reuse_guaranteed=*/true,
+          /*smem_b_reuse_guaranteed=*/true,
+          /*ignore_occupancy_drop=*/true);
 
   return params;
 }
@@ -362,7 +371,8 @@ static void NvFuserScheduler_Matmul(
     benchmark::State& benchmark_state,
     MmaLayout layout,
     int splitk_factor = 1,
-    bool partitionedk = false) {
+    bool partitionedk = false,
+    bool use_smem_epilogue = false) {
   int num_warps = benchmark_state.range(3);
   int number_of_stage = benchmark_state.range(4);
 
@@ -376,6 +386,15 @@ static void NvFuserScheduler_Matmul(
 
   auto params = getMatmulParams(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);
+  if (use_smem_epilogue) {
+    if (!params.use_smem_epilogue) {
+      benchmark_state.SkipWithError(
+          "Insufficient shared mem for smem epilogue");
+    }
+  } else {
+    params.use_smem_epilogue = false;
+    params.promote_prologue_smem_reuse = false;
+  }
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -630,13 +649,23 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 // Use this for manual splitk.
 static void MatmulShapeWarpStageSpecificSplitK(
     benchmark::internal::Benchmark* b) {
-  b->ArgNames({"M", "N", "K", "warps", "stages", "splitk_factor"});
+  b->ArgNames(
+      {"M", "N", "K", "warps", "stages", "splitk_factor", "smem_epilogue"});
   for (long int num_warps : NumWarps) {
     for (long int num_stages : NumStages) {
       for (auto [m, n, k] :
            std::vector<std::tuple<int, int, int>>(SplitKSpecificShapes)) {
         for (auto splitk_factor : {2, 3, 4, 5, 6}) {
-          b->Args({m, n, k, num_warps, num_stages, splitk_factor});
+          for (bool use_smem_epilogue : {false, true}) {
+            b->Args(
+                {m,
+                 n,
+                 k,
+                 num_warps,
+                 num_stages,
+                 splitk_factor,
+                 use_smem_epilogue});
+          }
         }
       }
     }
@@ -727,8 +756,13 @@ static void NvFuserScheduler_Matmul_Manual(
     benchmark::State& benchmark_state,
     MmaLayout layout) {
   int splitk_factor = benchmark_state.range(5);
+  bool use_smem_epilogue = benchmark_state.range(6);
   NvFuserScheduler_Matmul(
-      benchmark_state, layout, splitk_factor, /*partitionedk=*/false);
+      benchmark_state,
+      layout,
+      splitk_factor,
+      /*partitionedk=*/false,
+      use_smem_epilogue);
 }
 
 #define SpecificSplitKBenchmark(layout) \
@@ -742,9 +776,7 @@ static void NvFuserScheduler_Matmul_Manual(
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
-ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(SpecificSplitKBenchmark);
-ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
 // factor is deduced automatically from N

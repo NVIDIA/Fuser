@@ -389,9 +389,65 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
     const ExpressionEvaluator& ee,
-    const std::vector<PolymorphicValue>& inputs) const {
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
   using namespace PolymorphicValue_functions;
-  const auto& in = inputs.at(0);
+
+  // If the UnaryOp is CastOp, check if the preceding pattern of
+  // operators matches with matmul (MmaOp(Broadcast (A), Broadcast(B)) -> Cast)
+  // or matmul + bias (BinaryOp::Add (MmaOp(Broadcast (A), Broadcast(B),
+  // Broadcast(bias)) -> Cast) If not, evaluate UnaryOp::CastOp along with the
+  // other types by evaluating the immediate input.
+
+  // Check if the unary op is a cast from fp32 to lower precision.
+  auto is_downcast = [this]() -> bool {
+    if (getUnaryOpType() != UnaryOpType::Cast) {
+      return false;
+    }
+    auto in_dtype = input(0)->getDataType().value();
+    return (
+        in_dtype == DataType::Float &&
+        isInclusiveType(*(out()->getDataType()), in_dtype));
+  };
+
+  if (is_downcast() && input(0)->definition() != nullptr) {
+    MmaOpUtils::MatmulInputs matmul_inp;
+
+    if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
+      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
+      const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
+                         .as<at::Tensor>()
+                         .squeeze(-1);
+      const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
+                         .as<at::Tensor>()
+                         .squeeze(0);
+      const c10::Scalar alpha = matmul_inp.alpha
+          ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
+          : 1;
+
+      if (matmul_inp.bias == nullptr) {
+        return {alpha * a.matmul(b)};
+      }
+      auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
+      if (bias.dim() != a.dim()) {
+        // Bias is of shape [M,].
+        NVF_ERROR(bias.dim() == a.dim() - 1);
+        bias = bias.unsqueeze(-1);
+      }
+      const c10::Scalar beta = matmul_inp.beta
+          ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
+          : 1;
+
+      return {at::addmm(bias, a, b, beta, alpha)};
+    }
+  }
+
+  // If there is not a preceding MmaOp, evaluate immediate inputs and compute
+  // the output for unary ops.
+  const auto& in = ee.evaluate(inputs().at(0), known_values);
+  if (!in.hasValue()) {
+    return {std::monostate{}};
+  }
+
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
@@ -2069,77 +2125,6 @@ void MmaOp::setMacro(MmaMacro macro) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
-std::vector<PolymorphicValue> MmaOp::evaluate(
-    const ExpressionEvaluator& ee,
-    const std::vector<PolymorphicValue>& inputs) const {
-  const auto tv_a = inA()->as<TensorView>();
-  const auto tv_b = inB()->as<TensorView>();
-  NVF_CHECK(
-
-      tv_a->nDims() == tv_b->nDims(),
-      "Either both or none of A and B should be batch");
-  // Verify that the broadcasted size is 3.
-  NVF_CHECK(
-      tv_a->nDims() == 3,
-      "MmaOp::evaluate is not implemented for size: ",
-      tv_a->nDims());
-
-  // Assumptions:
-  //    Currently, the evaluate method assumes that the MmaOp is preceded by a
-  //    broadcast. The inputs to MmaOp are broadcasted as the last dim for the
-  //    first operand and the first dim for the second operand.
-  //    The inputs here will be [M, K, 1] x [1, K, N].
-  NVF_CHECK(
-      input(0)->definition() != nullptr &&
-          input(0)->definition()->isA<BroadcastOp>(),
-      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-  NVF_CHECK(
-      input(1)->definition() != nullptr &&
-          input(1)->definition()->isA<BroadcastOp>(),
-      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
-
-  NVF_CHECK(
-      tv_a->getRootDomain().back()->isBroadcast(),
-      "Expected last dimension to be broadcasted for first operand.");
-  NVF_CHECK(
-      tv_b->getRootDomain().front()->isBroadcast(),
-      "Expected first dimension to be broadcasted for second operand.");
-
-  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
-  // outputs. To preserve numerical equivalence and precision, the output of
-  // ATen matmul should be the same as MmaOp out `eventually`. Supported cases:
-  //  1. MmaOp->out() and MmaOp->input() are the same dtype.
-  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
-  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) will not
-  // occur.
-
-  auto used_as_dtype = [](Val* out) -> DataType {
-    const std::vector<Expr*>& uses = out->uses();
-    if (uses.size() == 1) {
-      if (auto* unary = dynamic_cast<UnaryOp*>(uses.front())) {
-        if (unary->getUnaryOpType() == UnaryOpType::Cast) {
-          return unary->out()->getDataType().value();
-        }
-      }
-    }
-    return out->getDataType().value();
-  };
-
-  // Check if we eventually convert to the ATen output dtype.
-  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
-  NVF_CHECK(used_as_dtype(out()) == tv_a->getDataType().value());
-
-  // Squeeze the inputs to remove the broadcasted dimensions.
-  const auto in_a = inputs.at(0).as<at::Tensor>().squeeze(-1);
-  const auto in_b = inputs.at(1).as<at::Tensor>().squeeze(0);
-
-  // After removing the broadcast dimensions, the format should be
-  // [M, K] x [K, N] compatible with aten::matmul format.
-  at::Tensor output = in_a.matmul(in_b);
-
-  return {output};
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
 ExpandOp::ExpandOp(
@@ -3041,15 +3026,39 @@ IterDomain* IterDomain::resize(
   // The overall extent is (in->extent() + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // overall extent is left_expansion + slice_end_offset.
+
+  // Detect common slice patterns and return a simplified Val
+  // representing (in->extent() + right_expansion) if possible
+  auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
+                                                       Val* in_extent) -> Val* {
+    auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
+    if (bop == nullptr) {
+      return nullptr;
+    }
+    Val* sub_rhs = nullptr;
+    if (bop->getBinaryOpType() == BinaryOpType::Sub) {
+      sub_rhs = bop->rhs();
+    } else if (bop->getBinaryOpType() == BinaryOpType::Add) {
+      // Note that SimplifyingIrBuilder may turn (a - b) to (a + (- b))
+      if (auto uop = dynamic_cast<UnaryOp*>(bop->rhs()->definition());
+          uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg) {
+        sub_rhs = uop->in();
+      }
+    }
+    if (sub_rhs == in_extent) {
+      return bop->lhs();
+    } else {
+      return nullptr;
+    }
+  };
+
   Val* resized_id_size = nullptr;
-  if (right_expansion->definition() != nullptr &&
-      right_expansion->definition()->isA<BinaryOp>() &&
-      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
-          BinaryOpType::Sub &&
-      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
-    resized_id_size = SimplifyingIrBuilder::addExpr(
-        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  if (auto simplified_val = simplify_input_extent_plus_right_expansion(
+          right_expansion, in->extent())) {
+    resized_id_size =
+        SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::addExpr(
