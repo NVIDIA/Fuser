@@ -28,6 +28,8 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
@@ -582,7 +584,17 @@ INSTANTIATE_TEST_SUITE_P(
 
 // option = is output sharded
 class DistributedMatmul : public MultiDeviceTest,
-                          public ::testing::WithParamInterface<bool> {};
+                          public ::testing::WithParamInterface<bool> {
+  protected:
+  DistributedMatmul() : optimization_guard_(false) {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+  
+  private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+  DisableOptionsGuard option_guard_;
+};
 
 TEST_P(DistributedMatmul, LayoutTN) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
@@ -591,7 +603,6 @@ TEST_P(DistributedMatmul, LayoutTN) {
   //  A     B     C   |   Comms
   //  t     n/a   t   |   none
   //  t     n/a   f   |   allgather
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   auto is_output_sharded = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -608,9 +619,8 @@ TEST_P(DistributedMatmul, LayoutTN) {
   std::vector<int64_t> b_shape = {N, K};
 
   // MmaLayout::TN matmul
-  TensorView* a =
-      makeContigConcreteTensor(a_shape, DataType::Half); // (Mo, Mi, K)
-  TensorView* b = makeContigConcreteTensor(b_shape, DataType::Half); // (N,K)
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
+  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
   TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
   TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
   TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
@@ -691,10 +701,8 @@ TEST_F(MultiDeviceTest, MatmulNT_AllReduce) {
   std::vector<int64_t> a_shape = {Ko, Ki, M};
   std::vector<int64_t> b_shape = {Ko, Ki, N};
 
-  TensorView* a =
-      makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
-  TensorView* b =
-      makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
+  TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
   // Transpose into TN layout, keep Ko (device axis) as the outermost.
   TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
   TensorView* b_t = transpose(b, 1, 2); // (Ko, N, Ki)
@@ -775,10 +783,8 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   std::vector<int64_t> a_shape = {Ko, Ki, M};
   std::vector<int64_t> b_shape = {Ko, Ki, N};
 
-  TensorView* a =
-      makeContigConcreteTensor(a_shape, DataType::Half); // (Ko,Ki,M)
-  TensorView* b =
-      makeContigConcreteTensor(b_shape, DataType::Half); // (Ko,Ki,N)
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
+  TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
   TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
   TensorView* b_t = transpose(b, 1, 2); // (Ko, N, Ki)
   TensorView* a_b = broadcast(a_t, {false, false, true, false}); // (Ko,M,b,Ki)
@@ -786,7 +792,8 @@ TEST_F(MultiDeviceTest, MatmulNT_ReduceScatter) {
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  // TODO: How should reshape work with sharded sizes?
+  // TODO: Reshape works using sharded sizes. Should use unsharded size to 
+  // stay consistent.
   std::vector<int64_t> orig_size = {1, M, N};
   std::vector<int64_t> new_size = {1, Mo, Mi, N}; 
   TensorView* c1 = reshape(c0, orig_size, new_size); 

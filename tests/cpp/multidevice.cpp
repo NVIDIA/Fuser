@@ -159,7 +159,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
       std::move(fusion), *communicator, multi_device_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
-    return;
+    GTEST_SKIP() << error_msg;
   }
   outputs = runtime->runWithInput(inputs, l_params);
 

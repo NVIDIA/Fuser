@@ -266,7 +266,7 @@ void insertReshardings(Fusion* fusion) {
     std::vector<TensorView*> new_inputs;
     auto inputs = getTvsWithDifferentSharding(
         output, ir_utils::filterByType<TensorView>(expr->inputs()));
-    // Insert resharding expression after the expr
+    // Insert resharding expression after the expr when there is only one input.
     // input [expr] output [set] new_output
     if (!inputs.empty() && expr->inputs().size() == 1) {
       auto input = *inputs.begin();
@@ -277,8 +277,8 @@ void insertReshardings(Fusion* fusion) {
       shardAllLike(output, {new_output});
       shardAllLike(input, {output});
     } else {
-      // For non-UnaryOps insert the set before the expr
-      // for each input (input [set] new input) [expr] output
+      // For expressions with > 1 input, insert the set before the expr
+      // for each input (input [set] new_input) [expr] output
       for (auto input : inputs) {
         // TODO: reuse cacheAfter?
         // TODO: here we should add a mechanism to potentially reuse the
