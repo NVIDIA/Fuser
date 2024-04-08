@@ -97,3 +97,20 @@ We therefore have:
 **Theorem 2:** A schedule of TMA load provides strong correctness if in the consumer,
 the boxing splits are the only IterDomain expressions between the allocation domain and the TMA domain that can create holes,
 and the desired filling value is 0.
+
+The condition in Theorem 2 is too strong and does not include some useful strong correctness cases.
+Discovering other strong correctness cases needs the following definition:
+
+**Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if and only if it satisfies one of the following condition:
+
+1. It is a partitioned IterDomain.
+2. It is the outer output of a split of a TMA-protected IterDomain.
+3. It is the output of a merge whose outer input is a TMA-protected IterDomain.
+4. It is the output of a resize whose input is a TMA-protected IterDomain and `right_expand >= 0`.
+5. It is the `X` output of a swizzle whose `X` input a TMA-protected IterDomain.
+
+TMA-protected IterDomain has the following very important property:
+
+**Theorem 4:** "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
+
+**Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md). $\square$
