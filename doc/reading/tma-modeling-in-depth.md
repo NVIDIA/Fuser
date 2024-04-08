@@ -87,6 +87,8 @@ Therefore, we have:
 A common use case for TMA is to load data for tensor core,
 which requires zero filling on out-of-boundary items.
 So it is very important to know when TMA load provides strong correctness.
+Strong correctness requires that, when an IterDomain expression create holes (indivisible split, resize),
+the holes are filled with a certain value.
 
 As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
 when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
