@@ -183,15 +183,6 @@ class NVF_API FusionDefinition : public FusionState {
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
 
-  //! Experimental API we'll redo this later!
-  void setMultiDevice() {
-#ifdef NVFUSER_DISTRIBUTED
-    multidevice_flag_ = true;
-#else
-    NVF_ERROR(false, "nvfuser is not built with multidevice support!");
-#endif
-  }
-
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
@@ -251,15 +242,12 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
 
-#ifdef NVFUSER_DISTRIBUTED
-  //! DO NOT COMMIT TO THESE CHANGES!
-  //! The reason we have these is due to the lack of cache for multidevice
-  //! executor
+  //! flag to indicate that execute should use multidevice executor
   bool multidevice_flag_ = false;
-  //! DO NOT COMMIT TO THESE CHANGES!
+#ifdef NVFUSER_DISTRIBUTED
   //! The reason we have these is due to the lack of cache for multidevice
   //! executor
-  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executor_ = nullptr;
+  mutable std::unordered_map<int8_t, std::unique_ptr<MultiDeviceExecutor>> multidevice_executors_;
 #endif
 };
 
