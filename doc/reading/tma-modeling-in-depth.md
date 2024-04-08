@@ -101,18 +101,7 @@ Because tensor core has unpredicated reduction, strong correctness is required.
 Strong correctness means that, when an IterDomain expression create holes (indivisible split, resize),
 the holes must be filled with a certain value.
 
-As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
-when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
-Also observe that when there are indivisible boxing splits,
-TMA's builtin predicates are exactly the predicates needed for these indivisible boxing splits.
-We therefore have:
-
-**Theorem 2:** A schedule of TMA load provides strong correctness if in the consumer,
-the boxing splits are the only IterDomain expressions between the allocation domain and the TMA domain that can create holes,
-and the desired filling value is 0.
-
-The condition in Theorem 2 is too strong and does not include some useful strong correctness cases.
-Discovering other strong correctness cases needs the following definition:
+Understanding strong correctness requires the following definition:
 
 **Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if and only if it satisfies one of the following condition:
 
