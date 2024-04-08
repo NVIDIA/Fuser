@@ -99,7 +99,7 @@ The index of `I0` is then $i_0 = i_1 \times N + i_2$.
 "the index of `I0` is in bound" means $i_0 < S$.
 Because $i_2 \ge 0$,
 $$i_0 < S \implies i_1 \times N < S \implies i_1 < S \div N \implies i_1 < \mathrm{ceilDiv}(S, N)$$
-□
+$\square$
 
 The above theorem tells us that, if we are already predicating `I0`, then there is no need to additionally predicate `I1`.
 We can derive similar theorems for other IterDomain expressions:
@@ -115,7 +115,7 @@ $$i_2 / N < P$$
 According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
 (TODO: move this theorem to a md file)
 $$i_2 / N < P \Leftrightarrow i_2 < Q$$
-□
+$\square$
 
 **Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $R >= 0$.
@@ -126,7 +126,7 @@ The extent of `I1` is `N + L + R`
 "the index of `I0` is in bound" means $i_0 < N$.
 Because $R \ge 0$,
 $$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
-□
+$\square$
 
 **Theorem 4** Suppose that there is a swizzle `I2, I3 = Swizzle(I0, I1)`.
 Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
@@ -134,7 +134,7 @@ Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in b
 **Proof:** Suppose the index of `I2` is $i_2$.
 The index of `I0` is the same as `I2`: $i_0 = i_2$.
 `I0` and `I2` also have the same extent.
-□
+$\square$
 
 ## Allocation and correctness model
 

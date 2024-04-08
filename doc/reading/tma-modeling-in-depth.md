@@ -77,6 +77,14 @@ def tma(op, x, sa, *, ga, gs, bs, gr, er):
 
 ## Predication and correctness
 
+We all know that TMA has built-in boundary check and automatic zero filling for out-of-boundary items.
+What does this mean? Does it mean that we don't need to predicate a TMA expression at all?
+Does it mean that we don't need to initialize the output buffer of TMA?
+This section discusses these questions.
+
+First to note is, what we should do depend on how we will use the output of TMA.
+This topic is discussed in depth in [Allocation and correctness model](divisibility-of-split.md#allocation-and-correctness-model).
+
 As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in bound.
 That is, TMA will never do out-of-boundary access on global memory even if the indices of
 some IterDomains may be out of boundary.
@@ -84,11 +92,14 @@ Therefore, we have:
 
 **Theorem 1:** TMA provides weak correctness.
 
-A common use case for TMA is to load data for tensor core,
-which requires zero filling on out-of-boundary items.
-So it is very important to know when TMA load provides strong correctness.
-Strong correctness requires that, when an IterDomain expression create holes (indivisible split, resize),
-the holes are filled with a certain value.
+Having weak correctness is great in the sense that,
+if weak correctness is sufficient for us,
+we neither need to predicate nor need to initialize the output of TMA to achieve correct functionality.
+
+A common use case for TMA is to load data for tensor core.
+Because tensor core has unpredicated reduction, strong correctness is required.
+Strong correctness means that, when an IterDomain expression create holes (indivisible split, resize),
+the holes must be filled with a certain value.
 
 As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
 when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
