@@ -114,3 +114,9 @@ TMA-protected IterDomain has the following very important property:
 **Theorem 4:** "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
 
 **Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md). $\square$
+
+With the above theorem, we can easily see that:
+
+**Theorem 4:** A schedule of TMA load provides strong correctness if in the consumer,
+the inputs of all hole-creating IterDomain expressions between the allocation domain and the TMA domain are TMA-protected,
+and the desired filling value is 0.
