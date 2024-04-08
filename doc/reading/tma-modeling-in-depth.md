@@ -75,47 +75,25 @@ def tma(op, x, sa, *, ga, gs, bs, gr, er):
                     ga[gmem_idx] = sa[smem_idx]
 ```
 
-TMA has the following properties:
+## Predication and correctness
+
+As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in bound.
+That is, TMA will never do out-of-boundary access on global memory even if the indices of
+some IterDomains may be out of boundary.
+Therefore, we have:
 
 **Theorem 1:** TMA provides weak correctness.
 
-**Proof:** From CodeBlock 1, we see that TMA automatically predicates global memory access so we are sure there is no out-of-bound memory accesses.
-We do not care about the value in out-of-bound area in weak correctness. □
-
-## Correctness and predication
+A common use case for TMA is to load data for tensor core,
+which requires zero filling on out-of-boundary items.
+So it is very important to know when TMA load provides strong correctness.
 
 As we see in ["Divisibility of Split"](../reading/divisibility-of-split.md),
 when we indivisibly split an IterDomain, we will need to predicate the IterDomain being split.
+Also observe that when there are indivisible boxing splits,
+TMA's builtin predicates are exactly the predicates needed for these indivisible boxing splits.
+We therefore have:
 
-When the boxing split is indivisible, it also needs to be predicated.
-It is easy to see that, the set of predicates for all indivisible boxing splits is exactly the predicate in CodeBlock 1,
-nothing more, nothing less.
-
-**Theorem 2:** TMA load provides strong correctness if and only if in the consumer,
-the expressions between the allocation IterDomains and the TMA domain, except boxing splits,
-does not create any hole, and the desired filling value is 0.
-
-> [!NOTE]
-> The word used here is *allocation IterDomains*, not *allocation domain*.
-> *Allocation IterDomains* refer to the IterDomains that are actually being allocated in the allocation domain.
-> We do not care about IterDomains that are not allocated,
-> even if it is located inside the allocation dimain,
-> such as BIDx parallelized IterDomain in shared memory tensor.
-
-**Proof:**
-It is helpful to use the mental model that considers indivisible split as resize + divisible split.
-If we consider all boxing splits this way,
-conceptually, we can think as TMA does a pre-processing that
-resizes the global memory tensor as a multiple of boxes and fill all the padding values as 0.
-Let's call the domain that we get by grabbing the TMA domain and replacing all partitioned IterDomains
-with their corresponding resized IterDomains the "resized domain".
-
-With this perspective in mind,
-"TMA load provides strong correctness" is equivalent to say
-"each item in the shared memory buffer correspond to a value in the resized tensor"
-which is equivalent to say that in the consumer,
-the expressions between the allocation IterDomains and the resized domain does not create any hole. □
-
-TODO: this is wrong
-
-Example, 
+**Theorem 2:** A schedule of TMA load provides strong correctness if in the consumer,
+the boxing splits are the only IterDomain expressions between the allocation domain and the TMA domain that can create holes,
+and the desired filling value is 0.

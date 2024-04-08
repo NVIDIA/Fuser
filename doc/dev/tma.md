@@ -96,8 +96,4 @@ the schedule should look like the Figure 3 below:
 
 Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
 
-The case where the split is not divisible deserve a deeper look at,
-but because this is an introductory document, we will not cover this topic here.
-Please refer to the [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md#indivisible-boxing-split) document.
-
 #### Define box by compositing

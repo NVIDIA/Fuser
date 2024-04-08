@@ -127,7 +127,7 @@ Because $R \ge 0$,
 $$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
 □
 
-**Theorem 4** Suppose that there is a split `I2, I3 = Swizzle(I0, I1)`.
+**Theorem 4** Suppose that there is a swizzle `I2, I3 = Swizzle(I0, I1)`.
 Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
 
 **Proof:** Suppose the index of `I2` is $i_2$.
