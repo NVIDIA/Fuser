@@ -86,6 +86,7 @@ Let's consider the following example in Figure 1:
 
 I1, I2 = split(I0)
 I3, I4 = split(I1)
+I5, I6 = split(I2)
 
 In this example, there are two indivisible splits, and we need to predicate `I0` and `I1`.
 But is it really necessary to predicate both? No, it is not:
