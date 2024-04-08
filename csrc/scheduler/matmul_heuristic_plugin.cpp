@@ -21,8 +21,8 @@ namespace matmul_heuristic_plugin {
 
 namespace {
 
-//! Defines HeuristicFun as type of the "getConfig" symbol
-typedef void (*HeuristicFunc)(KernelConfig*, const ProblemDescription*);
+//! Defines HeuristicFuncPtr as type of the "getConfig" symbol
+typedef void (*HeuristicFuncPtr)(KernelConfig*, const ProblemDescription*);
 
 class PluginInterface {
  public:
@@ -53,7 +53,7 @@ class PluginInterface {
     NVF_ERROR(available());
 
     if (func_ == nullptr) {
-      func_ = (HeuristicFunc*)dlsym(handle_, "getConfig");
+      func_ = (HeuristicFuncPtr)dlsym(handle_, "getConfig");
       NVF_CHECK(
           func_ != nullptr,
           "Failed to load symbol \"getConfig\" from plugin file ",
@@ -71,7 +71,7 @@ class PluginInterface {
  private:
   char* filepath_ = nullptr;
   void* handle_ = nullptr;
-  HeuristicFunc* func_ = nullptr;
+  HeuristicFuncPtr func_ = nullptr;
 } plugin;
 
 // TODO: This should probably be in mma_type.cpp
