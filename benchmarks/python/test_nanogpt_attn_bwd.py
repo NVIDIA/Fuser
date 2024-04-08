@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -11,7 +11,7 @@ from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 def nanogpt_attn_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, head_size: int, dropout_p: float
 ):
-    S0 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
+    S0 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     S1 = fd.define_scalar(1 / head_size**0.5, dtype=DataType.Double)
 
     T2 = fd.define_tensor(
@@ -67,9 +67,21 @@ def nanogpt_attn_bwd_fusion(
     fd.add_output(T27)
 
 
+def nanogpt_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOByte computation is required since nvFuser input/outputs (grad_out, attn, dropout_mask, bias_mask, grad_input]) differ from baseline input/outputs (output, grad_output).
+
+    # Total IO bytes = grad_out ([bs, nh, seq_len, seq_len], dtype) + attn ([bs, nh, seq_len, seq_len], dtype) +
+    #       dropout_mask ([bs, nh, seq_len, seq_len], bool) + bias_mask ([bs, nh, seq_len, seq_len], bool) + grad_in ([bs, nh, seq_len, seq_len], dtype)
+    bs, seq_len, nh, n_embd = size
+
+    return int(
+        bs * nh * seq_len * seq_len * (3 * dtype.itemsize + 2 * torch.bool.itemsize)
+    )
+
+
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_nanogpt_attn_bwd_benchmark(
+def test_nanogpt_attn_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -79,7 +91,7 @@ def test_nanogpt_attn_bwd_benchmark(
     clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
-    dropout_p = 0.0
+    dropout_p = 0.2
     inputs = torch.randn(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
     )
@@ -101,9 +113,48 @@ def test_nanogpt_attn_bwd_benchmark(
         nanogpt_attn_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), hs, dropout_p)
 
     if not disable_validation:
-        out = torch.nn.functional.dropout(attn, p=dropout_p)
+        # Use dropout_mask instead of torch.nn.functional.dropout for validating results.
+        out = attn * dropout_mask * 1 / (1 - dropout_p)
         out.backward(grads)
         fd.validate([grads, attn, dropout_mask, bias_mask], [inputs.grad])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [grads, attn, dropout_mask, bias_mask])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_attn_inputs())
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_nanogpt_attn_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    batch_size, seq_len, nh, n_embd = size
+    dropout_p = 0.2
+    inputs = torch.randn(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
+    )
+    bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
+        1, 1, seq_len, seq_len
+    )
+
+    # Compute output
+    hs = n_embd // nh
+    attn = inputs / (hs**0.5)
+    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
+    attn = torch.nn.functional.softmax(attn, dim=-1)
+    output = torch.nn.functional.dropout(attn, p=dropout_p)
+
+    grads = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [output, grads],
+        iobytes=nanogpt_attn_bwd_iobytes(size, dtype),
+    )

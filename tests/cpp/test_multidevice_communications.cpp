@@ -270,7 +270,7 @@ TEST_P(CommunicationTest, Communication_ReduceScatter) {
 INSTANTIATE_TEST_SUITE_P(
     CommunicatorBackend,
     CommunicationTest,
-    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)
 
 );
 

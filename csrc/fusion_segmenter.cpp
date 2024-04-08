@@ -318,7 +318,10 @@ void SegmentedGroup::finalize() {
   for (auto expr : exprs_) {
     for (auto i : expr->inputs()) {
       if (i->isIntegralScalar() && i->definition() == nullptr &&
-          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i)) {
+          !i->isConstScalar() && !i->isFusionInput() && !input_set.count(i) &&
+          !(i->isA<NamedScalar>() &&
+            (i->as<NamedScalar>()->getParallelDim() ||
+             i->as<NamedScalar>()->getParallelIndex()))) {
         input_set.insert(i);
         input_vals.push_back(i);
       }
