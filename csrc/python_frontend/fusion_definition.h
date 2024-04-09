@@ -247,7 +247,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! executor. The assumption is that the same multidevice_executor can handle
   //! device switches. This should be removed after multidevice executor is
   //! properly integrated in the runtime.
-  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executors_;
+  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executor_;
 #endif
 };
 
