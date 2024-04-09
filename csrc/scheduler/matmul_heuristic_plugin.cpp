@@ -24,7 +24,7 @@ namespace {
 //! Defines HeuristicFuncPtr as type of the "getConfig" symbol
 typedef void (*HeuristicFuncPtr)(KernelConfig*, const ProblemDescription*);
 
-class PluginInterface {
+thread_local class PluginInterface {
  public:
   PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
     if (filepath_ != nullptr) {
