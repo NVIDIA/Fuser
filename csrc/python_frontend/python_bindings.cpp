@@ -2740,7 +2740,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       "_create_device_mesh",
       [](FusionDefinition::SchedOperators& self,
          const std::vector<int64_t>& devices) {
-        FUSER_PERF_SCOPE("SchedOperators._create_device_mesh");
         return DeviceMesh(devices);
       },
       py::arg("devices"),
@@ -2751,7 +2750,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          const DeviceMesh& mesh) {
-        FUSER_PERF_SCOPE("SchedOperators._set_device_mesh");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -2768,7 +2766,6 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor tensor,
          int axis,
          const ParallelType& parallel_type) {
-        FUSER_PERF_SCOPE("SchedOperators.merge");
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
