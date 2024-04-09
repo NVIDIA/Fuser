@@ -85,6 +85,7 @@ This section discusses these questions.
 First to note is, what we should do depend on how we will use the output of TMA.
 The theory for this is called [correctness model](divisibility-of-split.md#allocation-and-correctness-model).
 Specifically, we are interested in:
+
 - For an unpredicated TMA expression, if we do not initialize the buffer, what correctness model can we achieve?
 - In the case where strong correctness is needed, but we have only achieved weak correctness,
   is there any way to upgrade to strong correctness by doing something?
@@ -100,8 +101,8 @@ Having weak correctness is great in the sense that,
 if weak correctness is sufficient for us,
 we neither need to predicate nor need to initialize the output of TMA to achieve correct functionality.
 
-The following example Figure 2 shows that,
-if no additional predicate is used to guard the TMA expression,
+The following example Figure 2 shows a schedule of the consumer of a TMA load.
+From this figure, we can see that, if no additional predicate is used to guard the TMA load expression,
 some holes in allocation domain will be filled with in boundary data,
 and some holes will be filled with out of boundary zeros:
 
@@ -133,8 +134,8 @@ index goes out of boundary, some partitioned IterDomains' index will also go out
 Therefore, TMA will use zero to fill these regions.
 That is:
 
-**Theorem 5:** A schedule of TMA load provides strong correctness if in the consumer,
-the inputs of all hole-creating IterDomain expressions between the allocation domain and the TMA domain are TMA-protected,
+**Theorem 5:** A consumer schedule of TMA load provides strong correctness if
+the input IterDomains of all hole-creating expressions between the allocation domain and the TMA domain are TMA-protected,
 and the desired filling value is 0.
 
 Having strong correctness means that all the out-of-boundary items are filled with zero,
