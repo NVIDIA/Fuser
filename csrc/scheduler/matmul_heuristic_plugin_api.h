@@ -68,6 +68,8 @@ void setSplitKFactor(KernelConfig* config, uint16_t f);
 void setLoadStages(KernelConfig* config, uint8_t s);
 void setGridSwizzleFactor(KernelConfig* config, uint8_t g);
 void setCtaOrder(KernelConfig* config, uint8_t o);
+void setDoubleBufferSmemRead(KernelConfig* config, bool b);
+void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b);
 
 } // namespace matmul_heuristic_plugin
 

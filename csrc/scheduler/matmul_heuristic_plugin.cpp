@@ -131,6 +131,8 @@ struct KernelConfig {
   uint8_t load_stages;
   uint8_t grid_swizzle_factor;
   uint8_t cta_order; // 0 for row major, 1 for column major
+  bool double_buffer_smem_read;
+  bool rotate_ldmatrix_out_of_main_loop;
 };
 void setCtaTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k) {
   config->cta_tile[0] = m;
@@ -162,6 +164,12 @@ void setGridSwizzleFactor(KernelConfig* config, uint8_t g) {
 }
 void setCtaOrder(KernelConfig* config, uint8_t o) {
   config->cta_order = o;
+}
+void setDoubleBufferSmemRead(KernelConfig* config, bool b) {
+  config->double_buffer_smem_read = b;
+}
+void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b) {
+  config->rotate_ldmatrix_out_of_main_loop = b;
 }
 
 bool hasPlugin() {
@@ -217,6 +225,10 @@ bool updateMatmulParams(
           (uint8_t)params.double_buffer_options.smem_double_buffer_stage,
       .grid_swizzle_factor = (uint8_t)params.grid_swizzle_factor,
       .cta_order = (uint8_t)toUnderlying(params.cta_order),
+      .double_buffer_smem_read =
+          params.double_buffer_options.double_buffer_smem_read,
+      .rotate_ldmatrix_out_of_main_loop =
+          params.rotate_ldmatrix_out_of_main_loop,
   };
   plugin.getConfig(&config, &problem);
 
@@ -255,6 +267,17 @@ bool updateMatmulParams(
           config.cta_order,
           ". Expected 0 (row-major) or 1 (column-major)");
   }
+  params.double_buffer_options.double_buffer_smem_read =
+      config.double_buffer_smem_read;
+  params.rotate_ldmatrix_out_of_main_loop =
+      config.rotate_ldmatrix_out_of_main_loop;
+
+  // enable double buffering or circular buffering if configured
+  params.double_buffer_options.double_buffer_smem_write =
+      config.load_stages > 1;
+
+  // async load only for circular buffering (stages > 2)
+  params.async_gmem_load_operands = config.load_stages > 2;
 
   return true;
 }

@@ -53,6 +53,8 @@ NVF_API void setSplitKFactor(KernelConfig* config, uint16_t f);
 NVF_API void setLoadStages(KernelConfig* config, uint8_t s);
 NVF_API void setGridSwizzleFactor(KernelConfig* config, uint8_t g);
 NVF_API void setCtaOrder(KernelConfig* config, uint8_t o);
+NVF_API void setDoubleBufferSmemRead(KernelConfig* config, bool b);
+NVF_API void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b);
 
 //! Try to load plugin whose location is provided by the environment variable
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN and return whether or not we succeed.
