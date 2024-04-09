@@ -152,6 +152,8 @@ we can consider the allocation of this example as Figure 2:
 
 We call the above situation *over-allocated*.
 
+TODO: define hole
+
 Because there are holes in the allocation due to indivisible split,
 a natural question to ask is: When we write to an over-allocated buffer,
 what value should we fill these holes as?

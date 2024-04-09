@@ -83,7 +83,11 @@ Does it mean that we don't need to initialize the output buffer of TMA?
 This section discusses these questions.
 
 First to note is, what we should do depend on how we will use the output of TMA.
-This topic is discussed in depth in [Allocation and correctness model](divisibility-of-split.md#allocation-and-correctness-model).
+The theory for this is called [correctness model](divisibility-of-split.md#allocation-and-correctness-model).
+Specifically, we are interested in:
+- For an unpredicated TMA expression, if we do not initialize the buffer, what correctness model can we achieve?
+- In the case where strong correctness is needed, but we have only achieved weak correctness,
+  is there any way to upgrade to strong correctness by doing something?
 
 As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in bound.
 That is, TMA will never do out-of-boundary access on global memory even if the indices of
@@ -124,12 +128,22 @@ TMA-protected IterDomain has the following very important property:
 
 **Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md). $\square$
 
-With the above theorem, we can easily see that:
+With the above theorem, we can easily see that, when any of the indices of a TMA-protected IterDomains'
+index goes out of boundary, some partitioned IterDomains' index will also go out of boundary.
+Therefore, TMA will use zero to fill these regions.
+That is:
 
 **Theorem 5:** A schedule of TMA load provides strong correctness if in the consumer,
 the inputs of all hole-creating IterDomain expressions between the allocation domain and the TMA domain are TMA-protected,
 and the desired filling value is 0.
 
-TODO example: does this schedule provide strong correct ness?
+Having strong correctness means that all the out-of-boundary items are filled with zero,
+and cases like Figure 2 could not happen.
 
-Having strong correctness means that all the out-of-boundary items are filled with zero.
+An example of strong correctness is shown in the following Figure 3:
+
+![Figure 3: Strong correctness](tma-modeling-in-depth/strong-correctness.svg)
+
+In this figure, `I2` and `I7` are the only IterDomains that could run out of boundary,
+they are both TMA-protected. So we can achieve strong correctness.
+
