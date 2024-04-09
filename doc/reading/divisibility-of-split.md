@@ -178,9 +178,7 @@ Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in b
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I2` is $i_2$.
-The index of `I0` is the same as `I2`: $i_0 = i_2$.
-`I0` and `I2` also have the same extent.
+`I0` and `I2` also have the same extents and indices.
 $\square$
 
 </details>
