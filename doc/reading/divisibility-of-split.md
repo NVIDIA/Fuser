@@ -212,15 +212,20 @@ and all the out-of-bound values are filled with a desired filling value.
 
 ## Case studies
 
+### Merge-then-split vs split-then-merge
+
+#### Question
+
 If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
-- **Schedule 1:** `[I1, I2] -- split -> [I1, I2/4, 4] -- merge -> [I1*(I2/4), 4]`.
-- **Schedule 2:** `[I1, I2] -- merge -> [I1*I2] -- split -> [(I1*I2)/4, 4]`.
+- **Schedule 1:** `[I1, I2] -- split -> [I1, ceilDiv(I2,N), N] -- merge -> [I1*ceilDiv(I2,N), N]`.
+- **Schedule 2:** `[I1, I2] -- merge -> [I1*I2] -- split -> [ceilDiv(I1*I2,N), N]`.
 
-Where the divisions above are all ceildiv.
+#### Answer
 
-If the split is indivisible, the answer is no.
-We can see this from a simple example where `I1` has extent `2`, and `I2` has extent `5`.
+*If the split is indivisible, the answer is no.*
+
+We can see this from a simple example where `I1` has extent `2`, and `I2` has extent `5`, and `N` is `4`.
 
 For schedule 1, after schedule, the extents of the leaf domain will be `[2*2, 4]`.
 So for this schedule, we will be iterating the tensor as:
@@ -243,11 +248,31 @@ T[1, 3], T[1, 4], T[2, 0] , T[2, 1]
 
 They are clearly not equivalent.
 
-What if the split is divisible? They are equivalent!
+*If the split is divisible then the answer is yes.*
 
-TODO: explain why?
+Let's say the extents of `I1` and `I2` are $N_1$ and $N_2$.
+Being divisible means $N$ divide $N_2$.
 
-## Implications
+The extent of the first dimension of schedule 1 is then $N_1 \times (N_2 \div N)$,
+which is the same as the extent of the first dimension in schedule 2 $(N_1 \times N_2) \div N$.
+
+Assume the leaf indices are $i$ and $j$.
+
+In schedule 1, the indices of `I1` and `I2` are
+$i/(N_2 / N)$ and $i \mathbin{\\%} (N_2 / N) \times N + j$.
+According to Theorem 2.10 in [Integer Division](../math/integer-division.md),
+$$i/(N_2 / N) = (i \times N) / N_2$$
+According to Theorem 2.13 in [Integer Division](../math/integer-division.md),
+$$i \mathbin{\\%} (N_2 / N) \times N + j = (i \times N) \mathbin{\\%} N_2  + j$$
+
+In schedule 2, the indices of `I1` and `I2` are
+$(i \times N + j) / N_2$ and $(i \times N + j) \mathbin{\\%} N_2$.
+According to the theorem in `expr_simplifier.cpp` before `distributeGcdRemainderDivMod` (TODO: move this to md file),
+$$(i \times N + j) / N_2 = (i \times N) / N_2$$
+$$(i \times N + j) \mathbin{\\%} N_2 = (i \times N) \mathbin{\\%} N_2  + j$$
+
+We can see that `I1` and `I2` has both the same extent and the same indices.
+They are therefore equivalent.
 
 ### Merging discontiguous IterDomains
 
