@@ -233,7 +233,8 @@ and all the out-of-bound values are filled with a desired filling value.
 
 #### Question
 
-If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
+Suppose that there are two IterDomains `I1` and `I2`,
+are the following two combinations of merge and split equivalent?
 
 - **Schedule 1:** `[I1, I2] -- split -> [I1, ceilDiv(I2,N), N] -- merge -> [I1*ceilDiv(I2,N), N]`.
 - **Schedule 2:** `[I1, I2] -- merge -> [I1*I2] -- split -> [ceilDiv(I1*I2,N), N]`.
@@ -242,7 +243,8 @@ If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 
 *If the split is indivisible, the answer is no.*
 
-We can see this from a simple example where `I1` has extent `2`, and `I2` has extent `5`, and `N` is `4`.
+We can see this from a simple example where there is a tensor `T[I1, I2]`,
+`I1` has extent `2`, `I2` has extent `5`, and `N` is `4`.
 
 For schedule 1, after schedule, the extents of the leaf domain will be `[2*2, 4]`.
 So for this schedule, we will be iterating the tensor as the following Listing 1:
