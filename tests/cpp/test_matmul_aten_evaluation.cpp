@@ -31,6 +31,7 @@ class MatmulATenEvaluationTest : public NVFuserTest {
       optimization_guard_;
 };
 
+// fd.ops.matmul (a, b) where a = [M,K], b = [K,N]
 TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -68,6 +69,7 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// fd.ops.matmul (a, b.t()) where a = [M,K], b = [N,K]
 TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -143,6 +145,7 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// addmm: a [M,K] x b [K,N] + bias [M,1]
 TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -185,6 +188,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// addmm: alpha * (a [M,K] x b [K,N]) + beta * bias [M,N]
 TEST_F(MatmulATenEvaluationTest, MatmulBiasAlphaBeta) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -236,6 +240,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlphaBeta) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// addmm: a [M,K] x b [K,N] + beta * bias [1,N]
 TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -247,13 +252,13 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-  auto tv2 = makeConcreteTensor({m}, DataType::Half);
+  auto tv2 = makeConcreteTensor({n}, DataType::Half);
 
   auto tv0b = broadcast(tv0, {false, false, true}); // [M, K, 1]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, K, N]
   auto tv3 = fusedMultiplySum(tv0b, tv1b, {1});
 
-  auto tv4 = broadcast(tv2, {false, true});
+  auto tv4 = broadcast(tv2, {true, false});
   auto tv5 = mul(tv4, s1); // bias * beta
 
   auto tv6 = add(tv3, tv5);
@@ -268,9 +273,9 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
-  at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
+  at::Tensor t2 = at::randn({n}, at::kHalf).cuda();
   float beta = 1.5;
-  at::Tensor out_ref = at::addmm(t2.unsqueeze(-1), t0, t1, beta);
+  at::Tensor out_ref = at::addmm(t2.unsqueeze(0), t0, t1, beta);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2, beta});
@@ -287,6 +292,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// addmm: alpha * (a [M,K] x b [K,N]) + bias [M,N]
 TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -335,6 +341,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// fd.ops.linear(a, b) where a = [M,K], b = [N,K]
 TEST_F(MatmulATenEvaluationTest, Linear) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -372,8 +379,7 @@ TEST_F(MatmulATenEvaluationTest, Linear) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-// Disbaled due to a segmentation issue:
-// https://github.com/NVIDIA/Fuser/issues/2057
+// fd.ops.linear(a, b, bias) where a = [M,K], b = [N,K], bias = [N]
 TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

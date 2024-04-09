@@ -1451,10 +1451,17 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
     }
   }
 
+  auto bias_ndims = matmul_inp->bias->as<TensorView>()->nDims();
+  auto inp_ndims = matmul_inp->mma_lhs->as<TensorView>()->nDims();
+
+  NVF_ERROR((bias_ndims == inp_ndims - 1) || (bias_ndims == inp_ndims), "Bias should be 1D / 2D tensor.");
+
   // Check if bias was broadcasted
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
   if (bcast != nullptr) {
-    // Bias of shape [M, 1]
+    // Bias of shape [M, 1] / [1, N]
+    // TODO: Allow multiple bcast axes for batched GEMMs
+    matmul_inp->bias_bcast_axis = bcast->isBroadcastDim(0) ? 0 : 1;
     matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
 
