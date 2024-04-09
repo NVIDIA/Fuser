@@ -78,7 +78,7 @@ def tma(x, sa, *, ga, gs, bs, gr, er, op):
 ## Predication and correctness
 
 We all know that TMA has built-in boundary check and automatic zero filling for out-of-boundary items.
-What does this mean? Does it mean that we don't need to predicate a TMA expression at all?
+But what does this mean? Does it mean that we don't need to predicate a TMA expression at all?
 Does it mean that we don't need to initialize the output buffer of TMA?
 This section discusses these questions.
 
@@ -127,7 +127,7 @@ TMA-protected IterDomain has the following very important property:
 
 **Theorem 4:** "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
 
-**Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md). $\square$
+**Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication). $\square$
 
 With the above theorem, we can easily see that, when any of the indices of a TMA-protected IterDomains'
 index goes out of boundary, some partitioned IterDomains' index will also go out of boundary.
