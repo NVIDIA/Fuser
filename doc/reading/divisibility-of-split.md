@@ -290,8 +290,7 @@ According to the theorem in `expr_simplifier.cpp` before `distributeGcdRemainder
 $$(i \times N + j) / N_2 = (i \times N) / N_2$$
 $$(i \times N + j) \mathbin{\\%} N_2 = (i \times N) \mathbin{\\%} N_2  + j$$
 
-We can see that `I1` and `I2` has both the same extent and the same indices.
-They are therefore equivalent.
+We can see that `I1` and `I2` has the same indices, they are therefore equivalent.
 $\square$
 
 </details>
