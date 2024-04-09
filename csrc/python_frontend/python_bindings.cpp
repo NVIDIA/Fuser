@@ -2739,9 +2739,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "_create_device_mesh",
       [](FusionDefinition::SchedOperators& self,
-         const std::vector<int64_t>& devices) {
-        return DeviceMesh(devices);
-      },
+         const std::vector<int64_t>& devices) { return DeviceMesh(devices); },
       py::arg("devices"),
       py::return_value_policy::reference);
   //! experimental API for multidevice support
