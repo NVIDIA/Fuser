@@ -119,12 +119,18 @@ The following theorems are useful tools to find mathematically simple predicates
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
 
-**Proof:** Suppose the index of `I1` is $i_1$, the index of `I2` is $i_2$, the extent of `I0` is $S$.
+<details>
+
+**<summary>Proof:</summary>**
+
+Suppose the index of `I1` is $i_1$, the index of `I2` is $i_2$, the extent of `I0` is $S$.
 The index of `I0` is then $i_0 = i_1 \times N + i_2$.
 "the index of `I0` is in bound" means $i_0 < S$.
 Because $i_2 \ge 0$,
 $$i_0 < S \implies i_1 \times N < S \implies i_1 < S \div N \implies i_1 < \mathrm{ceilDiv}(S, N)$$
 $\square$
+
+</details>
 
 The above theorem tells us that, if we are already predicating `I0`, then there is no need to additionally predicate `I1`.
 We can derive similar theorems for other IterDomain expressions:
@@ -132,7 +138,11 @@ We can derive similar theorems for other IterDomain expressions:
 **Theorem 2** Suppose that there is a merge `I2 = Merge(I0, I1)`.
 Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
 
-**Proof:** Suppose the index of `I2` is $i_2$, the extent of `I1` is $N$.
+<details>
+
+**<summary>Proof:</summary>**
+
+Suppose the index of `I2` is $i_2$, the extent of `I1` is $N$.
 Then the index of `I0` is $i_0 = i_2 / N$.
 Suppose that the extents of `I0` and `I2` are $P$ and $Q = N \times P$.
 "the index of `I0` is in bound" means $i_0 < P$, which is:
@@ -142,10 +152,16 @@ According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_
 $$i_2 / N < P \Leftrightarrow i_2 < Q$$
 $\square$
 
+</details>
+
 **Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $R >= 0$.
 
-**Proof:** Suppose the index of `I1` is $i_1$, the extent of `I0` is $N$.
+<details>
+
+**<summary>Proof:</summary>**
+
+Suppose the index of `I1` is $i_1$, the extent of `I0` is $N$.
 The index of `I0` is then $i_0 = i_1 - L$.
 The extent of `I1` is `N + L + R`
 "the index of `I0` is in bound" means $i_0 < N$.
@@ -153,18 +169,21 @@ Because $R \ge 0$,
 $$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
 $\square$
 
+</details>
+
 **Theorem 4** Suppose that there is a swizzle `I2, I3 = Swizzle(I0, I1)`.
 Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
 
-**Proof:** Suppose the index of `I2` is $i_2$.
+<details>
+
+**<summary>Proof:</summary>**
+
+Suppose the index of `I2` is $i_2$.
 The index of `I0` is the same as `I2`: $i_0 = i_2$.
 `I0` and `I2` also have the same extent.
 $\square$
 
-The above theorems can be used to generate simplifed predicates.
-For example, if I have `I1, I2 = Split(I0, N)` and both `I0` and `I1` have holes,
-then I know that logically, if I predicate `I0`, `I1` will be automatically correct.
-So only checking the index of `I0` is sufficient, and there is no need to check `I1`.
+</details>
 
 ## Allocation and correctness model
 
