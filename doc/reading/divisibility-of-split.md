@@ -79,17 +79,37 @@ for i in range(size1 + right_expand):
 
 ## Predication
 
-As we have seen in the above example, indivisible split introduces predicate on the IterDomain being split.
+As we have seen in the above example, indivisible splits create holes in the iteration,
+therefore predicates must be introduced.
 Let's consider the following example in Figure 1:
 
-![Figure 1](TODO)
+![Figure 1: Three Indivisible Splits](divisibility-of-split/three-indivisible-splits.svg)
 
-I1, I2 = split(I0)
-I3, I4 = split(I1)
-I5, I6 = split(I2)
+In this example, there are three indivisible splits.
+The indices of the inputs of all these splits, `i0`, `i1`, and `i2`, could potentially run out of boundary.
 
-In this example, there are two indivisible splits, and we need to predicate `I0` and `I1`.
-But is it really necessary to predicate both? No, it is not:
+The safest strategy is to predicate on all these three IterDomains:
+
+```python
+for i3 in range(2):
+    for i4 in range(2):
+        for i5 in range(2):
+            for i6 in range(4):
+                i1 = i3 * 2 + i4
+                i2 = i5 * 4 + i6
+                i0 = (i3 * 2 + i4) * 6 + (i5 * 4 + i6)
+                if i1 < 3 and i2 < 6 and i0 < 15:
+                    print(i0)
+```
+
+and this indeed works correctly.
+
+What if we just predicate `i0` and nothing else?
+We will get `0 1 2 3 4 5 6 7 6 7 8 9 10 11 12 13 12 13 14`.
+We do print the correct set of values, but we are printing some values multiple times.
+
+If all we care is to print the correct set of values, and we don't mind whether there are duplicates, this can be one strategy.
+But this is clearly not equivalent to the program prior to transformation.
 
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
