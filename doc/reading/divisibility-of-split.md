@@ -180,7 +180,8 @@ we can consider the allocation of this example as Figure 2:
 
 ![Figure 2](divisibility-of-split/allocate-6-as-2,4.svg)
 
-We call the above situation *over-allocated*.
+We call the above situation *over-allocated*, that is,
+we are not only allocating data, but also allocating holes.
 
 Because there are holes in the allocation due to indivisible split,
 a natural question to ask is: When we write to an over-allocated buffer,
@@ -197,7 +198,7 @@ It totally depends on how these values are read:
 If the out-of-bound items are never read, then 1, 2, or 3 makes no difference.
 If the out-of-bound items are actually read,
 then it needs to be filled with some neutral value that effectively leads to a no-op.
-For example, if we are doing an un-predicated reduction on an over-allocated buffer,
+For example, if we are doing an unpredicated reduction on an over-allocated buffer,
 such as when using tensor core, we must fill the out-of-bound items correctly.
 If the reduction is sum, then the out-of-bound items must be filled with 0.
 If the reduction is product, then the out-of-bound items must be filled with 1.
