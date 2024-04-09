@@ -240,7 +240,7 @@ the following two combinations of merge and split in the Figure 3 below are equi
 
 **<summary>Proof:</summary>**
 
-*If the split is indivisible, these two transformations are not equivalent.*
+*If the split is indivisible, these two transformations are not equivalent:*
 
 We can see this from a simple example where there is a tensor `T[I1, I2]`,
 `I1` has extent `2`, `I2` has extent `5`, and `N` is `4`.
@@ -266,7 +266,7 @@ T[1, 3], T[1, 4], T[2, 0] , T[2, 1]
 
 They are clearly not equivalent.
 
-*If the split is divisible, the two transformations are equivalent.*
+*If the split is divisible, the two transformations are equivalent:*
 
 Let's say the extents of `I1` and `I2` are $N_1$ and $N_2$, and the split size is $N$.
 Being divisible means $N$ divide $N_2$.
