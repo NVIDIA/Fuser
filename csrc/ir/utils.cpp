@@ -1343,9 +1343,9 @@ void verifyMmaOpForEvaluation(
       in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
 
-        
   NVF_ERROR(
-      tv_a->getRootDomain().back()->isBroadcast() || tv_a->getRootDomain()[1]->isBroadcast(),
+      tv_a->getRootDomain().back()->isBroadcast() ||
+          tv_a->getRootDomain()[1]->isBroadcast(),
       "Expected middle/last dimension to be broadcasted for first operand.");
 
   NVF_ERROR(
@@ -1454,7 +1454,9 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   auto bias_ndims = matmul_inp->bias->as<TensorView>()->nDims();
   auto inp_ndims = matmul_inp->mma_lhs->as<TensorView>()->nDims();
 
-  NVF_ERROR((bias_ndims == inp_ndims - 1) || (bias_ndims == inp_ndims), "Bias should be 1D / 2D tensor.");
+  NVF_ERROR(
+      (bias_ndims == inp_ndims - 1) || (bias_ndims == inp_ndims),
+      "Bias should be 1D / 2D tensor.");
 
   // Check if bias was broadcasted
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());

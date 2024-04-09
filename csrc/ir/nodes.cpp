@@ -433,9 +433,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
 
-      // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm. 
+      // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
       if (bias.dim() != a.dim() && matmul_inp.input_layout == MmaLayout::TT) {
-        bias = bias.unsqueeze(*matmul_inp.bias_bcast_axis); // Bias is of shape [M,1]/[1,N]
+        bias = bias.unsqueeze(
+            *matmul_inp.bias_bcast_axis); // Bias is of shape [M,1]/[1,N]
       }
 
       const c10::Scalar beta = matmul_inp.beta

@@ -1236,10 +1236,6 @@ RolesMapOpt getTensorsRoles(
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      // if (has_m && has_n && !has_k) {
-      //   roles_map[MatmulRole::INPUT_C].push_back(entry.first);
-      //   continue;
-      // }
       // Bias vectors are assigned to INPUT_C role
       if (!has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
