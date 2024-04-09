@@ -272,7 +272,7 @@ Let's say the extents of `I1` and `I2` are $N_1$ and $N_2$, and the split size i
 Being divisible means $N$ divide $N_2$.
 
 The extent of `I4` of transformation 1 is $N_1 \times (N_2 \div N)$,
-which is the same as the extent of transformation 2's `I4` $(N_1 \times N_2) \div N$.
+which is the same as transformation 2's `I4`'s extent $(N_1 \times N_2) \div N$.
 The extents of `I5` transformations 1 and 2 are all $N$.
 
 Assume the indices of `I4` and `I5` are $i$ and $j$.
