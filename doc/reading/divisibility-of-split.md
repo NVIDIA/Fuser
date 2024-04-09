@@ -228,7 +228,7 @@ If I have a tensor `T0[I1, I2]`, are the following two schedules equivalent?
 We can see this from a simple example where `I1` has extent `2`, and `I2` has extent `5`, and `N` is `4`.
 
 For schedule 1, after schedule, the extents of the leaf domain will be `[2*2, 4]`.
-So for this schedule, we will be iterating the tensor as:
+So for this schedule, we will be iterating the tensor as the following Listing 1:
 
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
@@ -238,7 +238,7 @@ T[1, 4], T[1, 5], T[1, 6] , T[1, 7]
 ```
 
 For schedule 2, after schedule, the extents of the leaf domain will be `[3, 4]`.
-So for this schedule, we will be iterating the tensor as:
+So for this schedule, we will be iterating the tensor as as the following Listing 2:
 
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
@@ -276,14 +276,19 @@ They are therefore equivalent.
 
 ### Merging discontiguous IterDomains
 
+#### Question
+
 - Q1: Can I merge two discontiguous IterDomains to create a larger IterDomain, and split out a vectorization IterDomain from this larger IterDomain?
 - Q2: In TMA scheduling, can I create the TMA domain by merging two discontiguous IterDomains, and then split out a box?
 
-The answer is: yes if and only if the split size divide the extent of the inner IterDomain of the merge.
+### Answer
+
+The answer is yes if and only if the split size divide the extent of the inner IterDomain of the merge.
+
 If we merge discontiguous IterDomains then do a split that does not divide the inner extent,
-we will end up iterating the tensor like schedule 2.
-From the above listing, we see that after `T[0, 4]`, we should be accessing `T[1, 0]`,
+we will end up iterating the tensor like schedule 2 in the [above example](#merge-then-split-vs-split-then-merge).
+From the Listing 2 there, we see that after `T[0, 4]`, we should be accessing `T[1, 0]`,
 which is not contiguous to `T[0, 4]` in memory.
 However, vectorization and TMA can only access memory contiguously.
 
-TODO: what if divisible?
+If divisible, then the merge-then-split is equivalent to a split-then-merge, which is totally valid.
