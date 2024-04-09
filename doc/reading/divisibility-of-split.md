@@ -232,7 +232,7 @@ and all the out-of-bound values are filled with a desired filling value.
 ### Merge-then-split vs split-then-merge
 
 **Theorem 5:** Suppose that there are two IterDomains `I1` and `I2`,
-the following two combinations of merge and split in Figure 3 are equivalent if and only if the split is divisible
+the following two combinations of merge and split in the Figure 3 below are equivalent if and only if the split is divisible
 
 ![Figure 3: Merge-then-split vs split-then-merge](divisibility-of-split/merge-split.svg)
 
