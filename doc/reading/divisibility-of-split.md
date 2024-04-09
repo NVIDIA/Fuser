@@ -107,7 +107,6 @@ and this indeed works correctly.
 What if we just predicate `i0` and nothing else?
 We will get `0 1 2 3 4 5 6 7 6 7 8 9 10 11 12 13 12 13 14`.
 We do print the correct set of values, but we are printing some values multiple times.
-
 If all we care is to print the correct set of values, and we don't mind whether there are duplicates, this can be one strategy.
 But this is clearly not equivalent to the program prior to transformation.
 
