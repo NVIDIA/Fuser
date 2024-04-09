@@ -202,10 +202,13 @@ For example, if we are doing an unpredicated reduction on an over-allocated buff
 such as when using tensor core, we must fill the out-of-bound items correctly.
 If the reduction is sum, then the out-of-bound items must be filled with 0.
 If the reduction is product, then the out-of-bound items must be filled with 1.
+This inspires the concept of weak and strong correctness:
 
-We call 1 "*weak correctness*", and 2 and 3 "*strong correctness*".
+**Definition 1:** A schedule/lowering strategy is weakly correct if all the in-bound items in the consumer's allocation domain are filled with the correct value,
+and there is no error raise in the kernel.
 
-TODO: more thorough definition
+**Definition 2:** A schedule/lowering strategy is strongly correct if all the in-bound items in the consumer's allocation domain are filled with the correct value,
+and all the out-of-bound values are filled with a desired filling value.
 
 ## Case studies
 
