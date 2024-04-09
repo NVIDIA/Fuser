@@ -1603,22 +1603,22 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s3_reference_map = {
-          // 3, 4, 5, 14, 6, 7, 8, -> 8
-          {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(0),
-               tv3->getRootDomain().at(0),
-               tv3->getRootDomain().at(1),
-               getChildId(tv3->getRootDomain().at(0), 1),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
-               id8},
-           id8},
-          // 9, 15, 17, 23 -> 9
-          {std::unordered_set<Val*>{tv2->axis(0), tv3->axis(0), tv4->axis(0), id23},
-           tv4->axis(0)},
-          // 16, 24 -> 24
-          {std::unordered_set<Val*>{tv3->axis(1), id24}, id24}};
+      s3_reference_map = {// 3, 4, 5, 14, 6, 7, 8, -> 8
+                          {std::unordered_set<Val*>{
+                               tv2->getRootDomain().at(0),
+                               tv3->getRootDomain().at(0),
+                               tv3->getRootDomain().at(1),
+                               getChildId(tv3->getRootDomain().at(0), 1),
+                               tv4->getRootDomain().at(0),
+                               tv4->getRootDomain().at(1),
+                               id8},
+                           id8},
+                          // 9, 15, 17, 23 -> 9
+                          {std::unordered_set<Val*>{
+                               tv2->axis(0), tv3->axis(0), tv4->axis(0), id23},
+                           tv4->axis(0)},
+                          // 16, 24 -> 24
+                          {std::unordered_set<Val*>{tv3->axis(1), id24}, id24}};
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
@@ -1698,7 +1698,12 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
   auto all_tvs = ir_utils::allTvs(&fusion);
 
+  fusion.printMath();
+  fusion.print();
+
   IdModelTester tester(&fusion);
+
+  tester.print(std::cerr);
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
@@ -1745,81 +1750,108 @@ TEST_F(IdModelTest, LoopPromotion8) {
       tester.idGraph(IdMappingMode::LOOP),
       tester.s2_iel_promotion_map);
 
-  auto id29 = getParentId(tv7->axis(0), 1);
-  ASSERT_EQ(id29->name(), 29) << "Unexpected ID: " << id29->toString();
-  auto id42 = getParentId(tv7->axis(1), 1);
-  ASSERT_EQ(id42->name(), 42);
+  // tv7
+  auto id14 = tv7->getRootDomain().at(0);
+  auto id15 = tv7->getRootDomain().at(1);
+  auto id16 = tv7->getRootDomain().at(2);
+  auto id29 = getChildIdByName(id14, 29);
+  auto id30 = getChildIdByName(id29, 30);
+  auto id31 = getChildIdByName(id29, 31);
+  auto id43 = tv7->axis(1);
+
+  // tv2
+  auto id2 = tv2->getRootDomain().at(0);
+  auto id3 = tv2->getRootDomain().at(1);
+  auto id20 = getChildIdByName(id2, 20);
+  auto id21 = tv2->axis(0);
+  auto id22 = tv2->axis(1);
+  auto id45 = getChildIdByName(id29, 45);
+  auto id46 = getChildIdByName(id29, 46);
+
+  // tv5
+  auto id8 = tv5->getRootDomain().at(0);
+  auto id9 = tv5->getRootDomain().at(1);
+  auto id10 = tv5->getRootDomain().at(2);
+  auto id27 = tv5->axis(0);
+  auto id26 = getChildIdByName(id8, 26);
+  auto id28 = getChildIdByName(id26, 28);
+  auto id39 = getChildIdByName(id28, 39);
+  auto id40 = tv5->axis(1);
+  auto id41 = tv5->axis(2);
+  auto id42 = getChildIdByName(id16, 42);
+  auto id47 = getChildIdByName(id42, 47);
+  auto id48 = getChildIdByName(id42, 48);
+
+  // tv4
+  auto id6 = tv4->getRootDomain().at(0);
+  auto id7 = tv4->getRootDomain().at(1);
+  auto id17 = getChildIdByName(id6, 17);
+  auto id18 = tv4->axis(0);
+
+  // tv1
+  auto id1 = tv1->getRootDomain().at(0);
+  auto id35 = tv1->axis(0);
+  auto id36 = tv1->axis(1);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {
           // 1, 2, 3, 20, 6, 7, 17, 8, 9, 26, 14, 15, 29 -> 29
           {std::unordered_set<Val*>{
-               tv1->getRootDomain().at(0),
-               tv2->getRootDomain().at(0),
-               tv2->getRootDomain().at(1),
-               getChildId(tv2->getRootDomain().at(0), 1),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
-               getChildId(tv4->getRootDomain().at(0), 1),
-               tv5->getRootDomain().at(0),
-               tv5->getRootDomain().at(1),
-               getChildId(tv5->getRootDomain().at(0), 1),
-               tv7->getRootDomain().at(0),
-               tv7->getRootDomain().at(1),
-               getChildId(tv7->getRootDomain().at(0), 1)},
-           getChildId(tv7->getRootDomain().at(0), 1)},
-          // 35, 21, 18, 27, 30 -> 30
-          {std::unordered_set<Val*>{
-               tv1->axis(0),
-               tv2->axis(0),
-               tv4->axis(0),
-               tv5->axis(0),
-               tv7->axis(0)},
-           tv7->axis(0)},
-          // 28, 10, 39, 31, 16, 42 -> 42
-          {std::unordered_set<Val*>{
-               getChildId(
-                   getChildId(tv5->getRootDomain().at(0), 1), 1, 1), // 28
-               tv5->getRootDomain().at(2), // 10
-               getChildId(tv5->getRootDomain().at(2), 1), // 39
-               getChildId(
-                   getChildId(tv7->getRootDomain().at(0), 1), 1, 1), // 31
-               tv7->getRootDomain().at(2), // 16
-               id42}, // 42
-           id42},
-          // 22 -> 19
-          {std::unordered_set<Val*>{tv2->axis(1)}, tv4->axis(1)},
-          // 40, 43 -> 43
-          {std::unordered_set<Val*>{tv5->axis(1), tv7->axis(1)}, tv7->axis(1)},
-          // 41 -> 44
-          {std::unordered_set<Val*>{tv5->axis(2)}, tv7->axis(2)},
-      };
+               id1,
+               id2,
+               id3,
+               id20,
+               id6,
+               id7,
+               id17,
+               id8,
+               id9,
+               id26,
+               id14,
+               id15,
+               id29},
+           id29},
+          // 18, 21, 27, 30, 35, 45 -> 30
+          {std::unordered_set<Val*>{id18, id21, id27, id30, id35, id45}, id30},
+          // 10, 16, 28, 31, 39, 42 -> 42
+          {std::unordered_set<Val*>{id10, id16, id28, id31, id39, id42}, id42},
+          // 22, 46 -> 46
+          {std::unordered_set<Val*>{id22, id46}, id46},
+          // 40, 43, 47 -> 43
+          {std::unordered_set<Val*>{id40, id43, id47}, id43},
+          // 41, 48 -> 48
+          {std::unordered_set<Val*>{id41, id48}, id48}};
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
 
-  auto id49 = getChildIdByName(id29, 49);
-  auto id50 = getChildIdByName(id29, 50);
-  auto id51 = getChildIdByName(id29, 51);
-  auto id52 = getChildIdByName(id29, 52);
-  auto id63 = getChildIdByName(id42, 63);
-  auto id64 = getChildIdByName(id42, 64);
+  // tv1
+  auto id53 = getChildIdByName(id29, 53);
+  auto id54 = getChildIdByName(id29, 54);
+
+  // tv2
+  auto id55 = getChildIdByName(id29, 55);
+  auto id56 = getChildIdByName(id29, 56);
+
+  // tv5
+  auto id67 = getChildIdByName(id42, 67);
+  auto id68 = getChildIdByName(id42, 68);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv1: 35 -> 49
-          {std::unordered_set<Val*>{tv1->axis(0)}, id49},
-          // tv1: 36 -> 50
-          {std::unordered_set<Val*>{tv1->axis(1)}, id50},
-          // tv2: 21 -> 51
-          {std::unordered_set<Val*>{tv2->axis(0)}, id51},
-          // tv2: 22 -> 52
-          {std::unordered_set<Val*>{tv2->axis(1)}, id52},
-          // tv5: 40 -> 63
-          {std::unordered_set<Val*>{tv5->axis(1)}, id63},
-          // tv5: 41 -> 64
-          {std::unordered_set<Val*>{tv5->axis(2)}, id64},
+          // tv1: 35 -> 53
+          {std::unordered_set<Val*>{id35}, id53},
+          // tv1: 36 -> 54
+          {std::unordered_set<Val*>{id36}, id54},
+          // tv2: 21 -> 55
+          {std::unordered_set<Val*>{id21}, id55},
+          // tv2: 22 -> 56
+          {std::unordered_set<Val*>{id22}, id56},
+          // tv5: 40 -> 67
+          {std::unordered_set<Val*>{id40}, id67},
+          // tv5: 41 -> 68
+          {std::unordered_set<Val*>{id41}, id68},
       };
 
   checkStep4Results(
