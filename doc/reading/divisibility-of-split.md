@@ -46,7 +46,11 @@ for i0 in range(2):
 
 But wait, is this correct? No, this is not.
 Because now we are printing `0 1 2 3 4 5 6 7` instead of `0 1 2 3 4 5`.
-The correct code should be:
+
+That is, whenever we do an indivisible split on an IterDomain, we effectively changed its range as well.
+We call this added extra range "holes".
+
+To maintain program semantics, we must add predicates checking whether we are at a valid item or at a hole:
 
 ```python
 for i0 in range(2):
@@ -56,22 +60,18 @@ for i0 in range(2):
             print(i)
 ```
 
-That is, whenever we do an indivisible split on an IterDomain, we will index out-of-bound for that IterDomain.
-Therefore, we must generate a predicate for the IterDomain being split.
-
-Personally, I feel it helpful to consider indivisible split as resize + divisible split.
+Personally, I sometimes feel it helpful to consider indivisible split as resize + divisible split.
 For example, I can consider `Split(I{6}, 4)` as `DivisibleSplit(Resize(I{6}, 0, 2), 4)`.
-This way, `DivisibleSplit` just converts one loop into two loops without hurting the correctness,
-and `Resize(I{size1}, 0, right_expand)` converts a
+This way, hole creation and loop transformations are separated.
+`DivisibleSplit` just converts one loop into two loops without while maintaining correctness.
+`Resize(I{size1}, 0, right_expand)` create holes and introduce predicates:
 
 ```python
+# Before resize
 for i in range(size1):
     print(i)
-```
 
-into
-
-```python
+# After resize
 for i in range(size1 + right_expand):
     if i < size1:
         print(i)
@@ -109,6 +109,9 @@ We will get `0 1 2 3 4 5 6 7 6 7 8 9 10 11 12 13 12 13 14`.
 We do print the correct set of values, but we are printing some values multiple times.
 If all we care is to print the correct set of values, and we don't mind whether there are duplicates, this can be one strategy.
 But this is clearly not equivalent to the program prior to transformation.
+
+From the above example, we can see that overflow of an intermediate IterDomain does not necessarily results in an overflow of their ancestors.
+To maintain program semantics, we do need to make sure all holes created by all indivisible splits
 
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
