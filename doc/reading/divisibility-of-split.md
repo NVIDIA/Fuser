@@ -79,7 +79,7 @@ for i in range(size1 + right_expand):
 
 ## Predication
 
-As we have seen in the above example, indivisible splits create holes in the iteration,
+As we have seen above, indivisible splits create holes in the iteration,
 therefore predicates must be introduced.
 Let's consider the following example in Figure 1:
 
@@ -88,7 +88,7 @@ Let's consider the following example in Figure 1:
 In this example, there are three indivisible splits.
 The indices of the inputs of all these splits, `i0`, `i1`, and `i2`, could potentially run out of boundary.
 
-The safest strategy is to predicate on all these three IterDomains:
+In order to maintain program semantics, the safest predication strategy is to predicate on all these three IterDomains:
 
 ```python
 for i3 in range(2):
@@ -104,14 +104,16 @@ for i3 in range(2):
 
 and this indeed works correctly.
 
-What if we just predicate `i0` and nothing else?
+Can this be simplified? What if we just predicate `i0` and nothing else?
 We will get `0 1 2 3 4 5 6 7 6 7 8 9 10 11 12 13 12 13 14`.
 We do print the correct set of values, but we are printing some values multiple times.
 If all we care is to print the correct set of values, and we don't mind whether there are duplicates, this can be one strategy.
 But this is clearly not equivalent to the program prior to transformation.
 
 From the above example, we can see that overflow of an intermediate IterDomain does not necessarily results in an overflow of their ancestors.
-To maintain program semantics, we do need to make sure all holes created by all indivisible splits
+To maintain program semantics, we do need to make sure that *effectively* all holes created by all indivisible splits are predicated.
+
+
 
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
