@@ -372,6 +372,8 @@ TEST_F(MatmulATenEvaluationTest, Linear) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// Disbaled due to a segmentation issue:
+// https://github.com/NVIDIA/Fuser/issues/2057
 TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -384,9 +386,8 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   auto tv0b = broadcast(tv0, {false, true, false}); // [M, 1, K]
   auto tv1b = broadcast(tv1, {true, false, false}); // [1, N, K]
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-  auto tv3 = makeConcreteTensor({m}, DataType::Half);
-  auto tv4 = castOp(DataType::Float, tv3);
-  auto tv5 = biasEpilogue(tv2, tv4);
+  auto tv3 = makeConcreteTensor({n}, DataType::Half);
+  auto tv5 = add(tv2, tv3);
   auto tv6 = castOp(DataType::Half, tv5);
 
   fusion->addInput(tv0);
@@ -396,8 +397,8 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
-  at::Tensor t2 = at::randn({m}, at::kHalf).cuda();
-  at::Tensor out_ref = at::linear(t0, t1, t2.unsqueeze(-1));
+  at::Tensor t2 = at::randn({n}, at::kHalf).cuda();
+  at::Tensor out_ref = at::linear(t0, t1, t2);
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({t0, t1, t2});

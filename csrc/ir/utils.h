@@ -66,7 +66,9 @@ struct MatmulInputs {
   Val* bias = nullptr;
   Val* alpha = nullptr;
   Val* beta = nullptr;
-  MmaLayout mma_layout;
+  // Input layout based on ordering of axes M,N,K, valid values.
+  // Determined based on broadcast axes.
+  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 //! Matches the following matmul patterns.

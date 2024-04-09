@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <scheduler/mma_utils.h>
 
 #include <limits>
 #include <set>
@@ -1336,7 +1337,8 @@ void verifyMmaOpForEvaluation(
       tv_a->nDims());
 
   NVF_ERROR(
-      *mma_op->layout() == MmaLayout::TT || *mma_op->layout() == MmaLayout::TN);
+      tv_b->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
 
   NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
@@ -1411,17 +1413,21 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
 
   // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
   MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
+
   // Get the non-broadcasted values to avoid inferring squeeze dimensions.
   matmul_inp->mma_lhs = mma->inA()->definition()->input(0);
   matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
-  matmul_inp->mma_layout = mma->layout().value();
+  matmul_inp->input_layout =
+      mma->inA()->as<TensorView>()->getRootDomain().back()->isBroadcast()
+      ? MmaLayout::TT
+      : MmaLayout::TN;
 
   if (!has_bias) {
     return true;
   }
 
   // Based on the presence of beta parameter, the expected ops are:
-  // CastOp(bias, fp32) -> -> Broadcast (Optional) -> Mul (if beta is present)
+  // CastOp(bias, fp32) -> Broadcast (Optional) -> Mul (if beta is present)
   // -> Add
 
   // Check for beta parameter
@@ -1444,16 +1450,9 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
   if (bcast != nullptr) { // mma_lhs is broadcasted
     // Bias of shape [M, 1]
-    NVF_ERROR(
-        matmul_inp->bias->as<TensorView>()
-            ->getRootDomain()
-            .back()
-            ->isBroadcast(),
-        "Expected last dimension to be broadcasted for bias tensor.");
     matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
 
-  // Verify the dimensions of the bias
   auto* bias_cast = dynamic_cast<UnaryOp*>(matmul_inp->bias->definition());
 
   // The bias tensor and matmul inputs should be of the same dtype.
@@ -1464,8 +1463,7 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
       *(bias_cast->input(0)->getDataType()) == final_out_dtype,
       "Bias should be originally of the same type as the final output dtype.");
 
-  matmul_inp->bias =
-      bias_cast->input(0); // Input bias tensor of [M]/[M, N] shape.
+  matmul_inp->bias = bias_cast->input(0);
 
   return true;
 }
