@@ -130,27 +130,39 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
-  // remove multidevice_flag_ when multidevice integration is done natively
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
-  Fusion* fusion = user_sched_->schedule.get(),
-  std::vector<Val*> inputs = InputsOf::outputs(fusion->outputs());
+#ifdef NVFUSER_DISTRIBUTED
+  // TODO: remove when multidevice executor integration is done natively
+  Fusion *fusion = user_sched_->schedule.get(),
+         std::vector<Val*> inputs = InputsOf::outputs(fusion->outputs());
   std::vector<Val*> vals = DependencyCheck::getAllValsBetween(
-    {inputs.begin(), inputs.end()}, fusion->outputs());
-  multidevice_flag_ = std::any_of(vals.begin(), vals.end(), [](Val* v) {
-    return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
-    });
+      {inputs.begin(), inputs.end()}, fusion->outputs());
+  static Communicator* comm = new Communicator();
+  if (std::any_of(vals.begin(), vals.end(), [](Val* v) {
+        return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
+      })) {
+    multidevice_executor_ = std::make_unique<MultiDeviceExecutor>(
+        std::make_unique<Fusion>(*fusion), *comm);
+  }
 
-  // restore CurFusion
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
-
-  if (!multidevice_flag_) {
+  if (!multidevice_executor_) {
     user_sched_->executor->compileFusion(
         user_sched_->schedule.get(),
         inputs,
         user_sched_->fusion_id_,
         user_sched_->device_id_);
   }
+#else
+  FusionGuard::setCurFusion(prev_fusion_);
+  prev_fusion_ = nullptr;
+  user_sched_->executor->compileFusion(
+      user_sched_->schedule.get(),
+      inputs,
+      user_sched_->fusion_id_,
+      user_sched_->device_id_);
+#endif
   user_sched_ = nullptr;
 }
 
@@ -184,25 +196,15 @@ std::vector<at::Tensor> FusionDefinition::execute(
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
 #ifdef NVFUSER_DISTRIBUTED
-  static Communicator* comm = new Communicator();
-  if (multidevice_flag_) {
-    auto device = getCommonDeviceCUDA(inputs, selected_device);
-    auto executor_iter = multidevice_executors_.find(device);
-    if (executor_iter == multidevice_executors_.end()) {
-      // NOTE: we are always using cache and it's bad.
-      auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
-      NVF_CHECK(user_sched_id.has_value() && device > -1);
-      auto& user_sched = fusionCache()->queryUserSchedule(
-          scheds, user_sched_id.value(), device);
-      multidevice_executors_[device] = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*user_sched.schedule.get()), *comm);
-    }
-    return executor_iter.second->runWithInput(inputs.vec());
+  if (multidevice_executor_) {
+    return multidevice_executor_->runWithInput(inputs.vec());
   }
 #endif
 
   std::vector<at::Tensor> outputs;
 
+  // NOTE: queryUserSchedule is broken, see issue:
+  // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(

@@ -242,12 +242,12 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
 
-  //! flag to indicate that execute should use multidevice executor
-  bool multidevice_flag_ = false;
 #ifdef NVFUSER_DISTRIBUTED
   //! The reason we have these is due to the lack of cache for multidevice
-  //! executor
-  mutable std::unordered_map<int8_t, std::unique_ptr<MultiDeviceExecutor>> multidevice_executors_;
+  //! executor. The assumption is that the same multidevice_executor can handle
+  //! device switches. This should be removed after multidevice executor is
+  //! properly integrated in the runtime.
+  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executors_;
 #endif
 };
 
