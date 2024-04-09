@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 project(nvfuser_matmul_heuristic_plugin LANGUAGES CXX)
 
