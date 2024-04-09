@@ -26,8 +26,7 @@ typedef void (*HeuristicFuncPtr)(KernelConfig*, const ProblemDescription*);
 
 class PluginInterface {
  public:
-  PluginInterface() {
-    filepath_ = getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN");
+  PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
     if (filepath_ != nullptr) {
       handle_ = dlopen(filepath_, RTLD_LAZY);
       NVF_CHECK(
@@ -82,6 +81,8 @@ char dtypeToChar(const DataType& dtype) {
     return 'T';
   } else if (dtype == DataType::Float) {
     return 'S';
+  } else if (dtype == DataType::Double) {
+    return 'D';
   }
   NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
   return 0;
@@ -109,22 +110,22 @@ uint8_t layoutToByte(MmaLayout layout);
 } // namespace
 
 struct ProblemDescription {
-  uint32_t M;
-  uint32_t N;
-  uint32_t K;
+  uint32_t m;
+  uint32_t n;
+  uint32_t k;
   uint32_t batch_size;
   // layout is in row-major and takes values 0 thru 3 in order NN NT TN TT
   uint8_t layout;
   const char* precision; // e.g. HSH, TST, HSS, etc.
 };
 uint32_t getProblemM(const ProblemDescription* problem) {
-  return problem->M;
+  return problem->m;
 }
 uint32_t getProblemN(const ProblemDescription* problem) {
-  return problem->N;
+  return problem->n;
 }
 uint32_t getProblemK(const ProblemDescription* problem) {
-  return problem->K;
+  return problem->k;
 }
 uint32_t getProblemBatchSize(const ProblemDescription* problem) {
   return problem->batch_size;
@@ -137,9 +138,10 @@ const char* getProblemPrecision(const ProblemDescription* problem) {
 }
 
 struct KernelConfig {
-  uint16_t cta_tile[3];
-  uint16_t warp_tile[3];
-  uint16_t instruction_tile[3];
+  using Tile = std::array<uint16_t, 3>;
+  Tile cta_tile;
+  Tile warp_tile;
+  Tile instruction_tile;
   uint16_t splitk_factor;
   uint8_t load_stages;
   uint8_t grid_swizzle_factor;
@@ -183,9 +185,9 @@ bool hasPlugin() {
 
 bool updateMatmulParams(
     MatmulParams& params,
-    int64_t M,
-    int64_t N,
-    int64_t K,
+    int64_t m,
+    int64_t n,
+    int64_t k,
     int64_t batch_size,
     MmaLayout layout,
     const mma_utils::RolesMap& roles_map) {
@@ -193,7 +195,7 @@ bool updateMatmulParams(
     return false;
   }
 
-  char precision[] = "SSS";
+  std::string precision = "SSS";
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
   NVF_CHECK(
@@ -204,17 +206,36 @@ bool updateMatmulParams(
 
   // Set up problem description
   const ProblemDescription problem{
-      .M = (uint32_t)M,
-      .N = (uint32_t)N,
-      .K = (uint32_t)K,
+      .m = (uint32_t)m,
+      .n = (uint32_t)n,
+      .k = (uint32_t)k,
       .batch_size = (uint32_t)batch_size,
       .layout = layoutToByte(layout),
-      .precision = precision};
+      .precision = precision.c_str()};
 
-  KernelConfig config;
+  KernelConfig config{
+      .cta_tile =
+          {(uint16_t)params.tile_sizes.cta_tile.m,
+           (uint16_t)params.tile_sizes.cta_tile.n,
+           (uint16_t)params.tile_sizes.cta_tile.k},
+      .warp_tile =
+          {(uint16_t)params.tile_sizes.warp_tile.m,
+           (uint16_t)params.tile_sizes.warp_tile.n,
+           (uint16_t)params.tile_sizes.warp_tile.k},
+      .instruction_tile =
+          {(uint16_t)params.tile_sizes.instruction_tile.m,
+           (uint16_t)params.tile_sizes.instruction_tile.n,
+           (uint16_t)params.tile_sizes.instruction_tile.k},
+      .splitk_factor = (uint16_t)params.splitk_factor,
+      .load_stages =
+          (uint8_t)params.double_buffer_options.smem_double_buffer_stage,
+      .grid_swizzle_factor = (uint8_t)params.grid_swizzle_factor,
+      .cta_order = (uint8_t)toUnderlying(params.cta_order),
+  };
   plugin.getConfig(&config, &problem);
 
-  const auto setTile = [](GemmTile& gemm_tile, const uint16_t(&input)[3]) {
+  const auto setTile = [](GemmTile& gemm_tile,
+                          const KernelConfig::Tile& input) {
     gemm_tile.m = input[0];
     gemm_tile.n = input[1];
     gemm_tile.k = input[2];
