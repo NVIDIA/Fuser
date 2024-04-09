@@ -14,7 +14,7 @@
 In nvFuser, `Split` is an IterDomain expression that partitions the original IterDomain into nested sub-IterDomains,
 where the outer IterDomain iterates over the quotient and the inner IterDomain iterates over the remainder of the original extent divided by the split factor.
 
-For example, suppose that I have an IterDomain whose extent is `6`.
+For example, suppose that I have an IterDomain `I0` whose extent is `6`.
 It is helpful to think of this IterDomain as the following loop:
 
 ```python
@@ -22,7 +22,7 @@ for i in range(6):
     print(i)
 ```
 
-If I do a `Split(2)` on this IterDomain, I will get two IterDomains whose extents are `3` and `2`.
+If I do a `Split(I0, 2)` on this IterDomain, I will get two IterDomains whose extents are `3` and `2`.
 It is helpful to think of these two IterDomains as two nested loops:
 
 ```python
@@ -33,9 +33,9 @@ for i0 in range(3):
 
 If the split is divisible, everything is simple and elegant like above.
 However, when splits are indivisible, things start to get complicated.
-For example, let's still consider the IterDomain with extent `6` in the example.
-But this time, we do a `Split(4)` instead of `Split(2)`.
-With `Split(4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
+For example, let's still consider the `I0` in the example.
+But this time, we do a `Split(I0, 4)` instead of `Split(I0, 2)`.
+With `Split(I0, 4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
 These two extents can be think of as two nested loops:
 
 ```python
@@ -49,6 +49,7 @@ Because now we are printing `0 1 2 3 4 5 6 7` instead of `0 1 2 3 4 5`.
 
 That is, whenever we do an indivisible split on an IterDomain, we effectively changed its range as well.
 We call this added extra range "holes".
+In the above example, the indivisible split creates two holes in `I0`.
 
 To maintain program semantics, we must add predicates checking whether we are at a valid item or at a hole:
 
@@ -111,9 +112,9 @@ If all we care is to print the correct set of values, and we don't mind whether 
 But this is clearly not equivalent to the program prior to transformation.
 
 From the above example, we can see that overflow of an intermediate IterDomain does not necessarily results in an overflow of their ancestors.
-To maintain program semantics, we do need to make sure that *effectively* all holes created by all indivisible splits are predicated.
+To maintain program semantics, the predicate we use must be logically equivalent to predicating all holes.
 
-
+The following theorems are useful tools to find mathematically simple predicates that are logically equivalent to predicating all holes:
 
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
 Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
@@ -160,6 +161,11 @@ The index of `I0` is the same as `I2`: $i_0 = i_2$.
 `I0` and `I2` also have the same extent.
 $\square$
 
+The above theorems can be used to generate simplifed predicates.
+For example, if I have `I1, I2 = Split(I0, N)` and both `I0` and `I1` have holes,
+then I know that logically, if I predicate `I0`, `I1` will be automatically correct.
+So only checking the index of `I0` is sufficient, and there is no need to check `I1`.
+
 ## Allocation and correctness model
 
 Indivisible split also impact the allocation size.
@@ -175,8 +181,6 @@ we can consider the allocation of this example as Figure 2:
 ![Figure 2](divisibility-of-split/allocate-6-as-2,4.svg)
 
 We call the above situation *over-allocated*.
-
-TODO: define hole
 
 Because there are holes in the allocation due to indivisible split,
 a natural question to ask is: When we write to an over-allocated buffer,
