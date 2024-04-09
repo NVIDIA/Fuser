@@ -46,7 +46,7 @@ The meanings of inputs, parameters, and $op$ are:
 - $\vec{er}$ stands for "Element stRide". It is a vector of the same dimensionality as $\vec{x}$.
   In the example in Figure 1, it is $(1, 1)$ for the left diagram, and $(1, 3)$ for the right diagram.
 
-We separate inputs, parameters, and $op$ because in the implementation,
+We call inputs, parameters, and $op$ differently because in the implementation,
 inputs are provided as operands for the PTX instruction,
 parameters are encoded inside the TensorMap descriptor,
 and $op$ defines which PTX instruction to use.
@@ -57,7 +57,7 @@ The thing that this $tma$ function does is demonstrated in the CodeBlock 1 below
 (here, assuming the TMA is 2D, we can easily generalize to other dimensionalities):
 
 ```python
-def tma(op, x, sa, *, ga, gs, bs, gr, er):
+def tma(x, sa, *, ga, gs, bs, gr, er, op):
     ts = [ceildiv(bs[0], er[0]), ceildiv(bs[1], er[1])] # tile size
     for i0 in range(ts[0]):
         for i1 in range(ts[1]):
