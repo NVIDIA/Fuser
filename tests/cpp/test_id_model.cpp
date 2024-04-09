@@ -166,6 +166,25 @@ class IdModelTester : public IdModel {
         true);
   }
 
+  void print(std::ostream& os) const {
+    os << "Step 1 results:\n";
+    for (const auto& [g, id] : s1_root_resolution_map) {
+      os << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+    }
+    os << "Step 2 results:\n";
+    for (const auto& [g, id] : s2_iel_promotion_map) {
+      os << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+    }
+    os << "Step 3 results:\n";
+    for (const auto& [g, id] : s3_loop_promotion_map) {
+      os << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+    }
+    os << "Step 4 results:\n";
+    for (const auto& [g, id] : s4_iel_promotion_map) {
+      os << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+    }
+  }
+
   ValGraph iel_graph;
   std::unordered_map<ValGroup, IterDomain*> s1_root_resolution_map;
   std::unordered_map<ValGroup, IterDomain*> s2_iel_promotion_map;
@@ -182,6 +201,7 @@ void validateIELResolution(
     IterDomain* ref_id,
     const ValGraph& iel_graph,
     const ValGraph& exact_graph,
+    const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
   const auto& iel_group = iel_graph.toGroup(id);
   auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
@@ -195,11 +215,31 @@ void validateIELResolution(
         << "Unexpected promotion. "
         << "Expected: " << ref_id->toString()
         << ". Actual: " << promotion_id->toString();
+    ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
+        << "Promotion of " << id->toString()
+        << " not mapped in the loop graph: " << promotion_id->toString();
+    std::cerr << "Validated: " << id->toString() << ", "
+              << promotion_id->toString() << std::endl;
   } else {
     ASSERT_TRUE(iel_promotion_map_it == iel_promotion_map.end())
         << "Promotion should not exist for: " << nvfuser::toString(iel_group)
         << ", but found: " << iel_promotion_map_it->second->toString();
   }
+}
+
+void validateIELResolution(
+    IterDomain* id,
+    IterDomain* ref_id,
+    const ValGraph& iel_graph,
+    const IdModelTester& tester,
+    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
+  validateIELResolution(
+      id,
+      ref_id,
+      iel_graph,
+      tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
+      iel_promotion_map);
 }
 
 // Check if each domain gets promoted to a proper domain after the
@@ -210,6 +250,7 @@ void checkStep2Results(
     Fusion* fusion,
     const ValGraph& iel_graph,
     const ValGraph& exact_graph,
+    const ValGraph& loop_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
   auto getPromotedDomain = [&](IterDomain* id) -> IterDomain* {
     if (auto it = iel_promotion_map.find(iel_graph.toGroup(id));
@@ -271,11 +312,23 @@ void checkStep2Results(
       // p_id should be promoted to c_id
       auto c_id = p2c.at(p_id);
       validateIELResolution(
-          p_id, c_id, iel_graph, exact_graph, iel_promotion_map);
+          p_id, c_id, iel_graph, exact_graph, loop_graph, iel_promotion_map);
     }
   }
 }
 
+void checkStep2Results(
+    Fusion* fusion,
+    const ValGraph& iel_graph,
+    const IdModelTester& tester,
+    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
+  checkStep2Results(
+      fusion,
+      iel_graph,
+      tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
+      iel_promotion_map);
+}
 // Validate the loop promotion map at Step 3. This validation ensures
 // the promotion map is exactly the same as a given reference
 // map. Since the valid promotion map may not be unique, the exact
@@ -292,6 +345,8 @@ void checkStep3Results(
     ASSERT_NE(promotion_it, loop_promotion_map.end())
         << "No promotion found for: " << nvfuser::toString(loop_group);
     IterDomain* promotion_id = promotion_it->second;
+
+    std::cerr << "Loop group: " << nvfuser::toString(loop_group) << std::endl;
 
     auto ref_promotion_it = std::find_if(
         ref_promotion_map.begin(),
@@ -314,6 +369,8 @@ void checkStep3Results(
         << "Expected promotion: " << ref_promotion_id->toString()
         << ". Actual: " << promotion_id->toString();
   }
+
+  std::cerr << "Step 3 validated\n";
 }
 
 void checkStep4Results(
@@ -696,7 +753,7 @@ TEST_F(IdModelTest, LoopPromotion1) {
         t2->getRootDomain().at(0),
         t3->getRootDomain().at(0),
         tester.iel_graph,
-        tester.idGraph(IdMappingMode::EXACT),
+        tester,
         tester.s1_root_resolution_map);
 
     // Check Step 2 results
@@ -744,14 +801,14 @@ TEST_F(IdModelTest, LoopPromotion2) {
       t2->getRootDomain().at(0),
       t4->getRootDomain().at(1),
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
       t3->getRootDomain().at(0),
       t4->getRootDomain().at(0),
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s1_root_resolution_map);
 
   // Check Step 2 results
@@ -811,14 +868,14 @@ TEST_F(IdModelTest, LoopPromotion3) {
       tv2->getRootDomain().at(1),
       tv3->getRootDomain().at(1),
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
       tv2->getRootDomain().at(3),
       nullptr,
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s1_root_resolution_map);
 
   // Check Step 2 results
@@ -826,14 +883,14 @@ TEST_F(IdModelTest, LoopPromotion3) {
       tv2->axis(0),
       tv3->axis(0),
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s2_iel_promotion_map);
 
   validateIELResolution(
       tv2->axis(1),
       nullptr,
       tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
+      tester,
       tester.s2_iel_promotion_map);
 
   // Check Step 3 results. See the design doc for the expected results
@@ -887,7 +944,11 @@ TEST_F(IdModelTest, LoopPromotion4) {
     tv->inlineAt(-2);
   }
 
+  fusion.printMath();
+
   IdModelTester tester(&fusion);
+
+  tester.print(std::cerr);
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : ir_utils::allTvs(&fusion)) {
@@ -908,7 +969,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       default:
@@ -920,51 +981,52 @@ TEST_F(IdModelTest, LoopPromotion4) {
       &fusion,
       tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
       tester.s2_iel_promotion_map);
+
+  auto id10 = getChildIdByName(tv4->getRootDomain()[0], 10);
+  auto id13 = getChildIdByName(tv3->getRootDomain()[0], 13);
+  auto id19 = getChildIdByName(tv2->getRootDomain()[0], 19);
+  auto id25 = getChildIdByName(id10, 25);
+  auto id26 = getChildIdByName(id10, 26);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s3_reference_map = {
-          // 4, 6, 8 -> 8
-          {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(0),
-               tv3->getRootDomain().at(0),
-               tv4->getRootDomain().at(0)},
-           tv4->getRootDomain().at(0)},
-          // 5, 7, 9 -> 9
-          {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(1),
-               tv3->getRootDomain().at(1),
-               tv4->getRootDomain().at(1)},
-           tv4->getRootDomain().at(1)},
-          // 10, 13, 19 -> 10
-          {std::unordered_set<Val*>{
-               getParentId(tv2->axis(0), 1),
-               getParentId(tv3->axis(0), 1),
-               getParentId(tv4->axis(0), 1)},
-           getParentId(tv4->axis(0), 1)},
-          // 11, 14, 20 -> 11
-          {std::unordered_set<Val*>{tv2->axis(0), tv3->axis(0), tv4->axis(0)},
-           tv4->axis(0)},
-          // 21 -> 12
-          {std::unordered_set<Val*>{tv2->axis(1)}, tv4->axis(1)}};
+      s3_reference_map = {// 4, 6, 8 -> 8
+                          {std::unordered_set<Val*>{
+                               tv2->getRootDomain().at(0),
+                               tv3->getRootDomain().at(0),
+                               tv4->getRootDomain().at(0)},
+                           tv4->getRootDomain().at(0)},
+                          // 5, 7, 9 -> 9
+                          {std::unordered_set<Val*>{
+                               tv2->getRootDomain().at(1),
+                               tv3->getRootDomain().at(1),
+                               tv4->getRootDomain().at(1)},
+                           tv4->getRootDomain().at(1)},
+                          // 10, 13, 19 -> 10
+                          {std::unordered_set<Val*>{id10, id13, id19}, id10},
+                          // 11, 14, 20, 25 -> 11
+                          {std::unordered_set<Val*>{
+                               tv2->axis(0), tv3->axis(0), tv4->axis(0), id25},
+                           tv4->axis(0)},
+                          // 21, 26 -> 26
+                          {std::unordered_set<Val*>{tv2->axis(1), id26}, id26}};
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
 
-  auto id10 = getParentId(tv4->axis(0), 1);
   ASSERT_EQ(id10->name(), 10);
-  auto id32 = getChildIdByName(id10, 32);
-  auto id33 = getChildIdByName(id10, 33);
+  auto id34 = getChildIdByName(id10, 34);
+  auto id35 = getChildIdByName(id10, 35);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s4_reference_map = {
-          // 19 -> 10
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id10},
-          // 20 -> 32
-          {std::unordered_set<Val*>{tv2->axis(0)}, id32},
-          // 21 -> 33
-          {std::unordered_set<Val*>{tv2->axis(1)}, id33}};
+      s4_reference_map = {// 19 -> 10
+                          {std::unordered_set<Val*>{id19}, id10},
+                          // 20 -> 34
+                          {std::unordered_set<Val*>{tv2->axis(0)}, id34},
+                          // 21 -> 35
+                          {std::unordered_set<Val*>{tv2->axis(1)}, id35}};
 
   checkStep4Results(
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
@@ -1007,7 +1069,11 @@ TEST_F(IdModelTest, LoopPromotion5) {
 
   auto all_tvs = ir_utils::allTvs(&fusion);
 
+  fusion.printMath();
+
   IdModelTester tester(&fusion);
+
+  tester.print(std::cerr);
 
   // Check Step 1 results
   for (auto tv : all_tvs) {
@@ -1029,7 +1095,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       default:
@@ -1042,7 +1108,17 @@ TEST_F(IdModelTest, LoopPromotion5) {
       &fusion,
       tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
       tester.s2_iel_promotion_map);
+
+  auto id19 = getParentId(tv4->axis(0), 3);
+  ASSERT_EQ(id19->name(), 19);
+  auto id20 = getParentId(tv4->axis(0), 2);
+  ASSERT_EQ(id20->name(), 20);
+  auto id38 = getChildIdByName(id20, 38);
+  auto id39 = getChildIdByName(id20, 39);
+  auto id40 = getChildIdByName(id38, 40);
+  auto id41 = getChildIdByName(id38, 41);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
@@ -1081,36 +1157,35 @@ TEST_F(IdModelTest, LoopPromotion5) {
                getParentId(tv3->axis(0), 2),
                getParentId(tv4->axis(0), 2)},
            getParentId(tv4->axis(0), 2)},
-          // 34, 28, 21 -> 21
+          // 21, 28, 34, 38 -> 21
           {std::unordered_set<Val*>{
                getParentId(tv2->axis(0), 1),
                getParentId(tv3->axis(0), 1),
-               getParentId(tv4->axis(0), 1)},
+               getParentId(tv4->axis(0), 1),
+               id38},
            getParentId(tv4->axis(0), 1)},
-          // 29 -> 22
-          {std::unordered_set<Val*>{tv3->axis(2)}, tv4->axis(2)},
-          // 31 -> 24
-          {std::unordered_set<Val*>{tv3->axis(1)}, tv4->axis(1)},
-          // 36, 30, 23 -> 23
-          {std::unordered_set<Val*>{tv2->axis(0), tv3->axis(0), tv4->axis(0)},
+          // 29, 39 -> 29
+          {std::unordered_set<Val*>{tv3->axis(2), id39}, id39},
+          // 31, 41 -> 41
+          {std::unordered_set<Val*>{tv3->axis(1), id41}, id41},
+          // 23, 30, 36, 40 -> 23
+          {std::unordered_set<Val*>{
+               tv2->axis(0), tv3->axis(0), tv4->axis(0), id40},
            tv4->axis(0)},
       };
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
 
-  auto id19 = getParentId(tv4->axis(0), 3);
-  ASSERT_EQ(id19->name(), 19);
-  auto id20 = getParentId(tv4->axis(0), 2);
-  ASSERT_EQ(id20->name(), 20);
-  auto id40 = getChildIdByName(id20, 40);
-  auto id41 = getChildIdByName(id20, 41);
-  auto id42 = getChildIdByName(id20, 42);
-  auto id43 = getChildIdByName(id20, 43);
-  auto id46 = getChildIdByName(id40, 46);
-  auto id47 = getChildIdByName(id40, 47);
-  auto id48 = getChildIdByName(id42, 48);
-  auto id49 = getChildIdByName(id42, 49);
+  auto id44 = getChildIdByName(id20, 44);
+  auto id45 = getChildIdByName(id20, 45);
+  auto id50 = getChildIdByName(id44, 50);
+  auto id51 = getChildIdByName(id44, 51);
+
+  auto id46 = getChildIdByName(id20, 46);
+  auto id47 = getChildIdByName(id20, 47);
+  auto id52 = getChildIdByName(id46, 52);
+  auto id53 = getChildIdByName(id46, 53);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
@@ -1118,26 +1193,26 @@ TEST_F(IdModelTest, LoopPromotion5) {
           {std::unordered_set<Val*>{getParentId(tv2->axis(0), 3)}, id19},
           // 33 -> 20
           {std::unordered_set<Val*>{getParentId(tv2->axis(0), 2)}, id20},
-          // 34 -> 40
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id40},
-          // 35 -> 41
-          {std::unordered_set<Val*>{tv2->axis(2)}, id41},
-          // 36 -> 46
-          {std::unordered_set<Val*>{tv2->axis(0)}, id46},
-          // 37 -> 47
-          {std::unordered_set<Val*>{tv2->axis(1)}, id47},
+          // 34 -> 44
+          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id44},
+          // 35 -> 45
+          {std::unordered_set<Val*>{tv2->axis(2)}, id45},
+          // 36 -> 50
+          {std::unordered_set<Val*>{tv2->axis(0)}, id50},
+          // 37 -> 41
+          {std::unordered_set<Val*>{tv2->axis(1)}, id51},
           // 26 -> 19
           {std::unordered_set<Val*>{getParentId(tv3->axis(0), 3)}, id19},
           // 27 -> 20
           {std::unordered_set<Val*>{getParentId(tv3->axis(0), 2)}, id20},
-          // 28 -> 42
-          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 1)}, id42},
-          // 29 -> 43
-          {std::unordered_set<Val*>{tv3->axis(2)}, id43},
-          // 30 -> 48
-          {std::unordered_set<Val*>{tv3->axis(0)}, id48},
-          // 31 -> 49
-          {std::unordered_set<Val*>{tv3->axis(1)}, id49}};
+          // 28 -> 46
+          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 1)}, id46},
+          // 29 -> 47
+          {std::unordered_set<Val*>{tv3->axis(2)}, id47},
+          // 30 -> 52
+          {std::unordered_set<Val*>{tv3->axis(0)}, id52},
+          // 31 -> 53
+          {std::unordered_set<Val*>{tv3->axis(1)}, id53}};
 
   checkStep4Results(
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
@@ -1149,7 +1224,12 @@ TEST_F(IdModelTest, LoopPromotion6) {
   FusionGuard fg(fusion.get());
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
+  fusion->printMath();
+  fusion->print();
+
   IdModelTester tester(fusion.get());
+
+  tester.print(std::cerr);
 
   auto tv1 = getValByName(all_tvs, 1);
   auto tv2 = getValByName(all_tvs, 2);
@@ -1180,7 +1260,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
             tv->getRootDomain().at(1),
             tv4->getRootDomain().at(1),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       case 5:
@@ -1194,7 +1274,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
             tv->getRootDomain().at(2),
             tv9->getRootDomain().at(2),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       case 6:
@@ -1206,7 +1286,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
             tv->getRootDomain().at(1),
             tv8->getRootDomain().at(1),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       case 9:
@@ -1220,7 +1300,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
             tv->getRootDomain().at(1),
             tv5->getRootDomain().at(1),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       default:
@@ -1229,27 +1309,45 @@ TEST_F(IdModelTest, LoopPromotion6) {
   }
 
   checkStep2Results(
-      fusion.get(),
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.s2_iel_promotion_map);
+      fusion.get(), tester.iel_graph, tester, tester.s2_iel_promotion_map);
 
-  auto id79 = getChildIdByName(tv9->getRootDomain().at(2), 79);
-  auto id80 = getChildIdByName(tv9->getRootDomain().at(2), 80);
-  auto id81 = getChildIdByName(id79, 81);
-  auto id82 = getChildIdByName(id79, 82);
-  auto id83 = getChildIdByName(id80, 83);
-  auto id84 = getChildIdByName(id80, 84);
-  auto id85 = getChildIdByName(id81, 85);
-  auto id86 = getChildIdByName(id81, 86);
-  auto id87 = getChildIdByName(id83, 87);
-  auto id88 = getChildIdByName(id83, 88);
+  // 83 -> 89, 90
+  // 89 -> 93, 94
+  auto id83 = getChildIdByName(tv9->getRootDomain().at(2), 83);
+  auto id89 = getChildIdByName(id83, 89);
+  auto id90 = getChildIdByName(id83, 90);
+  auto id93 = getChildIdByName(id89, 93);
+  auto id94 = getChildIdByName(id89, 94);
+
+  // 84 -> 91, 92
+  // 91 -> 95, 96
+  auto id84 = getChildIdByName(tv9->getRootDomain().at(2), 84);
+  auto id91 = getChildIdByName(id84, 91);
+  auto id92 = getChildIdByName(id84, 92);
+  auto id95 = getChildIdByName(id91, 95);
+  auto id96 = getChildIdByName(id91, 96);
+
+  // 35 -> 79, 80
+  // 79 -> 85, 86
+  auto id35 = getChildIdByName(tv5->getRootDomain().at(0), 35);
+  auto id79 = getChildIdByName(id35, 79);
+  auto id80 = getChildIdByName(id35, 80);
+  auto id85 = getChildIdByName(id79, 85);
+  auto id86 = getChildIdByName(id79, 86);
+
+  // 56 -> 81, 82
+  // 81 -> 87, 88
+  auto id56 = getChildIdByName(tv8->getRootDomain().at(0), 56);
+  auto id81 = getChildIdByName(id56, 81);
+  auto id82 = getChildIdByName(id56, 82);
+  auto id87 = getChildIdByName(id81, 87);
+  auto id88 = getChildIdByName(id81, 88);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {
           // 1 2 3 6 7 8 9 10 11 12 15 16 17 18 19 29 30 35 36 41 46 56 61
-          // 79 80 -> 80
+          // 83 84 -> 84
           {std::unordered_set<Val*>{
                tv1->getRootDomain().at(0),
                tv2->getRootDomain().at(0),
@@ -1274,10 +1372,10 @@ TEST_F(IdModelTest, LoopPromotion6) {
                tv9->getRootDomain().at(2),
                getChildId(tv9->getRootDomain().at(0), 1),
                getChildId(tv9->getRootDomain().at(0), 2),
-               id79,
-               id80},
-           id80},
-          // 31 37 42 47 57 62 71 81 83 -> 83
+               id83,
+               id84},
+           id84},
+          // 31 37 42 47 57 62 71 79 81 89 91 -> 91
           {std::unordered_set<Val*>{
                getChildId(tv1->getRootDomain().at(0), 1),
                getChildId(tv2->getRootDomain().at(0), 2),
@@ -1286,10 +1384,12 @@ TEST_F(IdModelTest, LoopPromotion6) {
                getChildId(tv6->getRootDomain().at(0), 2),
                getChildId(tv8->getRootDomain().at(0), 2),
                getChildId(tv9->getRootDomain().at(0), 3),
+               id79,
                id81,
-               id83},
-           id83},
-          // 33 39 44 49 59 64 73 85 87 -> 87
+               id89,
+               id91},
+           id91},
+          // 33 39 44 49 59 64 73 85 87 93 95 -> 95
           {std::unordered_set<Val*>{
                tv1->axis(0),
                tv2->axis(0),
@@ -1299,129 +1399,131 @@ TEST_F(IdModelTest, LoopPromotion6) {
                tv8->axis(0),
                tv9->axis(0),
                id85,
-               id87},
-           id87},
-          // 48 -> 43
-          {std::unordered_set<Val*>{tv2->axis(2)}, tv4->axis(2)},
-          // 50 -> 45
-          {std::unordered_set<Val*>{tv2->axis(1)}, tv4->axis(1)},
-          // 40 88 -> 88
-          {std::unordered_set<Val*>{tv5->axis(1), id88}, id88},
-          // 63 -> 58
-          {std::unordered_set<Val*>{tv6->axis(2)}, tv8->axis(2)},
-          // 65 -> 60
-          {std::unordered_set<Val*>{tv6->axis(1)}, tv8->axis(1)},
-          // 34 86 -> 86
-          {std::unordered_set<Val*>{tv9->axis(1), id86}, id86},
-          // 38 84 -> 84
-          {std::unordered_set<Val*>{tv5->axis(2), id84}, id84},
-          // 32 82 -> 82
-          {std::unordered_set<Val*>{tv9->axis(2), id82}, id82},
+               id87,
+               id93,
+               id95},
+           id95},
+          // 48 80 -> 80
+          {std::unordered_set<Val*>{tv2->axis(2), id80}, id80},
+          // 50 86 -> 86
+          {std::unordered_set<Val*>{tv2->axis(1), id86}, id86},
+          // 40 96 -> 96
+          {std::unordered_set<Val*>{tv5->axis(1), id96}, id96},
+          // 63 82 -> 82
+          {std::unordered_set<Val*>{tv6->axis(2), id82}, id82},
+          // 65 88 -> 88
+          {std::unordered_set<Val*>{tv6->axis(1), id88}, id88},
+          // 34 94 -> 94
+          {std::unordered_set<Val*>{tv9->axis(1), id94}, id94},
+          // 38 92 -> 92
+          {std::unordered_set<Val*>{tv5->axis(2), id92}, id92},
+          // 32 90 -> 90
+          {std::unordered_set<Val*>{tv9->axis(2), id90}, id90},
       };
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
 
   // For tv1
-  auto id94 = getChildIdByName(id80, 94);
-  auto id95 = getChildIdByName(id80, 95);
-  auto id109 = getChildIdByName(id94, 109);
-  auto id110 = getChildIdByName(id94, 110);
-
-  // For tv2
-  auto id98 = getChildIdByName(id80, 98);
-  auto id99 = getChildIdByName(id80, 99);
-  auto id113 = getChildIdByName(id98, 113);
-  auto id114 = getChildIdByName(id98, 114);
-
-  // For tv6
-  auto id102 = getChildIdByName(id80, 102);
-  auto id103 = getChildIdByName(id80, 103);
+  auto id102 = getChildIdByName(id84, 102);
+  auto id103 = getChildIdByName(id84, 103);
   auto id117 = getChildIdByName(id102, 117);
   auto id118 = getChildIdByName(id102, 118);
 
+  // For tv2
+  auto id106 = getChildIdByName(id84, 106);
+  auto id107 = getChildIdByName(id84, 107);
+  auto id121 = getChildIdByName(id106, 121);
+  auto id122 = getChildIdByName(id106, 122);
+
+  // For tv6
+  auto id110 = getChildIdByName(id84, 110);
+  auto id111 = getChildIdByName(id84, 111);
+  auto id125 = getChildIdByName(id110, 125);
+  auto id126 = getChildIdByName(id110, 126);
+
   // For tv4
-  auto id111 = getChildIdByName(id80, 111);
-  auto id112 = getChildIdByName(id80, 112);
-  auto id129 = getChildIdByName(id111, 129);
-  auto id130 = getChildIdByName(id111, 130);
+  auto id119 = getChildIdByName(id84, 119);
+  auto id120 = getChildIdByName(id84, 120);
+  auto id137 = getChildIdByName(id119, 137);
+  auto id138 = getChildIdByName(id119, 138);
 
   // For tv5
-  auto id127 = getChildIdByName(id80, 127);
-  auto id128 = getChildIdByName(id80, 128);
-  auto id135 = getChildIdByName(id127, 135);
-  auto id136 = getChildIdByName(id127, 136);
+  auto id135 = getChildIdByName(id84, 135);
+  auto id136 = getChildIdByName(id84, 136);
+  auto id143 = getChildIdByName(id135, 143);
+  auto id144 = getChildIdByName(id135, 144);
 
   // For tv8
-  auto id107 = getChildIdByName(id80, 107);
-  auto id108 = getChildIdByName(id80, 108);
-  auto id125 = getChildIdByName(id107, 125);
-  auto id126 = getChildIdByName(id107, 126);
+  auto id115 = getChildIdByName(id84, 115);
+  auto id116 = getChildIdByName(id84, 116);
+  auto id133 = getChildIdByName(id115, 133);
+  auto id134 = getChildIdByName(id115, 134);
 
   // For tv9
-  auto id121 = getChildIdByName(id80, 121);
-  auto id122 = getChildIdByName(id80, 122);
-  auto id131 = getChildIdByName(id121, 131);
-  auto id132 = getChildIdByName(id121, 132);
+  auto id129 = getChildIdByName(id84, 129);
+  auto id130 = getChildIdByName(id84, 130);
+  auto id139 = getChildIdByName(id129, 139);
+  auto id140 = getChildIdByName(id129, 140);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv1: 71 -> 94
-          {std::unordered_set<Val*>{getParentId(tv1->axis(0), 1)}, id94},
-          // tv1: 72 -> 95
-          {std::unordered_set<Val*>{tv1->axis(2)}, id95},
-          // tv1: 73 -> 109
-          {std::unordered_set<Val*>{tv1->axis(0)}, id109},
-          // tv1: 74 -> 110
-          {std::unordered_set<Val*>{tv1->axis(1)}, id110},
-          // tv2: 47 -> 98
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id98},
-          // tv2: 48 -> 99
-          {std::unordered_set<Val*>{tv2->axis(2)}, id99},
-          // tv2: 49 -> 113
-          {std::unordered_set<Val*>{tv2->axis(0)}, id113},
-          // tv2: 50 -> 114
-          {std::unordered_set<Val*>{tv2->axis(1)}, id114},
-          // tv4: 42 -> 111
-          {std::unordered_set<Val*>{getParentId(tv4->axis(0), 1)}, id111},
-          // tv4: 43 -> 112
-          {std::unordered_set<Val*>{tv4->axis(2)}, id112},
-          // tv4: 44 -> 129
-          {std::unordered_set<Val*>{tv4->axis(0)}, id129},
-          // tv4: 45 -> 130
-          {std::unordered_set<Val*>{tv4->axis(1)}, id130},
-          // tv5: 37 -> 127
-          {std::unordered_set<Val*>{getParentId(tv5->axis(0), 1)}, id127},
-          // tv5: 38 -> 128
-          {std::unordered_set<Val*>{tv5->axis(2)}, id128},
-          // tv5: 39 -> 135
-          {std::unordered_set<Val*>{tv5->axis(0)}, id135},
-          // tv5: 40 -> 136
-          {std::unordered_set<Val*>{tv5->axis(1)}, id136},
-          // tv6: 62 -> 102
-          {std::unordered_set<Val*>{getParentId(tv6->axis(0), 1)}, id102},
-          // tv6: 63 -> 103
-          {std::unordered_set<Val*>{tv6->axis(2)}, id103},
-          // tv6: 64 -> 117
-          {std::unordered_set<Val*>{tv6->axis(0)}, id117},
-          // tv6: 65 -> 118
-          {std::unordered_set<Val*>{tv6->axis(1)}, id118},
-          // tv8: 57 -> 107
-          {std::unordered_set<Val*>{getParentId(tv8->axis(0), 1)}, id107},
-          // tv8: 58 -> 108
-          {std::unordered_set<Val*>{tv8->axis(2)}, id108},
-          // tv8: 59 -> 125
-          {std::unordered_set<Val*>{tv8->axis(0)}, id125},
-          // tv8: 60 -> 126
-          {std::unordered_set<Val*>{tv8->axis(1)}, id126},
-          // tv9: 31 -> 121
-          {std::unordered_set<Val*>{getParentId(tv9->axis(0), 1)}, id121},
-          // tv9: 32 -> 122
-          {std::unordered_set<Val*>{tv9->axis(2)}, id122},
-          // tv9: 33 -> 131
-          {std::unordered_set<Val*>{tv9->axis(0)}, id131},
-          // tv9: 34 -> 132
-          {std::unordered_set<Val*>{tv9->axis(1)}, id132}};
+          // tv1: 71 -> 102
+          {std::unordered_set<Val*>{getParentId(tv1->axis(0), 1)}, id102},
+          // tv1: 72 -> 103
+          {std::unordered_set<Val*>{tv1->axis(2)}, id103},
+          // tv1: 73 -> 117
+          {std::unordered_set<Val*>{tv1->axis(0)}, id117},
+          // tv1: 74 -> 118
+          {std::unordered_set<Val*>{tv1->axis(1)}, id118},
+          // tv2: 47 -> 106
+          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id106},
+          // tv2: 48 -> 107
+          {std::unordered_set<Val*>{tv2->axis(2)}, id107},
+          // tv2: 49 -> 121
+          {std::unordered_set<Val*>{tv2->axis(0)}, id121},
+          // tv2: 50 -> 122
+          {std::unordered_set<Val*>{tv2->axis(1)}, id122},
+          // tv4: 42 -> 119
+          {std::unordered_set<Val*>{getParentId(tv4->axis(0), 1)}, id119},
+          // tv4: 43 -> 120
+          {std::unordered_set<Val*>{tv4->axis(2)}, id120},
+          // tv4: 44 -> 137
+          {std::unordered_set<Val*>{tv4->axis(0)}, id137},
+          // tv4: 45 -> 138
+          {std::unordered_set<Val*>{tv4->axis(1)}, id138},
+          // tv5: 37 -> 135
+          {std::unordered_set<Val*>{getParentId(tv5->axis(0), 1)}, id135},
+          // tv5: 38 -> 136
+          {std::unordered_set<Val*>{tv5->axis(2)}, id136},
+          // tv5: 39 -> 143
+          {std::unordered_set<Val*>{tv5->axis(0)}, id143},
+          // tv5: 40 -> 144
+          {std::unordered_set<Val*>{tv5->axis(1)}, id144},
+          // tv6: 62 -> 110
+          {std::unordered_set<Val*>{getParentId(tv6->axis(0), 1)}, id110},
+          // tv6: 63 -> 111
+          {std::unordered_set<Val*>{tv6->axis(2)}, id111},
+          // tv6: 64 -> 125
+          {std::unordered_set<Val*>{tv6->axis(0)}, id125},
+          // tv6: 65 -> 126
+          {std::unordered_set<Val*>{tv6->axis(1)}, id126},
+          // tv8: 57 -> 115
+          {std::unordered_set<Val*>{getParentId(tv8->axis(0), 1)}, id115},
+          // tv8: 58 -> 116
+          {std::unordered_set<Val*>{tv8->axis(2)}, id116},
+          // tv8: 59 -> 133
+          {std::unordered_set<Val*>{tv8->axis(0)}, id133},
+          // tv8: 60 -> 134
+          {std::unordered_set<Val*>{tv8->axis(1)}, id134},
+          // tv9: 31 -> 129
+          {std::unordered_set<Val*>{getParentId(tv9->axis(0), 1)}, id129},
+          // tv9: 32 -> 130
+          {std::unordered_set<Val*>{tv9->axis(2)}, id130},
+          // tv9: 33 -> 139
+          {std::unordered_set<Val*>{tv9->axis(0)}, id139},
+          // tv9: 34 -> 140
+          {std::unordered_set<Val*>{tv9->axis(1)}, id140}};
 
   checkStep4Results(
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
@@ -1454,7 +1556,12 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   auto all_tvs = ir_utils::allTvs(&fusion);
 
+  fusion.printMath();
+  fusion.print();
+
   IdModelTester tester(&fusion);
+
+  tester.print(std::cerr);
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
@@ -1475,7 +1582,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       default:
@@ -1487,9 +1594,12 @@ TEST_F(IdModelTest, LoopPromotion7) {
       &fusion,
       tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
       tester.s2_iel_promotion_map);
 
   auto id8 = getChildIdByName(tv4->getRootDomain().at(0), 8);
+  auto id23 = getChildIdByName(id8, 23);
+  auto id24 = getChildIdByName(id8, 24);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
@@ -1504,39 +1614,39 @@ TEST_F(IdModelTest, LoopPromotion7) {
                tv4->getRootDomain().at(1),
                id8},
            id8},
-          // 17, 15, 9 -> 9
-          {std::unordered_set<Val*>{tv2->axis(0), tv3->axis(0), tv4->axis(0)},
+          // 9, 15, 17, 23 -> 9
+          {std::unordered_set<Val*>{tv2->axis(0), tv3->axis(0), tv4->axis(0), id23},
            tv4->axis(0)},
-          // 16 -> 10
-          {std::unordered_set<Val*>{tv3->axis(1)}, tv4->axis(1)}};
+          // 16, 24 -> 24
+          {std::unordered_set<Val*>{tv3->axis(1), id24}, id24}};
 
   checkStep3Results(
       tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
 
   // For tv2
-  auto id26 = getChildIdByName(id8, 26);
-  auto id27 = getChildIdByName(id8, 27);
-  auto id34 = getChildIdByName(id27, 34);
-  auto id35 = getChildIdByName(id27, 35);
+  auto id28 = getChildIdByName(id8, 28);
+  auto id29 = getChildIdByName(id8, 29);
+  auto id36 = getChildIdByName(id29, 36);
+  auto id37 = getChildIdByName(id29, 37);
 
   // For tv3
-  auto id30 = getChildIdByName(id8, 30);
-  auto id31 = getChildIdByName(id8, 31);
+  auto id32 = getChildIdByName(id8, 32);
+  auto id33 = getChildIdByName(id8, 33);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv2: 17 -> 26
-          {std::unordered_set<Val*>{tv2->axis(0)}, id26},
-          // tv2: 18 -> 27
-          {std::unordered_set<Val*>{getParentId(tv2->axis(1), 1)}, id27},
-          // tv2: 21 -> 34
-          {std::unordered_set<Val*>{tv2->axis(1)}, id34},
-          // tv2: 22 -> 35
-          {std::unordered_set<Val*>{tv2->axis(2)}, id35},
-          // tv3: 15 -> 26
-          {std::unordered_set<Val*>{tv3->axis(0)}, id30},
-          // tv3: 16 -> 27
-          {std::unordered_set<Val*>{tv3->axis(1)}, id31},
+          // tv2: 17 -> 28
+          {std::unordered_set<Val*>{tv2->axis(0)}, id28},
+          // tv2: 18 -> 29
+          {std::unordered_set<Val*>{getParentId(tv2->axis(1), 1)}, id29},
+          // tv2: 21 -> 36
+          {std::unordered_set<Val*>{tv2->axis(1)}, id36},
+          // tv2: 22 -> 37
+          {std::unordered_set<Val*>{tv2->axis(2)}, id37},
+          // tv3: 15 -> 32
+          {std::unordered_set<Val*>{tv3->axis(0)}, id32},
+          // tv3: 16 -> 33
+          {std::unordered_set<Val*>{tv3->axis(1)}, id33},
       };
 
   checkStep4Results(
@@ -1609,7 +1719,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
             tv->getRootDomain().at(0),
             tv7->getRootDomain().at(0),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       case 5:
@@ -1620,7 +1730,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
             tv->getRootDomain().at(2),
             tv7->getRootDomain().at(2),
             tester.iel_graph,
-            tester.idGraph(IdMappingMode::EXACT),
+            tester,
             tester.s1_root_resolution_map);
         break;
       default:
@@ -1632,6 +1742,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
       &fusion,
       tester.iel_graph,
       tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
       tester.s2_iel_promotion_map);
 
   auto id29 = getParentId(tv7->axis(0), 1);
@@ -1713,6 +1824,63 @@ TEST_F(IdModelTest, LoopPromotion8) {
 
   checkStep4Results(
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+}
+
+TEST_F(IdModelTest, LoopPromotionProjectToSameLoopGroup) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv2, tv1);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  // for (auto tv: {tv1, tv2, tv3, tv4}) {
+  for (auto tv : {tv4, tv3, tv2, tv1}) {
+    tv->split(1, 4);
+    tv->split(0, 4);
+    tv->merge(0, 2);
+    tv->merge(1, 2);
+  }
+
+  tv0->split(0, 4);
+
+  for (auto tv : {tv0, tv1, tv2, tv3}) {
+    tv->inlineAt(1);
+  }
+
+  fusion.printMath();
+  fusion.print();
+
+  IdModelTester tester(&fusion);
+
+  std::cerr << "Loop graph:\n";
+  for (const auto& g :
+       tester.idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    std::cerr << nvfuser::toString(g) << std::endl;
+  }
+
+  std::cerr << "Step 1 results:\n";
+  for (const auto& [g, id] : tester.s1_root_resolution_map) {
+    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+  }
+  std::cerr << "Step 2 results:\n";
+  for (const auto& [g, id] : tester.s2_iel_promotion_map) {
+    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+  }
+  std::cerr << "Step 3 results:\n";
+  for (const auto& [g, id] : tester.s3_loop_promotion_map) {
+    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+  }
+  std::cerr << "Step 4 results:\n";
+  for (const auto& [g, id] : tester.s4_iel_promotion_map) {
+    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
+  }
 }
 
 namespace {
