@@ -307,7 +307,7 @@ $\square$
 The answer is yes if and only if the split size divide the extent of the inner IterDomain of the merge.
 
 If we merge discontiguous IterDomains then do a split that does not divide the inner extent,
-we will end up iterating the tensor like schedule 2 in the [above example](#merge-then-split-vs-split-then-merge).
+we will end up iterating the tensor like transformation 2 in the [above example](#merge-then-split-vs-split-then-merge).
 From the Listing 2 there, we see that after `T[0, 4]`, we should be accessing `T[1, 0]`,
 which is not contiguous to `T[0, 4]` in memory.
 However, vectorization and TMA can only access memory contiguously.
