@@ -1337,15 +1337,20 @@ void verifyMmaOpForEvaluation(
       tv_a->nDims());
 
   NVF_ERROR(
-      tv_b->getRootDomain().front()->isBroadcast(),
-      "Expected first dimension to be broadcasted for second operand.");
-
-  NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
   NVF_ERROR(
       in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
+        
+  NVF_ERROR(
+      tv_a->getRootDomain().back()->isBroadcast() || tv_a->getRootDomain()[1]->isBroadcast(),
+      "Expected middle/last dimension to be broadcasted for first operand.");
+
+  NVF_ERROR(
+      tv_b->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
 
   // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
   // outputs. To preserve numerical equivalence and precision, the output of
@@ -1448,7 +1453,7 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
 
   // Check if bias was broadcasted
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
-  if (bcast != nullptr) { // mma_lhs is broadcasted
+  if (bcast != nullptr) {
     // Bias of shape [M, 1]
     matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
