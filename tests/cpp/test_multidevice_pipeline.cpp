@@ -582,7 +582,6 @@ INSTANTIATE_TEST_SUITE_P(
         SchedulingMode::ReductionOnly,
         SchedulingMode::Automatic));
 
-// option = is output sharded
 class DistributedMatmul : public MultiDeviceTest {
  protected:
   DistributedMatmul() : optimization_guard_(false) {
@@ -760,7 +759,7 @@ TEST_F(DistributedMatmul, LayoutNT_AllReduce) {
   DeviceMesh mesh = createDeviceMesh();
 
   // Note: Manually split K into Ko(device dim), Ki until split supported.
-  int M = 64, N = 32, K = 64;
+  int M = 1024, N = 512, K = 256;
   int Ko = num_devices, Ki = K / Ko;
   std::vector<int> a_shape = {Ko, Ki, M};
   std::vector<int> b_shape = {Ko, Ki, N};
@@ -819,7 +818,7 @@ TEST_F(DistributedMatmul, LayoutNT_ReduceScatter) {
   DeviceMesh mesh = createDeviceMesh();
 
   // Note: Manually split K and M
-  int M = 64, N = 256, K = 512;
+  int M = 1024, N = 512, K = 256;
   int Ko = num_devices, Ki = K / Ko;
   int Mo = num_devices, Mi = M / Mo;
   std::vector<int> a_shape = {Ko, Ki, M};
