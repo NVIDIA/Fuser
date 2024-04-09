@@ -300,7 +300,7 @@ They are therefore equivalent.
 - Q1: Can I merge two discontiguous IterDomains to create a larger IterDomain, and split out a vectorization IterDomain from this larger IterDomain?
 - Q2: In TMA scheduling, can I create the TMA domain by merging two discontiguous IterDomains, and then split out a box?
 
-### Answer
+#### Answer
 
 The answer is yes if and only if the split size divide the extent of the inner IterDomain of the merge.
 
