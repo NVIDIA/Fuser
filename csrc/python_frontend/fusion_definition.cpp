@@ -133,7 +133,7 @@ void FusionDefinition::finalizeSchedule(
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
 #ifdef NVFUSER_DISTRIBUTED
   // TODO: remove when multidevice executor integration is done natively
-  Fusion *fusion = user_sched_->schedule.get();
+  Fusion* fusion = user_sched_->schedule.get();
   std::vector<Val*> fusion_inputs = InputsOf::outputs(fusion->outputs());
   std::vector<Val*> vals = DependencyCheck::getAllValsBetween(
       {fusion_inputs.begin(), fusion_inputs.end()}, fusion->outputs());

@@ -2738,7 +2738,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
-      [](FusionDefinition::SchedOperators& self, const std::vector<int64_t>& devices) {
+      [](FusionDefinition::SchedOperators& self,
+         const std::vector<int64_t>& devices) {
         FUSER_PERF_SCOPE("SchedOperators._create_device_mesh");
         return DeviceMesh(devices);
       },
@@ -2747,7 +2748,9 @@ void initNvFuserPythonBindings(PyObject* module) {
   //! experimental API for multidevice support
   nvf_sched.def(
       "_set_device_mesh",
-      [](FusionDefinition::SchedOperators& self, Tensor tensor, const DeviceMesh& mesh) {
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const DeviceMesh& mesh) {
         FUSER_PERF_SCOPE("SchedOperators._set_device_mesh");
         NVF_CHECK(
             self.validUse(),
