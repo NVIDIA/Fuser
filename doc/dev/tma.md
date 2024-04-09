@@ -97,3 +97,5 @@ the schedule should look like the Figure 3 below:
 Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
 
 #### Define box by compositing
+
+TODO: this documentation is under construction
