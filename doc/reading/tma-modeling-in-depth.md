@@ -129,8 +129,8 @@ TMA-protected IterDomain has the following very important property:
 
 **Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication). $\square$
 
-With the above theorem, we can easily see that, when any of the indices of a TMA-protected IterDomains'
-index goes out of boundary, some partitioned IterDomains' index will also go out of boundary.
+With the above theorem, we can easily see that, when any of the indices of TMA-protected IterDomains
+goes out of boundary, some partitioned IterDomain's index will also go out of boundary.
 Therefore, TMA will use zero to fill these regions.
 That is:
 
