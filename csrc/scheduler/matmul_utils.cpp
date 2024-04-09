@@ -400,12 +400,10 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto roles_map = roles_map_opt.getData();
 
   const mma_utils::MatmulProblemLayoutOpt layout_opt =
-      mma_utils::getMmaLayout(fusion);
+      mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
   NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
   const MmaLayout layout = layout_opt.getData();
 
-  // We should probably have forced MatmulExprEval by now if we detect missing
-  // plugin
   if (matmul_heuristic_plugin::hasPlugin()) {
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
