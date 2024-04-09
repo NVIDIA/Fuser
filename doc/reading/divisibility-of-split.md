@@ -33,7 +33,7 @@ for i0 in range(3):
 
 If the split is divisible, everything is simple and elegant like above.
 However, when splits are indivisible, things start to get complicated.
-For example, let's still consider the `I0` in the example.
+For example, let's still consider the `I0` as an example.
 But this time, we do a `Split(I0, 4)` instead of `Split(I0, 2)`.
 With `Split(I0, 4)`, we will get two IterDomains whose extents are `2` (`ceilDiv(6, 4)`) and `4`.
 These two extents can be think of as two nested loops:
