@@ -73,21 +73,6 @@ class PluginInterface {
   HeuristicFuncPtr func_ = nullptr;
 } plugin;
 
-// TODO: This should probably be in mma_type.cpp
-char dtypeToChar(const DataType& dtype) {
-  if (dtype == DataType::Half) {
-    return 'H';
-  } else if (dtype == DataType::BFloat16) {
-    return 'T';
-  } else if (dtype == DataType::Float) {
-    return 'S';
-  } else if (dtype == DataType::Double) {
-    return 'D';
-  }
-  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
-  return 0;
-}
-
 //! Utility to standardize conversion of MmaLayout to uint8_t
 uint8_t layoutToByte(MmaLayout layout) {
   switch (layout) {
@@ -201,8 +186,9 @@ bool updateMatmulParams(
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
   TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
-  precision[0] = dtypeToChar(a->dtype());
-  precision[2] = dtypeToChar(d->dtype());
+  precision[0] = mma_utils::dtypeToChar(a->dtype());
+  // NOTE: this assumes compute type is Float
+  precision[2] = mma_utils::dtypeToChar(d->dtype());
 
   // Set up problem description
   const ProblemDescription problem{
