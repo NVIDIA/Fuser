@@ -231,23 +231,22 @@ and all the out-of-bound values are filled with a desired filling value.
 
 ### Merge-then-split vs split-then-merge
 
-#### Question
+**Theorem 5:** Suppose that there are two IterDomains `I1` and `I2`,
+the following two combinations of merge and split in Figure 3 are equivalent if and only if the split is divisible
 
-Suppose that there are two IterDomains `I1` and `I2`,
-are the following two combinations of merge and split equivalent?
+![Figure 3: Merge-then-split vs split-then-merge](divisibility-of-split/merge-split.svg)
 
-- **Schedule 1:** `[I1, I2] -- split -> [I1, ceilDiv(I2,N), N] -- merge -> [I1*ceilDiv(I2,N), N]`.
-- **Schedule 2:** `[I1, I2] -- merge -> [I1*I2] -- split -> [ceilDiv(I1*I2,N), N]`.
+<details>
 
-#### Answer
+**<summary>Proof:</summary>**
 
-*If the split is indivisible, the answer is no.*
+*If the split is indivisible, these two transformations are not equivalent.*
 
 We can see this from a simple example where there is a tensor `T[I1, I2]`,
 `I1` has extent `2`, `I2` has extent `5`, and `N` is `4`.
 
-For schedule 1, after schedule, the extents of the leaf domain will be `[2*2, 4]`.
-So for this schedule, we will be iterating the tensor as the following Listing 1:
+For transformation 1, after schedule, the extents of the leaf domain `[I4, I5]` will be `[2*2, 4]`.
+We will be iterating the tensor as the following Listing 1:
 
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
@@ -256,8 +255,8 @@ T[1, 0], T[1, 1], T[1, 2] , T[1, 3]
 T[1, 4], T[1, 5], T[1, 6] , T[1, 7]
 ```
 
-For schedule 2, after schedule, the extents of the leaf domain will be `[3, 4]`.
-So for this schedule, we will be iterating the tensor as as the following Listing 2:
+For transformation 2, after schedule, the extents of the leaf domain `[I4, I5]` will be `[3, 4]`.
+We will be iterating the tensor as as the following Listing 2:
 
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
@@ -267,15 +266,16 @@ T[1, 3], T[1, 4], T[2, 0] , T[2, 1]
 
 They are clearly not equivalent.
 
-*If the split is divisible then the answer is yes.*
+*If the split is divisible, the two transformations are equivalent.*
 
-Let's say the extents of `I1` and `I2` are $N_1$ and $N_2$.
+Let's say the extents of `I1` and `I2` are $N_1$ and $N_2$, and the split size is $N$.
 Being divisible means $N$ divide $N_2$.
 
-The extent of the first dimension of schedule 1 is then $N_1 \times (N_2 \div N)$,
-which is the same as the extent of the first dimension in schedule 2 $(N_1 \times N_2) \div N$.
+The extent of `I4` of transformation 1 is $N_1 \times (N_2 \div N)$,
+which is the same as the extent of the `I4` in transformation 2 $(N_1 \times N_2) \div N$.
+The extents of `I5` transformations 1 and 2 are all $N$.
 
-Assume the leaf indices are $i$ and $j$.
+Assume the indices of `I4` and `I5` are $i$ and $j$.
 
 In schedule 1, the indices of `I1` and `I2` are
 $i/(N_2 / N)$ and $i \mathbin{\\%} (N_2 / N) \times N + j$.
@@ -292,6 +292,9 @@ $$(i \times N + j) \mathbin{\\%} N_2 = (i \times N) \mathbin{\\%} N_2  + j$$
 
 We can see that `I1` and `I2` has both the same extent and the same indices.
 They are therefore equivalent.
+$\square$
+
+</details>
 
 ### Merging discontiguous IterDomains
 
