@@ -20,7 +20,7 @@ namespace nvfuser {
 
 namespace hir {
 
-ExecutableUnit::ExecutableUnit(IrBuilderPasskey passkey,
+HostUnit::HostUnit(IrBuilderPasskey passkey,
                              std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion))
 {
@@ -34,12 +34,12 @@ ExecutableUnit::ExecutableUnit(IrBuilderPasskey passkey,
     //               [this](auto val) {this->addOutput(val);});
 }
 
-ExecutableUnit::ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner) : Expr(src, ir_cloner), fusion_(std::make_unique<Fusion>(*src->fusion_to_execute())) {}
+HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner) : Expr(src, ir_cloner), fusion_(std::make_unique<Fusion>(*src->fusion_to_execute())) {}
 
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(ExecutableUnit)
+NVFUSER_DEFINE_CLONE_AND_CREATE(HostUnit)
 
-std::string ExecutableUnit::toString(int indent_size) const {
+std::string HostUnit::toString(int indent_size) const {
     int indent_increment = 2;
     std::stringstream ss;
     indent(ss, indent_size) << "Execute the following kernel, taking inputs :{\n";
@@ -58,12 +58,12 @@ std::string ExecutableUnit::toString(int indent_size) const {
 }
 
 // TODO: implement better ?
-std::string ExecutableUnit::toInlineString(int indent_size) const {
+std::string HostUnit::toInlineString(int indent_size) const {
     return toString(indent_size);
 }
 
 // TODO: implement
-bool ExecutableUnit::sameAs(const Statement* other) const {
+bool HostUnit::sameAs(const Statement* other) const {
     return false;
 }
 
@@ -90,12 +90,12 @@ bool StreamIr::sameAs(const Statement* other) const {
 
 
 PostOnStream::PostOnStream(IrBuilderPasskey passkey,
-                            ExecutableUnit* eu,
+                            HostUnit* hu,
                             std::vector<Val*> inputs,
                             std::vector<Val*> outputs)
-    : Expr(passkey, std::move(inputs), std::move(outputs), {eu}) {
-    NVF_ERROR(this->inputs().size() == eu->fusion_to_execute()->inputs().size());
-    NVF_ERROR(this->outputs().size() == eu->fusion_to_execute()->outputs().size());
+    : Expr(passkey, std::move(inputs), std::move(outputs), {hu}) {
+    NVF_ERROR(this->inputs().size() == hu->fusion_to_execute()->inputs().size());
+    NVF_ERROR(this->outputs().size() == hu->fusion_to_execute()->outputs().size());
     // TODO: harden the assert checks
     // for (int i : c10::irange(inputs.size())) {
     //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));

@@ -15,22 +15,22 @@ namespace nvfuser {
 
 namespace hir {
 
-class NVF_API ExecutableUnit : public Expr {
+class NVF_API HostUnit : public Expr {
   public:
   using Expr::Expr;
-  ExecutableUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
-  ExecutableUnit(const ExecutableUnit* src, IrCloner* ir_cloner);
+  HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
+  HostUnit(const HostUnit* src, IrCloner* ir_cloner);
 
-  ExecutableUnit(const ExecutableUnit& other) = delete;
-  ExecutableUnit& operator=(const ExecutableUnit& other) = delete;
-  ExecutableUnit(ExecutableUnit&& other) = delete;
-  ExecutableUnit& operator=(ExecutableUnit&& other) = delete;
+  HostUnit(const HostUnit& other) = delete;
+  HostUnit& operator=(const HostUnit& other) = delete;
+  HostUnit(HostUnit&& other) = delete;
+  HostUnit& operator=(HostUnit&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   virtual const char* getOpString() const override {
-    return "hir::ExecutableUnit";
+    return "hir::HostUnit";
   }
 
   bool sameAs(const Statement* other) const override;
@@ -62,7 +62,7 @@ class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
   PostOnStream(IrBuilderPasskey passkey,
-               ExecutableUnit* eu,
+               HostUnit* hu,
                std::vector<Val*> inputs,
                std::vector<Val*> outputs);
 
@@ -81,8 +81,8 @@ class NVF_API PostOnStream : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  ExecutableUnit* executableUnit() {
-    return attributes_.at(0)->as<ExecutableUnit>();
+  HostUnit* hostUnit() {
+    return attributes_.at(0)->as<HostUnit>();
   }
 };
 

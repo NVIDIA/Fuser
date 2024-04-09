@@ -47,13 +47,13 @@ TEST_P(HostIrTest, SingleFusion) {
   fusion->addOutput(tv2);
 
   FusionGuard::setCurFusion(hic.get());
-  auto eu = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto hu = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
 
   IrCloner ir_cloner(hic.get());
 
-  std::vector<Val*> post_inputs = {ir_cloner.clone(eu->fusion_to_execute()->inputs().at(0))};
-  std::vector<Val*> post_outputs = {ir_cloner.clone(eu->fusion_to_execute()->outputs().at(0))};
-  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu, std::move(post_inputs), std::move(post_outputs));
+  std::vector<Val*> post_inputs = {ir_cloner.clone(hu->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs = {ir_cloner.clone(hu->fusion_to_execute()->outputs().at(0))};
+  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu, std::move(post_inputs), std::move(post_outputs));
 
   hic->top_level_exprs.push_back(post);
 
@@ -101,16 +101,16 @@ TEST_P(HostIrTest, TwoFusions) {
   FusionGuard::setCurFusion(hic.get());
   IrCloner ir_cloner(hic.get());
 
-  auto eu_0 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
-  auto eu_1 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
+  auto hu_0 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
+  auto hu_1 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
 
-  std::vector<Val*> post_inputs_0 = {ir_cloner.clone(eu_0->fusion_to_execute()->inputs().at(0))};
-  std::vector<Val*> post_outputs_0 = {ir_cloner.clone(eu_0->fusion_to_execute()->outputs().at(0))};
-  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_0, std::move(post_inputs_0), post_outputs_0);
+  std::vector<Val*> post_inputs_0 = {ir_cloner.clone(hu_0->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs_0 = {ir_cloner.clone(hu_0->fusion_to_execute()->outputs().at(0))};
+  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_0, std::move(post_inputs_0), post_outputs_0);
 
   auto& post_inputs_1 = post_outputs_0;
-  std::vector<Val*> post_outputs_1 = {ir_cloner.clone(eu_1->fusion_to_execute()->outputs().at(0))};
-  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_1, std::move(post_inputs_1), post_outputs_1);
+  std::vector<Val*> post_outputs_1 = {ir_cloner.clone(hu_1->fusion_to_execute()->outputs().at(0))};
+  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_1, std::move(post_inputs_1), post_outputs_1);
 
 
   hic->top_level_exprs.push_back(post_0);
@@ -176,21 +176,21 @@ TEST_P(HostIrTest, ThreeFusions) {
       return ret;
     };
 
-  auto eu_0 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
-  auto eu_1 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
-  auto eu_2 = IrBuilder::create<ExecutableUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_2));
+  auto hu_0 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
+  auto hu_1 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
+  auto hu_2 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_2));
 
   std::vector<Val*> post_inputs_0 = clone({tv0_0});
   std::vector<Val*> post_outputs_0 = clone({tv1_0, tv2_0});
-  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_0, std::move(post_inputs_0), post_outputs_0);
+  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_0, std::move(post_inputs_0), post_outputs_0);
 
   std::vector<Val*> post_inputs_1 = {post_outputs_0.at(0)};
   std::vector<Val*> post_outputs_1 = clone({tv2_1});
-  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_1, std::move(post_inputs_1), post_outputs_1);
+  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_1, std::move(post_inputs_1), post_outputs_1);
 
   std::vector<Val*> post_inputs_2 = {post_outputs_0.at(1), post_outputs_1.at(0)};
   std::vector<Val*> post_outputs_2= clone({tv2_2});
-  auto post_2 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), eu_2, std::move(post_inputs_2), post_outputs_2);
+  auto post_2 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_2, std::move(post_inputs_2), post_outputs_2);
 
   hic->top_level_exprs.push_back(post_0);
   hic->top_level_exprs.push_back(post_1);

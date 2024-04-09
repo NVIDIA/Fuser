@@ -62,7 +62,7 @@ void HostIrExecutor::handle(PostOnStream* post) {
   if (params_.use_fusion_executor_cache) {
     fec_.try_emplace(
         post,
-        std::make_unique<Fusion>(*post->executableUnit()->fusion_to_execute()),
+        std::make_unique<Fusion>(*post->hostUnit()->fusion_to_execute()),
         0,
         !params_.skip_auto_scheduling);
     outputs = fec_.at(post).runFusionWithInputs(input_IValues);
@@ -71,7 +71,7 @@ void HostIrExecutor::handle(PostOnStream* post) {
     auto& fe = it->second;
     if (has_emplaced) {
       fe.compileFusion(
-          post->executableUnit()->fusion_to_execute(), input_IValues);
+          post->hostUnit()->fusion_to_execute(), input_IValues);
     }
     outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
