@@ -134,9 +134,9 @@ void FusionDefinition::finalizeSchedule(
 #ifdef NVFUSER_DISTRIBUTED
   // TODO: remove when multidevice executor integration is done natively
   Fusion *fusion = user_sched_->schedule.get();
-  std::vector<Val*> inputs = InputsOf::outputs(fusion->outputs());
+  std::vector<Val*> fusion_inputs = InputsOf::outputs(fusion->outputs());
   std::vector<Val*> vals = DependencyCheck::getAllValsBetween(
-      {inputs.begin(), inputs.end()}, fusion->outputs());
+      {fusion_inputs.begin(), fusion_inputs.end()}, fusion->outputs());
   static Communicator* comm = new Communicator();
   if (std::any_of(vals.begin(), vals.end(), [](Val* v) {
         return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
