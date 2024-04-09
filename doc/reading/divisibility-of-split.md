@@ -227,7 +227,7 @@ and there is no error raise in the kernel.
 **Definition 2:** A schedule/lowering strategy is strongly correct if all the in-bound items in the consumer's allocation domain are filled with the correct value,
 and all the out-of-bound values are filled with a desired filling value.
 
-## Case studies
+## Properties of split
 
 ### Merge-then-split vs split-then-merge
 
