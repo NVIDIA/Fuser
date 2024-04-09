@@ -146,4 +146,3 @@ An example of strong correctness is shown in the following Figure 3:
 
 In this figure, `I2` and `I7` are the only IterDomains that could run out of boundary,
 they are both TMA-protected. So we can achieve strong correctness.
-
