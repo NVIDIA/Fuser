@@ -67,12 +67,12 @@ inline std::optional<MmaMacro> getMmaOp(
   return std::nullopt;
 }
 
-//! A wrapper for core heuristics initialization
+//! A wrapper for core heuristics initialization.
+//! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const MmaMacro& mma_op,
     const ProblemShape& problem_shape) {
-  const GemmTile instruction_tile = getMmaOpShape(mma_op);
+  const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
 
@@ -118,13 +118,12 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
   // stages and async mem copy
   {
     // NOTE: compilation errors when async is enabled on Turing devices
-    if (isAmpere(mma_op)) {
+    if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
       params->async_gmem_load_operands = true;
@@ -386,25 +385,19 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
   NVF_ERROR(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
-
-  // Populate heuristic details
-  auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
-  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
-
-  // Disable magic zero for matmul kernels
-  params->cparams.enable_magic_zero = false;
+  params->mma_macro = mma_op.value();
 
   const auto& roles_map_opt =
       mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 
-  const mma_utils::MatmulProblemLayoutOpt layout_opt =
-      mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
-  NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
-  const MmaLayout layout = layout_opt.getData();
-
   if (matmul_heuristic_plugin::hasPlugin()) {
+    const mma_utils::MatmulProblemLayoutOpt layout_opt =
+        mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
+    NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
+    const MmaLayout layout = layout_opt.getData();
+
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
         *params,
@@ -419,7 +412,13 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+    // Populate heuristic details
+    auto status = initCoreHeuristics(params, problem_shape);
+    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
+
+  // Disable magic zero for matmul kernels
+  params->cparams.enable_magic_zero = false;
 
   // Set whether to use shared memory for epilogue
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
