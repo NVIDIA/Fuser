@@ -2159,8 +2159,15 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
+  if (isCompilationSkipped()) {
+    return serde::CreateFusionExecutorDirect(
+      builder,
+      isCompilationSkipped());
+  }
+
   return serde::CreateFusionExecutorDirect(
       builder,
+      isCompilationSkipped(),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
@@ -2306,6 +2313,14 @@ void FusionExecutor::deserialize(
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+
+  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we skip compilation?
+  if (buffer->is_compilation_skipped()) {
+    fusion_ = std::make_unique<Fusion>(*fusion);
+    NVF_ERROR(!isCompiled() && isCompilationSkipped(), "Failed to deserialize FusionExecutor");
+    return;
+  }
+
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),
       "Expected given fusion_id to match serde fusion_id.");
@@ -2364,7 +2379,7 @@ void FusionExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
+  NVF_ERROR(isCompiled() && !isCompilationSkipped(), "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
