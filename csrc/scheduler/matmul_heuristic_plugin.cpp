@@ -21,16 +21,16 @@ namespace matmul_heuristic_plugin {
 
 namespace {
 
-//! Defines HeuristicFuncPtr as type of the "getConfig" symbol
-typedef void (*HeuristicFuncPtr)(KernelConfig*, const ProblemDescription*);
+//! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
+typedef std::unique_ptr<KernelConfig> (*ConfigFactoryFuncPtr)();
 
-thread_local class PluginInterface {
+thread_local class PluginInterface : NonCopyable {
  public:
   PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
     if (filepath_ != nullptr) {
-      handle_ = dlopen(filepath_, RTLD_LAZY);
+      library_handle_ = dlopen(filepath_, RTLD_LAZY);
       NVF_CHECK(
-          handle_ != nullptr,
+          library_handle_ != nullptr,
           "Error occurred when loading matmul heuristic plugin ",
           filepath_,
           ". Error msg: ",
@@ -39,38 +39,36 @@ thread_local class PluginInterface {
   }
 
   bool available() const {
-    return handle_ != nullptr;
+    return library_handle_ != nullptr;
   }
 
   ~PluginInterface() {
-    if (handle_ != nullptr) {
-      dlclose(handle_);
+    if (library_handle_ != nullptr) {
+      dlclose(library_handle_);
     }
   }
 
-  void getConfig(KernelConfig* config, const ProblemDescription* problem) {
+  std::unique_ptr<KernelConfig> makeConfig() {
     NVF_ERROR(available());
 
-    if (func_ == nullptr) {
-      func_ = (HeuristicFuncPtr)dlsym(handle_, "getConfig");
+    if (factory_func_ptr_ == nullptr) {
+      factory_func_ptr_ =
+          (ConfigFactoryFuncPtr)dlsym(library_handle_, "makeConfig");
       NVF_CHECK(
-          func_ != nullptr,
-          "Failed to load symbol \"getConfig\" from plugin file ",
+          factory_func_ptr_ != nullptr,
+          "Failed to load symbol \"makeConfig\" from plugin file ",
           filepath_,
           ". Error message: ",
           dlerror());
     }
 
-    NVF_ERROR(config != nullptr);
-    NVF_ERROR(problem != nullptr);
-
-    (*func_)(config, problem);
+    return (*factory_func_ptr_)();
   }
 
  private:
   char* filepath_ = nullptr;
-  void* handle_ = nullptr;
-  HeuristicFuncPtr func_ = nullptr;
+  void* library_handle_ = nullptr;
+  ConfigFactoryFuncPtr factory_func_ptr_ = nullptr;
 } plugin;
 
 //! Utility to standardize conversion of MmaLayout to uint8_t
@@ -93,84 +91,6 @@ uint8_t layoutToByte(MmaLayout layout) {
 uint8_t layoutToByte(MmaLayout layout);
 
 } // namespace
-
-struct ProblemDescription {
-  uint32_t m;
-  uint32_t n;
-  uint32_t k;
-  uint32_t batch_size;
-  // layout is in row-major and takes values 0 thru 3 in order NN NT TN TT
-  uint8_t layout;
-  const char* precision; // e.g. HSH, TST, HSS, etc.
-};
-uint32_t getProblemM(const ProblemDescription* problem) {
-  return problem->m;
-}
-uint32_t getProblemN(const ProblemDescription* problem) {
-  return problem->n;
-}
-uint32_t getProblemK(const ProblemDescription* problem) {
-  return problem->k;
-}
-uint32_t getProblemBatchSize(const ProblemDescription* problem) {
-  return problem->batch_size;
-}
-uint8_t getProblemLayout(const ProblemDescription* problem) {
-  return problem->layout;
-}
-const char* getProblemPrecision(const ProblemDescription* problem) {
-  return problem->precision;
-}
-
-struct KernelConfig {
-  using Tile = std::array<uint16_t, 3>;
-  Tile cta_tile;
-  Tile warp_tile;
-  Tile instruction_tile;
-  uint16_t splitk_factor;
-  uint8_t load_stages;
-  uint8_t grid_swizzle_factor;
-  uint8_t cta_order; // 0 for row major, 1 for column major
-  bool double_buffer_smem_read;
-  bool rotate_ldmatrix_out_of_main_loop;
-};
-void setCtaTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k) {
-  config->cta_tile[0] = m;
-  config->cta_tile[1] = n;
-  config->cta_tile[2] = k;
-}
-void setWarpTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k) {
-  config->warp_tile[0] = m;
-  config->warp_tile[1] = n;
-  config->warp_tile[2] = k;
-}
-void setInstructionTile(
-    KernelConfig* config,
-    uint16_t m,
-    uint16_t n,
-    uint16_t k) {
-  config->instruction_tile[0] = m;
-  config->instruction_tile[1] = n;
-  config->instruction_tile[2] = k;
-}
-void setSplitKFactor(KernelConfig* config, uint16_t f) {
-  config->splitk_factor = f;
-}
-void setLoadStages(KernelConfig* config, uint8_t s) {
-  config->load_stages = s;
-}
-void setGridSwizzleFactor(KernelConfig* config, uint8_t g) {
-  config->grid_swizzle_factor = g;
-}
-void setCtaOrder(KernelConfig* config, uint8_t o) {
-  config->cta_order = o;
-}
-void setDoubleBufferSmemRead(KernelConfig* config, bool b) {
-  config->double_buffer_smem_read = b;
-}
-void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b) {
-  config->rotate_ldmatrix_out_of_main_loop = b;
-}
 
 bool hasPlugin() {
   return plugin.available();
@@ -198,39 +118,15 @@ bool updateMatmulParams(
   // NOTE: this assumes compute type is Float
   precision[2] = mma_utils::dtypeToChar(d->dtype());
 
-  // Set up problem description
-  const ProblemDescription problem{
-      .m = (uint32_t)m,
-      .n = (uint32_t)n,
-      .k = (uint32_t)k,
-      .batch_size = (uint32_t)batch_size,
-      .layout = layoutToByte(layout),
-      .precision = precision.c_str()};
-
-  KernelConfig config{
-      .cta_tile =
-          {(uint16_t)params.tile_sizes.cta_tile.m,
-           (uint16_t)params.tile_sizes.cta_tile.n,
-           (uint16_t)params.tile_sizes.cta_tile.k},
-      .warp_tile =
-          {(uint16_t)params.tile_sizes.warp_tile.m,
-           (uint16_t)params.tile_sizes.warp_tile.n,
-           (uint16_t)params.tile_sizes.warp_tile.k},
-      .instruction_tile =
-          {(uint16_t)params.tile_sizes.instruction_tile.m,
-           (uint16_t)params.tile_sizes.instruction_tile.n,
-           (uint16_t)params.tile_sizes.instruction_tile.k},
-      .splitk_factor = (uint16_t)params.splitk_factor,
-      .load_stages =
-          (uint8_t)params.double_buffer_options.smem_double_buffer_stage,
-      .grid_swizzle_factor = (uint8_t)params.grid_swizzle_factor,
-      .cta_order = (uint8_t)toUnderlying(params.cta_order),
-      .double_buffer_smem_read =
-          params.double_buffer_options.double_buffer_smem_read,
-      .rotate_ldmatrix_out_of_main_loop =
-          params.rotate_ldmatrix_out_of_main_loop,
-  };
-  plugin.getConfig(&config, &problem);
+  std::unique_ptr<KernelConfig> config = plugin.makeConfig();
+  config->problem.m = (uint32_t)m;
+  config->problem.n = (uint32_t)n;
+  config->problem.k = (uint32_t)k;
+  config->problem.batch_size = (uint32_t)batch_size;
+  config->problem.layout =
+      KernelConfig::ProblemDescription::Layout(layoutToByte(layout));
+  config->problem.precision = precision.c_str();
+  config->configure();
 
   const auto setTile = [](GemmTile& gemm_tile,
                           const KernelConfig::Tile& input) {
@@ -239,21 +135,21 @@ bool updateMatmulParams(
     gemm_tile.k = input[2];
   };
 
-  params.double_buffer_options.smem_double_buffer_stage = config.load_stages;
-  setTile(params.tile_sizes.cta_tile, config.cta_tile);
-  setTile(params.tile_sizes.warp_tile, config.warp_tile);
-  setTile(params.tile_sizes.instruction_tile, config.instruction_tile);
+  params.double_buffer_options.smem_double_buffer_stage = config->load_stages;
+  setTile(params.tile_sizes.cta_tile, config->cta_tile);
+  setTile(params.tile_sizes.warp_tile, config->warp_tile);
+  setTile(params.tile_sizes.instruction_tile, config->instruction_tile);
 
   // Update mma macro if necessary to match instruction tile
   MmaMacroEncode menc(params.mma_macro); // this will record the family
-  menc.m = config.instruction_tile[0]; // update instruction tile size
-  menc.n = config.instruction_tile[1];
-  menc.k = config.instruction_tile[2];
+  menc.m = config->instruction_tile[0]; // update instruction tile size
+  menc.n = config->instruction_tile[1];
+  menc.k = config->instruction_tile[2];
   params.mma_macro = menc; // cast back to uint64_t
 
-  params.splitk_factor = config.splitk_factor;
-  params.grid_swizzle_factor = config.grid_swizzle_factor;
-  switch (config.cta_order) {
+  params.splitk_factor = config->splitk_factor;
+  params.grid_swizzle_factor = config->grid_swizzle_factor;
+  switch (config->cta_order) {
     case 0:
       params.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
       break;
@@ -264,20 +160,20 @@ bool updateMatmulParams(
       NVF_ERROR(
           false,
           "Unrecognized cta_order returned by plugin: ",
-          config.cta_order,
+          config->cta_order,
           ". Expected 0 (row-major) or 1 (column-major)");
   }
   params.double_buffer_options.double_buffer_smem_read =
-      config.double_buffer_smem_read;
+      config->double_buffer_smem_read;
   params.rotate_ldmatrix_out_of_main_loop =
-      config.rotate_ldmatrix_out_of_main_loop;
+      config->rotate_ldmatrix_out_of_main_loop;
 
   // enable double buffering or circular buffering if configured
   params.double_buffer_options.double_buffer_smem_write =
-      config.load_stages > 1;
+      config->load_stages > 1;
 
   // async load only for circular buffering (stages > 2)
-  params.async_gmem_load_operands = config.load_stages > 2;
+  params.async_gmem_load_operands = config->load_stages > 2;
 
   return true;
 }

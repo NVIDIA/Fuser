@@ -6,38 +6,53 @@
  */
 // clang-format on
 #include <scheduler/matmul_heuristic_plugin_api.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <iostream>
+#include <memory>
 
-using nvfuser::matmul_heuristic_plugin::KernelConfig;
-using nvfuser::matmul_heuristic_plugin::ProblemDescription;
+using namespace nvfuser::matmul_heuristic_plugin;
 
 // This example heuristic simply prints the problem description then sets a
 // fixed kernel configuration.
-extern "C" void getConfig(
-    KernelConfig* config,
-    const ProblemDescription* problem) {
-  uint32_t m = getProblemM(problem);
-  uint32_t n = getProblemN(problem);
-  uint32_t k = getProblemK(problem);
-  uint32_t batch_size = getProblemBatchSize(problem);
-  uint8_t layout = getProblemLayout(problem);
-  const char* precision = getProblemPrecision(problem);
+struct MyKernelConfig : KernelConfig {
+ private:
+  void configureImpl() final {
+    std::cout << "Using example heuristic for problem: ";
+    std::cout << " m=" << problem.m << " ";
+    std::cout << " n=" << problem.n << " ";
+    std::cout << " k=" << problem.k << " ";
+    std::cout << " batch_size=" << problem.batch_size << " ";
+    std::cout << " layout=";
+    switch (problem.layout) {
+      case KernelConfig::ProblemDescription::Layout::NN:
+        std::cout << "NN" << std::endl;
+        break;
+      case KernelConfig::ProblemDescription::Layout::NT:
+        std::cout << "NT" << std::endl;
+        break;
+      case KernelConfig::ProblemDescription::Layout::TN:
+        std::cout << "TN" << std::endl;
+        break;
+      case KernelConfig::ProblemDescription::Layout::TT:
+        std::cout << "TT" << std::endl;
+        break;
+    }
+    std::cout << " precision=" << problem.precision << std::endl;
 
-  std::cout << "Example heuristic for problem: ";
-  std::cout << "m=" << m << " ";
-  std::cout << "n=" << n << " ";
-  std::cout << "k=" << k << " ";
-  std::cout << "batch_size=" << batch_size << " ";
-  std::cout << "layout=" << std::to_string(layout) << " ";
-  std::cout << "precision=" << precision << std::endl;
+    cta_tile = {128, 128, 32};
+    warp_tile = {64, 64, 32};
+    instruction_tile = {16, 8, 16};
+    splitk_factor = 2;
+    load_stages = 3;
+    grid_swizzle_factor = 1;
+    cta_order = 0;
+  };
+};
 
-  setCtaTile(config, 128, 128, 32);
-  setWarpTile(config, 64, 64, 32);
-  setInstructionTile(config, 16, 8, 16);
-  setSplitKFactor(config, 2);
-  setLoadStages(config, 3);
-  setGridSwizzleFactor(config, 1);
-  setCtaOrder(config, 0);
+// NVF_API is required to export this function from the plugin
+std::unique_ptr<KernelConfig> makeConfig() {
+  return std::unique_ptr<KernelConfig>(
+      static_cast<KernelConfig*>(new MyKernelConfig));
 }

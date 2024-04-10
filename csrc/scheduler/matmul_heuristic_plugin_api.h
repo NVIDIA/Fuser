@@ -7,7 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <memory>
 
 namespace nvfuser {
 
@@ -15,61 +17,78 @@ namespace matmul_heuristic_plugin {
 
 //! This is intended as a minimal interface for enabling matmul heuristics.
 //! In order to plug in your own custom heuristic, create a dynamic library
-//! that exports a function whose signature matches HeuristicFunc (see below).
+//! defining a subclass of KernelConfig, overriding the `configure` method. This
+//! class does not need to be exported from the dll, but you should export a
+//! std::unique_ptr<KernelConfig> makeConfig() function that returns a
+//! unique_ptr to an object of that type. The `configure` method will be called
+//! on that object by nvfuser in order to fill the correct values in the class.
+//!
 //! If that library is located at /path/to/libfoo.so you can set
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libfoo.so to use the plugin to
 //! determine matmul parameters automatically.
 
-//! This is an opaque type representing the information available to the plugin
-//! to determine the kernel configuration. It can be queried through the getter
-//! functions below
-struct ProblemDescription;
-
-//! Getters for ProblemDescription
-uint32_t getProblemM(const ProblemDescription* problem);
-uint32_t getProblemN(const ProblemDescription* problem);
-uint32_t getProblemK(const ProblemDescription* problem);
-uint32_t getProblemBatchSize(const ProblemDescription* problem);
-//! Explicit mapping for layout:
-//!  0 = NN
-//!  1 = NT
-//!  2 = TN
-//!  3 = TT
-uint8_t getProblemLayout(const ProblemDescription* problem);
-//! String like HSH or TSS indicating input, compute, and accumulate precision
-//! where the letters are mapped to types using the following mapping (case
-//! insensitive):
-//!  B = Int8
-//!  I = Int32
-//!  Q = FP8 (E4M3)
-//!  R = FP8 (E5M2)
-//!  T = BFloat16
-//!  H = Float16
-//!  F = TensorFloat32
-//!  S = Float32
-//!  D = Float64
-//!  C = complex<float>
-//!  Z = complex<double>
-const char* getProblemPrecision(const ProblemDescription* problem);
-
 //! This is the return type of a HeuristicFunc (defined below) implemented in a
 //! plugin. This is used to set values in MatmulParams
-struct KernelConfig;
+struct KernelConfig {
+  //! This is the information available to the plugin to determine the kernel
+  //! configuration.
+  struct ProblemDescription {
+    uint32_t m = -1;
+    uint32_t n = -1;
+    uint32_t k = -1;
+    uint32_t batch_size = -1;
+    //! Explicit integer mapping for layout
+    enum class Layout {
+      NN = 0,
+      NT = 1,
+      TN = 2,
+      TT = 3,
+    };
+    Layout layout = Layout::TN;
+    //! Precision is a string like HSH or TSS indicating input, compute, and
+    //! accumulate precision where the letters are mapped to types using the
+    //! following mapping:
+    //!  B = Int8
+    //!  I = Int32
+    //!  Q = FP8 (E4M3)
+    //!  R = FP8 (E5M2)
+    //!  T = BFloat16
+    //!  H = Float16
+    //!  F = TensorFloat32
+    //!  S = Float32
+    //!  D = Float64
+    //!  C = complex<float>
+    //!  Z = complex<double>
+    //! Note that some of these are not currently supported by nvFuser.
+    const char* precision = "SSS";
+  } problem;
 
-//! Setters for KernelConfig
-void setCtaTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k);
-void setWarpTile(KernelConfig* config, uint16_t m, uint16_t n, uint16_t k);
-void setInstructionTile(
-    KernelConfig* config,
-    uint16_t m,
-    uint16_t n,
-    uint16_t k);
-void setSplitKFactor(KernelConfig* config, uint16_t f);
-void setLoadStages(KernelConfig* config, uint8_t s);
-void setGridSwizzleFactor(KernelConfig* config, uint8_t g);
-void setCtaOrder(KernelConfig* config, uint8_t o);
-void setDoubleBufferSmemRead(KernelConfig* config, bool b);
-void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b);
+  using Tile = std::array<uint16_t, 3>;
+  Tile cta_tile = {1, 1, 1};
+  Tile warp_tile = {1, 1, 1};
+  Tile instruction_tile = {1, 1, 1};
+  uint16_t splitk_factor = 1;
+  uint8_t load_stages = 1;
+  uint8_t grid_swizzle_factor = 0;
+  uint8_t cta_order = 0;
+  bool double_buffer_smem_read = true;
+  bool rotate_ldmatrix_out_of_main_loop = true;
+
+ public:
+  void configure() {
+    configureImpl();
+  }
+
+  // This allows us to use a std::unique_ptr<KernelConfig> and call derived
+  // classes' destructors on deletion.
+  // See
+  // https://clang.llvm.org/extra/clang-tidy/checks/cppcoreguidelines/virtual-class-destructor.html
+  virtual ~KernelConfig() = default;
+
+ private:
+  // This should be overridden to implement the actual heuristic logic
+  virtual void configureImpl() = 0;
+};
 
 } // namespace matmul_heuristic_plugin
 

@@ -9,6 +9,7 @@
 
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
 
 #include <optional>
@@ -16,45 +17,6 @@
 namespace nvfuser {
 
 namespace matmul_heuristic_plugin {
-
-//! This is the information available to the plugin to determine the kernel
-//! configuration. For API stability, these should not be accessed directly when
-//! implementing plugins, but rather through these accessors.
-//! matmul_heuristic_plugin_api.h
-struct NVF_API ProblemDescription;
-NVF_API uint32_t getProblemM(const ProblemDescription* problem);
-NVF_API uint32_t getProblemN(const ProblemDescription* problem);
-NVF_API uint32_t getProblemK(const ProblemDescription* problem);
-NVF_API uint32_t getProblemBatchSize(const ProblemDescription* problem);
-NVF_API uint8_t getProblemLayout(const ProblemDescription* problem);
-NVF_API const char* getProblemPrecision(const ProblemDescription* problem);
-
-//! This is the return type of a HeuristicFunc (defined below) implemented in a
-//! plugin. This is used to set values in MatmulParams. For API stability, these
-//! should not be accessed directly when implementing plugins, but rather
-//! through the accessors defined in matmul_heuristic_plugin_api.h
-struct NVF_API KernelConfig;
-NVF_API void setCtaTile(
-    KernelConfig* config,
-    uint16_t m,
-    uint16_t n,
-    uint16_t k);
-NVF_API void setWarpTile(
-    KernelConfig* config,
-    uint16_t m,
-    uint16_t n,
-    uint16_t k);
-NVF_API void setInstructionTile(
-    KernelConfig* config,
-    uint16_t m,
-    uint16_t n,
-    uint16_t k);
-NVF_API void setSplitKFactor(KernelConfig* config, uint16_t f);
-NVF_API void setLoadStages(KernelConfig* config, uint8_t s);
-NVF_API void setGridSwizzleFactor(KernelConfig* config, uint8_t g);
-NVF_API void setCtaOrder(KernelConfig* config, uint8_t o);
-NVF_API void setDoubleBufferSmemRead(KernelConfig* config, bool b);
-NVF_API void setRotateLdMatrixOutOfMainLoop(KernelConfig* config, bool b);
 
 //! Try to load plugin whose location is provided by the environment variable
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN and return whether or not we succeed.
