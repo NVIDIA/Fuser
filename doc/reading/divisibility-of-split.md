@@ -11,8 +11,10 @@
 
 ## Introduction
 
-In nvFuser, `Split` is an IterDomain expression that partitions the original IterDomain into nested sub-IterDomains,
-where the outer IterDomain iterates over the quotient and the inner IterDomain iterates over the remainder of the original extent divided by the split factor.
+In nvFuser, `Split` is an IterDomain expression that partitions the original IterDomain with extent $N$ into nested sub-IterDomains with extents $N_o$, $N_i$ ($N_o N_i \ge N$),
+where the outer IterDomain iterates over $N_o$ and the inner IterDomain iterates $N_i$.
+Typically, one of $N_o$ and $N_i$ is given by the user, and the other is computed as the `ceilDiv` of $N$ with the given extent.
+The index of the original IterDomain $i$ is computed from the indices of the outputs of split $i_o$ and $i_i$ by $i = i_o \times N_i + i_i$.
 
 For example, suppose that I have an IterDomain `I0` whose extent is `6`.
 It is helpful to think of this IterDomain as the following loop:
