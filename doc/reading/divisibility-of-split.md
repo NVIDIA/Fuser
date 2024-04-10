@@ -142,7 +142,7 @@ $$i_1 < N_0 \div N_2 \implies i_1 < N_1$$
 Consider the Euclidean division $f(x) = x / N_2$, because $N_2 > 0$, $f(x)$ is weakly increasing.
 According to Lemma 2 in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
 (TODO: move this theorem to a md file)
-$$0 \le i_0 \implies 0 \le i_0 / N_2$$
+$$0 \le i_0 \implies f(0) \le f(i_0) \Leftrightarrow 0 \le i_0 / N_2$$
 According to Theorem 2.15 in [Integer Division](../math/integer-division.md),
 $$i_0 / N_2 = (i_1 \times N_2 + i_2) / N_2 = i_1 \times N_2 / N_2 + i_2 / N_2$$
 Because $i_2 < N_2$, we have $i_2 / N_2 = 0$.
