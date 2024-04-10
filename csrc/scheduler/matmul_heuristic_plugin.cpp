@@ -14,6 +14,7 @@
 
 #include <dlfcn.h>
 #include <cstdint>
+#include <mutex>
 
 namespace nvfuser {
 
@@ -24,10 +25,12 @@ namespace {
 //! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
 typedef KernelConfig* (*ConfigFactoryFuncPtr)();
 
-thread_local class PluginInterface : NonCopyable {
+std::mutex plugin_mutex;
+class PluginInterface : NonCopyable {
  public:
   PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
     if (filepath_ != nullptr) {
+      std::lock_guard<std::mutex> lock(plugin_mutex);
       library_handle_ = dlopen(filepath_, RTLD_LAZY);
       NVF_CHECK(
           library_handle_ != nullptr,
@@ -44,7 +47,10 @@ thread_local class PluginInterface : NonCopyable {
 
   ~PluginInterface() {
     if (library_handle_ != nullptr) {
+      std::lock_guard<std::mutex> lock(plugin_mutex);
       dlclose(library_handle_);
+      library_handle_ = nullptr;
+      factory_func_ptr_ = nullptr;
     }
   }
 
@@ -52,6 +58,7 @@ thread_local class PluginInterface : NonCopyable {
     NVF_ERROR(available());
 
     if (factory_func_ptr_ == nullptr) {
+      std::lock_guard<std::mutex> lock(plugin_mutex);
       factory_func_ptr_ =
           (ConfigFactoryFuncPtr)dlsym(library_handle_, "makeConfig");
       NVF_CHECK(
