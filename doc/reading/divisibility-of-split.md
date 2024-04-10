@@ -130,7 +130,7 @@ Then $i_0 = i_1 \times N_2 + i_2$.
 "the indices of `I0` and `I2` are in bound" means $0 \le i_0 < N_0$ and $0 \le i_2 < N_2$.
 
 Because $i_2 \ge 0$,
-$$i_0 < N_0S \implies i_1 \times N_2 < N_0 \implies i_1 < N_0 \div N_2$$
+$$i_0 < N_0 \implies i_1 \times N_2 < N_0 \implies i_1 < N_0 \div N_2$$
 Note that because $N_1 N_2 \ge N_0$, we have $N_0 \div N_2 \le N_1$.
 Therefore,
 $$i_1 < N_0 \div N_2 \implies i_1 < N_1$$
