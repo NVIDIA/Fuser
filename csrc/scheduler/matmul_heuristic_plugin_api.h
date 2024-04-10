@@ -76,7 +76,7 @@ struct KernelConfig {
 
  public:
   // This should be overridden to implement the actual heuristic logic
-  virtual void configure() {}
+  virtual void configure() = 0;
 
   // This allows us to use a std::unique_ptr<KernelConfig> and call derived
   // classes' destructors on deletion.
