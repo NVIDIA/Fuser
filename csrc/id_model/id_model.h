@@ -187,6 +187,8 @@ class IdModel : public PolymorphicBase {
 
   // Helper function for building loop promotion map.
   //
+  // TODO: Update the comment regarding require_loop_mapped_promotion
+  //
   // Propagate promotion mappings from root IEL groups to intermediate
   // and leaf IEL groups by traversing IEL exprs. For each expr, if an
   // input is promoted, the output needs to be promoted too. If
@@ -215,8 +217,7 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& loop_graph,
-      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
-      bool require_loop_mapped_promotion);
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
 
   // Same as the other propagatePromotionsInIELGraph but without loop
   // graph map. This is used for step 2, where there's no loop
