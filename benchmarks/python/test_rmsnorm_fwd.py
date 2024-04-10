@@ -49,6 +49,7 @@ def rmsnorm_fwd_fn(inputs: list):  # [inputs, weights]
 
 
 def rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOBytes computation required since nvFuser outputs (out, rms) differs from baselines (out)
     # Total IO bytes = in_tensor (size, dtype) + weights (size[1], dtype) +
     #       rms_eps (size[0], float) + outputs (size, dtype)
     return int(
@@ -98,6 +99,7 @@ def test_rmsnorm_fwd_baseline_benchmark(
     inputs = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         torch.compile(rmsnorm_fwd_fn) if compile else rmsnorm_fwd_fn,

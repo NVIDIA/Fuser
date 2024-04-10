@@ -68,6 +68,7 @@ def rmsnorm_bwd_fusion(
 
 
 def rmsnorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOBytes computation since nvfuser input/outputs (in_tensor, grad_out, rms, weigts) differ from baselines (out, grad_out)
     # Total IO bytes = in_tensor (size, dtype) + grad_out (size, dtype) + rms_eps(size[0], float) + weights (size[1], dtype) +
     #       grad_in (size, dtype) + grad_weights (size[1], dtype)
     return int(
@@ -128,6 +129,7 @@ def test_rmsnorm_bwd_baseline_benchmark(
     rms_eps = torch.sqrt(squared_mean + 1e-5)
     output = weights * (inputs / rms_eps)
 
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
