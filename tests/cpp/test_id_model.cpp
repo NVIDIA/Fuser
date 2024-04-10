@@ -199,10 +199,12 @@ class IdModelTester : public IdModel {
 void validateIELResolution(
     IterDomain* id,
     IterDomain* ref_id,
-    const ValGraph& iel_graph,
-    const ValGraph& exact_graph,
-    const ValGraph& loop_graph,
+    const IdModelTester& tester,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
+  const auto& iel_graph = tester.iel_graph;
+  const auto& exact_graph = tester.idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = tester.idGraph(IdMappingMode::LOOP);
+
   const auto& iel_group = iel_graph.toGroup(id);
   auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
   if (ref_id != nullptr) {
@@ -225,31 +227,14 @@ void validateIELResolution(
   }
 }
 
-void validateIELResolution(
-    IterDomain* id,
-    IterDomain* ref_id,
-    const ValGraph& iel_graph,
-    const IdModelTester& tester,
-    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
-  validateIELResolution(
-      id,
-      ref_id,
-      iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      iel_promotion_map);
-}
-
 // Check if each domain gets promoted to a proper domain after the
 // Step 2 IEL propagation. It is assumed that the proper promotion is
 // the corresponding domain in the unique consumer tensor, which is
 // the case with most of the test fusions.
-void checkStep2Results(
-    Fusion* fusion,
-    const ValGraph& iel_graph,
-    const ValGraph& exact_graph,
-    const ValGraph& loop_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
+void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
+  const auto& iel_graph = tester.iel_graph;
+  const auto& iel_promotion_map = tester.s2_iel_promotion_map;
+
   auto getPromotedDomain = [&](IterDomain* id) -> IterDomain* {
     if (auto it = iel_promotion_map.find(iel_graph.toGroup(id));
         it != iel_promotion_map.end()) {
@@ -309,23 +294,9 @@ void checkStep2Results(
 
       // p_id should be promoted to c_id
       auto c_id = p2c.at(p_id);
-      validateIELResolution(
-          p_id, c_id, iel_graph, exact_graph, loop_graph, iel_promotion_map);
+      validateIELResolution(p_id, c_id, tester, iel_promotion_map);
     }
   }
-}
-
-void checkStep2Results(
-    Fusion* fusion,
-    const ValGraph& iel_graph,
-    const IdModelTester& tester,
-    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
-  checkStep2Results(
-      fusion,
-      iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      iel_promotion_map);
 }
 
 // Validate the loop promotion map at Step 3. This validation ensures
@@ -335,10 +306,12 @@ void checkStep2Results(
 // deterministically, the resulting map should always be the
 // same. The exact equality helps ensure the determinism as well.
 void checkStep3Results(
-    const ValGraph& loop_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
+    const IdModelTester& tester,
     const std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>&
         ref_promotion_map) {
+  const auto& loop_graph = tester.s3_loop_graph;
+  const auto& loop_promotion_map = tester.s3_loop_promotion_map;
+
   for (const auto& loop_group : loop_graph.disjointValSets().disjointSets()) {
     auto promotion_it = loop_promotion_map.find(loop_group);
     ASSERT_NE(promotion_it, loop_promotion_map.end())
@@ -374,10 +347,11 @@ void checkStep3Results(
 }
 
 void checkStep4Results(
-    const ValGraph& iel_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+    const IdModelTester& tester,
     const std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>&
         ref_promotion_map) {
+  const auto& iel_promotion_map = tester.s4_iel_promotion_map;
+
   EXPECT_EQ(iel_promotion_map.size(), ref_promotion_map.size())
       << "Mismatched Step-4 result map. "
       << "Expected to have " << ref_promotion_map.size()
@@ -752,7 +726,6 @@ TEST_F(IdModelTest, LoopPromotion1) {
     validateIELResolution(
         t2->getRootDomain().at(0),
         t3->getRootDomain().at(0),
-        tester.iel_graph,
         tester,
         tester.s1_root_resolution_map);
 
@@ -768,8 +741,7 @@ TEST_F(IdModelTest, LoopPromotion1) {
             {std::unordered_set<Val*>{t2->axis(0), t3->axis(0)}, t3->axis(0)},
             {std::unordered_set<Val*>{t2->axis(1), t3->axis(1)}, t3->axis(1)}};
 
-    checkStep3Results(
-        tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+    checkStep3Results(tester, s3_reference_map);
 
     ASSERT_TRUE(tester.s4_iel_promotion_map.empty())
         << "No step-4 IEL promotion expected";
@@ -800,14 +772,12 @@ TEST_F(IdModelTest, LoopPromotion2) {
   validateIELResolution(
       t2->getRootDomain().at(0),
       t4->getRootDomain().at(1),
-      tester.iel_graph,
       tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
       t3->getRootDomain().at(0),
       t4->getRootDomain().at(0),
-      tester.iel_graph,
       tester,
       tester.s1_root_resolution_map);
 
@@ -826,8 +796,7 @@ TEST_F(IdModelTest, LoopPromotion2) {
            t4->axis(2)},
           {std::unordered_set<Val*>{t3->axis(0), t4->axis(0)}, t4->axis(0)}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   ASSERT_TRUE(tester.s4_iel_promotion_map.empty())
       << "No step-4 IEL promotion expected";
@@ -867,31 +836,21 @@ TEST_F(IdModelTest, LoopPromotion3) {
   validateIELResolution(
       tv2->getRootDomain().at(1),
       tv3->getRootDomain().at(1),
-      tester.iel_graph,
       tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
       tv2->getRootDomain().at(3),
       nullptr,
-      tester.iel_graph,
       tester,
       tester.s1_root_resolution_map);
 
   // Check Step 2 results
   validateIELResolution(
-      tv2->axis(0),
-      tv3->axis(0),
-      tester.iel_graph,
-      tester,
-      tester.s2_iel_promotion_map);
+      tv2->axis(0), tv3->axis(0), tester, tester.s2_iel_promotion_map);
 
   validateIELResolution(
-      tv2->axis(1),
-      nullptr,
-      tester.iel_graph,
-      tester,
-      tester.s2_iel_promotion_map);
+      tv2->axis(1), nullptr, tester, tester.s2_iel_promotion_map);
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
@@ -905,8 +864,7 @@ TEST_F(IdModelTest, LoopPromotion3) {
                tv3->getRootDomain().at(1)},
            tv3->axis(0)}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   ASSERT_TRUE(tester.s4_iel_promotion_map.empty())
       << "No step-4 IEL promotion expected";
@@ -964,7 +922,6 @@ TEST_F(IdModelTest, LoopPromotion4) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -973,12 +930,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
     }
   }
 
-  checkStep2Results(
-      &fusion,
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      tester.s2_iel_promotion_map);
+  checkStep2Results(&fusion, tester);
 
   auto id10 = getChildIdByName(tv4->getRootDomain()[0], 10);
   auto id13 = getChildIdByName(tv3->getRootDomain()[0], 13);
@@ -1009,8 +961,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
                           // 21, 26 -> 26
                           {std::unordered_set<Val*>{tv2->axis(1), id26}, id26}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   ASSERT_EQ(id10->name(), 10);
   auto id34 = getChildIdByName(id10, 34);
@@ -1024,8 +975,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
                           // 21 -> 35
                           {std::unordered_set<Val*>{tv2->axis(1)}, id35}};
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 // Test root resolution with the same fusion as Indexing1
@@ -1086,7 +1036,6 @@ TEST_F(IdModelTest, LoopPromotion5) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1096,12 +1045,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
   }
 
   // Check Step 2 results
-  checkStep2Results(
-      &fusion,
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      tester.s2_iel_promotion_map);
+  checkStep2Results(&fusion, tester);
 
   auto id19 = getParentId(tv4->axis(0), 3);
   ASSERT_EQ(id19->name(), 19);
@@ -1166,8 +1110,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
            tv4->axis(0)},
       };
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   auto id44 = getChildIdByName(id20, 44);
   auto id45 = getChildIdByName(id20, 45);
@@ -1206,8 +1149,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
           // 31 -> 53
           {std::unordered_set<Val*>{tv3->axis(1)}, id53}};
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 // Test root resolution with the same fusion as Indexing19
@@ -1249,7 +1191,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             tv4->getRootDomain().at(1),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1263,7 +1204,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(2),
             tv9->getRootDomain().at(2),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1275,7 +1215,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             tv8->getRootDomain().at(1),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1289,7 +1228,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
         validateIELResolution(
             tv->getRootDomain().at(1),
             tv5->getRootDomain().at(1),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1298,8 +1236,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
     }
   }
 
-  checkStep2Results(
-      fusion.get(), tester.iel_graph, tester, tester.s2_iel_promotion_map);
+  checkStep2Results(fusion.get(), tester);
 
   // 83 -> 89, 90
   // 89 -> 93, 94
@@ -1411,8 +1348,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
           {std::unordered_set<Val*>{tv9->axis(2), id90}, id90},
       };
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   // For tv1
   auto id102 = getChildIdByName(id84, 102);
@@ -1515,8 +1451,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
           // tv9: 34 -> 140
           {std::unordered_set<Val*>{tv9->axis(1)}, id140}};
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 // Same fusion as NvFuserTest.FusionInlineBroadcastIndexing0
@@ -1569,7 +1504,6 @@ TEST_F(IdModelTest, LoopPromotion7) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv4->getRootDomain().at(0),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1578,12 +1512,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
     }
   }
 
-  checkStep2Results(
-      &fusion,
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      tester.s2_iel_promotion_map);
+  checkStep2Results(&fusion, tester);
 
   auto id8 = getChildIdByName(tv4->getRootDomain().at(0), 8);
   auto id23 = getChildIdByName(id8, 23);
@@ -1608,8 +1537,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
                           // 16, 24 -> 24
                           {std::unordered_set<Val*>{tv3->axis(1), id24}, id24}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   // For tv2
   auto id28 = getChildIdByName(id8, 28);
@@ -1637,8 +1565,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
           {std::unordered_set<Val*>{tv3->axis(1)}, id33},
       };
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 // Same fusion as NvFuserTest.FusionIndexing20
@@ -1709,7 +1636,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
         validateIELResolution(
             tv->getRootDomain().at(0),
             tv7->getRootDomain().at(0),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1720,7 +1646,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
         validateIELResolution(
             tv->getRootDomain().at(2),
             tv7->getRootDomain().at(2),
-            tester.iel_graph,
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1729,12 +1654,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
     }
   }
 
-  checkStep2Results(
-      &fusion,
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      tester.s2_iel_promotion_map);
+  checkStep2Results(&fusion, tester);
 
   // tv7
   auto id14 = tv7->getRootDomain().at(0);
@@ -1809,8 +1729,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
           // 41, 48 -> 48
           {std::unordered_set<Val*>{id41, id48}, id48}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   // tv1
   auto id53 = getChildIdByName(id29, 53);
@@ -1840,8 +1759,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
           {std::unordered_set<Val*>{id41}, id68},
       };
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
@@ -1880,16 +1798,10 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   validateIELResolution(
       tv2->getRootDomain().at(0),
       tv4->getRootDomain().at(0),
-      tester.iel_graph,
       tester,
       tester.s1_root_resolution_map);
 
-  checkStep2Results(
-      &fusion,
-      tester.iel_graph,
-      tester.idGraph(IdMappingMode::EXACT),
-      tester.idGraph(IdMappingMode::LOOP),
-      tester.s2_iel_promotion_map);
+  checkStep2Results(&fusion, tester);
 
   // tv4
   auto id7 = tv4->getRootDomain().at(0);
@@ -1930,8 +1842,7 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
            id13},
           {std::unordered_set<Val*>{id3, id5, id7}, id7}};
 
-  checkStep3Results(
-      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+  checkStep3Results(tester, s3_reference_map);
 
   auto id45 = getChildIdByName(id7, 45);
   auto id46 = getChildIdByName(id7, 46);
@@ -1945,8 +1856,7 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
           {std::unordered_set<Val*>{id31}, id59},
           {std::unordered_set<Val*>{id32}, id60}};
 
-  checkStep4Results(
-      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
+  checkStep4Results(tester, s4_reference_map);
 }
 
 namespace {
