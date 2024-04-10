@@ -218,8 +218,6 @@ void validateIELResolution(
     ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
         << "Promotion of " << id->toString()
         << " not mapped in the loop graph: " << promotion_id->toString();
-    std::cerr << "Validated: " << id->toString() << ", "
-              << promotion_id->toString() << std::endl;
   } else {
     ASSERT_TRUE(iel_promotion_map_it == iel_promotion_map.end())
         << "Promotion should not exist for: " << nvfuser::toString(iel_group)
@@ -347,8 +345,6 @@ void checkStep3Results(
         << "No promotion found for: " << nvfuser::toString(loop_group);
     IterDomain* promotion_id = promotion_it->second;
 
-    std::cerr << "Loop group: " << nvfuser::toString(loop_group) << std::endl;
-
     auto ref_promotion_it = std::find_if(
         ref_promotion_map.begin(),
         ref_promotion_map.end(),
@@ -375,8 +371,6 @@ void checkStep3Results(
         << nvfuser::toString(loop_group)
         << ". Promotion: " << promotion_id->toString();
   }
-
-  std::cerr << "Step 3 validated\n";
 }
 
 void checkStep4Results(
@@ -950,11 +944,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
     tv->inlineAt(-2);
   }
 
-  fusion.printMath();
-
   IdModelTester tester(&fusion);
-
-  tester.print(std::cerr);
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : ir_utils::allTvs(&fusion)) {
@@ -1075,11 +1065,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
 
   auto all_tvs = ir_utils::allTvs(&fusion);
 
-  fusion.printMath();
-
   IdModelTester tester(&fusion);
-
-  tester.print(std::cerr);
 
   // Check Step 1 results
   for (auto tv : all_tvs) {
@@ -1234,8 +1220,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
   fusion->print();
 
   IdModelTester tester(fusion.get());
-
-  tester.print(std::cerr);
 
   auto tv1 = getValByName(all_tvs, 1);
   auto tv2 = getValByName(all_tvs, 2);
@@ -1567,8 +1551,6 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   IdModelTester tester(&fusion);
 
-  tester.print(std::cerr);
-
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
@@ -1708,8 +1690,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
   fusion.print();
 
   IdModelTester tester(&fusion);
-
-  tester.print(std::cerr);
 
   // Verify all tensors with root broadcast have correct resolutions
   for (auto tv : all_tvs) {
@@ -1894,19 +1874,9 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
     tv->inlineAt(1);
   }
 
-  fusion.printMath();
-  fusion.print();
-
   IdModelTester tester(&fusion);
 
-  tester.print(std::cerr);
-
-  std::cerr << "Loop graph:\n";
-  for (const auto& g :
-       tester.idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    std::cerr << nvfuser::toString(g) << std::endl;
-  }
-
+  ASSERT_EQ(tester.s1_root_resolution_map.size(), 1);
   validateIELResolution(
       tv2->getRootDomain().at(0),
       tv4->getRootDomain().at(0),

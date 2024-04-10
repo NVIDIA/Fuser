@@ -953,8 +953,6 @@ Expr* findMatchingExpr(
     if (getenv("NEW") || require_loop_mapped_promotion) {
       if (!loop_graph.disjointExprSets().permissiveAreMapped(
               iel_expr->front(), maybe_promoted_input_use_group->front())) {
-        std::cerr << "Skipping as loop_map required: "
-                  << maybe_promoted_input_use_group->front()->toString();
         continue;
       }
       // This is just an extra sanity check. Make sure all exprs in
@@ -971,14 +969,6 @@ Expr* findMatchingExpr(
           nvfuser::toString(iel_expr),
           "\n",
           nvfuser::toString(maybe_promoted_input_use_group));
-    }
-
-    {
-      std::cerr << "Candidates inputs: ";
-      for (const auto& e : *maybe_promoted_input_use_group) {
-        std::cerr << e->inputs().front()->name() << " ";
-      }
-      std::cerr << " -> " << maybe_promoted_input_use->inputs().front()->name() << std::endl;
     }
 
     return maybe_promoted_input_use;
@@ -1028,16 +1018,10 @@ bool hasUniqueInputLoopGroups(
   ValGroups inp_loop_groups;
   for (const ValGroup& iel_inp_group : iel_inp_groups) {
     inp_loop_groups.pushBack(loop_graph.toGroup(iel_inp_group->front()));
-    std::cerr << "inp: " << nvfuser::toString(iel_inp_group) << ", loop group: "
-              << nvfuser::toString(inp_loop_groups.back())
-              << std::endl;
   }
   ValGroups out_loop_groups;
   for (const ValGroup& iel_out_group : iel_out_groups) {
     out_loop_groups.pushBack(loop_graph.toGroup(iel_out_group->front()));
-    std::cerr << "out: " << nvfuser::toString(iel_out_group) << ", loop group: "
-              << nvfuser::toString(inp_loop_groups.back())
-              << std::endl;
   }
 
   // Check if input groups that are not included in the output group set
@@ -1061,8 +1045,6 @@ void IdModel::propagatePromotionsInIELGraph(
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
 
-    std::cerr <<"Propagating through: " << iel_expr->front()->toString();
-
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
     bool an_input_was_promoted = false;
@@ -1073,8 +1055,6 @@ void IdModel::propagatePromotionsInIELGraph(
     // not in the same loop group.
     const bool loop_promote_inputs = !loop_graph_promotion_map.empty() &&
         hasUniqueInputLoopGroups(iel_expr, iel_graph, loop_graph);
-
-    std::cerr << "loop_promote_inputs: " << loop_promote_inputs << std::endl;
 
     for (const ValGroup& iel_inp_group : iel_inp_groups) {
       // Assumed all inputs are IterDomains
@@ -1107,11 +1087,8 @@ void IdModel::propagatePromotionsInIELGraph(
 
     if (!an_input_was_promoted) {
       // No inputs need promotion so just continue
-      std::cerr << "No input was promoted\n";
       continue;
     }
-
-    std::cerr << "Some input was promoted\n";
 
     Expr* promoted_expr = findMatchingExpr(
         iel_expr,
@@ -1120,16 +1097,11 @@ void IdModel::propagatePromotionsInIELGraph(
         require_loop_mapped_promotion,
         idGraph(IdMappingMode::LOOP));
 
-    if (promoted_expr) {
-      std::cerr << "Reusing: " << promoted_expr->toString();
-    }
-
     bool replayed = false;
 
     if (!promoted_expr) {
       promoted_expr = addReplayAs(maybe_promoted_inputs, iel_expr->front());
       replayed = true;
-      std::cerr << "Replayed: " << promoted_expr->toString();
     }
 
     // Mark outputs as having a promoted iter domain
