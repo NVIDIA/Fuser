@@ -257,12 +257,10 @@ void FusionExecutor::compileFusion(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
   bool skip_compilation = std::all_of(
-    fusion->outputs().begin(),
-    fusion->outputs().end(),
-    [&fusion](Val* out) {
-      return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-    });
-  
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
+
   if (skip_compilation) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
@@ -1707,14 +1705,14 @@ void FusionExecutor::resetCompiledKernelProperties() {
 }
 
 std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
-  KernelArgumentHolder& args,
-  std::vector<at::Tensor> outputs,
-  ExpressionEvaluator& expr_eval) {
-  
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs,
+    ExpressionEvaluator& expr_eval) {
   // TODO: Add relevant profiling code.
   if (outputs.empty()) {
-    for (const auto& out_val: fusion()->outputs()) {
-      auto out_tensor = expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+    for (const auto& out_val : fusion()->outputs()) {
+      auto out_tensor =
+          expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
       outputs.emplace_back(out_tensor);
     }
   }
@@ -1728,13 +1726,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
-  
+
   NVF_ERROR(
-        outputs.empty() || (outputs.size() == fusion()->outputs().size()),
-        __func__,
-        " provided number of outputs does not match fusion output");
-  
-  // Bind fusion inputs 
+      outputs.empty() || (outputs.size() == fusion()->outputs().size()),
+      __func__,
+      " provided number of outputs does not match fusion output");
+
+  // Bind fusion inputs
   ExpressionEvaluator expr_eval;
   const auto& inputs = fusion()->inputs();
   for (const auto i : c10::irange(inputs.size())) {
@@ -2160,9 +2158,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   }
 
   if (isCompilationSkipped()) {
-    return serde::CreateFusionExecutorDirect(
-      builder,
-      isCompilationSkipped());
+    return serde::CreateFusionExecutorDirect(builder, isCompilationSkipped());
   }
 
   return serde::CreateFusionExecutorDirect(
@@ -2314,10 +2310,13 @@ void FusionExecutor::deserialize(
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
-  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we skip compilation?
+  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
+  // skip compilation?
   if (buffer->is_compilation_skipped()) {
     fusion_ = std::make_unique<Fusion>(*fusion);
-    NVF_ERROR(!isCompiled() && isCompilationSkipped(), "Failed to deserialize FusionExecutor");
+    NVF_ERROR(
+        !isCompiled() && isCompilationSkipped(),
+        "Failed to deserialize FusionExecutor");
     return;
   }
 
@@ -2379,7 +2378,9 @@ void FusionExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(isCompiled() && !isCompilationSkipped(), "Failed to deserialize FusionExecutor");
+  NVF_ERROR(
+      isCompiled() && !isCompilationSkipped(),
+      "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
