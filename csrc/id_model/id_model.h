@@ -187,18 +187,17 @@ class IdModel : public PolymorphicBase {
 
   // Helper function for building loop promotion map.
   //
-  // TODO: Update the comment regarding require_loop_mapped_promotion
-  //
   // Propagate promotion mappings from root IEL groups to intermediate
   // and leaf IEL groups by traversing IEL exprs. For each expr, if an
   // input is promoted, the output needs to be promoted too. If
   // there's already an equivalent expr that uses the promoted inputs,
   // create a mapping from the outputs of the IEL expr to the outputs
-  // of the equivalent expr. When require_loop_mapped_promotion is
-  // true, the equivalent expr needs to be already loop mapped. If no
-  // such expr is found, the IEL expr is replayed with the promoted
-  // inputs. require_loop_mapped_promotion is true when this function
-  // is used for step 3.
+  // of the equivalent expr. We only consider exprs that are mapped
+  // in the loop graph as we are looking for domains that represent
+  // the actual loops of the input and output domains of the IEL
+  // expr. If no such expr is found, the IEL expr is replayed with the
+  // promoted inputs. require_loop_mapped_promotion is true when this
+  // function is used for step 3.
   //
   // This is used twice when building the promotion map. The first time
   // it is used there's no loop graph promotion yet, so only the IEL

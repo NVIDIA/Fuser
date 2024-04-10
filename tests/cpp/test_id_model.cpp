@@ -1761,6 +1761,9 @@ TEST_F(IdModelTest, LoopPromotion8) {
   checkStep4Results(tester, s4_reference_map);
 }
 
+// A case to illustrate the effect of the below issue and RR.
+// https://github.com/NVIDIA/Fuser/issues/2027
+// https://github.com/NVIDIA/Fuser/pull/2059
 TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   Fusion fusion;
   FusionGuard fg(&fusion);

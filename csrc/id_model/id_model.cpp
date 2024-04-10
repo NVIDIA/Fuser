@@ -944,11 +944,10 @@ Expr* findMatchingExpr(
       continue;
     }
 
-    // TODO: Update the comment
-    // For the final loop promotion map, we want to find
-    // promotions within the same loop groups. Note that that's
-    // guaranteed when a new domain is replayed instead of reusing an
-    // existing domain.
+    // We always want to find promotions within the same loop
+    // groups since we are looking for domains that represent actual
+    // loops. Note that that's guaranteed when a new domain is
+    // replayed instead of reusing an existing domain.
     if (!loop_graph.disjointExprSets().permissiveAreMapped(
             iel_expr->front(), maybe_promoted_input_use_group->front())) {
       continue;
