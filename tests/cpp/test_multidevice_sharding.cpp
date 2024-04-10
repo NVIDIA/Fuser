@@ -40,6 +40,30 @@ TEST_F(NVFuserTest, TestIsSharded) {
   EXPECT_ANY_THROW(isSharded(c));
 }
 
+TEST_F(NVFuserTest, TestPropagateSharding) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = makeSymbolicTensor(3);
+  TensorView* c = add(a, b);
+
+  DeviceMesh mesh({0, 1, 2});
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDx);
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+  propagateShardings(fusion.get());
+
+  EXPECT_TRUE(mesh == c->getDeviceMesh());
+  EXPECT_TRUE(c->axis(0)->getParallelType() == ParallelType::DIDx);
+  EXPECT_TRUE(c->axis(1)->getParallelType() == ParallelType::Serial);
+  EXPECT_TRUE(c->axis(2)->getParallelType() == ParallelType::Serial);
+}
+
 class ShardedComputeTest : public NVFuserTest,
                            public testing::WithParamInterface<bool> {};
 
