@@ -131,11 +131,13 @@ Then $i_0 = i_1 \times N_2 + i_2$.
 
 *Upper bound:*
 
-Because $i_2 \ge 0$,
-$$i_0 < N_0 \implies i_1 \times N_2 < N_0 \implies i_1 < N_0 \div N_2$$
+Because $i_2 \ge 0$ and $i_0 < N_0 $, we have
+$$i_1 \times N_2 < N_0$$
+which is equivalent to
+$$i_1 < N_0 \div N_2$$
 Note that because $N_1 N_2 \ge N_0$, we have $N_0 \div N_2 \le N_1$.
 Therefore,
-$$i_1 < N_0 \div N_2 \implies i_1 < N_1$$
+$$i_1 < N_1$$
 
 *Lower bound:*
 
