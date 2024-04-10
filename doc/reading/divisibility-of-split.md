@@ -147,7 +147,7 @@ According to Theorem 2.15 in [Integer Division](../math/integer-division.md),
 $$i_0 / N_2 = (i_1 \times N_2 + i_2) / N_2 = (i_1 \times N_2) / N_2 + i_2 / N_2$$
 Because $0 \le i_2 < N_2$, we have $i_2 / N_2 = 0$.
 According to Theorem 2.14 in [Integer Division](../math/integer-division.md),
-$$i_1 \times N_2 / N_2 = i_1 / (N_2 / N_2) = i_1$$
+$$(i_1 \times N_2) / N_2 = i_1 / (N_2 / N_2) = i_1$$
 Therefore
 $$i_0 / N_2 = i_1$$
 Therefore
