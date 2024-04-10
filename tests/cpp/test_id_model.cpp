@@ -1157,9 +1157,6 @@ TEST_F(IdModelTest, LoopPromotion6) {
   FusionGuard fg(fusion.get());
   auto all_tvs = ir_utils::allTvs(fusion.get());
 
-  fusion->printMath();
-  fusion->print();
-
   IdModelTester tester(fusion.get());
 
   auto tv1 = getValByName(all_tvs, 1);
@@ -1480,9 +1477,6 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   auto all_tvs = ir_utils::allTvs(&fusion);
 
-  fusion.printMath();
-  fusion.print();
-
   IdModelTester tester(&fusion);
 
   // Verify all tensors with root broadcast have correct resolutions
@@ -1611,9 +1605,6 @@ TEST_F(IdModelTest, LoopPromotion8) {
   tv5->inlineAt(2);
 
   auto all_tvs = ir_utils::allTvs(&fusion);
-
-  fusion.printMath();
-  fusion.print();
 
   IdModelTester tester(&fusion);
 
@@ -1782,7 +1773,7 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   tv4->split(1, 2);
   // [I0, I1/2, 2]
   tv4->split(0, 8);
-  // [I0/8*I1/2, 8, 2]
+  // [I0/8, 8, I1/2, 2]
   tv4->merge(0, 2);
   // [I0/8*I1/2, 8*2]
   tv4->merge(1, 2);

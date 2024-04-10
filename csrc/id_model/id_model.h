@@ -196,8 +196,7 @@ class IdModel : public PolymorphicBase {
   // in the loop graph as we are looking for domains that represent
   // the actual loops of the input and output domains of the IEL
   // expr. If no such expr is found, the IEL expr is replayed with the
-  // promoted inputs. require_loop_mapped_promotion is true when this
-  // function is used for step 3.
+  // promoted inputs.
   //
   // This is used twice when building the promotion map. The first time
   // it is used there's no loop graph promotion yet, so only the IEL
