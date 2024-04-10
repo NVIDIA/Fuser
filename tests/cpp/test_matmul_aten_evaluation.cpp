@@ -59,11 +59,8 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -97,11 +94,8 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   ASSERT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -134,11 +128,8 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -176,11 +167,8 @@ TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -227,11 +215,8 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlphaBeta) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -278,11 +263,8 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -326,11 +308,8 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that the io_alias_ set has the correct entry
-  kir::Kernel* kernel = executors.front().kernel();
-  EXPECT_EQ(
-      kernel->getOutputAlias(kernel->outputs()[0]).type,
-      AllocationType::Evaluate);
+  // Verify that fusion compilation was skipped.
+  EXPECT_TRUE(executors.front().isCompilationSkipped());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
