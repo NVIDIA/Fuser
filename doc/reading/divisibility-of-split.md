@@ -145,7 +145,7 @@ According to Lemma 2 in `[Simplification of boolean predicates]` in `csrc/expr_s
 $$0 \le i_0 \implies f(0) \le f(i_0) \Leftrightarrow 0 \le i_0 / N_2$$
 According to Theorem 2.15 in [Integer Division](../math/integer-division.md),
 $$i_0 / N_2 = (i_1 \times N_2 + i_2) / N_2 = (i_1 \times N_2) / N_2 + i_2 / N_2$$
-Because $i_2 < N_2$, we have $i_2 / N_2 = 0$.
+Because $0 \le i_2 < N_2$, we have $i_2 / N_2 = 0$.
 According to Theorem 2.14 in [Integer Division](../math/integer-division.md),
 $$i_1 \times N_2 / N_2 = i_1 / (N_2 / N_2) = i_1$$
 Therefore
