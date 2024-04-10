@@ -20,26 +20,26 @@ struct MyKernelConfig : KernelConfig {
  private:
   void configureImpl() final {
     std::cout << "Using example heuristic for problem: ";
-    std::cout << " m=" << problem.m << " ";
-    std::cout << " n=" << problem.n << " ";
-    std::cout << " k=" << problem.k << " ";
-    std::cout << " batch_size=" << problem.batch_size << " ";
-    std::cout << " layout=";
+    std::cout << "m=" << problem.m << " ";
+    std::cout << "n=" << problem.n << " ";
+    std::cout << "k=" << problem.k << " ";
+    std::cout << "batch_size=" << problem.batch_size << " ";
+    std::cout << "layout=";
     switch (problem.layout) {
       case KernelConfig::ProblemDescription::Layout::NN:
-        std::cout << "NN" << std::endl;
+        std::cout << "NN ";
         break;
       case KernelConfig::ProblemDescription::Layout::NT:
-        std::cout << "NT" << std::endl;
+        std::cout << "NT ";
         break;
       case KernelConfig::ProblemDescription::Layout::TN:
-        std::cout << "TN" << std::endl;
+        std::cout << "TN ";
         break;
       case KernelConfig::ProblemDescription::Layout::TT:
-        std::cout << "TT" << std::endl;
+        std::cout << "TT ";
         break;
     }
-    std::cout << " precision=" << problem.precision << std::endl;
+    std::cout << "precision=" << problem.precision << std::endl;
 
     cta_tile = {128, 128, 32};
     warp_tile = {64, 64, 32};
@@ -52,7 +52,6 @@ struct MyKernelConfig : KernelConfig {
 };
 
 // NVF_API is required to export this function from the plugin
-std::unique_ptr<KernelConfig> makeConfig() {
-  return std::unique_ptr<KernelConfig>(
-      static_cast<KernelConfig*>(new MyKernelConfig));
+extern "C" KernelConfig* makeConfig() {
+  return static_cast<KernelConfig*>(new MyKernelConfig);
 }

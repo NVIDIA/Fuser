@@ -22,7 +22,7 @@ namespace matmul_heuristic_plugin {
 namespace {
 
 //! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
-typedef std::unique_ptr<KernelConfig> (*ConfigFactoryFuncPtr)();
+typedef KernelConfig* (*ConfigFactoryFuncPtr)();
 
 thread_local class PluginInterface : NonCopyable {
  public:
@@ -48,7 +48,7 @@ thread_local class PluginInterface : NonCopyable {
     }
   }
 
-  std::unique_ptr<KernelConfig> makeConfig() {
+  KernelConfig* makeConfig() {
     NVF_ERROR(available());
 
     if (factory_func_ptr_ == nullptr) {
@@ -118,7 +118,7 @@ bool updateMatmulParams(
   // NOTE: this assumes compute type is Float
   precision[2] = mma_utils::dtypeToChar(d->dtype());
 
-  std::unique_ptr<KernelConfig> config = plugin.makeConfig();
+  std::unique_ptr<KernelConfig> config(plugin.makeConfig());
   config->problem.m = (uint32_t)m;
   config->problem.n = (uint32_t)n;
   config->problem.k = (uint32_t)k;
