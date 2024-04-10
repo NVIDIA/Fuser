@@ -401,6 +401,7 @@ def instancenorm_fwd_fn(inputs: list):
 
 
 def norm_fwd_iobytes(size: tuple, dtype: torch.dtype, norm: str):
+    # Manual IOBytes computation required since nvFuser outputs (out, mean, invstd) differs from baselines (out)
     # size = [N, C, H, W]
     # Total IO bytes = in_tensor (size, dtype) + weight (size[1], dtype) + bias (size[1], dtype) +
     #           running_mean (size[1], float) + running_var (size[1], float) + output (size, dtype) +
@@ -415,6 +416,7 @@ def norm_fwd_iobytes(size: tuple, dtype: torch.dtype, norm: str):
 
 
 def norm_bwd_iobytes(size: tuple, dtype: torch.dtype, norm: str):
+    # Manual IOBytes computation since nvfuser input/outputs (in_tensor, grad_out, mean, invstd, weigts, grad_in, grad_weight, grad_bias) differ from baselines (out, grad_out)
     # size = [N, C, H, W]
     # Total IO bytes = in_tensor (size, dtype) + weight (size[1], dtype) +
     #           running_mean (size[1], float) + running_var (size[1], float) +
@@ -450,6 +452,8 @@ def norm_fwd_baseline_benchmark(
         inputs = inputs.to(memory_format=torch.channels_last)
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
+
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         torch.compile(norm_fwd_fn) if compile else norm_fwd_fn,
@@ -486,6 +490,7 @@ def norm_bwd_baseline_benchmark(
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
     output = norm_fwd_fn([inputs, weight, bias, running_mean, running_var])
 
+    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
