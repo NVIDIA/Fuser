@@ -1,6 +1,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <id_model/id_model.h>
+#include <id_model/to_string.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -1152,4 +1154,100 @@ TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
       "Shouldn't project persistent buffers to inputs!");
 }
 
+TEST_F(PersistentBufferTest, TMP) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+
+  // tv3 is resolved to size of tv0
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = squeeze(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv0, tv5);
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv6);
+
+  IdModel id_model(fusion);
+  std::cout << id_model.toString() << std::endl;
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1*factor}) + t1;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+    testValidate(
+      fusion,
+      cg_outputs,
+      {t0, t1},
+      {t2, t3},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(PersistentBufferTest, TMP) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+
+  // tv3 is resolved to size of tv0
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion->addOutput(tv4);
+
+  // tv5 is resolved to size of tv1, which
+  // is different from tv0 in this case.
+  int factor = 1;
+  auto tv5 = broadcast(tv2, {false, true});
+  auto tv6 = expand(tv5, {IrBuilder::create<Val>(dim0), IrBuilder::create<Val>(dim1 * factor)});
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv7);
+
+  IdModel id_model(fusion);
+  std::cout << id_model.toString() << std::endl;
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1*factor}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1*factor}) + t1;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+    testValidate(
+      fusion,
+      cg_outputs,
+      {t0, t1},
+      {t2, t3},
+      __LINE__,
+      __FILE__);
+}
 } // namespace nvfuser

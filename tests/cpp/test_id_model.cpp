@@ -458,6 +458,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // vals() return all the val and expr groups.
   {
     IdModel id_model(&fusion);
+    std::cout << id_model.toString() << std::endl;
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
