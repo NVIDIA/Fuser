@@ -18,6 +18,8 @@
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 
 namespace nvfuser {
 
@@ -1900,6 +1902,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
 TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass> optimization_guard(false);
+
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

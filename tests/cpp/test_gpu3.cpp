@@ -39,6 +39,8 @@
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
@@ -8050,7 +8052,7 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   NVF_CHECK(num_segments == 3, "Expect 3 segments, got: ", num_segments);
   for (const auto& fe : kernel_runtime->executors()) {
-    for (auto expr : fe.kernel()->exprs()) {
+    for (auto expr : fe.fusion()->exprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         NVF_CHECK(
