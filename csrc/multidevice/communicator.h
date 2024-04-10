@@ -6,14 +6,50 @@
  */
 // clang-format on
 #pragma once
-#ifdef NVFUSER_DISTRIBUTED
+
+#include <ATen/core/TensorBody.h>
+#include <ATen/core/ivalue.h>
+#include <c10/util/intrusive_ptr.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
-#include <torch/csrc/distributed/c10d/Store.hpp>
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <torch/csrc/distributed/c10d/Work.hpp>
+#endif
 #include <visibility.h>
+
+#if !defined(NVFUSER_DISTRIBUTED)
+namespace c10d {
+class Work : public torch::CustomClassHolder {
+ public:
+  void wait() {}
+};
+
+class Backend : public torch::CustomClassHolder {
+ public:
+  c10::intrusive_ptr<c10d::Work> barrier() {
+    return c10::make_intrusive<c10d::Work>();
+  }
+  c10::intrusive_ptr<c10d::Work> send(
+      std::vector<at::Tensor>& tensors,
+      int dstRank,
+      int tag) {
+    return c10::make_intrusive<c10d::Work>();
+  }
+  c10::intrusive_ptr<Work> recv(
+      std::vector<at::Tensor>& tensors,
+      int srcRank,
+      int tag) {
+    return c10::make_intrusive<c10d::Work>();
+  }
+};
+
+class TCPStore : public torch::CustomClassHolder {};
+
+} // namespace c10d
+#endif
 
 namespace nvfuser {
 
@@ -43,8 +79,6 @@ constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
-constexpr int comm_master_port_default =
-    c10d::TCPStoreOptions::kDefaultPort; // 29500
 
 class Communicator {
  public:
@@ -150,5 +184,3 @@ class Communicator {
 };
 
 } // namespace nvfuser
-
-#endif
