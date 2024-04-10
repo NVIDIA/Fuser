@@ -118,18 +118,36 @@ To maintain program semantics, the predicate we use must be logically equivalent
 
 The following theorems are useful tools to find mathematically simple predicates that are logically equivalent to predicating all holes:
 
-**Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
-Then "the index of `I0` is in bound" implies "the index of `I1` is in bound".
+**Theorem 1** Suppose that there is a split `I1, I2 = Split(I0)`.
+Then "the indices of `I0` and `I2` are in bound" implies "the index of `I1` is in bound".
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I1` is $i_1$, the index of `I2` is $i_2$, the extent of `I0` is $S$.
-The index of `I0` is then $i_0 = i_1 \times N + i_2$.
-"the index of `I0` is in bound" means $i_0 < S$.
+Suppose the indices and extents of `I0`, `I1`, and `I2` are $i_0$, $i_1$, $i_2$, $N_0$, $N_1$, and $N_2$.
+Then $i_0 = i_1 \times N_2 + i_2$.
+"the indices of `I0` and `I2` are in bound" means $0 \le i_0 < N_0$ and $0 \le i_2 < N_2$.
+
 Because $i_2 \ge 0$,
-$$i_0 < S \implies i_1 \times N < S \implies i_1 < S \div N \implies i_1 < \mathrm{ceilDiv}(S, N)$$
+$$i_0 < N_0S \implies i_1 \times N_2 < N_0 \implies i_1 < N_0 \div N_2$$
+Note that because $N_1 N_2 \ge N_0$, we have $N_0 \div N_2 \le N_1$.
+Therefore,
+$$i_1 < N_0 \div N_2 \implies i_1 < N_1$$
+
+Consider the Euclidean division $f(x) = x / N_2$, because $N_2 > 0$, $f(x)$ is weakly increasing.
+According to Lemma 2 in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
+(TODO: move this theorem to a md file)
+$$0 \le i_0 \implies 0 \le i_0 / N_2$$
+According to Theorem 2.15 in [Integer Division](../math/integer-division.md),
+$$i_0 / N_2 = (i_1 \times N_2 + i_2) / N_2 = i_1 \times N_2 / N_2 + i_2 / N_2$$
+Because $i_2 < N_2$, we have $i_2 / N_2 = 0$.
+According to Theorem 2.14 in [Integer Division](../math/integer-division.md),
+$$i_1 \times N_2 / N_2 = i_1 / (N_2 / N_2) = i_1$$
+Therefore
+$$i_0 / N_2 = i_1$$
+Therefore
+$$0 \le i_0 \implies 0 \le i_1$$
 $\square$
 
 </details>
