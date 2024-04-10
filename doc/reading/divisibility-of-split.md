@@ -152,7 +152,7 @@ According to Theorem 2.14 in [Integer Division](../math/integer-division.md),
 $$(i_1 \times N_2) / N_2 = i_1 / (N_2 / N_2) = i_1$$
 Therefore
 $$i_0 / N_2 = i_1$$
-Therefore
+That is:
 $$0 \le i_0 \implies 0 \le i_1$$
 $\square$
 
