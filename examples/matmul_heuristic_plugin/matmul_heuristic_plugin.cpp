@@ -17,8 +17,7 @@ using namespace nvfuser::matmul_heuristic_plugin;
 // This example heuristic simply prints the problem description then sets a
 // fixed kernel configuration.
 struct MyKernelConfig : KernelConfig {
- private:
-  void configureImpl() final {
+  void configure() final {
     std::cout << "Using example heuristic for problem: ";
     std::cout << "m=" << problem.m << " ";
     std::cout << "n=" << problem.n << " ";

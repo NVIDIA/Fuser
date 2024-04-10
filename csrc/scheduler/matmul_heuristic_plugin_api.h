@@ -75,19 +75,14 @@ struct KernelConfig {
   bool rotate_ldmatrix_out_of_main_loop = true;
 
  public:
-  void configure() {
-    configureImpl();
-  }
+  // This should be overridden to implement the actual heuristic logic
+  virtual void configure() {}
 
   // This allows us to use a std::unique_ptr<KernelConfig> and call derived
   // classes' destructors on deletion.
   // See
   // https://clang.llvm.org/extra/clang-tidy/checks/cppcoreguidelines/virtual-class-destructor.html
   virtual ~KernelConfig() = default;
-
- private:
-  // This should be overridden to implement the actual heuristic logic
-  virtual void configureImpl() = 0;
 };
 
 } // namespace matmul_heuristic_plugin
