@@ -7,7 +7,15 @@
 # Divisibility of Split
 
 > [!NOTE]
-> We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.
+> We use $\div$ for true division, and $/$ for Euclidean division. For example, $5\div 2 = 2.5$, $5/2=2$.
+
+> [!WARNING]
+> In this documentation, we use Euclidean division instead of truncation division for its better mathematical properties.
+> Please note that, as described in [Integer Division](../math/integer-division.md), Euclidean division is different from C++'s truncation division `/` for negative numbers.
+> Today, indices and extents of all IterDomains are $\ge 0$, so we do not need to worry about the difference of variants of divisions.
+> However, if in the future, we want to allow negative indices/extents, we need to make sure that our generated indices are using Euclidean division as well,
+> for example, the indexing of `Merge` should be `euclideanDiv(i, N)`, and `euclideanMod(i, N)` instead of the native `i / N` and `i % N` in C++,
+> otherwise some theorems in this document will fail.
 
 ## Introduction
 
