@@ -329,6 +329,7 @@ void checkStep2Results(
       tester.idGraph(IdMappingMode::LOOP),
       iel_promotion_map);
 }
+
 // Validate the loop promotion map at Step 3. This validation ensures
 // the promotion map is exactly the same as a given reference
 // map. Since the valid promotion map may not be unique, the exact
@@ -368,6 +369,11 @@ void checkStep3Results(
     ASSERT_EQ(promotion_id, ref_promotion_id)
         << "Expected promotion: " << ref_promotion_id->toString()
         << ". Actual: " << promotion_id->toString();
+
+    ASSERT_EQ(loop_graph.toGroup(promotion_id), loop_group)
+        << "Loop group promoted to a non-mapped domain. Loop group: "
+        << nvfuser::toString(loop_group)
+        << ". Promotion: " << promotion_id->toString();
   }
 
   std::cerr << "Step 3 validated\n";
@@ -1858,7 +1864,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
       tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
 }
 
-TEST_F(IdModelTest, LoopPromotionProjectToSameLoopGroup) {
+TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1872,15 +1878,17 @@ TEST_F(IdModelTest, LoopPromotionProjectToSameLoopGroup) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
 
-  // for (auto tv: {tv1, tv2, tv3, tv4}) {
-  for (auto tv : {tv4, tv3, tv2, tv1}) {
-    tv->split(1, 4);
-    tv->split(0, 4);
-    tv->merge(0, 2);
-    tv->merge(1, 2);
-  }
+  // [I0, I1]
+  tv4->split(1, 2);
+  // [I0, I1/2, 2]
+  tv4->split(0, 8);
+  // [I0/8*I1/2, 8, 2]
+  tv4->merge(0, 2);
+  // [I0/8*I1/2, 8*2]
+  tv4->merge(1, 2);
 
-  tv0->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : {tv0, tv1, tv2, tv3}) {
     tv->inlineAt(1);
@@ -1891,28 +1899,84 @@ TEST_F(IdModelTest, LoopPromotionProjectToSameLoopGroup) {
 
   IdModelTester tester(&fusion);
 
+  tester.print(std::cerr);
+
   std::cerr << "Loop graph:\n";
   for (const auto& g :
        tester.idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
     std::cerr << nvfuser::toString(g) << std::endl;
   }
 
-  std::cerr << "Step 1 results:\n";
-  for (const auto& [g, id] : tester.s1_root_resolution_map) {
-    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
-  }
-  std::cerr << "Step 2 results:\n";
-  for (const auto& [g, id] : tester.s2_iel_promotion_map) {
-    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
-  }
-  std::cerr << "Step 3 results:\n";
-  for (const auto& [g, id] : tester.s3_loop_promotion_map) {
-    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
-  }
-  std::cerr << "Step 4 results:\n";
-  for (const auto& [g, id] : tester.s4_iel_promotion_map) {
-    std::cerr << nvfuser::toString(g) << " -> " << id->toString() << std::endl;
-  }
+  validateIELResolution(
+      tv2->getRootDomain().at(0),
+      tv4->getRootDomain().at(0),
+      tester.iel_graph,
+      tester,
+      tester.s1_root_resolution_map);
+
+  checkStep2Results(
+      &fusion,
+      tester.iel_graph,
+      tester.idGraph(IdMappingMode::EXACT),
+      tester.idGraph(IdMappingMode::LOOP),
+      tester.s2_iel_promotion_map);
+
+  // tv4
+  auto id7 = tv4->getRootDomain().at(0);
+  auto id8 = tv4->getRootDomain().at(1);
+  auto id11 = getChildIdByName(id7, 11);
+  auto id9 = getChildIdByName(id8, 9);
+  auto id13 = getChildIdByName(id11, 13);
+
+  // tv3
+  auto id5 = tv3->getRootDomain().at(0);
+  auto id6 = tv3->getRootDomain().at(1);
+  auto id15 = getChildIdByName(id5, 15);
+  auto id17 = getChildIdByName(id6, 17);
+  auto id19 = getChildIdByName(id15, 19);
+
+  // tv2
+  auto id3 = tv2->getRootDomain().at(0);
+  auto id4 = tv2->getRootDomain().at(1);
+  auto id27 = getChildIdByName(id3, 27);
+  auto id28 = getChildIdByName(id3, 28);
+  auto id29 = getChildIdByName(id4, 29);
+  auto id30 = getChildIdByName(id4, 30);
+  auto id31 = getChildIdByName(id27, 31);
+  auto id32 = getChildIdByName(id30, 32);
+
+  auto id35 = getChildIdByName(id7, 35);
+  auto id36 = getChildIdByName(id7, 36);
+  auto id37 = getChildIdByName(id35, 37);
+  auto id38 = getChildIdByName(id30, 38);
+
+  std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
+      s3_reference_map = {
+          {std::unordered_set<Val*>{id32, id38}, id38},
+          {std::unordered_set<Val*>{id4, id6, id8}, id8},
+          {std::unordered_set<Val*>{id28, id36}, id36},
+          {std::unordered_set<Val*>{
+               id9, id11, id13, id15, id17, id19, id27, id29, id31, id35, id37},
+           id13},
+          {std::unordered_set<Val*>{id3, id5, id7}, id7}};
+
+  checkStep3Results(
+      tester.s3_loop_graph, tester.s3_loop_promotion_map, s3_reference_map);
+
+  auto id45 = getChildIdByName(id7, 45);
+  auto id46 = getChildIdByName(id7, 46);
+  auto id59 = getChildIdByName(id45, 59);
+  auto id60 = getChildIdByName(id46, 60);
+
+  std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
+      s4_reference_map = {
+          {std::unordered_set<Val*>{id27}, id45},
+          {std::unordered_set<Val*>{id28}, id46},
+          {std::unordered_set<Val*>{id31}, id59},
+          {std::unordered_set<Val*>{id32}, id60}};
+
+  checkStep4Results(
+      tester.iel_graph, tester.s4_iel_promotion_map, s4_reference_map);
 }
 
 namespace {
