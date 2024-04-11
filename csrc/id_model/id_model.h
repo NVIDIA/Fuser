@@ -206,11 +206,11 @@ class IdModel : public PolymorphicBase {
   // input is promoted, the output needs to be promoted too. If
   // there's already an equivalent expr that uses the promoted inputs,
   // create a mapping from the outputs of the IEL expr to the outputs
-  // of the equivalent expr. When require_loop_mapped_promotion is
-  // true, the equivalent expr needs to be already loop mapped. If no
-  // such expr is found, the IEL expr is replayed with the promoted
-  // inputs. require_loop_mapped_promotion is true when this function
-  // is used for step 3.
+  // of the equivalent expr. We only consider exprs that are mapped
+  // in the loop graph as we are looking for domains that represent
+  // the actual loops of the input and output domains of the IEL
+  // expr. If no such expr is found, the IEL expr is replayed with the
+  // promoted inputs.
   //
   // This is used twice when building the promotion map. The first time
   // it is used there's no loop graph promotion yet, so only the IEL
@@ -229,8 +229,7 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& loop_graph,
-      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map,
-      bool require_loop_mapped_promotion);
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
 
   // Same as the other propagatePromotionsInIELGraph but without loop
   // graph map. This is used for step 2, where there's no loop

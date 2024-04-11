@@ -930,8 +930,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       iel_graph,
       final_iel_promotion_map,
       loop_graph_copy,
-      loop_graph_copy_promotion_map,
-      true);
+      loop_graph_copy_promotion_map);
 
   {
     std::stringstream ss;
@@ -1256,7 +1255,6 @@ Expr* findMatchingExpr(
     const ExprGroup& iel_expr,
     const ValGraph& iel_graph,
     const std::vector<IterDomain*>& maybe_promoted_inputs,
-    bool require_loop_mapped_promotion,
     const ValGraph& loop_graph) {
   // If any of domains in maybe_promoted_inputs is not found in
   // iel_graph, it means the domain is just replayed and by definition
@@ -1315,29 +1313,30 @@ Expr* findMatchingExpr(
       continue;
     }
 
-    // For the final loop promotion map, we want to find
-    // promotions within the same loop groups. Note that that's
-    // guaranteed when replayed.
-    if (require_loop_mapped_promotion) {
-      if (!loop_graph.disjointExprSets().permissiveAreMapped(
-              iel_expr->front(), maybe_promoted_input_use_group->front())) {
-        continue;
-      }
-      // This is just an extra sanity check. Make sure all exprs in
-      // the use group are mapped
-      NVF_ERROR(
-          std::all_of(
-              maybe_promoted_input_use_group->vector().begin(),
-              maybe_promoted_input_use_group->vector().end(),
-              [&](Expr* iel_use) {
-                return loop_graph.disjointExprSets().permissiveAreMapped(
-                    iel_expr->front(), iel_use);
-              }),
-          "Not all mapped: ",
-          nvfuser::toString(iel_expr),
-          "\n",
-          nvfuser::toString(maybe_promoted_input_use_group));
+    // We always want to find promotions within the same loop
+    // groups since we are looking for domains that represent actual
+    // loops. Note that that's guaranteed when a new domain is
+    // replayed instead of reusing an existing domain.
+    if (!loop_graph.disjointExprSets().permissiveAreMapped(
+            iel_expr->front(), maybe_promoted_input_use_group->front())) {
+      continue;
     }
+    
+    // This is just an extra sanity check. Make sure all exprs in
+    // the use group are mapped
+    NVF_ERROR(
+        std::all_of(
+            maybe_promoted_input_use_group->vector().begin(),
+            maybe_promoted_input_use_group->vector().end(),
+            [&](Expr* iel_use) {
+              return loop_graph.disjointExprSets().permissiveAreMapped(
+                  iel_expr->front(), iel_use);
+            }),
+        "Not all mapped: ",
+        nvfuser::toString(iel_expr),
+        "\n",
+        nvfuser::toString(maybe_promoted_input_use_group));
+
     return maybe_promoted_input_use;
   }
 
@@ -1401,8 +1400,7 @@ void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const ValGraph& loop_graph,
-    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
-    bool require_loop_mapped_promotion) {
+    const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
   ValGraphStmtSort iel_stmt_sort(iel_graph);
@@ -1469,7 +1467,6 @@ void IdModel::propagatePromotionsInIELGraph(
         iel_expr,
         iel_graph,
         maybe_promoted_inputs,
-        require_loop_mapped_promotion,
         idGraph(IdMappingMode::LOOP));
 
     bool replayed = false;
@@ -1520,7 +1517,7 @@ void IdModel::propagatePromotionsInIELGraph(
     const ValGraph& iel_graph,
     std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
   propagatePromotionsInIELGraph(
-      iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {}, false);
+      iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {});
 }
 
 // Replay Expr but with the inputs provided.
