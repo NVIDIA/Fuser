@@ -124,9 +124,9 @@ class FusionExecutor : public NonCopyable {
 
   //! Computes fusion outputs through expression evaluator.
   std::vector<at::Tensor> evaluateFusionOutputs(
-    KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs,
-    ExpressionEvaluator& expr_eval);
+      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs,
+      ExpressionEvaluator& expr_eval);
 
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
@@ -206,7 +206,7 @@ class FusionExecutor : public NonCopyable {
 
   Fusion* fusion() const {
     NVF_ERROR(lowered_ || fusion_);
-    return lowered_? lowered_->kernel()->as<Fusion>() : fusion_.get();
+    return lowered_ ? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -409,7 +409,7 @@ class FusionExecutor : public NonCopyable {
       int64_t group_id);
 
   //! Check if compilation was skipped (fusion segment marked for EE).
-  bool isCompilationSkipped() const{
+  bool isCompilationSkipped() const {
     if (!fusion_) {
       NVF_ERROR(lowered_, "Expected a lowered kernel to be initialized.");
       return false;
