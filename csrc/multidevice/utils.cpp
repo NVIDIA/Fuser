@@ -229,14 +229,15 @@ void propagateShardings(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::vector<TensorView*> input_with_mesh;
+    TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
       if (tv->hasDeviceMesh()) {
-        input_with_mesh.push_back(tv);
+        input_with_mesh = tv;
+        break;
       }
     }
     NVF_ERROR(
-        !input_with_mesh.empty(),
+        input_with_mesh != nullptr,
         "At least one input requires a DeviceMesh ",
         expr->toString());
     std::vector<TensorView*> outputs_without_mesh;
@@ -245,7 +246,7 @@ void propagateShardings(Fusion* fusion) {
         outputs_without_mesh.push_back(tv);
       }
     }
-    shardAllLike(input_with_mesh[0], outputs_without_mesh);
+    shardAllLike(input_with_mesh, outputs_without_mesh);
   }
 }
 
