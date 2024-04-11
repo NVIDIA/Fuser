@@ -92,7 +92,7 @@ Specifically, we are interested in:
 - In the case where strong correctness is needed, but we have only achieved weak correctness,
   is there any way to upgrade to strong correctness by doing something?
 
-As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in bound.
+As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in boundary.
 That is, TMA will never do out-of-boundary access on global memory even if the indices of
 some IterDomains may be out of boundary.
 Therefore, we have:
