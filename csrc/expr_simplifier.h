@@ -153,16 +153,18 @@
 // - For all types of division (Euclidean/trunc/floor div) f(x) = x / d, f is
 //   weakly increasing if d > 0, and weakly decreasing if d < 0.
 //
-// So, we have the following rule for trunc division:
-// Rule 1: For i >= 0, d > 0, i / d < D <=> i < D * d
+// So, we have the following rule:
+// Rule 1: For Euclidean division, i / d < D <=> i < D * d
+// For trunc division, if i >= 0, d > 0, we have i / d < D <=> i < D * d
 // Proof:
 // 1. i / d < D => i < D * d
 //    Consider the function f(x) = x / d, it is weakly increasing. Also note
-//    that D = D * d / d.
+//    that D = (D * d) / d.
 //    According to Lemma 2 (4), we have f(i) < f(D*d) => i < D*d.
 // 2. i < D * d => i / d < D
 //    According to the fundamental division-with-remainder equation, i < D * d
-//    can be written as i / d * d + i % d < D * d. Because i >= 0, d > 0, we
+//    can be written as i / d * d + i % d < D * d. Because in Eucledean div,
+//    or in trunc div when i >= 0, d > 0, we
 //    have i % d >= 0. So i / d * d <= i / d * d + i % d < D * d. That is,
 //    i / d * d < D * d. Consider the function g(x) = x * d, which is strictly
 //    increasing. According to Lemma 1 (1), g(i / d) < g(D) indicates i/d < D.

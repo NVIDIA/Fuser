@@ -179,7 +179,17 @@ Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in b
 Suppose the index of `I2` is $i_2$, the extent of `I1` is $N_1$.
 Then the index of `I0` is $i_0 = i_2 / N_1$.
 Suppose that the extents of `I0` and `I2` are $N_0$ and $N_2$, then $N_2 = N_0 \times N_1$.
-"the index of `I0` is in bound" means $i_0 < N_0$, which is:
+"the index of `I0` is in bound" means $0 \le i_0 < N_0$
+
+*Lower bound:*
+
+It is a property of Euclidean division that $i_2 / N_1 \ge 0 \Leftrightarrow i_2 \ge 0$.
+
+See:
+> Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
+
+*Upper bound:*
+
 $$i_2 / N_1 < N_0$$
 According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
 (TODO: move this theorem to a md file)
