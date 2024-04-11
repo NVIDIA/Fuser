@@ -125,12 +125,19 @@ Understanding strong correctness of TMA requires the following definition:
 
 TMA-protected IterDomain has the following very important property:
 
-**Theorem 4:** "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
+**Theorem 4:** If non-TMA-protected IterDomains are in boundary,
+then "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
 
-**Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication). $\square$
+**Proof:**
+It is easy to see that the above rules 2-5 maps to Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication),
+except that Theorem 1 has an additional requirement for `I2` being in bound,
+which is guaranteed by the statement "if non-TMA-protected IterDomains are in boundary".
+$\square$
 
-With the above theorem, we can easily see that, when any of the indices of TMA-protected IterDomains
-goes out of boundary, some partitioned IterDomain's index will also go out of boundary.
+With the above theorem, we can easily see that,
+if non-TMA-protected IterDomains are in boundary,
+when any of the indices of TMA-protected IterDomains goes out of boundary,
+some partitioned IterDomain's index will also go out of boundary.
 Therefore, TMA will use zero to fill these regions.
 That is:
 
