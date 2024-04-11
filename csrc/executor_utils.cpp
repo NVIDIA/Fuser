@@ -1150,10 +1150,8 @@ std::unique_ptr<CompiledKernel> compileSource(
 CompiledKernel::~CompiledKernel() {
   if (module != nullptr) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+    module = (CUmodule)0x2a2a2a2a2a2a2a2a;
   }
-#ifndef NDEBUG
-  module = nullptr;
-#endif
 }
 
 // Compile the source if no existing compiled binary is found in KernelDB
