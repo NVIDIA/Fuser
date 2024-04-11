@@ -191,7 +191,6 @@ Note that truncation division does not have this property.
 
 *Upper bound:*
 
-$$i_2 / N_1 < N_0$$
 According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
 (TODO: move this theorem to a md file)
 $$i_2 / N_1 < N_0 \Leftrightarrow i_2 < N_0 \times N_1 \Leftrightarrow i_2 < N_2$$
