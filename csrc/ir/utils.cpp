@@ -1462,8 +1462,7 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
   if (bcast != nullptr) {
     // Bias of shape [M, 1] / [1, N]
-    // TODO: Allow multiple bcast axes for batched GEMMs
-    matmul_inp->bias_bcast_axis = bcast->isBroadcastDim(0) ? 0 : 1;
+    matmul_inp->bias_bcast_flags = bcast->getBroadcastDimFlags();
     matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
 

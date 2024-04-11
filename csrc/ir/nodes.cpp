@@ -413,9 +413,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     MmaOpUtils::MatmulInputs matmul_inp;
 
     if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to MmaOp are of the shape [M, K] x [K, N] (matmul) / [M, K] x
-      // [N, K] (linear).
-      // Note: alpha, beta parameters are nullptr for linear.
+      // Inputs to the pattern are of the shape [M, K] x [K, N] (matmul) / [M,
+      // K] x [N, K] (linear). Note: alpha, beta parameters are nullptr for
+      // linear.
       const auto a =
           ee.evaluate(matmul_inp.mma_lhs, known_values).as<at::Tensor>();
       const auto b =
@@ -435,8 +435,12 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
 
       // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
       if (bias.dim() != a.dim() && matmul_inp.input_layout == MmaLayout::TT) {
-        bias = bias.unsqueeze(
-            *matmul_inp.bias_bcast_axis); // Bias is of shape [M,1]/[1,N]
+        // Unsqueeze the broadcast dimensions.
+        // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
+        for (auto dim : c10::irange(matmul_inp.bias_bcast_flags.size())) {
+          if (matmul_inp.bias_bcast_flags[dim])
+            bias = bias.unsqueeze(dim);
+        }
       }
 
       const c10::Scalar beta = matmul_inp.beta
