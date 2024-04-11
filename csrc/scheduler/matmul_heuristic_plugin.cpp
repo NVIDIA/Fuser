@@ -107,9 +107,6 @@ uint8_t layoutToByte(MmaLayout layout) {
   }
 }
 
-//! Utility to standardize conversion of MmaLayout to uint8_t
-uint8_t layoutToByte(MmaLayout layout);
-
 } // namespace
 
 bool hasPlugin() {
