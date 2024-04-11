@@ -64,11 +64,11 @@ struct KernelConfig {
   } problem;
 
   using Tile = std::array<uint16_t, 3>;
-  Tile cta_tile = {1, 1, 1};
-  Tile warp_tile = {1, 1, 1};
-  Tile instruction_tile = {1, 1, 1};
+  Tile cta_tile = {128, 128, 32};
+  Tile warp_tile = {64, 64, 32};
+  Tile instruction_tile = {16, 16, 16};
   uint16_t splitk_factor = 1;
-  uint8_t load_stages = 1;
+  uint8_t load_stages = 2;
   uint8_t grid_swizzle_factor = 0;
   uint8_t cta_order = 0;
   bool double_buffer_smem_read = true;
