@@ -148,6 +148,13 @@ An example of strong correctness is shown in the following Figure 3:
 In this figure, `I2` and `I7` are the only IterDomains that could run out of boundary,
 they are both TMA-protected. So we can achieve strong correctness.
 
+Another example is the following Figure 4:
+
+![Figure 4: Strong correctness 2](tma-modeling-in-depth/strong-correctness-2.svg)
+
+In this figure, `I2`, `I3` and `I10` are the only IterDomains that could run out of boundary,
+they are all TMA-protected. So we can achieve strong correctness.
+
 TODO: explain how to upgrade weak correctness to strong correctness by initializing and predicating?
 
 TODO: There are cases that strong correctness can never be achieved. Explain these cases.
