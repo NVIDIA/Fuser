@@ -421,5 +421,28 @@ Val* getMaximumValue(DataType v) {
   return nullptr;
 }
 
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims) {
+  std::vector<unsigned int> uint_axes;
+  uint_axes.reserve(axes.size());
+  std::transform(
+      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
+        if (axis < 0) {
+          axis += (int)ndims;
+        }
+
+        NVF_CHECK(
+            axis >= 0 && axis < (int)ndims,
+            "Reduction on invalid axis, received: ",
+            axis,
+            " however tensor view only has ",
+            ndims,
+            " non-reduction dims.");
+        return axis;
+      });
+  return uint_axes;
+}
+
 } // namespace ops
 } // namespace nvfuser
