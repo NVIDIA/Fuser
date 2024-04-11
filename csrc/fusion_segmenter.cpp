@@ -1907,6 +1907,8 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
 
 std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     SegmentedGroup* sg) {
+  // TODO Optimize cloning step by only copying values and expressions between
+  // the fusion segment's inputs and outputs.
   auto fusion_segment = std::make_unique<Fusion>();
 
   IrCloner complete_to_segment_map =

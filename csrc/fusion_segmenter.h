@@ -129,6 +129,8 @@ class SegmentedGroup {
     return original_inputs_in_cloned_fusion_;
   }
 
+  //! Returns cloned fusion for this segmented group.
+  //! TODO Replace read-only uses of makeFusion with cached getFusion
   Fusion* getFusion() {
     // Build cloned fusion for this segmented group
     if (cloned_fusion_ == nullptr) {

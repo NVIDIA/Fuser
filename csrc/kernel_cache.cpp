@@ -1635,10 +1635,12 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
-    // Create PrecomputedValues initialized with original fusion inputs
+    // Create PrecomputedValues for fusion segment
     auto evaluator_precomputed_values =
         std::make_unique<PrecomputedValues>(fusion_to_run);
     evaluator_precomputed_values->bindInputs(group_runtime_inputs);
+    // TODO Remove binding the original fusion inputs when creating heuristics
+    // for fusion segment.
     evaluator_precomputed_values->bindValues(
         group_to_run->getCompleteFusionInputs(), complete_fusion_metadata_args);
     evaluator_precomputed_values->evaluate();
