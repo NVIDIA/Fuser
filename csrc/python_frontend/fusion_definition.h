@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include <kernel_cache.h>
+#include <multidevice/executor.h>
 #include <python_frontend/fusion_state.h>
 #include <visibility.h>
 
@@ -240,6 +241,14 @@ class NVF_API FusionDefinition : public FusionState {
 
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
+
+#ifdef NVFUSER_DISTRIBUTED
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor. The assumption is that the same multidevice_executor can handle
+  //! device switches. This should be removed after multidevice executor is
+  //! properly integrated in the runtime.
+  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executor_;
+#endif
 };
 
 } // namespace nvfuser::python_frontend
