@@ -75,16 +75,18 @@ static class PluginInterface : NonCopyable {
   KernelConfigFactoryPointer factory_func_ptr_ = nullptr;
 } plugin;
 
-thread_local KernelConfigFactoryPointer config_factory_ptr = [&plugin]() {
+KernelConfig* defaultConfigFactory() {
   return plugin.makeConfig();
-};
-
-void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func) {
-  config_factory_ptr =
-      func == nullptr ? [&plugin]() { return plugin.makeConfig(); } : func;
 }
 
-KernelConfig makeConfig() {
+thread_local KernelConfigFactoryPointer config_factory_ptr =
+    defaultConfigFactory;
+
+void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func) {
+  config_factory_ptr = func == nullptr ? defaultConfigFactory : func;
+}
+
+KernelConfig* makeConfig() {
   NVF_ERROR(config_factory_ptr != nullptr);
   return (*config_factory_ptr)();
 }
@@ -136,7 +138,7 @@ bool updateMatmulParams(
   // NOTE: this assumes compute type is Float
   precision[2] = mma_utils::dtypeToChar(d->dtype());
 
-  std::unique_ptr<KernelConfig> config(plugin.makeConfig());
+  std::unique_ptr<KernelConfig> config(makeConfig());
   config->problem.m = (uint32_t)m;
   config->problem.n = (uint32_t)n;
   config->problem.k = (uint32_t)k;
@@ -194,6 +196,16 @@ bool updateMatmulParams(
   params.async_gmem_load_operands = config->load_stages > 2;
 
   return true;
+}
+
+KernelConfigFactoryGuard::KernelConfigFactoryGuard(
+    KernelConfigFactoryPointer func)
+    : prev_factory_(config_factory_ptr) {
+  config_factory_ptr = func;
+}
+
+KernelConfigFactoryGuard::~KernelConfigFactoryGuard() {
+  config_factory_ptr = prev_factory_;
 }
 
 } // namespace matmul_heuristic_plugin

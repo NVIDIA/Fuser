@@ -37,11 +37,25 @@ bool updateMatmulParams(
 //! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
 typedef KernelConfig* (*KernelConfigFactoryPointer)();
 
-//! This function can be used to imitate a plugin. To do so, TODO: DOC
+//! This function can be used to imitate a plugin. To do so, subclass
+//! KernelConfig, implementing a custom `configure` method, then create a guard
+//! object like this:
 //!
-//! If `func` is null, this function resets to the default factory, which uses
-//! an optional user-provided plugin.
-void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func = nullptr);
+//!   KernelConfigFactoryGuard kfg([]() { return (KernelConfig*)(new
+//!   MyKernelConfig);});
+//!
+//! When kfg passes out of scope, the config factory will be reset to its prior
+//! value.
+class KernelConfigFactoryGuard {
+ public:
+  explicit KernelConfigFactoryGuard(KernelConfigFactoryPointer func);
+  ~KernelConfigFactoryGuard();
+
+ private:
+  KernelConfigFactoryPointer prev_factory_;
+
+  static thread_local KernelConfigFactoryPointer active_factory_;
+};
 
 } // namespace matmul_heuristic_plugin
 
