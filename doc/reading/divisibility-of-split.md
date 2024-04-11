@@ -199,18 +199,20 @@ $\square$
 </details>
 
 **Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
-Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $R >= 0$.
+Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $L \ge 0$ and $R \ge 0$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I1` is $i_1$, the extent of `I0` is $N$.
+Suppose the index of `I1` is $i_1$, the extent of `I0` is $N_0$.
 The index of `I0` is then $i_0 = i_1 - L$.
-The extent of `I1` is `N + L + R`
-"the index of `I0` is in bound" means $i_0 < N$.
+The extent of `I1` is $N_0 + L + R$
+"the index of `I0` is in bound" means $0 \leq i_0 < N_0$.
 Because $R \ge 0$,
-$$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
+$$i_0 < N \Leftrightarrow i_1 < N_0 + L \implies i_1 < N + L + R$$
+Because $L \ge 0$,
+$$i_0 \ge 0 \Leftrightarrow i_1 \ge L \implies i_1 \ge 0$$
 $\square$
 
 </details>
