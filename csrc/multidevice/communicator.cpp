@@ -12,7 +12,6 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#endif
 #ifdef USE_C10D_GLOO
 #include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
 #endif
@@ -21,6 +20,7 @@
 #endif
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
+#endif
 #endif
 
 namespace nvfuser {
