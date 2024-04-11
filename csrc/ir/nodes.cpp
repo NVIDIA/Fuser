@@ -437,9 +437,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (bias.dim() != a.dim() && matmul_inp.input_layout == MmaLayout::TT) {
         // Unsqueeze the broadcast dimensions.
         // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
-        for (auto dim : c10::irange(matmul_inp.bias_bcast_flags.size())) {
-          if (matmul_inp.bias_bcast_flags[dim])
+        for (int64_t dim : c10::irange(matmul_inp.bias_bcast_flags.size())) {
+          if (matmul_inp.bias_bcast_flags[dim]){
             bias = bias.unsqueeze(dim);
+          }
         }
       }
 
