@@ -210,10 +210,15 @@ The index of `I0` is then $i_0 = i_1 - L$.
 The extent of `I1` is $N_0 + L + R$.
 "the index of `I0` is in bound" means $0 \leq i_0 < N_0$.
 
-Because $R \ge 0$,
-$$i_0 < N \Leftrightarrow i_1 < N_0 + L \implies i_1 < N + L + R$$
+*Lower bound:*
+
 Because $L \ge 0$,
 $$i_0 \ge 0 \Leftrightarrow i_1 \ge L \implies i_1 \ge 0$$
+
+*Upper bound:*
+
+Because $R \ge 0$,
+$$i_0 < N \Leftrightarrow i_1 < N_0 + L \implies i_1 < N + L + R$$
 $\square$
 
 </details>
