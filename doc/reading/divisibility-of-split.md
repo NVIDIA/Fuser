@@ -183,7 +183,7 @@ Suppose that the extents of `I0` and `I2` are $N_0$ and $N_2$, then $N_2 = N_0 \
 
 *Lower bound:*
 
-It is a property of Euclidean division that $i_2 / N_1 \ge 0 \Leftrightarrow i_2 \ge 0$. See:
+Because $N_1 > 0$, it is a property of Euclidean division that $i_2 / N_1 \ge 0 \Leftrightarrow i_2 \ge 0$. See:
 
 > Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
 
