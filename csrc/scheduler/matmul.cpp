@@ -687,10 +687,7 @@ void scheduleFusionInputsForEpilogue(
   }
 }
 
-void scheduleSplitKSum(
-    TensorView* splitk_sum,
-    const int num_batch_dims, // TODO: this should not be needed
-    bool use_smem_epilogue) {
+void scheduleSplitKSum(TensorView* splitk_sum, bool use_smem_epilogue) {
   if (splitk_sum == nullptr) {
     // This indicates no split-K was used
     return;
@@ -704,7 +701,8 @@ void scheduleSplitKSum(
     // before splitk_sum, we can vectorize the inner-most non-trivial
     // dimension of splitk_sum
     //
-    // Note that the split-K reduction is the inner-most dimension.
+    // Note that the split-K reduction is the second inner-most dimension and
+    // the inner-most dimension is vectorized.
     Val* vec_ext = splitk_sum->axis(-2)->extent();
     NVF_ERROR(vec_ext->isConstInt());
     int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
@@ -734,21 +732,15 @@ void scheduleSplitKSum(
 
 void scheduleEpilogue(
     TensorView* mma_result,
-    const int num_batch_dims,
     const MatMulTileOptions& gemm_tile,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
     const bool use_splitk,
     const bool use_smem_epilogue) {
-  //   mma_result
-  //     nbatch +   1   2   3   4   5   6  7  8
-  //              -15 -14 -13 -12 -11 -10 -9 -8
-  //     [...  Mo  No  Kf  Kg Kwo Mwo Nwo Mw Nw     ...
-  //          iBx iBy  rS  rS  rS iTz iTy iS iS
-  //                             9   10   11   12   13   14   15
-  //                            -7   -6   -5   -4   -3   -2   -1
-  //                     ...  Mino Nino Min2 Nin2 Kino Kin4 Kin2]
-  //                           iTx iMMA iMMA iMMA rMMA rMMA rMMA
-  std::cout << "mma_result: " << mma_result->toString() << std::endl;
+  // mma_result:
+  //     -16 -15 -14 -13 -12 -11 -10 -9 -8   -7   -6   -5   -4   -3   -2   -1
+  //  ... Mo  No  Kf  Kg Kwo Mwo Nwo Mw Nw Mino Nino Min1 Nin2 Kino Kin4 Kin2
+  //     iBx iBy  rS  rS  rS iTz iTy iS iS  iTx iMMA iMMA iMMA rMMA rMMA rMMA
+
   TensorView* splitk_sum = nullptr;
   if (use_splitk) {
     // rFactor converts
@@ -760,20 +752,17 @@ void scheduleEpilogue(
     // the actual MmaOp output, so here we reassign that to the intermediate.
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-13, -12, -3, -2, -1});
-    std::cout << "Split-K" << std::endl;
-    std::cout << "  mma_result: " << mma_result->toString() << std::endl;
-    std::cout << "  splitk_sum: " << splitk_sum->toString() << std::endl;
-    // mma_result
-    //  nbatch + 1   2   3   4   5   6  7  8    9   10   11   12   13   14   15
+    // mma_result:
     //     -16 -15 -14 -13 -12 -11 -10 -9 -8   -7   -6   -5   -4   -3   -2   -1
     //  ... Mo  No  Kf  Kg Kwo Mwo Nwo Mw Nw Mino Nino Min1 Nin2 Kino Kin4 Kin2
     //     iBx iBy  iS  rS  rS iTz iTy iS iS  iTx iMMA iMMA iMMA rMMA rMMA rMMA
     // splitk_sum
-    //  nbatch + 1   2           3   4  5  6    7    8    9   10
     //     -11 -10  -9          -8  -7 -6 -5   -4   -3   -2   -1
     //  ... Mo  No  Kf         Mwo Nwo Mw Nw Mino Nino Min2 Nin2
     //     iBx iBy  rS         iTz iTy iS iS  iTx   iS   iS   iS
   }
+
+  std::cout << "mma_result: " << mma_result->toString() << std::endl;
 
   if (use_smem_epilogue) {
     // Note that for split-K
@@ -783,29 +772,32 @@ void scheduleEpilogue(
     //   splitk_sum = sum(smem_epilogue)
     //
     // smem_epilogue (no split-K)
-    //  nbatch + 1   2   3  4  5    6    7    8    9
     //     -10  -9  -8  -7 -6 -5   -4   -3   -2   -1
     //  ... Mo  No Mwo Nwo Mw Nw Mino Nino Min1 Nin2
     //     iBx iBy iTz iTy iS iS  iTx   iS   iS   iS
     //
     // smem_epilogue (split-K)
-    //  nbatch + 1  2   3   4  5  6    7    8    9   10
     //     -11 -10 -9  -8  -7 -6 -5   -4   -3   -2   -1
     //  ... Mo  No Kf Mwo Nwo Mw Nw Mino Nino Min1 Nin2
     //     iBx iBy iS iTz iTy iS iS  iTx   iS   iS   iS
     TensorView* smem_epilogue = mma_result->cacheAfter();
-    std::cout << "smem_epilogue: " << smem_epilogue->toString() << std::endl;
-    // smem_epilogue: T9_l[ iS229{( ceilDiv(i0, 128) )}, iS231{( ceilDiv(i6,
-    // 128) )}, iS236{( ceilDiv(( ( ceilDiv(128, 4) ) * 4 ), 64) )}, iS244{(
-    // ceilDiv(( ( ( ceilDiv(( ceilDiv(128, 8) ), 4) ) * 4 ) * 8 ), 64) )},
-    // iS246{( ceilDiv(64, 16) )}, iS248{( ceilDiv(64, 8) )}, iS259{( ( (
-    // ceilDiv(( ceilDiv(16, 8) ), 2) ) * 8 ) * ( ceilDiv(8, 2) ) )}, iS255{(
-    // ceilDiv(8, 8) )}, iS253{2}, iS258{2} ]
+    std::cout << "smem_epilogue after cacheAfter: " << smem_epilogue->toString()
+              << std::endl;
 
-    // handle epilogue and always vectorize Ki
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    // swizzleSharedMemory(smem_epilogue);
-    /*
+    // reset smem_epilogue scheduling to prepare for swizzleSharedMemory
+    smem_epilogue->domain()->resetLeafToRFactor();
+    std::cout << " after resetLeafToRFactor: " << smem_epilogue->toString()
+              << std::endl;
+    // smem_epilogue is now 2D, of size [M, N]
+    smem_epilogue->split(1, 1); // [M, N, 1]
+    std::cout << " after split: " << smem_epilogue->toString() << std::endl;
+    mma_utils::makeTile(smem_epilogue, gemm_tile.cta_tile.toVector());
+    std::cout << " after makeTile: " << smem_epilogue->toString() << std::endl;
+    // [Mo, No, 1, Mi, Ni, 1]
+    swizzleSharedMemory(smem_epilogue);
+    std::cout << " after swizzleSharedMemory: " << smem_epilogue->toString()
+              << std::endl;
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
@@ -813,7 +805,6 @@ void scheduleEpilogue(
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
             .propagateToBoundary());
-          */
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
     for (auto [dc, d] : cached_outputs) {
@@ -839,7 +830,7 @@ void scheduleEpilogue(
     }
   }
 
-  scheduleSplitKSum(splitk_sum, num_batch_dims, use_smem_epilogue);
+  scheduleSplitKSum(splitk_sum, use_smem_epilogue);
 }
 
 } // namespace
@@ -1050,8 +1041,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // At this point we have the following schedule:
   //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
 
-  // Propagate tiling globally
-  scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
+  // Propagate tiling backward
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      mma_result, -1, {});
 
   if (params.use_smem_epilogue) {
     // Transform mma_result through the epilogue swizzle without actually
@@ -1222,7 +1214,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   scheduleEpilogue(
       mma_result,
-      num_batch_dims,
       gemm_tile,
       cached_outputs,
       params.splitk_factor > 1,

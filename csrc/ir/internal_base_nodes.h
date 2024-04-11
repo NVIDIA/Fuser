@@ -622,6 +622,15 @@ class TensorDomain : public Val {
         std::move(new_allocation_domain), std::move(contiguity_flags));
   }
 
+  //! This function allows us to "forget" the scheduling transforms of a given
+  //! TensorDomain, resetting the leaf domain to the default.
+  void resetLeafToRFactor() {
+    leaf_domain_.clear();
+    leaf_domain_.insert(
+        leaf_domain_.end(), maybeRFactor().begin(), maybeRFactor().end());
+    resetDomains();
+  }
+
   void resetDomains() {
     no_reduction_domain_ = noReductions(leaf_domain_);
     no_bcast_domain_ = noBroadcasts(leaf_domain_);
