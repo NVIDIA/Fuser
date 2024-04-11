@@ -14,6 +14,8 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/matmul_heuristic_plugin.h>
+#include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -23,13 +25,13 @@ namespace nvfuser {
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
-  // Allocation order set by the pass breaks matmul tests
-  // see issue https://github.com/NVIDIA/Fuser/issues/1810
   MatmulSchedulerTest() : optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
  private:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
   // RAII style options guard. This is used to disable
@@ -2242,6 +2244,90 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     //  verification caused by different way of calculating reference
     NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
   }
+}
+
+class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
+  void configure() {
+    // Set load_stages to 0, which is an allowed value (with a warning), but not
+    // one that will be set by our default scheduler. This lets us use it as a
+    // sentinel to check that this heuristic was run.
+    load_stages = (uint8_t)0;
+  }
+};
+
+matmul_heuristic_plugin::KernelConfig* testConfigFactory() {
+  return (matmul_heuristic_plugin::KernelConfig*)(new TestKernelConfig);
+}
+
+class MatmulSchedulerPluginTest : public NVFuserTest {
+ protected:
+  MatmulSchedulerPluginTest()
+      : optimization_guard_(false), factory_guard_(testConfigFactory) {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
+ private:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard option_guard_;
+
+  matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
+};
+
+// Test that our fake plugin works to override the default heuristic
+TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  const int M = 128, N = 256, K = 512;
+  const auto layout = MmaLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion->addOutput(tv2);
+
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto tref = atMatmul(t0, t1, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // enable profiling so that executor logs are captured
+  executor_cache.profile(true);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  ASSERT_NE(runtime, nullptr);
+
+  NVF_CHECK(
+      !runtime->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  NVF_CHECK(
+      isSchedulerInUse(runtime, ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<MatmulParams>());
+  MatmulParams* mmheur = heur->as<MatmulParams>();
+  EXPECT_EQ(mmheur->double_buffer_options.smem_double_buffer_stage, 0);
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
