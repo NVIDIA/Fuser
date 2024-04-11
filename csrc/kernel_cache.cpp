@@ -1152,7 +1152,7 @@ void FusionKernelRuntime::deserialize(
     NVF_ERROR(
         !sg || scheduler_entry->heuristic() == sg->heuristic(),
         "Heuristics do not match.");
-    auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
+    auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
     scheduler_entry->schedule(fusion_to_run.get());
 
@@ -1215,7 +1215,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "\nRun kernel:\n";
     if (sg) {
-      auto&& [ir_cloner, local_fusion] = segmented_fusion_->makeFusion(sg);
+      auto local_fusion = segmented_fusion_->makeFusion(sg).second;
       local_fusion->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
@@ -1304,8 +1304,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto&& [ir_cloner, fusion_to_run] =
-        segmented_fusion_->makeFusion(group_to_run);
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
         executors_[group_to_run->groupId()].inferOutputSizes(
             fusion_to_run.get(), group_runtime_inputs);
@@ -1345,7 +1344,7 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  auto&& [ir_cloner, fusion_to_run] = segmented_fusion_->makeFusion(sg);
+  auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
