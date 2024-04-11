@@ -22,11 +22,8 @@ namespace matmul_heuristic_plugin {
 
 namespace {
 
-//! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
-typedef KernelConfig* (*ConfigFactoryFuncPtr)();
-
 std::mutex plugin_mutex;
-class PluginInterface : NonCopyable {
+static class PluginInterface : NonCopyable {
  public:
   PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
     if (filepath_ != nullptr) {
@@ -60,7 +57,7 @@ class PluginInterface : NonCopyable {
     if (factory_func_ptr_ == nullptr) {
       std::lock_guard<std::mutex> lock(plugin_mutex);
       factory_func_ptr_ =
-          (ConfigFactoryFuncPtr)dlsym(library_handle_, "makeConfig");
+          (KernelConfigFactoryPointer)dlsym(library_handle_, "makeConfig");
       NVF_CHECK(
           factory_func_ptr_ != nullptr,
           "Failed to load symbol \"makeConfig\" from plugin file ",
@@ -75,8 +72,22 @@ class PluginInterface : NonCopyable {
  private:
   char* filepath_ = nullptr;
   void* library_handle_ = nullptr;
-  ConfigFactoryFuncPtr factory_func_ptr_ = nullptr;
+  KernelConfigFactoryPointer factory_func_ptr_ = nullptr;
 } plugin;
+
+thread_local KernelConfigFactoryPointer config_factory_ptr = [&plugin]() {
+  return plugin.makeConfig();
+};
+
+void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func) {
+  config_factory_ptr =
+      func == nullptr ? [&plugin]() { return plugin.makeConfig(); } : func;
+}
+
+KernelConfig makeConfig() {
+  NVF_ERROR(config_factory_ptr != nullptr);
+  return (*config_factory_ptr)();
+}
 
 //! Utility to standardize conversion of MmaLayout to uint8_t
 uint8_t layoutToByte(MmaLayout layout) {

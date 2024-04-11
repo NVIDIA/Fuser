@@ -34,6 +34,15 @@ bool updateMatmulParams(
     MmaLayout layout,
     const mma_utils::RolesMap& roles_map);
 
+//! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
+typedef KernelConfig* (*KernelConfigFactoryPointer)();
+
+//! This function can be used to imitate a plugin. To do so, TODO: DOC
+//!
+//! If `func` is null, this function resets to the default factory, which uses
+//! an optional user-provided plugin.
+void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func = nullptr);
+
 } // namespace matmul_heuristic_plugin
 
 } // namespace nvfuser
