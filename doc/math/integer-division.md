@@ -172,11 +172,13 @@ $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%
 
 </details>
 
-**Theorem 2.7.2** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
+**Theorem 2.7.2** If $TODO$, we have TODO
 
 <details>
 
 **<summary>Proof:</summary>**
+
+TODO
 
 </details>
 
@@ -558,6 +560,27 @@ Because of Theorem 4.4, we have
 $$a = a \mathbin{\\%} c \pmod c$$
 $$b = b \mathbin{\\%} c \pmod c$$
 applying Theorem 1.3, we get what we want.
+
+</details>
+
+**Theorem 4.7.1** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$,
+where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to the proof of 2.7.1
+
+</details>
+
+**Theorem 2.7.2** If $TODO$, we have TODO
+
+<details>
+
+**<summary>Proof:</summary>**
+
+TODO
 
 </details>
 

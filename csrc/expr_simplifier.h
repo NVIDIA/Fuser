@@ -44,6 +44,8 @@
 // I) If -|a| < r < |a|, then r % a = r, r / a = 0
 // J) Distributivity of % over +:
 //    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
+// J.1) If compatible_sign(a, b) and a % c = 0, then (a + b) % c = b % c
+// J.2) TODO
 // K) Distributivity of % over *:
 //    If compatible_sign(a, b), then (a * b) % c = (a % c * b % c) % c
 // L) If a is a multiple of b, then a % b = 0
