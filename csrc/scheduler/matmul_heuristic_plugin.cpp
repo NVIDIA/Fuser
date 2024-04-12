@@ -83,10 +83,6 @@ std::unique_ptr<KernelConfig> defaultConfigFactory() {
 
 thread_local KernelConfigFactory config_factory = defaultConfigFactory;
 
-std::unique_ptr<KernelConfig> makeConfig() {
-  return config_factory();
-}
-
 //! Utility to standardize conversion of MmaLayout to uint8_t
 uint8_t layoutToByte(MmaLayout layout) {
   switch (layout) {
@@ -217,7 +213,7 @@ bool updateMatmulParams(
   }
 
   // Use factory function to create an empty config
-  std::unique_ptr<KernelConfig> config = makeConfig();
+  std::unique_ptr<KernelConfig> config = config_factory();
 
   // Set previous heuristic values so they are available to the plugin
   copyParamsToConfig(config.get(), params);
