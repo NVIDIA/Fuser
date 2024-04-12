@@ -131,6 +131,13 @@ bool isSharded(TensorView* tv) {
   return is_sharded;
 }
 
+int64_t numDeviceDims(TensorView* tv) {
+  return std::count_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
+}
+
 template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
@@ -223,32 +230,6 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
   }
 }
-
-// TODO: Very simple sharding propagation pass.
-// Auto inserted ops like castOps don't propagate shardings
-// This cannot be done when the Op is inserted into the fusion, because
-// the multidevice shcheduling hasn't been applied.
-void propagateShardings(Expr* expr) {
-  auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-  auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-  std::vector<TensorView*> input_with_mesh;
-  for (auto tv : inputs) {
-    if (tv->hasDeviceMesh()) {
-      input_with_mesh.push_back(tv);
-    }
-  }
-  NVF_ERROR(
-      !input_with_mesh.empty(),
-      "At least one input requires a DeviceMesh ",
-      expr->toString());
-  std::vector<TensorView*> outputs_without_mesh;
-  for (auto tv : outputs) {
-    if (!tv->hasDeviceMesh()) {
-      outputs_without_mesh.push_back(tv);
-    }
-  }
-  shardAllLike(input_with_mesh[0], outputs_without_mesh);
-}
 } // namespace
 
 void propagateShardings(Fusion* fusion) {
@@ -281,7 +262,6 @@ void insertReshardings(Fusion* fusion) {
   FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
   for (auto expr : exprs) {
-    propagateShardings(expr);
     if (isLowerableToCommunication(expr)) {
       continue;
     }
@@ -296,7 +276,8 @@ void insertReshardings(Fusion* fusion) {
     std::vector<TensorView*> new_inputs;
     auto inputs = getTvsWithDifferentSharding(
         output, ir_utils::filterByType<TensorView>(expr->inputs()));
-    // Insert resharding expression after the expr when there is only one input.
+
+    // Insert resharding set after the expr when there is only one input.
     // input [expr] output [set] new_output
     if (!inputs.empty() && expr->inputs().size() == 1) {
       auto input = *inputs.begin();
@@ -307,7 +288,7 @@ void insertReshardings(Fusion* fusion) {
       shardAllLike(output, {new_output});
       shardAllLike(input, {output});
     } else {
-      // For expressions with > 1 input, insert the set before the expr
+      // For expressions with > 1 input, insert resharding set before the expr
       // for each input (input [set] new_input) [expr] output
       for (auto input : inputs) {
         // TODO: reuse cacheAfter?

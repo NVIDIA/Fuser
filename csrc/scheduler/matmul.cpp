@@ -7,6 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
@@ -689,7 +690,7 @@ void scheduleFusionInputsForEpilogue(
 
 void scheduleSplitKSum(
     TensorView* splitk_sum,
-    const int offset_local_dim, // TODO: this should not be needed
+    const int n_device_and_batch_dims, // TODO: this should not be needed
     bool use_smem_epilogue) {
   if (splitk_sum == nullptr) {
     // This indicates no split-K was used
@@ -899,16 +900,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Make a CTA tile
   // ------------------------------------------------------------------
-  mma_utils::canonicalizeMmaTvOrdering(mma_result);
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
-  int n_local_dims = TensorDomain::noDevices(mma_result->getLeafDomain()).size();
+  mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  const int n_local_dims =
+      (int)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
       n_local_dims == 3 || n_local_dims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
-  const int offset_local_dim = (int)mma_result->nDims() - 3;
-  const bool has_local_batch_dim = (n_local_dims - 3 > 0);
-  const int batch_dim = (int)mma_result->nDims() - n_local_dims;
+  const int n_device_dims = (int)numDeviceDims(mma_result);
+  const int n_batch_dims = (int)mma_result->nDims() - n_device_dims - 3;
+  const int n_device_and_batch_dims = n_device_dims + n_batch_dims;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -924,19 +926,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      mma_result->split(offset_local_dim + 1, factor);
+      mma_result->split(n_device_and_batch_dims + 1, factor);
       // [I1, I2/factor, factor]
-      mma_result->reorder({{offset_local_dim + 1, offset_local_dim + 2}});
+      mma_result->reorder(
+          {{n_device_and_batch_dims + 1, n_device_and_batch_dims + 2}});
       // [I1, factor, I2/factor]
-      mma_result->merge(offset_local_dim);
+      mma_result->merge(n_device_and_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
         params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
-      mma_result->split(offset_local_dim, factor);
+      mma_result->split(n_device_and_batch_dims, factor);
       // [I1/factor, factor, I2]
-      mma_result->reorder({{offset_local_dim + 1, offset_local_dim + 2}});
+      mma_result->reorder(
+          {{n_device_and_batch_dims + 1, n_device_and_batch_dims + 2}});
       // [I1/factor, I2, factor]
-      mma_result->merge(offset_local_dim + 1);
+      mma_result->merge(n_device_and_batch_dims + 1);
       // [I1/factor, I2*factor]
     }
   }
@@ -1138,20 +1142,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // When we have both batch dims and splitk, parallelize splitk only.
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
-    mma_result->axis(offset_local_dim + 2)->parallelize(ParallelType::BIDz);
-  } else if (has_local_batch_dim) {
-    // if outermost axis is already parallelized across devices
-    // then it's not a batch dim.
-    mma_result->axis(batch_dim)->parallelize(ParallelType::BIDz);
+    mma_result->axis(n_device_and_batch_dims + 2)
+        ->parallelize(ParallelType::BIDz);
+  } else if (n_batch_dims > 0) {
+    mma_result->axis(n_device_dims)->parallelize(ParallelType::BIDz);
   }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(offset_local_dim)->parallelize(ParallelType::BIDx);
-      mma_result->axis(offset_local_dim + 1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(n_device_and_batch_dims)
+          ->parallelize(ParallelType::BIDx);
+      mma_result->axis(n_device_and_batch_dims + 1)
+          ->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(offset_local_dim)->parallelize(ParallelType::BIDy);
-      mma_result->axis(offset_local_dim + 1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(n_device_and_batch_dims)
+          ->parallelize(ParallelType::BIDy);
+      mma_result->axis(n_device_and_batch_dims + 1)
+          ->parallelize(ParallelType::BIDx);
       break;
     default:
       NVF_ERROR(
@@ -1159,9 +1166,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // parallelize Mwo, Nwo by thread
-  mma_result->axis(offset_local_dim + 4 + num_splitk_dims)
+  mma_result->axis(n_device_and_batch_dims + 4 + num_splitk_dims)
       ->parallelize(ParallelType::TIDz);
-  mma_result->axis(offset_local_dim + 5 + num_splitk_dims)
+  mma_result->axis(n_device_and_batch_dims + 5 + num_splitk_dims)
       ->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
@@ -1212,14 +1219,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  scheduleSplitKSum(splitk_sum, offset_local_dim, params.use_smem_epilogue);
+  scheduleSplitKSum(
+      splitk_sum, n_device_and_batch_dims, params.use_smem_epilogue);
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt(
-      {acr, bcr, ab, bb}, mma_result, offset_local_dim + 6 + num_splitk_dims);
+      {acr, bcr, ab, bb},
+      mma_result,
+      n_device_and_batch_dims + 6 + num_splitk_dims);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1247,7 +1257,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       params.double_buffer_options.double_buffer_smem_write) {
     // rotate Kg loop
     scheduler_utils::rotateLoop(
-        mma_result, offset_local_dim + 2 + num_splitk_dims, {acr, bcr});
+        mma_result, n_device_and_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
 }
 

@@ -966,7 +966,8 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
   auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
-  std::vector<int> device_pos, batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
+  std::vector<int> device_pos, batch_pos, prev_reduction_pos, m_pos, n_pos,
+      k_pos;
 
   int ndims = (int)tv->nDims();
 
@@ -1023,10 +1024,8 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   //  the inserted categories.
   NVF_ERROR(current_pos == ndims, "Id not completely categorized");
 
-  std::cout << "TV " << tv->toString() << std::endl;
   // Apply the new ordering
   tv->reorder(order_map);
-  std::cout << "After reorder " << tv->toString() << std::endl;
 }
 
 namespace {
@@ -1380,13 +1379,10 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
 }
 
 int64_t numBroadcastDeviceDims(TensorView* tv) {
-  int64_t num = 0;
-  for (auto id : tv->getLeafDomain()) {
-    if (id->isDeviceDim() && id->isBroadcast()) {
-      num += 1;
-    }
-  }
-  return num;
+  return std::count_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim() && id->isBroadcast(); });
 }
 
 // This function checks if the mul-sum can be replace with a mma op. The checks

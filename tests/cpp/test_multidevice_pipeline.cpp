@@ -582,9 +582,9 @@ INSTANTIATE_TEST_SUITE_P(
         SchedulingMode::ReductionOnly,
         SchedulingMode::Automatic));
 
-class DistributedMatmul : public MultiDeviceTest {
+class DistributedMatmulTest : public MultiDeviceTest {
  protected:
-  DistributedMatmul() : optimization_guard_(false) {
+  DistributedMatmulTest() : optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
@@ -633,30 +633,10 @@ class DistributedMatmul : public MultiDeviceTest {
   DisableOptionsGuard option_guard_;
 };
 
-TEST_F(DistributedMatmul, MmaCanonicalizeOrdering) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  auto tv0 = makeContigTensor(3, DataType::Half); // [B M K]
-  auto tv1 = makeContigTensor(3, DataType::Half); // [K No Ni]
-
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
-
-  fusion.addOutput(tv2);
-
-  nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-  combiner.replaceWithMmaOp();
-  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
-
-  std::cout << "Before " << tv0->toString() << std::endl;
-  nvfuser::mma_utils::canonicalizeMmaTvOrdering(tv0);
-  std::cout << "TV after " << tv0->toString() << std::endl; 
-}
-
-TEST_F(DistributedMatmul, LayoutTN_NoComms) {
+TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
   // A and C are sharded on dimension M
+  // Tests local matmul with no communication
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh();
@@ -710,9 +690,10 @@ TEST_F(DistributedMatmul, LayoutTN_NoComms) {
       getTolerances());
 }
 
-TEST_F(DistributedMatmul, LayoutTN_Allgather) {
+TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
   // A is sharded on dimension M
+  // Tests local matmul + allgather
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh();
@@ -766,9 +747,10 @@ TEST_F(DistributedMatmul, LayoutTN_Allgather) {
       getTolerances());
 }
 
-TEST_F(DistributedMatmul, LayoutNT_AllReduce) {
+TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.
+  // Tests local matmul + allreduce
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh();
@@ -825,9 +807,10 @@ TEST_F(DistributedMatmul, LayoutNT_AllReduce) {
       getTolerances());
 }
 
-TEST_F(DistributedMatmul, LayoutNT_ReduceScatter) {
+TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // A, B are sharded on K. C is sharded on M
+  // Tests local matmul + reduce scatter
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh();
