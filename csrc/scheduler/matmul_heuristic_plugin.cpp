@@ -10,9 +10,9 @@
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/mma_utils.h>
+#include <sys_utils.h>
 #include <utils.h>
 
-#include <dlfcn.h>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -25,55 +25,31 @@ namespace {
 
 std::mutex plugin_mutex;
 typedef std::unique_ptr<KernelConfig> (*KernelConfigFactoryPointer)();
-static class PluginInterface : NonCopyable {
+static class PluginInterface : LibraryLoader {
  public:
-  PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
-    if (filepath_ != nullptr) {
-      std::lock_guard<std::mutex> lock(plugin_mutex);
-      library_handle_ = dlopen(filepath_, RTLD_LAZY);
-      NVF_CHECK(
-          library_handle_ != nullptr,
-          "Error occurred when loading matmul heuristic plugin ",
-          filepath_,
-          ". Error msg: ",
-          dlerror());
+  PluginInterface() {
+    const char* envvar = getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN");
+    if (envvar != nullptr) {
+      setFilename(envvar);
     }
   }
+
+  ~PluginInterface() = default;
 
   bool available() const {
-    return library_handle_ != nullptr;
-  }
-
-  ~PluginInterface() {
-    if (library_handle_ != nullptr) {
-      std::lock_guard<std::mutex> lock(plugin_mutex);
-      dlclose(library_handle_);
-      library_handle_ = nullptr;
-      factory_func_ptr_ = nullptr;
-    }
+    return !filename().empty();
   }
 
   std::unique_ptr<KernelConfig> getConfig() {
     NVF_ERROR(available());
-
     if (factory_func_ptr_ == nullptr) {
       std::lock_guard<std::mutex> lock(plugin_mutex);
-      factory_func_ptr_ =
-          (KernelConfigFactoryPointer)dlsym(library_handle_, "makeConfig");
-      NVF_CHECK(
-          factory_func_ptr_ != nullptr,
-          "Failed to load symbol \"makeConfig\" from plugin file ",
-          filepath_,
-          ". Error message: ",
-          dlerror());
+      factory_func_ptr_ = (KernelConfigFactoryPointer)getSymbol("makeConfig");
     }
-
     return (*factory_func_ptr_)();
   }
 
  private:
-  char* filepath_ = nullptr;
-  void* library_handle_ = nullptr;
   KernelConfigFactoryPointer factory_func_ptr_ = nullptr;
 } plugin;
 
