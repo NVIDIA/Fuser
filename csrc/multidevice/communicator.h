@@ -103,6 +103,11 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
   // returns world backend for communicator backend or default backend if not
   // specified.
   NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(

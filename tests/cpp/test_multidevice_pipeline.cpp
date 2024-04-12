@@ -616,12 +616,12 @@ class DistributedMatmulTest : public MultiDeviceTest {
       int M,
       int N,
       int K) {
-    int device = communicator->deviceId();
+    int local_rank = communicator->local_rank();
     c10::ScalarType type = c10::ScalarType::Half;
-    auto a =
-        matmulAtInput2D(layout, TensorMatmulPos::A, type, M, N, K, 0, device);
-    auto b =
-        matmulAtInput2D(layout, TensorMatmulPos::B, type, M, N, K, 0, device);
+    auto a = matmulAtInput2D(
+        layout, TensorMatmulPos::A, type, M, N, K, 0, local_rank);
+    auto b = matmulAtInput2D(
+        layout, TensorMatmulPos::B, type, M, N, K, 0, local_rank);
     auto c =
         atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kFloat);
     return std::make_tuple(a, b, c);
