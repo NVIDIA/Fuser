@@ -169,6 +169,7 @@ applying Theorem 1.3, we get what we need.
 **<summary>Proof:</summary>**
 
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = b \mathbin{\\%} c \mathbin{\\%} c = b \mathbin{\\%} c$$
+$\square$
 
 </details>
 
@@ -179,6 +180,7 @@ $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%
 **<summary>Proof:</summary>**
 
 TODO
+$\square$
 
 </details>
 
@@ -323,6 +325,29 @@ $$0 = ((a/c + b/c) - (a+b)/c) * c + (a \mathbin{\\%} c + b \mathbin{\\%} c - (a 
 The second term in the above equation is $0$, so we have
 $$0 = ((a/c + b/c) - (a+b)/c) * c$$
 Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
+
+</details>
+
+**Theorem 2.15.1** If $a \mathbin{\\%} c = 0$, we have $(a+b)/c = a/c + b/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+If $a \mathbin{\\%} c = 0$, we have $$a \mathbin{\\%} c + b \mathbin{\\%} c = b \mathbin{\\%} c < |c|$$
+From Theorem 2.15, we get the conclusion.
+$\square$
+
+</details>
+
+**Theorem 2.15.2** If $TODO$, we have TODO
+
+<details>
+
+**<summary>Proof:</summary>**
+
+TODO
+$\square$
 
 </details>
 
@@ -571,16 +596,18 @@ where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 **<summary>Proof:</summary>**
 
 Similar to the proof of 2.7.1
+$\square$
 
 </details>
 
-**Theorem 2.7.2** If $TODO$, we have TODO
+**Theorem 4.7.2** If $TODO$, we have TODO
 
 <details>
 
 **<summary>Proof:</summary>**
 
 TODO
+$\square$
 
 </details>
 
@@ -666,5 +693,30 @@ The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 From Theorem 4.7 and Theorem 4.5
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
 The rest of the proof is the same as 2.15.
+
+</details>
+
+**Theorem 4.15.1** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$,
+then $(a+b)/c = a/c + b/c$. ,
+The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+If $a \mathbin{\\%} c = 0$, we have $$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c = b \mathbin{\\%} c < |c|$$
+From Theorem 4.15, we get the conclusion.
+$\square$
+
+</details>
+
+**Theorem 4.15.2** If $TODO$, we have TODO
+
+<details>
+
+**<summary>Proof:</summary>**
+
+TODO
+$\square$
 
 </details>

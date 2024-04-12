@@ -55,6 +55,9 @@
 // P) If b is a multiple of c, then a/(b/c) = (a*c)/b
 // Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
 //    (a+b)/c = a/c + b/c
+// Q.1) If compatible_sign(a, b) and a % c = 0, then
+//    (a+b)/c = a/c + b/c
+// Q.2) TODO
 //
 // See doc/math/integer-division.md for proofs of these rules.
 //
