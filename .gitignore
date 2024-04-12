@@ -48,3 +48,5 @@ foo.bin
 .pre-commit-config.yaml
 
 *_generated.*
+
+.DS_Store

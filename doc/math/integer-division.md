@@ -162,6 +162,24 @@ applying Theorem 1.3, we get what we need.
 
 </details>
 
+**Theorem 2.7.1** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = b \mathbin{\\%} c \mathbin{\\%} c = b \mathbin{\\%} c$$
+
+</details>
+
+**Theorem 2.7.2** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+</details>
+
 **Theorem 2.8:** $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
 
 <details>
