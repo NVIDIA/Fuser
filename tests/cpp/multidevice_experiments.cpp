@@ -16,6 +16,16 @@
 
 namespace nvfuser {
 
+
+class GlobalContext : public testing::Environment {
+ public:
+  void SetUp() override {}
+  void TearDown() override {}
+};
+
+auto global_context = static_cast<GlobalContext*>(
+    testing::AddGlobalTestEnvironment(new GlobalContext));
+
 /*
 The tensor program we target is the following:
     | tv0[A,B,C], sharded accross first dimension (locally [1,B,C])
@@ -44,14 +54,18 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
 
     // Define the constants
     const int64_t A = num_devices;
-    const int64_t B = 4;
-    const int64_t C = 8;
+    const int64_t B = 16;
+    const int64_t C = 1048576;
     std::vector<int64_t> unsharded_sizes{A, B, C};
 
     const int64_t number_of_tiles = B;
     NVF_ERROR(B % number_of_tiles == 0);
     const int64_t tile_size = B / number_of_tiles;
 
+    auto get_slice = [tile_size](at::Tensor t, int64_t i, int64_t j)
+            {return t.index({at::indexing::Slice(i, i+1),
+                             at::indexing::Slice(j*tile_size, (j+1)*tile_size),
+                             "..."});};
     // Input set-up
     // define the unsharded inputs for validation
     auto options =
@@ -59,34 +73,38 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
     auto tv0_unsharded = at::randn(unsharded_sizes, options);
     auto tv1_unsharded = at::randn(unsharded_sizes, options);
     // Index into the unsharded inputs to get the local inputs tv0 and tv1
+    // We prepare the inputs slices, because profiling shows that slicing sometimes result in a copy instead of a view
     const auto my_device_index = communicator->deviceId();
-    auto tv0 = tv0_unsharded.index({at::indexing::Slice(my_device_index, my_device_index+1), "..."});
-    auto tv1 = tv1_unsharded.index({at::indexing::Slice(my_device_index, my_device_index+1), "..."});
+    std::vector<at::Tensor> tv0_slices;
+    std::vector<at::Tensor> tv1_slices;
+    for (auto j: c10::irange(number_of_tiles)) {
+        tv0_slices.push_back(get_slice(tv0_unsharded, my_device_index, j));
+        tv1_slices.push_back(get_slice(tv1_unsharded, my_device_index, j));
+    }
 
     // Allocate ouput global buffer for tv3 for the data to be allgathered
     auto tv3_buf = at::empty(unsharded_sizes, options);
-    // Setup the buffers. c10d needs the destinations buffers to be in a certain format
-    std::vector<std::vector<std::vector<at::Tensor>>> dst_bufs_storage;
-    for (int64_t j=0; j<number_of_tiles; j++) {
-        std::vector<at::Tensor> tv3_slices;
-        for (int64_t i = 0; i < A; i++) {
-            tv3_slices.push_back(tv3_buf.index({at::indexing::Slice(i, i+1), at::indexing::Slice(j*tile_size, (j+1)*tile_size), "..."}));
+    // Setup the recv buffer slices. c10d needs the destinations buffers to be in a certain format
+    std::vector<std::vector<std::vector<at::Tensor>>> tv3_slices;
+    for (auto j: c10::irange(number_of_tiles)) {
+        std::vector<at::Tensor> tv3_j_slices;
+        for (auto i: c10::irange(num_devices)) {
+            tv3_j_slices.push_back(get_slice(tv3_buf, i, j));
         }
-        dst_bufs_storage.push_back({std::move(tv3_slices)});
+        tv3_slices.push_back({std::move(tv3_j_slices)});
     }
 
     // Iterate over the number of tiles and pipeline the comms and compute
-    for (int64_t j=0; j<number_of_tiles; j++) {
+    for (auto j: c10::irange(number_of_tiles)) {
         setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */false, my_device_index));
         // local compute
-        auto tv2 = tv0.index({at::indexing::Slice(), at::indexing::Slice(j, j+1), "..."}) + tv1.index({at::indexing::Slice(), at::indexing::Slice(j, j+1), "..."});
+        auto tv2_j = tv0_slices.at(j) + tv1_slices.at(j);
 
         // communication
-        std::vector<at::Tensor> src_buf = {tv2};
-        std::vector<std::vector<at::Tensor>>& dst_bufs = dst_bufs_storage.at(j);
+        std::vector<at::Tensor> src_buf = {tv2_j};
+        std::vector<std::vector<at::Tensor>>& dst_bufs = tv3_slices.at(j);
         auto req_handle = world_comm->allgather(dst_bufs, src_buf);
         req_handle->wait();
-        dst_bufs_storage.push_back(dst_bufs);
     }
 
     // validation
@@ -94,18 +112,16 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
     auto tv2_ref = tv0_unsharded + tv1_unsharded;
     auto tv3_ref = tv2_ref;
     // compare obtained and expected outputs
-    for (int i=0; i<num_devices; i++) {
-        for (int j=0; j<number_of_tiles; j++) {
-            auto expected = tv3_ref.index({at::indexing::Slice(i, i+1), at::indexing::Slice(j, j+1), "..."});
-            auto obtained = dst_bufs_storage.at(j).at(0).at(i);
+    for (auto i: c10::irange(num_devices)) {
+        for (auto j: c10::irange(number_of_tiles)) {
+            auto expected = get_slice(tv3_ref, i, j);
+            auto obtained = tv3_slices.at(j).at(0).at(i);
             EXPECT_TRUE(torch::allclose(expected, obtained))
                 << "On device " << my_device_index << "\n"
                 << "i=" << i << "\n"
                 << "j=" << j << "\n"
                 << "obtained=" << obtained << "\n"
-                << "expected=" << expected << "\n"
-                << "tv0=" << tv0 << "\n"
-                << "tv1=" << tv1;
+                << "expected=" << expected << "\n";
         }
     }
 }
