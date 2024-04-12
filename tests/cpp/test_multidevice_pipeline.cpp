@@ -601,12 +601,6 @@ class DistributedMatmul : public MultiDeviceTest {
   MultiDeviceExecutorParams executor_params{true, false, false};
   int num_devices;
 
-  DeviceMesh createDeviceMesh() {
-    std::vector<int64_t> devices(num_devices);
-    std::iota(devices.begin(), devices.end(), 0);
-    return DeviceMesh(devices);
-  }
-
   ValidationConstants getTolerances() {
     ValidationConstants tolerance_overwrite = ValidationConstants();
     std::array<std::array<double, 2>, 20> relaxed_sum_tol;
@@ -638,6 +632,27 @@ class DistributedMatmul : public MultiDeviceTest {
       optimization_guard_;
   DisableOptionsGuard option_guard_;
 };
+
+TEST_F(DistributedMatmul, MmaCanonicalizeOrdering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto tv0 = makeContigTensor(3, DataType::Half); // [B M K]
+  auto tv1 = makeContigTensor(3, DataType::Half); // [K No Ni]
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  nvfuser::mma_utils::CombineMulSum combiner(&fusion);
+  combiner.replaceWithMmaOp();
+  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+
+  std::cout << "Before " << tv0->toString() << std::endl;
+  nvfuser::mma_utils::canonicalizeMmaTvOrdering(tv0);
+  std::cout << "TV after " << tv0->toString() << std::endl; 
+}
 
 TEST_F(DistributedMatmul, LayoutTN_NoComms) {
   // MmaLayout::TN matmul A(T), B(N), C(T)

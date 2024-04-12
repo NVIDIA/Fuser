@@ -966,7 +966,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
   auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
-  std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
+  std::vector<int> device_pos, batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
   int ndims = (int)tv->nDims();
 
@@ -983,6 +983,8 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       k_pos.push_back(idx);
     } else if (id->isReduction()) {
       prev_reduction_pos.push_back(idx);
+    } else if (id->isDeviceDim()) {
+      device_pos.push_back(idx);
     } else {
       batch_pos.push_back(idx);
     }
@@ -1010,6 +1012,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Order the categories, while keeping the original
   //  intra-category ordering.
+  insert_to_order_map(device_pos);
   insert_to_order_map(batch_pos);
   insert_to_order_map(prev_reduction_pos);
   insert_to_order_map(m_pos);
@@ -1020,8 +1023,10 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   //  the inserted categories.
   NVF_ERROR(current_pos == ndims, "Id not completely categorized");
 
+  std::cout << "TV " << tv->toString() << std::endl;
   // Apply the new ordering
   tv->reorder(order_map);
+  std::cout << "After reorder " << tv->toString() << std::endl;
 }
 
 namespace {

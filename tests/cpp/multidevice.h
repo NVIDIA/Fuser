@@ -68,6 +68,7 @@ class MultiDeviceTest : public NVFuserTest {
     }
     return tensor.slice(sharded_dim, i, i + 1).contiguous();
   }
+  DeviceMesh createDeviceMesh();
 
  protected:
   void SetUp() override;

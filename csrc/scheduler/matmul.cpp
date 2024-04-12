@@ -900,14 +900,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
-  int nLocalDims = TensorDomain::noDevices(mma_result->getLeafDomain()).size();
+  // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
+  int n_local_dims = TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
-      nLocalDims == 3 || nLocalDims == 4,
+      n_local_dims == 3 || n_local_dims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
   const int offset_local_dim = (int)mma_result->nDims() - 3;
-  const bool has_batch_dim = (nLocalDims - 3 == 1);
-  const int batch_dim = (int)mma_result->nDims() - nLocalDims;
+  const bool has_local_batch_dim = (n_local_dims - 3 > 0);
+  const int batch_dim = (int)mma_result->nDims() - n_local_dims;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -1138,7 +1139,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
     mma_result->axis(offset_local_dim + 2)->parallelize(ParallelType::BIDz);
-  } else if (has_batch_dim) {
+  } else if (has_local_batch_dim) {
     // if outermost axis is already parallelized across devices
     // then it's not a batch dim.
     mma_result->axis(batch_dim)->parallelize(ParallelType::BIDz);
