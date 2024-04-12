@@ -77,6 +77,7 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
 
     // Iterate over the number of tiles and pipeline the comms and compute
     for (int64_t j=0; j<number_of_tiles; j++) {
+        setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */false, my_device_index));
         // local compute
         auto tv2 = tv0.index({at::indexing::Slice(), at::indexing::Slice(j, j+1), "..."}) + tv1.index({at::indexing::Slice(), at::indexing::Slice(j, j+1), "..."});
 
