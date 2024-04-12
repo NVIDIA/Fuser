@@ -110,10 +110,6 @@ uint8_t layoutToByte(MmaLayout layout) {
 
 } // namespace
 
-bool hasPlugin() {
-  return plugin.available();
-}
-
 bool updateMatmulParams(
     MatmulParams& params,
     int64_t m,
@@ -194,6 +190,13 @@ bool updateMatmulParams(
   params.async_gmem_load_operands = config->load_stages > 2;
 
   return true;
+}
+
+bool hasPlugin() {
+  // If we have overridden the default config factory, we will count that as a
+  // plugin. Otherwise, we need to check that the dynamically loaded plugin is
+  // actually available.
+  return config_factory_ptr != defaultConfigFactory || plugin.available();
 }
 
 KernelConfigFactoryGuard::KernelConfigFactoryGuard(
