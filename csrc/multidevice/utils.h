@@ -45,6 +45,14 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
+// TODO: Re-implement a robust and smatert sharding propagation pass.
+// Very simple sharding propagation pass that identifies tvs without
+// a DeviceMesh and shards it like its first producer tv with a sharding.
+// This assumes that all global inputs are sharded.
+// This cannot be done when the Op is inserted into the fusion, because
+// the multidevice shcheduling hasn't been applied.
+void propagateShardings(Fusion* fusion);
+
 // Runs through the fusion and inserts a resharding Set Op before any resharding
 // Expr that is not directly lowerable to a series of communications
 // TODO: add an option to rather insert the Set AFTER the resharding Expr
