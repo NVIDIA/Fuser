@@ -69,26 +69,6 @@ struct Id {
 };
 */
 
-// We support the following subset of Exprs.
-//
-// NOTE: although we support BinaryOp, we also _flatten_ expressions like
-//
-//   u + (v + (w + (x + (y + z))))
-//
-// using the CommutativeBinaryOp symbol. ENodes with this symbol might have
-// more than 2 arguments and their order is arbitrary; two ENodes with this
-// symbol and the same op_type, with the same collection of arguments but in
-// permutated order should always map to the same EClass ID.
-enum FunctionSymbol {
-  NoDefinition,
-  LoadStoreOp,
-  CastOp,
-  UnaryOp,
-  BinaryOp,
-  TernaryOp,
-  CommutativeBinaryOp,
-};
-
 } // namespace egraph
 
 } // namespace nvfuser

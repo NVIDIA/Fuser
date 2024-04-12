@@ -1,7 +1,9 @@
 # E-Graph Expression Simplification
 
 This directory contains an implementation of E-Graphs[^1] that is customized
-for simplifying `Val*` objects in nvFuser.
+for simplifying `Val*` objects in nvFuser. For an introduction to this type of
+approach, see [this tutorial](https://docs.rs/egg/0.9.5/egg/tutorials/_01_background/index.html)
+from the [egg library](https://egraphs-good.github.io).
 
 In this directory:
 - `egraph.h`: Contains the main class `EGraph`. Start here.

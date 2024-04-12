@@ -89,6 +89,7 @@ class EGraph {
   PolymorphicValue getMaybeConstantValue(Val* val);
 
  protected:
+  friend ENode;
   friend EClass;
   friend RuleRunner;
 

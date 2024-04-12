@@ -15,6 +15,87 @@ namespace nvfuser {
 
 namespace egraph {
 
+
+// Patterns allow us to quickly find matches that may be relevant to Rules.
+//
+// A Pattern resembles an ENode. It contains a function symbol and a collection
+// of subpatterns.
+//
+// For example, consider how we might represent the rewrite rule (a * b) % a => b
+//
+//   Pattern (%) 
+//     Pattern (*)
+//       a
+//       b
+//     b
+//     
+// Here parens indicate the function symbol for each pattern and square
+// brackets indicate "roles", i.e. the set of positions that could possibly
+// belong to distinct eclasses. Indentation denotes that these are children of
+// the parent.
+using RoleId = uint8_t;
+struct Pattern : FunctionSymbol {
+  // If this FunctionSymbol has no definition, then it represents a pattern
+  // that could match any EClass. It corresponds to a role, since it may be
+  // part of a larger pattern. If op_type is anything other than
+  // std::monostate, this attribute is ignored.
+  std::optional<RoleId> role;
+
+  // Currently we own producer patterns here. In the future we could try to
+  // reuse rules so that subpattern matches don't require separate matching.
+  // TODO: think about pattern re-use between rules for acceleration
+  std::vector<Pattern> producer_patterns;
+
+  //! Condition to check whether the Pattern actually matches given the roles
+  //! found in the pattern. This condition can access analysis data.
+  std::function<bool(EGraph*, const std::vector<Id>&())> condition =
+      [](EGraph* eg, const std::vector<Id>& role_eclasses) { return true; };
+};
+
+//! This describes the structure of the substitution ENode. The substitution
+//! ENode itself can be formed by simply replacing roles with Ids.
+struct Substitution : FunctionSymbol {
+  std::vector<Substitution> producer_substitutions;
+};
+
+//! This represents a very simple rule that matches a single pattern and 
+struct SimpleRule {
+  Pattern pattern;
+
+  //! When we find a match, we will apply these substitutions to the matching
+  //! ENode
+  std::vector<Substitution> substitution;
+};
+
+//! A Match merely maps roles from a Pattern to EClass Ids. To create an ENode
+//! we fill out Substitution by replacing each role with its corresponding Id
+//! using Match::role_eclasses.
+struct Match {
+  SimpleRule* rule;
+
+  //! ENode of the match
+  Id matched_enode;
+
+  // A mapping from roles to eclasses
+  std::vector<Id> role_eclasses;
+};
+
+// Example: (x == x) => true if dtype(x) == Int
+//
+void foo() {
+  auto intOnly = [](EGraph* eg, const std::vector<Id>& role_eclasses) {
+    return eg->getEClassFromId(role_eclasses.at(0))->data.dtype ==
+        DataType::Int;
+  };
+  Pattern p{
+      BinaryOpType::Eq,
+      std::nullopt,
+      {Pattern{std::monostate, 0}, Pattern{std::monostate, 0}},
+      intOnly};
+  Substitution s{};
+  SimpleRule r{p, {s}};
+}
+
 RuleRunner::RuleRunner() {
   // TESTING RULES
 

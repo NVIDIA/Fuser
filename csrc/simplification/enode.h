@@ -21,48 +21,53 @@ namespace nvfuser {
 
 namespace egraph {
 
-//! An ENode represents either a constant, a definition-less scalar (such as a
-//! loop variable or input scalar), or a scalar defined by some function.
+//! This determines the actual operation of an ENode or ASTNode, e.g.
+//! BinaryOpType::Add.
+//!
+//! Note that the target DataType for CastOp can be inferred by the dtype of
+//! this ENode's EClass, but since we need to hash and compare ENodes which do
+//! not hold their output DataType (it's held in AnalysisData) we include that
+//! DataType here as data as well.
+//!
+//! LoadStoreOpType is included so that we can easily detect that a node
+//! represents a LoadStoreOp, even though we expect to only support
+//! LoadStoreOpType::Set since we only support scalar expressions.
+using OpType = std::variant<
+    std::monostate,
+    UnaryOpType,
+    BinaryOpType,
+    TernaryOpType,
+    PrimDataType,
+    LoadStoreOpType>;
 
-//! This struct describes a function without describing any of its arguments (or
-//! even how many arguments there are).
-struct FunctionDesc {
-  //! What type of node is this
-  FunctionSymbol symbol = FunctionSymbol::NoDefinition;
-
-  //! This determines the actual operation, e.g. BinaryOpType::Add
-  //! Note that the target DataType for CastOp can be inferred by the dtype of
-  //! this ENode's EClass, but since we need to hash and compare ENodes we
-  //! include that DataType here as data as well.
-  using OpType = std::variant<
-      std::monostate,
-      UnaryOpType,
-      BinaryOpType,
-      TernaryOpType,
-      DataType>;
+//! This is a simple function symbol that can represent all of the operations we
+//! model in the AST.
+struct FunctionSymbol {
   OpType op_type;
 
  public:
-  static FunctionDesc fromVal(Val* val);
+  //! In this context, an undefined term represents a Val without a
+  //! definition(). This could be a constant or a free variable like a loop
+  //! index or input scalar.
+  bool isUndefined() const {
+    return std::holds_alternative<std::monostate>(op_type);
+  };
 
-  //! Evaluate this type of function, given some arguments
+  bool isUnaryOp() const {
+    return std::holds_alternative<UnaryOpType>(op_type);
+  }
+
+  //! Given some inputs, evaluate this operation. This is primarily useful for
+  //! constant folding.
   PolymorphicValue evaluate(const std::vector<PolymorphicValue>& inputs) const;
 };
 
-//! These objects mimic the Val AST and can be used to record input Vals and to
-//! select the form of simplified values that we will need to construct.
+//! These objects mimic the Val abstract syntax tree (AST) and can be used to
+//! record input Vals and to select the form of simplified values that we will
+//! need to construct.
 //!
 //! Multiple Val*s can represent a single ASTNode.
-struct ASTNode {
-  //! This describes the type of the definition, but not the actual arguments.
-  FunctionDesc definition;
-
-  //! Unrolled loop indices are not constants as Vals (i.e. v->isConstInt() is
-  //! false), but in the generated kernel they are constant. This is useful for
-  //! analyzing register usage. See
-  //! https://github.com/csarofeen/pytorch/pull/2276 and related PRs
-  bool is_unrolled_loop_index = false;
-
+struct ASTNode : FunctionSymbol {
   //! Compute a coarse estimate of the complexity of computing this value.
   size_t complexity = 0;
 
@@ -72,7 +77,7 @@ struct ASTNode {
   //! This is a collection of Vals from the Fusion that have this exact form.
   //! This can be used during extraction to select pre-existing Vals with a
   //! desired form.
-  std::unordered_set<Val*> representing_vals{};
+  Val* representing_val = nullptr;
 
   // [Modeling term visibility in ASTNode]
   // TODO: we can represent visibility of each representing Val here
@@ -91,23 +96,20 @@ struct ASTNode {
 //! ENode holds a function symbol along with a vector of EClass IDs describing
 //! equivalent producers. This lets us represent a combinatorially massive
 //! amount of possible Vals with a handful of ENodes.
-struct ENode {
-  //! This describes the type of the definition, but not the actual arguments.
-  FunctionDesc definition;
-
+struct ENode : FunctionSymbol {
   //! EClass IDs of all function arguments.
   std::vector<Id> producer_ids;
 
   //! When a Val is registered using EGraph::registerVal(v), then v is
   //! associated with an ASTNode. Multiple of these can exist for one ENode,
   //! corresponding to the various members of producer EClasses.
-  std::vector<ASTNode> astnodes;
+  std::vector<std::unique_ptr<ASTNode>> astnodes;
 
  public:
   //! Construct and add() an ENode from a Val*. To do this, we construct and add
   //! its producers then get their Ids, recursively. Instead of an ENode*, this
   //! returns an Id to emphasize that this also adds the ENode to the EGraph.
-  static Id fromVal(Val* val);
+  static Id fromVal(const Val* val);
 };
 
 } // namespace egraph
