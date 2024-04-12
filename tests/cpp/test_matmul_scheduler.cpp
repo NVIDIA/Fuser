@@ -20,6 +20,8 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <memory>
+
 namespace nvfuser {
 
 namespace {
@@ -2255,8 +2257,9 @@ class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
   }
 };
 
-matmul_heuristic_plugin::KernelConfig* testConfigFactory() {
-  return (matmul_heuristic_plugin::KernelConfig*)(new TestKernelConfig);
+std::unique_ptr<matmul_heuristic_plugin::KernelConfig> testConfigFactory() {
+  return std::unique_ptr<matmul_heuristic_plugin::KernelConfig>(
+      new TestKernelConfig);
 }
 
 class MatmulSchedulerPluginTest : public NVFuserTest {
