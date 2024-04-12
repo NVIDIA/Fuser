@@ -49,6 +49,6 @@ struct MyKernelConfig : KernelConfig {
   };
 };
 
-std::unique_ptr<KernelConfig> makeConfig() {
+extern "C" std::unique_ptr<KernelConfig> makeConfig() {
   return std::unique_ptr<KernelConfig>(new MyKernelConfig);
 }
