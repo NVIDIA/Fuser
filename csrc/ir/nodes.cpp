@@ -424,21 +424,27 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
           ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
           : 1;
 
+      // Matmul/Addmm: n_pos=2, k_pos=1
+      // Linear: n_pos=1, k_pos=2
+      const int k_pos =
+          matmul_inp.mma_dims_pos.value()[(size_t)MatmulDomain::K];
+      const int n_pos =
+          matmul_inp.mma_dims_pos.value()[(size_t)MatmulDomain::N];
+
       if (matmul_inp.bias == nullptr) {
-        auto out = matmul_inp.input_layout == MmaLayout::TT
-            ? alpha * a.matmul(b)
-            : at::linear(a, b);
+        auto out = k_pos < n_pos ? alpha * a.matmul(b) : at::linear(a, b);
         return {out};
       }
 
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
 
       // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
-      if (bias.dim() != a.dim() && matmul_inp.input_layout == MmaLayout::TT) {
+      if (bias.dim() != a.dim() && (k_pos < n_pos)) {
         // Unsqueeze the broadcast dimensions.
         // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
-        for (int64_t dim : c10::irange(matmul_inp.bias_bcast_flags.size())) {
-          if (matmul_inp.bias_bcast_flags[dim]){
+        for (auto dim :
+             c10::irange((int64_t)matmul_inp.bias_bcast_flags.size())) {
+          if (matmul_inp.bias_bcast_flags[dim]) {
             bias = bias.unsqueeze(dim);
           }
         }
@@ -448,9 +454,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
           ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
           : 1;
 
-      auto out = matmul_inp.input_layout == MmaLayout::TT
-          ? at::addmm(bias, a, b, beta, alpha)
-          : at::linear(a, b, bias);
+      auto out = k_pos < n_pos ? at::addmm(bias, a, b, beta, alpha)
+                               : at::linear(a, b, bias);
       return {out};
     }
   }

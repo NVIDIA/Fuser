@@ -1311,6 +1311,40 @@ MmaOpDetails getMmaOpDetails(
   return details;
 }
 
+namespace {
+std::vector<int> getMmaDimsPositions(MmaOp* mma) {
+  auto mma_domains = mma_utils::getProblemIterDomains(mma->fusion());
+  NVF_ERROR(mma_domains.isValid(), mma_domains.getErrorMsg());
+
+  const auto domains_data = mma_domains.getData();
+  const auto m_id = domains_data[(size_t)MatmulDomain::M];
+  const auto n_id = domains_data[(size_t)MatmulDomain::N];
+  const auto k_id = domains_data[(size_t)MatmulDomain::K];
+
+  std::optional<int> m_pos, n_pos, k_pos = std::nullopt;
+
+  auto out_tv = mma->out()->as<TensorView>();
+  int ndims = (int)out_tv->nDims();
+
+  for (auto idx : c10::irange(ndims)) {
+    auto id = out_tv->axis(idx);
+    // Categorize each original iterdomain position
+    if (m_id->sameAs(id)) {
+      m_pos = idx;
+    } else if (n_id->sameAs(id)) {
+      n_pos = idx;
+    } else if (k_id->sameAs(id)) {
+      k_pos = idx;
+    }
+  }
+
+  NVF_ERROR(
+      m_pos.has_value() && n_pos.has_value() && k_pos.has_value(),
+      "Valid index not found for all problem iterdomains.")
+  return {m_pos.value(), n_pos.value(), k_pos.value()};
+}
+} // namespace
+
 // Verifies the assumptions made when evaluating a fusion containing MmaOp:
 // 1. MmaOp is preceded by a broadcast.
 // 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
@@ -1422,10 +1456,11 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   // Get the non-broadcasted values to avoid inferring squeeze dimensions.
   matmul_inp->mma_lhs = mma->inA()->definition()->input(0);
   matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
-  matmul_inp->input_layout =
-      mma->inA()->as<TensorView>()->getRootDomain().back()->isBroadcast()
-      ? MmaLayout::TT
-      : MmaLayout::TN;
+  matmul_inp->mma_dims_pos = getMmaDimsPositions(mma);
+
+  NVF_ERROR(
+      matmul_inp->mma_dims_pos.value()[(size_t)MatmulDomain::M] == 0,
+      "Expected M to be the first dimension.");
 
   if (!has_bias) {
     return true;

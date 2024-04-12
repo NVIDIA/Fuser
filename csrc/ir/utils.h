@@ -66,19 +66,23 @@ struct MatmulInputs {
   Val* bias = nullptr;
   Val* alpha = nullptr;
   Val* beta = nullptr;
-  // Input layout based on ordering of axes M,N,K, valid values.
-  // Determined based on broadcast axes.
-  std::optional<MmaLayout> input_layout = std::nullopt;
+  // Ordering of dimensions M,N,K in inputs.
+  // Determined based on position of iterdomains.
+  // For addmm/matmul ([M,K] x [K,N]): M=0, N=2, K=1
+  // For linear ([M,K] x [N,K]): M=0, N=1, K=2
+  // mma_dims_pos = {m_pos, n_pos, k_pos}
+  std::optional<std::vector<int>> mma_dims_pos = std::nullopt;
   std::vector<bool> bias_bcast_flags = {};
 };
 
 //! Matches the following matmul patterns.
 //! Matmul: A x B, alpha * A x B
-//! Matmul + Bias: A x B + C,  alpha * A x B + C, A x B + beta * C,
+//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
 //!   alpha * A x B  + beta * C
+//! Linear: A x B / A x B + C
 //! Assumptions:
 //! 1. For simplicity, we assume the MmaOp to be in the first operand.
-//! 2. If mma layout is TN ([M, K], [N, K]), alpha, beta parameters are ignored
+//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are ignored
 //! in evaluation.
 bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
 
