@@ -14,6 +14,7 @@
 
 #include <dlfcn.h>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 
 namespace nvfuser {
@@ -51,7 +52,7 @@ static class PluginInterface : NonCopyable {
     }
   }
 
-  KernelConfig* makeConfig() {
+  std::unique_ptr<KernelConfig> makeConfig() {
     NVF_ERROR(available());
 
     if (factory_func_ptr_ == nullptr) {
@@ -75,7 +76,7 @@ static class PluginInterface : NonCopyable {
   KernelConfigFactoryPointer factory_func_ptr_ = nullptr;
 } plugin;
 
-KernelConfig* defaultConfigFactory() {
+std::unique_ptr<KernelConfig> defaultConfigFactory() {
   return plugin.makeConfig();
 }
 
@@ -86,7 +87,7 @@ void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func) {
   config_factory_ptr = func == nullptr ? defaultConfigFactory : func;
 }
 
-KernelConfig* makeConfig() {
+std::unique_ptr<KernelConfig> makeConfig() {
   NVF_ERROR(config_factory_ptr != nullptr);
   return (*config_factory_ptr)();
 }
@@ -135,7 +136,7 @@ bool updateMatmulParams(
   // NOTE: this assumes compute type is Float
   precision[2] = mma_utils::dtypeToChar(d->dtype());
 
-  std::unique_ptr<KernelConfig> config(makeConfig());
+  std::unique_ptr<KernelConfig> config = makeConfig();
   config->problem.m = (uint32_t)m;
   config->problem.n = (uint32_t)n;
   config->problem.k = (uint32_t)k;

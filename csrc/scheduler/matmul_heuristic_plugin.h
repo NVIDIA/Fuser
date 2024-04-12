@@ -12,6 +12,7 @@
 #include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
 
+#include <memory>
 #include <optional>
 
 namespace nvfuser {
@@ -35,7 +36,7 @@ bool updateMatmulParams(
     const mma_utils::RolesMap& roles_map);
 
 //! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
-typedef KernelConfig* (*KernelConfigFactoryPointer)();
+typedef std::unique_ptr<KernelConfig> (*KernelConfigFactoryPointer)();
 
 //! This function can be used to imitate a plugin. To do so, subclass
 //! KernelConfig, implementing a custom `configure` method, then create a guard

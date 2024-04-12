@@ -51,6 +51,6 @@ struct MyKernelConfig : KernelConfig {
 };
 
 // NVF_API is required to export this function from the plugin
-extern "C" KernelConfig* makeConfig() {
-  return static_cast<KernelConfig*>(new MyKernelConfig);
+std::unique_ptr<KernelConfig> makeConfig() {
+  return std::unique_ptr<KernelConfig>(new MyKernelConfig);
 }
