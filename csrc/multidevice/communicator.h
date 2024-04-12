@@ -6,13 +6,20 @@
  */
 // clang-format on
 #pragma once
-#ifdef NVFUSER_DISTRIBUTED
+
+#include <ATen/core/TensorBody.h>
+#include <ATen/core/ivalue.h>
+#include <c10/util/intrusive_ptr.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
-#include <torch/csrc/distributed/c10d/Store.hpp>
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <torch/csrc/distributed/c10d/Work.hpp>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
 #include <visibility.h>
 
 namespace nvfuser {
@@ -43,8 +50,6 @@ constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
-constexpr int comm_master_port_default =
-    c10d::TCPStoreOptions::kDefaultPort; // 29500
 
 class Communicator {
  public:
@@ -155,5 +160,3 @@ class Communicator {
 };
 
 } // namespace nvfuser
-
-#endif
