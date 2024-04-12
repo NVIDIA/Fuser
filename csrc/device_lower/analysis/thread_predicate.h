@@ -128,7 +128,7 @@ class ThreadPredicateMap {
 
  private:
   // Update the thread_predicates bitset based on provided Expr
-  void updateBitSet(const Expr*);
+  void updateBitSet(Fusion* fusion, const Expr*);
   void avoidConcretizedBroadcastRedundantWrite(const TensorView* out_tv);
   const_iterator find(const TensorView* tv) const;
   const_iterator end() const;

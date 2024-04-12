@@ -44,8 +44,14 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
+      std::cout << "\nexpr: " << expr->toString() << std::endl;
+      std::cout << "expr->predicate(): " << expr->predicate() << std::endl;
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
+      std::cout << "conditional: " << conditional->toString() << std::endl;
+      if(conditional->definition() != nullptr) {
+        std::cout << "conditional->definition(): " << conditional->definition()->toString() << std::endl;
+      }
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
           // TODO: This logic doesn't seem to fit well here, for unswitch the
@@ -86,6 +92,12 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           conditional, for_loops_);
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
+      std::cout << "expr->predicate()->value(): " << expr->predicate()->value()->toString()
+                << std::endl;
+      if(expr->predicate()->value()->definition() != nullptr) {
+        std::cout << "expr->predicate()->value()->definition(): " << expr->predicate()->value()->definition()->toString()
+                  << std::endl;
+      }
       setWritePredicate(expr);
     }
 

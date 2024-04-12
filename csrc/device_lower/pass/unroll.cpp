@@ -75,7 +75,7 @@ void UnrollPass::dispatch(Expr* expr) {
       DEBUG_LOG("!should_predicate");
       return;
     }
-
+    std::cout << "\nUnrollPass expr: " << expr->toString();
     auto thread_pred =
         GpuLower::current()->threadPredMap().getPredicate(out_tv);
     DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
@@ -84,6 +84,7 @@ void UnrollPass::dispatch(Expr* expr) {
     // thread predicate can be ignored if the tensor is not shared by
     // any of the predicated parallel types
     if (isReductionInitExpr(expr)) {
+      std::cout << "ReductionInitExpr\n";
       if (out_tv->getMemoryType() == MemoryType::Local) {
         // Local is always private, so we can always ignore thread predicates
         thread_pred = GpuLower::current()->kernel()->trueVal();
@@ -153,6 +154,7 @@ void UnrollPass::dispatch(Expr* expr) {
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
+      std::cout << "hasBlockSync\n";
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
       registerReplace(expr, expr_with_predicate);
       return;
@@ -182,6 +184,7 @@ void UnrollPass::dispatch(Expr* expr) {
     if (lower_utils::supportInlinePredicate(expr)) {
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
       registerReplace(expr, expr_with_predicate);
+      std::cout << "supportInlinePredicate\n";
       return;
     }
 
@@ -189,6 +192,7 @@ void UnrollPass::dispatch(Expr* expr) {
     kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
     kir::ExprMutator::registerReplace(expr, inline_ite);
     if (expr != expr_with_predicate) {
+      std::cout << "propagateExprInfo\n";
       GpuLower::current()->propagateExprInfo(expr, expr_with_predicate);
     }
     inline_ite->thenBody().push_back(expr_with_predicate);
