@@ -86,16 +86,18 @@ First to note is, what we should do depend on how we will use the output of TMA.
 The theory for this is called [correctness model](divisibility-of-split.md#allocation-and-correctness-model).
 Specifically, we are interested in:
 
-- For an unpredicated TMA expression, if we do not initialize the buffer, what correctness model can we achieve?
+- For an unpredicated TMA expression, if we do not initialize the buffer, what correctness model can we achieve? Depending on the schedule, the answer can be different:
+  - What schedule can achieve weak correctness?
+  - What schedule can achieve strong correctness?
 - In the case where strong correctness is needed, but we have only achieved weak correctness,
   is there any way to upgrade to strong correctness by doing something?
 
-As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in bound.
+As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in boundary.
 That is, TMA will never do out-of-boundary access on global memory even if the indices of
 some IterDomains may be out of boundary.
 Therefore, we have:
 
-**Theorem 1:** TMA provides weak correctness.
+**Theorem 1:** TMA provides weak correctness regardless of how we schedule, how we initialize the buffer, and how we generate predicates.
 
 Having weak correctness is great in the sense that,
 if weak correctness is sufficient for us,
@@ -109,11 +111,15 @@ and some holes will be filled with out of boundary zeros:
 ![Figure 2: Holes in allocation domain filled with in boundary data](tma-modeling-in-depth/weak-correctness-holes-nonzero.svg)
 
 A common use case for TMA is to load data for tensor core.
-Because tensor core has unpredicated reduction, strong correctness is required.
-Strong correctness means that, when an IterDomain expression create holes (indivisible split, resize),
-the holes must be filled with a certain value.
-
-Understanding strong correctness of TMA requires the following definition:
+Because tensor core has unpredicated reduction,
+we want to make sure all holes are filled with zeros so that it has no contribution to the final result.
+This would require our TMA scheduling and lowering strategy to achieve strong correctness.
+In order to achieve strong correctness, we need to make sure that all holes lead to false in TMA's builtin predicate,
+so that TMA knows these holes should be filled with zero instead of load some data from global memory to fill it,
+and red items in Figure 2 are not allowed.
+That is, in the consumer tensor of TMA load,
+the indices of all IterDomains between the TMA domain and allocation domain should either never go out of boundary (for example, if they are never transformed further, or all their descendants are never resized or indivisibly split) or logically implied by TMA's builtin predicates.
+This leads to the following definition:
 
 **Definition 1 (TMA-protected IterDomain):** An IterDomain is TMA-protected if it satisfies any of the following conditions:
 
@@ -154,6 +160,13 @@ An example of strong correctness is shown in the following Figure 3:
 
 In this figure, `I2` and `I7` are the only IterDomains that could run out of boundary,
 they are both TMA-protected. So we can achieve strong correctness.
+
+Another example is the following Figure 4:
+
+![Figure 4: Strong correctness 2](tma-modeling-in-depth/strong-correctness-2.svg)
+
+In this figure, `I2`, `I3` and `I10` are the only IterDomains that could run out of boundary,
+they are all TMA-protected. So we can achieve strong correctness.
 
 TODO: explain how to upgrade weak correctness to strong correctness by initializing and predicating?
 

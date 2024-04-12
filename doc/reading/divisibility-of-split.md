@@ -58,8 +58,9 @@ But wait, is this correct? No, this is not.
 Because now we are printing `0 1 2 3 4 5 6 7` instead of `0 1 2 3 4 5`.
 
 That is, whenever we do an indivisible split on an IterDomain, we effectively changed its range as well.
-We call this added extra range "holes".
+We call this added extra range "*holes*".
 In the above example, the indivisible split creates two holes in `I0`.
+In contrast to the concept "holes", we call the items in the original range "*valid items*".
 
 To maintain program semantics, we must add predicates checking whether we are at a valid item or at a hole:
 
@@ -71,30 +72,26 @@ for i0 in range(2):
             print(i)
 ```
 
-Personally, I sometimes feel it helpful to consider indivisible split as resize + divisible split.
+Sometimes it can be helpful to consider indivisible split as resize + divisible split.
 For example, I can consider `Split(I{6}, 4)` as `DivisibleSplit(Resize(I{6}, 0, 2), 4)`.
-This way, hole creation and loop transformations are separated.
-`DivisibleSplit` just converts one loop into two loops without while maintaining correctness.
-`Resize(I{size1}, 0, right_expand)` create holes and introduce predicates:
+This way, hole creation and loop transformations are separated:
+`Resize(I{6}, 0, 2)` append two holes to `I{6}` to make it `I{8}`,
+and `DivisibleSplit` just view the 1D valid items + holes altogether as 2D.
+Visually, this is as shown in Figure 1 below:
 
-```python
-# Before resize
-for i in range(size1):
-    print(i)
+![Figure 1](divisibility-of-split/allocate-6-as-2,4.svg)
 
-# After resize
-for i in range(size1 + right_expand):
-    if i < size1:
-        print(i)
-```
+When we iterate, we iterate on both valid items and holes.
+During iteration, when we are at a hole, the index of the some IterDomain will be outside its valid interval `[start, extent)`.
+When this happens, we say the index of that IterDomain is "*out of boundary*".
 
 ## Predication
 
 As we have seen above, indivisible splits create holes in the iteration,
 therefore predicates must be introduced.
-Let's consider the following example in Figure 1:
+Let's consider the following example in Figure 2:
 
-![Figure 1: Three Indivisible Splits](divisibility-of-split/three-indivisible-splits.svg)
+![Figure 2: Three Indivisible Splits](divisibility-of-split/three-indivisible-splits.svg)
 
 In this example, there are three indivisible splits.
 The indices of the inputs of all these splits, `i0`, `i1`, and `i2`, could potentially run out of boundary.
@@ -127,7 +124,7 @@ To maintain program semantics, the predicate we use must be logically equivalent
 The following theorems are useful tools to find mathematically simple predicates that are logically equivalent to predicating all holes:
 
 **Theorem 1** Suppose that there is a split `I1, I2 = Split(I0)`.
-Then "the indices of `I0` and `I2` are in bound" implies "the index of `I1` is in bound".
+Then "the indices of `I0` and `I2` are in boundary" implies "the index of `I1` is in boundary".
 
 <details>
 
@@ -135,7 +132,7 @@ Then "the indices of `I0` and `I2` are in bound" implies "the index of `I1` is i
 
 Suppose the indices and extents of `I0`, `I1`, and `I2` are $i_0$, $i_1$, $i_2$, $N_0$, $N_1$, and $N_2$.
 Then $i_0 = i_1 \times N_2 + i_2$.
-"the indices of `I0` and `I2` are in bound" means $0 \le i_0 < N_0$ and $0 \le i_2 < N_2$.
+"the indices of `I0` and `I2` are in boundary" means $0 \le i_0 < N_0$ and $0 \le i_2 < N_2$.
 
 *Upper bound:*
 
@@ -170,7 +167,7 @@ The above theorem tells us that, if we are already predicating `I0`, then there 
 We can derive similar theorems for other IterDomain expressions:
 
 **Theorem 2** Suppose that there is a merge `I2 = Merge(I0, I1)`.
-Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
+Then "the index of `I0` is in boundary" is equivalent to "the index of `I2` is in boundary".
 
 <details>
 
@@ -179,7 +176,7 @@ Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in b
 Suppose the index of `I2` is $i_2$, the extent of `I1` is $N_1$.
 Then the index of `I0` is $i_0 = i_2 / N_1$.
 Suppose that the extents of `I0` and `I2` are $N_0$ and $N_2$, then $N_2 = N_0 \times N_1$.
-"the index of `I0` is in bound" means $0 \le i_0 < N_0$
+"the index of `I0` is in boundary" means $0 \le i_0 < N_0$
 
 *Lower bound:*
 
@@ -199,7 +196,7 @@ $\square$
 </details>
 
 **Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
-Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if $L \ge 0$ and $R \ge 0$.
+Then "the index of `I0` is in boundary" implies "the index of `I1` is in boundary" if $L \ge 0$ and $R \ge 0$.
 
 <details>
 
@@ -208,7 +205,7 @@ Then "the index of `I0` is in bound" implies "the index of `I1` is in bound" if 
 Suppose the index of `I1` is $i_1$, the extent of `I0` is $N_0$.
 The index of `I0` is then $i_0 = i_1 - L$.
 The extent of `I1` is $N_0 + L + R$.
-"the index of `I0` is in bound" means $0 \leq i_0 < N_0$.
+"the index of `I0` is in boundary" means $0 \leq i_0 < N_0$.
 
 *Lower bound:*
 
@@ -224,7 +221,7 @@ $\square$
 </details>
 
 **Theorem 4** Suppose that there is a swizzle `I2, I3 = Swizzle(I0, I1)`.
-Then "the index of `I0` is in bound" is equivalent to "the index of `I2` is in bound".
+Then "the index of `I0` is in boundary" is equivalent to "the index of `I2` is in boundary".
 
 <details>
 
@@ -244,13 +241,9 @@ I will allocate 6 items for this tensor.
 If I do an indivisible split on `I0{6}` by `4` to get `I1{2}` and `I2{4}`,
 and set the allocation domain of this tensor as `[I1, I2]`,
 then I will need to allocate `2*4 = 8` items.
-With the mental model of considering indivisible split as resize + divisible split,
-we can consider the allocation of this example as Figure 2:
-
-![Figure 2](divisibility-of-split/allocate-6-as-2,4.svg)
 
 We call the above situation *over-allocated*, that is,
-we are not only allocating data, but also allocating holes.
+we are not only allocating valid items, but also allocating holes.
 
 Because there are holes in the allocation due to indivisible split,
 a natural question to ask is: When we write to an over-allocated buffer,
@@ -264,20 +257,20 @@ Possible answers are:
 
 Which answer is correct? There is no certain answer.
 It totally depends on how these values are read:
-If the out-of-bound items are never read, then 1, 2, or 3 makes no difference.
-If the out-of-bound items are actually read,
+If the holes are never read, then 1, 2, or 3 makes no difference.
+If the holes are actually read,
 then it needs to be filled with some neutral value that effectively leads to a no-op.
 For example, if we are doing an unpredicated reduction on an over-allocated buffer,
-such as when using tensor core, we must fill the out-of-bound items correctly.
-If the reduction is sum, then the out-of-bound items must be filled with 0.
-If the reduction is product, then the out-of-bound items must be filled with 1.
+such as when using tensor core, we must fill the holes correctly.
+If the reduction is sum, then the holes must be filled with 0.
+If the reduction is product, then the holes must be filled with 1.
 This inspires the concept of weak and strong correctness:
 
-**Definition 1:** A schedule/lowering strategy is weakly correct if all the in-bound items in the consumer's allocation domain are filled with the correct value,
+**Definition 1:** A schedule/lowering strategy is weakly correct if all the valid items in the consumer's allocation domain are filled with the correct value,
 and there is no error raise in the kernel.
 
-**Definition 2:** A schedule/lowering strategy is strongly correct if all the in-bound items in the consumer's allocation domain are filled with the correct value,
-and all the out-of-bound values are filled with a desired filling value.
+**Definition 2:** A schedule/lowering strategy is strongly correct if all the valid items in the consumer's allocation domain are filled with the correct value,
+and all holes are filled with a desired filling value.
 
 ## Properties of split
 
