@@ -11,8 +11,8 @@ namespace nvfuser {
 
 using PointwiseFusedReductionTest = NVFuserTest;
 
-// NO:  inner reduction + non-broadcast epilogue
-// YES: outer reduction + non-broadcast epilogue
+// inner reduction + non-broadcast epilogue, can't be fused
+// outer reduction + non-broadcast epilogue, can be fused
 // checked by: SchedulerTopologyChecker::supportedPostReductionFusion
 namespace {
 void ReductionNonBroadcast(const int reduction_dim) {
@@ -67,8 +67,8 @@ TEST_F(PointwiseFusedReductionTest, OuterReductionNonBroadcast) {
   ReductionNonBroadcast(reduction_dim);
 }
 
-// NO: inner reduction + broadcast epilogue
-// NO: outer reduction + broadcast epilogue
+// inner reduction + broadcast epilogue, can't be fused
+// outer reduction + broadcast epilogue, can't be fused
 // checked by: SchedulerTopologyChecker::hasPostReductionBCast
 namespace {
 void ReductionBroadcast(const int reduction_dim) {
