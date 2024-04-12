@@ -126,7 +126,7 @@ This leads to the following definition:
 1. It is a partitioned IterDomain.
 2. It is the outer output of a split of a TMA-protected IterDomain.
 3. It is the output of a merge whose outer input is a TMA-protected IterDomain.
-4. It is the output of a resize whose input is a TMA-protected IterDomain and `right_expand >= 0`.
+4. It is the output of a resize whose input is a TMA-protected IterDomain and `left_expand >= 0 && right_expand >= 0`.
 5. It is the `X` output of a swizzle whose `X` input a TMA-protected IterDomain.
 
 TMA-protected IterDomain has the following very important property:
