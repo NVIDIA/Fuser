@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/communication.h>
 #ifdef NVFUSER_DISTRIBUTED
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
-
-#include <multidevice/communication.h>
+#endif
 #include <utils.h>
 
 namespace nvfuser {
@@ -324,5 +324,3 @@ c10::intrusive_ptr<c10d::Work> SendRecv::post(
 }
 
 } // namespace nvfuser
-
-#endif
