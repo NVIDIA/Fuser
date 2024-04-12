@@ -21,7 +21,9 @@
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
+#include <exceptions.h>
 #include <executor_params.h>
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -236,6 +238,23 @@ class GpuLower : public NonCopyable {
 
   std::vector<Pass>& passes() {
     return passes_;
+  }
+
+  // Register a boolean Val as a predicate to validate at the run time. Optional
+  // validation error messages can be given as args.
+  template <typename... Args>
+  void validate(Val* validation_condition, Args... args) {
+    auto sv = simplifyExpr(validation_condition);
+    if (sv->isTrue()) {
+      // If validation_condition is simplified to true, we know that the
+      // condition is always true regardless of the runtime values of the
+      // inputs. We can skip the validation. For example, we are not interested
+      // in validating that 3 < 4 or i % 8 < 8 every time we run the kernel.
+      return;
+    }
+    std::string message = to_str(args...);
+    NVF_ERROR(!sv->isFalse(), message);
+    validations_.emplace_back(sv, message);
   }
 
   const std::vector<std::pair<const Val*, std::string>>& validations() const {

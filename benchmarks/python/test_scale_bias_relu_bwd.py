@@ -1,9 +1,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def sbr_bwd_fusion(
@@ -40,9 +41,17 @@ def sbr_bwd_fusion(
     fd.add_output(T15)
 
 
+def sbr_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = grad_out (dtype, size)+ scale (dtype, size[-1])+ bool_mask (bool, size) + grad_in (dtype, size)
+    return int(
+        dtype.itemsize * (2 * np.prod(size) + size[-1])
+        + torch.bool.itemsize * np.prod(size)
+    )
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_sbr_bwd_benchmark(
+def test_sbr_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -67,3 +76,28 @@ def test_sbr_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [scale, bool_mask, grads])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_sbr_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    scale = torch.ones(size[-1], device="cuda", dtype=dtype)
+    bias = torch.ones(size[-1], device="cuda", dtype=dtype)
+    eager_output = torch.nn.functional.relu(inputs * scale + bias)
+
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [eager_output, grads],
+        iobytes=sbr_bwd_iobytes(size, dtype),
+    )

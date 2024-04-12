@@ -12,6 +12,7 @@
 #include <ir/all_nodes.h>
 #include <scheduler/heuristic_types.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -232,6 +233,19 @@ struct PersistentKernelProperties {
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "===== Persistent Kernel Properties ========\n"
+       << "inner_most_dimension_numel: " << inner_most_dimension_numel << "\n"
+       << "total_reduction_numel: " << total_reduction_numel << "\n"
+       << "total_iteration_numel: " << total_iteration_numel << "\n"
+       << "max_persistent_buffer_size: " << max_persistent_buffer_size << "\n"
+       << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+       << "max_input_dtype_size: " << max_dtype_size << "\n"
+       << "max allowed vectorize_factor: " << vectorize_factor << "\n"
+       << "project_persistent_buffers: " << project_persistent_buffers << "\n";
+    return ss.str();
+  }
 };
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
@@ -292,5 +306,25 @@ void schedulePersistentKernel(
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& persistent_buffers);
+
+// Returns true if persistent buffers are projected to inputs, meaning the
+// inputs are cached instead of the persistent buffers. The decision of
+// projection is primarily based on the required sizes of the two cases --
+// projection is done if projecting to the inputs results in a smaller size.
+// However, we experimentally found that certain relatively expensive operations
+// should not be projected even when that would require a larger buffer size.
+// Specifically,
+// - rng: should never be projected no matter how much larger the buffer would
+// consume
+// - exp in inner normalization: only allowed to get projected if the buffer is
+// smaller than a certain size Otherwise, as long as the projected inputs are
+// smaller than the original persistent buffers, this function returns true.
+bool isProjectBufferToInputs(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const scheduler_utils::PersistentBufferSizeReturn&
+        persistent_buffer_size_info,
+    const bool is_inner_reduction);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

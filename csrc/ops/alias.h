@@ -88,7 +88,7 @@ NVF_API TensorView* permute(
     const std::unordered_map<int, int>& old2new);
 NVF_API TensorView* permute(
     TensorView* x,
-    const std::initializer_list<std::pair<const int, int>>& new2old);
+    const std::initializer_list<std::pair<const int, int>>& old2new);
 
 //! Transpose a tensor by swapping the two dimensions.
 NVF_API TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);

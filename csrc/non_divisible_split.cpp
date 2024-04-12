@@ -187,16 +187,10 @@ void NonDivisibleSplitInfo::addValidations() {
   for (auto split : splits_to_validate_) {
     auto extent = split->in()->extent();
     auto factor = split->factor();
-    auto is_divisible = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+    auto is_divisible = SimplifyingIrBuilder::eqExpr(
         SimplifyingIrBuilder::modExpr(extent, factor),
-        extent->fusion()->zeroVal()));
-    NVF_ERROR(
-        !is_divisible->isFalse(), "Non-divisible split detected: ", split);
-    if (!is_divisible->isTrue()) {
-      std::stringstream ss;
-      ss << "Non-divisible split detected: " << split;
-      gpu_lower->validations().emplace_back(is_divisible, ss.str());
-    }
+        extent->fusion()->zeroVal());
+    gpu_lower->validate(is_divisible, "Non-divisible split detected: ", split);
   }
 }
 
