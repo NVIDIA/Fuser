@@ -18,9 +18,9 @@ namespace nvfuser {
 
 
 class GlobalContext : public testing::Environment {
- public:
-  void SetUp() override {}
-  void TearDown() override {}
+  public:
+    void SetUp() override {}
+    void TearDown() override {}
 };
 
 auto global_context = static_cast<GlobalContext*>(
@@ -53,18 +53,31 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
 
     // Define the constants
     const int64_t A = num_devices;
-    const int64_t B = 16;
-    const int64_t C = 1048576;
+    const int64_t B = getNvFuserEnv("OVERLAP_B")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,4);
+    const int64_t C = getNvFuserEnv("OVERLAP_C")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,16);
     std::vector<int64_t> unsharded_sizes{A, B, C};
 
-    const int64_t number_of_tiles = B;
-    NVF_ERROR(B % number_of_tiles == 0);
-    const int64_t tile_size = B / number_of_tiles;
+    const int64_t tile_size = getNvFuserEnv("OVERLAP_TILE_SIZE")? std::atoi(getNvFuserEnv("OVERLAP_TILE_SIZE")): 1;
+    NVF_ERROR(B % tile_size == 0);
+    const int64_t number_of_tiles = B / tile_size;
+
+    auto compute = [](at::Tensor t) {
+            const int n_iterations = getNvFuserEnv("OVERLAP_N_ITERATIONS")?
+                                     std::atoi(getNvFuserEnv("OVERLAP_N_ITERATIONS"))
+                                     : 1;
+            for (auto _=0; _<n_iterations; _++) {
+                t = t+t;
+                t = t*t;
+                t = t-t;
+            }
+            return t;
+        };
 
     auto get_slice = [tile_size](at::Tensor t, int64_t i, int64_t j)
             {return t.index({at::indexing::Slice(i, i+1),
                              at::indexing::Slice(j*tile_size, (j+1)*tile_size),
                              "..."});};
+
     // Input set-up
     // define the unsharded inputs for validation
     auto options =
@@ -94,7 +107,7 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
     for (auto j: c10::irange(number_of_tiles)) {
         setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */false, my_device_index));
         // local compute
-        auto tv1_j = tv0_slices.at(j) * 2;
+        auto tv1_j = compute(tv0_slices.at(j));
 
         // communication
         std::vector<at::Tensor> src_buf = {tv1_j};
@@ -105,8 +118,7 @@ TEST_F(MultiDeviceTest, OverlapExperiment) {
 
     // validation
     // compute the expected output
-    auto tv1_ref = tv0_unsharded * 2;
-    auto tv2_ref = tv1_ref;
+    auto tv2_ref = compute(tv0_unsharded);
     // compare obtained and expected outputs
     for (auto i: c10::irange(num_devices)) {
         for (auto j: c10::irange(number_of_tiles)) {
