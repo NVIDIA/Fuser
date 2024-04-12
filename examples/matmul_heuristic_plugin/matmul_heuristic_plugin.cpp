@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <scheduler/matmul_heuristic_plugin_api.h>
-#include <visibility.h>
 
 #include <cstdint>
 #include <iostream>
@@ -50,7 +49,6 @@ struct MyKernelConfig : KernelConfig {
   };
 };
 
-// NVF_API is required to export this function from the plugin
 std::unique_ptr<KernelConfig> makeConfig() {
   return std::unique_ptr<KernelConfig>(new MyKernelConfig);
 }
