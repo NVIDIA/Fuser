@@ -37,8 +37,8 @@ bool updateMatmulParams(
     MmaLayout layout,
     const mma_utils::RolesMap& roles_map);
 
-//! Defines ConfigFactoryFuncPtr as type of the "makeConfig" symbol
-typedef std::unique_ptr<KernelConfig> (*KernelConfigFactoryPointer)();
+//! Defines the type of the "makeConfig" symbol
+typedef std::function<std::unique_ptr<KernelConfig>()> KernelConfigFactory;
 
 //! This function can be used to imitate a plugin. To do so, subclass
 //! KernelConfig, implementing a custom `configure` method, then create a guard
@@ -51,11 +51,11 @@ typedef std::unique_ptr<KernelConfig> (*KernelConfigFactoryPointer)();
 //! value.
 class KernelConfigFactoryGuard {
  public:
-  explicit KernelConfigFactoryGuard(KernelConfigFactoryPointer func);
+  explicit KernelConfigFactoryGuard(KernelConfigFactory func);
   ~KernelConfigFactoryGuard();
 
  private:
-  KernelConfigFactoryPointer prev_factory_;
+  KernelConfigFactory prev_factory_;
 };
 
 } // namespace matmul_heuristic_plugin

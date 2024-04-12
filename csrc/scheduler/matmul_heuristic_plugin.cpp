@@ -24,6 +24,7 @@ namespace matmul_heuristic_plugin {
 namespace {
 
 std::mutex plugin_mutex;
+typedef std::unique_ptr<KernelConfig> (*KernelConfigFactoryPointer)();
 static class PluginInterface : NonCopyable {
  public:
   PluginInterface() : filepath_(getNvFuserEnv("MATMUL_HEURISTIC_PLUGIN")) {
@@ -80,16 +81,10 @@ std::unique_ptr<KernelConfig> defaultConfigFactory() {
   return plugin.makeConfig();
 }
 
-thread_local KernelConfigFactoryPointer config_factory_ptr =
-    defaultConfigFactory;
-
-void setKernelConfigFactoryPointer(KernelConfigFactoryPointer func) {
-  config_factory_ptr = func == nullptr ? defaultConfigFactory : func;
-}
+thread_local KernelConfigFactory config_factory = defaultConfigFactory;
 
 std::unique_ptr<KernelConfig> makeConfig() {
-  NVF_ERROR(config_factory_ptr != nullptr);
-  return (*config_factory_ptr)();
+  return config_factory();
 }
 
 //! Utility to standardize conversion of MmaLayout to uint8_t
@@ -245,17 +240,22 @@ bool hasPlugin() {
   // If we have overridden the default config factory, we will count that as a
   // plugin. Otherwise, we need to check that the dynamically loaded plugin is
   // actually available.
+
+  // To check whether we have set a non-default factory, find the address of
+  // config_factory and compare it to defaultConfigFactory.
+  KernelConfigFactoryPointer config_factory_ptr =
+      config_factory.target<std::unique_ptr<KernelConfig>()>();
+
   return config_factory_ptr != defaultConfigFactory || plugin.available();
 }
 
-KernelConfigFactoryGuard::KernelConfigFactoryGuard(
-    KernelConfigFactoryPointer func)
-    : prev_factory_(config_factory_ptr) {
-  config_factory_ptr = func;
+KernelConfigFactoryGuard::KernelConfigFactoryGuard(KernelConfigFactory func)
+    : prev_factory_(config_factory) {
+  config_factory = func;
 }
 
 KernelConfigFactoryGuard::~KernelConfigFactoryGuard() {
-  config_factory_ptr = prev_factory_;
+  config_factory = prev_factory_;
 }
 
 } // namespace matmul_heuristic_plugin
