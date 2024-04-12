@@ -53,7 +53,7 @@ static class PluginInterface : NonCopyable {
     }
   }
 
-  std::unique_ptr<KernelConfig> makeConfig() {
+  std::unique_ptr<KernelConfig> getConfig() {
     NVF_ERROR(available());
 
     if (factory_func_ptr_ == nullptr) {
@@ -78,7 +78,7 @@ static class PluginInterface : NonCopyable {
 } plugin;
 
 std::unique_ptr<KernelConfig> defaultConfigFactory() {
-  return plugin.makeConfig();
+  return plugin.getConfig();
 }
 
 thread_local KernelConfigFactory config_factory = defaultConfigFactory;
