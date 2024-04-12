@@ -108,21 +108,8 @@ uint8_t layoutToByte(MmaLayout layout) {
   }
 }
 
-} // namespace
-
-bool updateMatmulParams(
-    MatmulParams& params,
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    int64_t batch_size,
-    MmaLayout layout,
-    const mma_utils::RolesMap& roles_map) {
-  if (!hasPlugin()) {
-    return false;
-  }
-
-  std::string precision = "SSS";
+std::string rolesToPrecisionString(const mma_utils::RolesMap& roles_map) {
+  std::string precision = "   ";
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
   NVF_CHECK(
@@ -130,37 +117,67 @@ bool updateMatmulParams(
   TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
+  precision[1] = 'S';
   precision[2] = mma_utils::dtypeToChar(d->dtype());
+  return precision;
+}
 
-  std::unique_ptr<KernelConfig> config = makeConfig();
-  config->problem.m = (uint32_t)m;
-  config->problem.n = (uint32_t)n;
-  config->problem.k = (uint32_t)k;
-  config->problem.batch_size = (uint32_t)batch_size;
-  config->problem.layout =
+void fillProblemDescription(
+    KernelConfig::ProblemDescription& problem,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t batch_size,
+    MmaLayout layout,
+    const char* precision) {
+  problem.m = (uint32_t)m;
+  problem.n = (uint32_t)n;
+  problem.k = (uint32_t)k;
+  problem.batch_size = (uint32_t)batch_size;
+  problem.layout =
       KernelConfig::ProblemDescription::Layout(layoutToByte(layout));
-  config->problem.precision = precision.c_str();
-  config->configure();
+  problem.precision = precision;
+}
 
-  const auto setTile = [](GemmTile& gemm_tile,
-                          const KernelConfig::Tile& input) {
+void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
+  const auto setConfigTile = [](KernelConfig::Tile& output,
+                                const GemmTile& gemm_tile) {
+    output[0] = gemm_tile.m;
+    output[1] = gemm_tile.n;
+    output[2] = gemm_tile.k;
+  };
+  config->load_stages = params.double_buffer_options.smem_double_buffer_stage;
+  setConfigTile(config->cta_tile, params.tile_sizes.cta_tile);
+  setConfigTile(config->warp_tile, params.tile_sizes.warp_tile);
+  setConfigTile(config->instruction_tile, params.tile_sizes.instruction_tile);
+  config->splitk_factor = params.splitk_factor;
+  config->grid_swizzle_factor = params.grid_swizzle_factor;
+  config->cta_order =
+      params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
+                                                                         : 1;
+  config->double_buffer_smem_read =
+      params.double_buffer_options.double_buffer_smem_read;
+  config->rotate_ldmatrix_out_of_main_loop =
+      params.rotate_ldmatrix_out_of_main_loop;
+}
+
+void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
+  const auto setGemmTile = [](GemmTile& gemm_tile,
+                              const KernelConfig::Tile& input) {
     gemm_tile.m = input[0];
     gemm_tile.n = input[1];
     gemm_tile.k = input[2];
   };
-
+  setGemmTile(params.tile_sizes.cta_tile, config->cta_tile);
+  setGemmTile(params.tile_sizes.warp_tile, config->warp_tile);
+  setGemmTile(params.tile_sizes.instruction_tile, config->instruction_tile);
   params.double_buffer_options.smem_double_buffer_stage = config->load_stages;
-  setTile(params.tile_sizes.cta_tile, config->cta_tile);
-  setTile(params.tile_sizes.warp_tile, config->warp_tile);
-  setTile(params.tile_sizes.instruction_tile, config->instruction_tile);
-
   // Update mma macro if necessary to match instruction tile
   MmaMacroEncode menc(params.mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
   menc.n = config->instruction_tile[1];
   menc.k = config->instruction_tile[2];
   params.mma_macro = menc; // cast back to uint64_t
-
   params.splitk_factor = config->splitk_factor;
   params.grid_swizzle_factor = config->grid_swizzle_factor;
   switch (config->cta_order) {
@@ -188,6 +205,38 @@ bool updateMatmulParams(
 
   // async load only for circular buffering (stages > 2)
   params.async_gmem_load_operands = config->load_stages > 2;
+}
+
+} // namespace
+
+bool updateMatmulParams(
+    MatmulParams& params,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t batch_size,
+    MmaLayout layout,
+    const mma_utils::RolesMap& roles_map) {
+  if (!hasPlugin()) {
+    return false;
+  }
+
+  // Use factory function to create an empty config
+  std::unique_ptr<KernelConfig> config = makeConfig();
+
+  // Set previous heuristic values so they are available to the plugin
+  copyParamsToConfig(config.get(), params);
+
+  // The heuristic must know the input shapes, precision, and layout.
+  std::string precision = rolesToPrecisionString(roles_map);
+  fillProblemDescription(
+      config->problem, m, n, k, batch_size, layout, precision.c_str());
+
+  // Execute the user-provided heuristic
+  config->configure();
+
+  // Load values from config back into params
+  copyConfigToParams(params, config.get());
 
   return true;
 }

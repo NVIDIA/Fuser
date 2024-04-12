@@ -19,13 +19,15 @@ namespace nvfuser {
 
 namespace matmul_heuristic_plugin {
 
-//! Try to load plugin whose location is provided by the environment variable
-//! NVFUSER_MATMUL_HEURISTIC_PLUGIN and return whether or not we succeed.
+//! Returns true if KernelConfigFactoryGuard is active indicating an imitated
+//! plugin, or if a shared library plugin has been provided using the
+//! environment variable NVFUSER_MATMUL_HEURISTIC_PLUGIN.
 bool hasPlugin();
 
-//! If loading the plugin fails (see hasPlugin()) we return false. Otherwise, we
-//! use the plugin to modify the heuristic parameters in place. M, N, K, layout,
-//! and precision must also provided.
+//! If there is no user-defined plugin (see hasPlugin()) we return false.
+//! Otherwise, we use the plugin to modify the heuristic parameters in place. M,
+//! N, K, layout, and precision must be provided. For convenience, we use
+//! `roles_map` to build the precision string.
 bool updateMatmulParams(
     MatmulParams& params,
     int64_t M,
