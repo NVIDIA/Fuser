@@ -195,7 +195,6 @@ That is: $$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
 
 Therefore:
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
-$$(a + b) / c = a/c + b/c = a / c$$
 $\square$
 
 </details>
@@ -620,13 +619,21 @@ $\square$
 
 </details>
 
-**Theorem 4.7.2** If $TODO$, we have TODO
+**Theorem 4.7.2** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-TODO
+Similar to the proof of 2.7.2. We have
+$$-|c| < b < |c|$$
+and
+$$-|c/g| + 1 \le (a/g) \mathbin{\\%} (c/g) \le |c/g| - 1$$
+then
+$$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore:
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
 $\square$
 
 </details>
@@ -730,13 +737,19 @@ $\square$
 
 </details>
 
-**Theorem 4.15.2** If $TODO$, we have TODO
+**Theorem 4.15.2** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) / c = a / c$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-TODO
+Similar to the proof of 2.7.2, we have
+$$-|c| < b < |c|$$
+and
+$$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore:
+$$(a + b) / c = a/c + b/c = a / c$$
 $\square$
 
 </details>
