@@ -182,7 +182,8 @@ $\square$
 Because $0 \le b < |g|$, and $|g| \le |c|$, we know $0 \le b < |c|$.
 According to Theorem 2.5, we have $$b \mathbin{\\%} c = b$$
 According to Theorem 2.13, we have $$a \mathbin{\\%} c = ((a/g) \mathbin{\\%} (c/g)) \times g$$
-So,$$a \mathbin{\\%} c + b \mathbin{\\%} c = ((a/g) \mathbin{\\%} (c/g)) \times g + b$$
+So
+$$a \mathbin{\\%} c + b \mathbin{\\%} c = ((a/g) \mathbin{\\%} (c/g)) \times g + b$$
 Because $$0 \le (a/g) \mathbin{\\%} (c/g) < |c/g|$$
 for integers, we have
 $$0 \le (a/g) \mathbin{\\%} (c/g) \le |c/g| - 1$$
