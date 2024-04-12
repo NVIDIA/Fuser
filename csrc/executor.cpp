@@ -1756,8 +1756,24 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
+  const bool measure_kernel_time = measure_kernel_time_ ||
+      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+
+  // It's important to determine the input bytes processed prior
+  // to pushing the outputs into the arg struct.  Otherwise,
+  // the outputs will also be included with inputs when determining
+  // the input bytes accessed.
+  if (measure_kernel_time) {
+    inputBytesProcessed(args);
+  }
+
   if (isCompilationSkipped()) {
-    return evaluateFusionOutputs(args, outputs, expr_eval);
+    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    if (measure_kernel_time) {
+      outputBytesProcessed(outputs);
+    }
+    return outputs;
   }
 
   NVF_ERROR(isCompiled());
@@ -1806,18 +1822,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  // It's important to determine the input bytes processed prior
-  // to pushing the outputs into the arg struct.  Otherwise,
-  // the outputs will also be included with inputs when determining
-  // the input bytes accessed.
-  if (measure_kernel_time) {
-    inputBytesProcessed(args);
-  }
 
   // only allocate outputs when not given
   if (outputs.empty()) {
