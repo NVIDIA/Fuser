@@ -307,53 +307,126 @@ void fillEnumSetDefaults(FeatureSet* feats) {
 
 namespace {
 
+// To define a new feature, create a new enum label in Features in options.h,
+// then create a corresponding row in this macro. This macro runs fn for each
+// feature; it should be a macro taking the following arguments:
+//   short name, enum label, default enabled?, cuda cache key?, description
+#define FOR_EACH_FEATURE(fn)                                                     \
+  fn("compile_to_sass",                                                          \
+     CompileToSass,                                                              \
+     true,                                                                       \
+     false,                                                                      \
+     "Compile directly to SASS, bypassing PTX");                                 \
+  fn("expr_simplify", ExprSimplify, true, true, "Simplify index expressions");   \
+  /*TODO: What is fallback ?? */                                                 \
+  fn("fallback", Fallback, true, true, "fallback???");                           \
+  fn("fma", Fma, true, true, "Enable fused-multiply-add");                       \
+  fn("grouped_grid_welford_outer_opt",                                           \
+     GroupedGridWelfordOuterOpt,                                                 \
+     true,                                                                       \
+     true,                                                                       \
+     "Use outer-optimized grouped grid Welford kernel");                         \
+  fn("id_model", IdModel, false, true, "Use IterDomain graphs");                 \
+  fn("index_hoist",                                                              \
+     IndexHoist,                                                                 \
+     true,                                                                       \
+     true,                                                                       \
+     "Hoist common subexpressions in loop nests");                               \
+  fn("io_to_lower_precision",                                                    \
+     IoToLowerPrecision,                                                         \
+     false,                                                                      \
+     true,                                                                       \
+     "Enable castInputOutputToLowerPrecision");                                  \
+  fn("kernel_db", KernelDb, false, false, "Use kernel database");                \
+  fn("kernel_profile",                                                           \
+     KernelProfile,                                                              \
+     false,                                                                      \
+     true,                                                                       \
+     "Use intra-kernel performance profiling");                                  \
+  fn("kernel_reuse",                                                             \
+     KernelReuse,                                                                \
+     true,                                                                       \
+     false,                                                                      \
+     "Re-use possibly suboptimal kernels when possible to avoid recompilation"); \
+  fn("magic_zero",                                                               \
+     MagicZero,                                                                  \
+     true,                                                                       \
+     true,                                                                       \
+     "Use magic zero to prevent predicate elision for some unrolled loops");     \
+  fn("matmul_expr_eval",                                                         \
+     MatmulExprEval,                                                             \
+     true,                                                                       \
+     true,                                                                       \
+     "Evaluate all matrix multiplications using cuBLAS");                        \
+  fn("memory_promotion",                                                         \
+     MemoryPromotion,                                                            \
+     false,                                                                      \
+     true,                                                                       \
+     "Enable promotion of memory types for non-pointwise ops");                  \
+  fn("nvtx", Nvtx, true, false, "Place NVTX ranges in compilation stages");      \
+  fn("parallel_compile",                                                         \
+     ParallelCompile,                                                            \
+     true,                                                                       \
+     false,                                                                      \
+     "Use threading to compile fusion segments in parallel");                    \
+  fn("parallel_serde",                                                           \
+     ParallelSerde,                                                              \
+     true,                                                                       \
+     false,                                                                      \
+     "Deserialize FusionExecutorCache in parallel");                             \
+  fn("predicate_elimination",                                                    \
+     PredicateElimination,                                                       \
+     true,                                                                       \
+     true,                                                                       \
+     "Use predicate elimination");                                               \
+  fn("reuse_mismatched_type_registers",                                          \
+     ReuseMismatchedTypeRegisters,                                               \
+     true,                                                                       \
+     true,                                                                       \
+     "Explicitly re-using registers in some cases when types don't match");      \
+  fn("reuse_zeroed_memory",                                                      \
+     ReuseZeroedMemory,                                                          \
+     false,                                                                      \
+     false,                                                                      \
+     "[UNSAFE] Re-use zeroed memory for all grid synchronization");              \
+  fn("static_fusion_count",                                                      \
+     StaticFusionCount,                                                          \
+     false,                                                                      \
+     true,                                                                       \
+     "Use single static count in kernel name");                                  \
+  fn("var_name_remapping",                                                       \
+     VarNameRemapping,                                                           \
+     true,                                                                       \
+     true,                                                                       \
+     "Rename variables in cuda kernel to smaller numeric IDs");                  \
+  fn("warn_register_spill",                                                      \
+     WarnRegisterSpill,                                                          \
+     true,                                                                       \
+     false,                                                                      \
+     "Warn at compilation if kernel spills registers to local memory");          \
+  fn("welford_vectorization",                                                    \
+     WelfordVectorization,                                                       \
+     true,                                                                       \
+     true,                                                                       \
+     "Vectorize Welford ops");
+
 const std::vector<std::string>& featureNames() {
   static std::vector<std::string> feature_names;
   static bool initialized = false;
   if (!initialized) {
     feature_names.resize(enumSize<Feature>(), "UNDEFINED_FEATURE_NAME");
 
-    feature_names.at(toUnderlying(Feature::CompileToSass)) = "compile_to_sass";
-    feature_names.at(toUnderlying(Feature::ExprSimplify)) = "expr_simplify";
-    feature_names.at(toUnderlying(Feature::Fallback)) = "fallback";
-    feature_names.at(toUnderlying(Feature::Fma)) = "fma";
-    feature_names.at(toUnderlying(Feature::GroupedGridWelfordOuterOpt)) =
-        "grouped_grid_welford_outer_opt";
-    feature_names.at(toUnderlying(Feature::IdModel)) = "id_model";
-    feature_names.at(toUnderlying(Feature::IndexHoist)) = "index_hoist";
-    feature_names.at(toUnderlying(Feature::IoToLowerPrecision)) =
-        "io_to_lower_precision";
-    feature_names.at(toUnderlying(Feature::KernelDb)) = "kernel_db";
-    feature_names.at(toUnderlying(Feature::KernelProfile)) = "kernel_profile";
-    feature_names.at(toUnderlying(Feature::KernelReuse)) = "kernel_reuse";
-    feature_names.at(toUnderlying(Feature::MagicZero)) = "magic_zero";
-    feature_names.at(toUnderlying(Feature::MatmulExprEval)) =
-        "matmul_expr_eval";
-    feature_names.at(toUnderlying(Feature::MemoryPromotion)) =
-        "memory_promotion";
-    feature_names.at(toUnderlying(Feature::Nvtx)) = "nvtx";
-    feature_names.at(toUnderlying(Feature::ParallelCompile)) =
-        "parallel_compile";
-    feature_names.at(toUnderlying(Feature::ParallelSerde)) = "parallel_serde";
-    feature_names.at(toUnderlying(Feature::PredicateElimination)) =
-        "predicate_elimination";
-    feature_names.at(toUnderlying(Feature::ReuseMismatchedTypeRegisters)) =
-        "reuse_mismatched_type_registers";
-    feature_names.at(toUnderlying(Feature::ReuseZeroedMemory)) =
-        "reuse_zeroed_memory";
-    feature_names.at(toUnderlying(Feature::StaticFusionCount)) =
-        "static_fusion_count";
-    feature_names.at(toUnderlying(Feature::VarNameRemapping)) =
-        "var_name_remapping";
-    feature_names.at(toUnderlying(Feature::WarnRegisterSpill)) =
-        "warn_register_spill";
-    feature_names.at(toUnderlying(Feature::WelfordVectorization)) =
-        "welford_vectorization";
+#define SET_FEATURE_NAME(name, label, enabled, cache_key, desc) \
+  feature_names.at(toUnderlying(Feature::label)) = name;
+    FOR_EACH_FEATURE(SET_FEATURE_NAME);
+#undef SET_FEATURE_NAME
 
     initialized = true;
   }
   return feature_names;
 }
+
+#undef FOR_EACH_FEATURE
 
 } // namespace
 
