@@ -173,13 +173,26 @@ $\square$
 
 </details>
 
-**Theorem 2.7.2** If $TODO$, we have TODO
+**Theorem 2.7.2** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-TODO
+Because $0 \le b < |g|$, and $|g| \le |c|$, we know $0 \le b < |c|$.
+According to Theorem 2.5, we have $$b \mathbin{\\%} c = b$$
+According to Theorem 2.13, we have $$a \mathbin{\\%} c = ((a/g) \mathbin{\\%} (c/g)) \times g$$
+So,$$a \mathbin{\\%} c + b \mathbin{\\%} c = ((a/g) \mathbin{\\%} (c/g)) \times g + b$$
+Because $$0 \le (a/g) \mathbin{\\%} (c/g) < |c/g|$$, for integers, we have
+$$0 \le (a/g) \mathbin{\\%} (c/g) \le |c/g| - 1$$
+So, $$0 \le a \mathbin{\\%} c \le (|c/g| - 1) \times |g|$$
+Therefore, we have
+$$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < (|c/g| - 1) \times |g| + |g|$$
+That is: $$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore:
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
+$$(a + b) / c = a/c + b/c = a / c$$
 $\square$
 
 </details>
@@ -340,13 +353,17 @@ $\square$
 
 </details>
 
-**Theorem 2.15.2** If $TODO$, we have TODO
+**Theorem 2.15.2** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) / c = a/c$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-TODO
+Similar to the proof of 2.7.2, we have
+$$0 \le b < |c|$$
+$$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+So we have
+$$(a + b) / c = a/c + b/c = a/c$$
 $\square$
 
 </details>
