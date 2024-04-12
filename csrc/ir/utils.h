@@ -82,8 +82,7 @@ struct MatmulInputs {
 //! Linear: A x B / A x B + C
 //! Assumptions:
 //! 1. For simplicity, we assume the MmaOp to be in the first operand.
-//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are ignored
-//! in evaluation.
+//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
 bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
 
 } // namespace nvfuser::MmaOpUtils
