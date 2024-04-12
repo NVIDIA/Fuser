@@ -2182,15 +2182,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   }
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a + b) / c = a/c + b/c
-//  (a + b) % c = b % c
+// Rule J.1, Q.1
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
