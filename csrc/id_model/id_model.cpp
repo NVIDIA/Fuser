@@ -1321,7 +1321,7 @@ Expr* findMatchingExpr(
             iel_expr->front(), maybe_promoted_input_use_group->front())) {
       continue;
     }
-    
+
     // This is just an extra sanity check. Make sure all exprs in
     // the use group are mapped
     NVF_ERROR(
@@ -1660,7 +1660,11 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
           return view_rfactor_ids.find(id->as<IterDomain>()) !=
               view_rfactor_ids.end();
         })) {
-      //covered_ids[id_group] = {id_group};
+      if (!getenv("STOP_RF")) {
+        VERBOSE() << "Stop coverage analysis at " << nvfuser::toString(id_group)
+                  << std::endl;
+        covered_ids[id_group] = {id_group};
+      }
     }
 
     // Initialize broadcast groups to empty since broadcast domains
@@ -1686,6 +1690,28 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       // Don't overwrite initialized cases due to rfactor markings.
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
+        if (std::any_of(
+                output_group->begin(), output_group->end(), [](auto val) {
+                  return val->name() == 25;
+                })) {
+          VERBOSE() << "Setting covered group of "
+                    << nvfuser::toString(output_group)
+                    << ", expr: " << exact_expr->front()->toString();
+        }
+      } else {
+        if (!getenv("DISABLE_COMBINE")) {
+          VERBOSE() << "Combining coverage of "
+                    << nvfuser::toString(output_group) << ". "
+                    << nvfuser::toString(covered_ids[output_group]);
+          covered_ids[output_group].pushBack(covered);
+        } else {
+          VERBOSE() << "Avoid overwriting covered group of "
+                    << nvfuser::toString(output_group) << ". Existing: "
+                    << nvfuser::toString(covered_ids[output_group])
+                    << ". New: " << nvfuser::toString(covered)
+                    << ", expr: " << exact_expr->front()->toString()
+                    << std::endl;
+        }
       }
     }
   }
@@ -1744,14 +1770,17 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
 
   std::unordered_map<ValGroup, IterDomain*> promotion_map;
 
-  //VERBOSE() << "Finding the projection for " << nvfuser::toString(loop_group) << std::endl;
+  VERBOSE() << "Finding the projection for " << nvfuser::toString(loop_group)
+            << std::endl;
 
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
+  for (auto loop_group_val : *loop_group) {
+    auto loop_id = loop_group_val->as<IterDomain>();
+
     // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+    if (!terminal_loop_ids.has(loop_id)) {
       continue;
     }
 
@@ -1761,6 +1790,14 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
+    }
+
+    if (!getenv("TERMINAL_RF")) {
+      if (view_rfactor_ids_.find(loop_id) != view_rfactor_ids_.end()) {
+        VERBOSE() << "Terminal rfactor id found: " << loop_id->toString()
+                  << std::endl;
+        return loop_id;
+      }
     }
 
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);
@@ -1804,7 +1841,8 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     loop_group_covered_ids.pushBack(covered_it->second);
   }
 
-  //VERBOSE() << "loop_group_covered_ids: " << nvfuser::toString(loop_group_covered_ids) << std::endl;
+  VERBOSE() << "loop_group_covered_ids: "
+            << nvfuser::toString(loop_group_covered_ids) << std::endl;
 
   // Check if any of the candidate Iter Domains we collected cover all the
   // exact groups of loop_group_covered_ids. If so, that's the correct
@@ -1815,13 +1853,16 @@ IterDomain* IdModel::findPromotionOfLoopGroup(
     auto covered_it = exact_covered_ids.find(terminal_id_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
 
-    //VERBOSE() << "Projection candidate: "
-    //<< terminal_id->toString()
-    //<< ", covering: " << nvfuser::toString(covered_it->second) << std::endl;
+    VERBOSE() << "Projection candidate: " << terminal_id->toString()
+              << ", covering: " << nvfuser::toString(covered_it->second)
+              << std::endl;
     if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
       return terminal_id;
     }
   }
+
+  VERBOSE() << "Could not find a promotion of loop group: "
+            << nvfuser::toString(loop_group) << std::endl;
 
   return nullptr;
 }

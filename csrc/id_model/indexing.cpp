@@ -54,7 +54,9 @@ IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
   NVF_ERROR(
       loop_promotion_map_it != loop_promotion_map.end(),
       "No loop promotion found: ",
-      id->toString());
+      id->toString(),
+      ". Loop group: ",
+      nvfuser::toString(loop_group));
 
   return loop_promotion_map_it->second;
 }
@@ -367,9 +369,14 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
       "Index already set: ",
       id->toString(),
       ". Preious: ",
-      getIndex(id)->toString(), " (", getIndex(id)->toInlineString(),
+      getIndex(id)->toString(),
+      " (",
+      getIndex(id)->toInlineString(),
       "). New: ",
-      idx->toString(), ", (", idx->toInlineString(), ")");
+      idx->toString(),
+      ", (",
+      idx->toInlineString(),
+      ")");
 }
 
 bool IndexCompute::isForward(Expr* expr) const {
@@ -708,6 +715,11 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
         supported = false;
         reason << "Swizzle2D not supported: " << swizzle2d->toString();
         break;
+      }
+
+      if (ir_utils::isIndexedID(tv, id)) {
+        supported = false;
+        reason << "Index ops such as select not supported: " << tv->toString();
       }
     }
 
