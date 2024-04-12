@@ -2249,7 +2249,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 }
 
 class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
-  void configure() {
+  void configure() override {
     // Set load_stages to 0, which is an allowed value (with a warning), but not
     // one that will be set by our default scheduler. This lets us use it as a
     // sentinel to check that this heuristic was run.
@@ -2274,11 +2274,11 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
+  matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
+
   // RAII style options guard. This is used to disable
   // (via set) options in the constructor.
   DisableOptionsGuard option_guard_;
-
-  matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
 };
 
 // Test that our fake plugin works to override the default heuristic
