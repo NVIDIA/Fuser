@@ -36,13 +36,6 @@ bool isOutputLocal(const Expr* expr) {
       });
 }
 
-bool isInputLocal(const Expr* expr) {
-  return std::all_of(
-      expr->inputs().begin(), expr->inputs().end(), [](const Val* input) {
-        return !input->isA<TensorView>() ||
-            input->as<TensorView>()->getMemoryType() == MemoryType::Local;
-      });
-}
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
@@ -138,11 +131,13 @@ ParallelizedDomainPredicate::getPredicateMap(
   if (output_tvs.empty()) {
     return {};
   }
+
   // Initialize a map with empty predicate info
   std::unordered_map<ParallelType, PredicateInfo> map;
   for (auto pt : kParallelTypeThreads) {
     map.insert({pt, PredicateInfo(pt)});
   }
+
   // For each loop, check if it's parallelized by an non-exact
   // threading dimension. If yes and it's used in the given expr, the
   // domain needs to be protected by a predicate on the thread/block
@@ -153,7 +148,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
-    // std::cout << "loop: " << loop->toString() << std::endl;
+
     // Parallel dimensions need not be predicated if fully unswitched.
     if (loop == unswitched_loop) {
       within_unswitch = true;
@@ -166,7 +161,6 @@ ParallelizedDomainPredicate::getPredicateMap(
     // Not necessary to add a predicate if the paralle type is exact
     if (!isParallelTypeThread(loop_ptype) ||
         lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
-      std::cout << "isExtentEqualToMaxParallelTypeExtent loop_ptype: " << loop_ptype << ", loop_id: " << loop_id->toString() << std::endl;
       continue;
     }
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
@@ -215,9 +209,6 @@ ParallelizedDomainPredicate::getPredicateMap(
 
       // tv_id needs to be predicated. Adds it to the PredicateInfo map.
       auto& info = map.at(loop_ptype);
-
-      std::cout << "addDomain: " << tv_id->toString() << ", loop_ptype: " << loop_ptype << std::endl;
-
       info.addDomain(tv_id);
     }
   }
@@ -228,9 +219,6 @@ ParallelizedDomainPredicate::getPredicateMap(
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
-
-  std::cout << "ParallelizedDomainPredicate::getPredicate expr= " << expr->toString() << std::endl;
-
   DEBUG_PRINT_SCOPE_NAME(
       "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
@@ -351,7 +339,6 @@ Val* PredicateCompute::getInlinePredicate(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
-std::cout << "PredicateCompute::getInlinePredicate expr= " << expr->toString() << "\n, thread_pred: " << thread_pred->toString() << std::endl;
   DEBUG_PRINT_SCOPE(
       "expr = ",
       expr,
@@ -364,18 +351,15 @@ std::cout << "PredicateCompute::getInlinePredicate expr= " << expr->toString() <
   const auto gpu_lower = GpuLower::current();
 
   // If outputs are registers, no need to predicate for threads
-  if (isOutputLocal(expr) && isInputLocal(expr)) {
+  if (isOutputLocal(expr)) {
     thread_pred = gpu_lower->kernel()->trueVal();
-    std::cout << "isOutputLocal: thread_pred set to true" << std::endl;
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
-      std::cout << "isTensorScalarFillOp" << std::endl;
       RECORD_AND_RETURN(thread_pred);
     }
   }
 
   if (loops.empty()) {
-    std::cout << "loop is empty" << std::endl;
     NVF_ERROR(thread_pred != nullptr);
     RECORD_AND_RETURN(thread_pred);
   }
@@ -384,7 +368,6 @@ std::cout << "PredicateCompute::getInlinePredicate expr= " << expr->toString() <
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    std::cout << "canOmitPredicate" << std::endl;
     RECORD_AND_RETURN(thread_pred);
   }
 
@@ -459,7 +442,7 @@ std::cout << "PredicateCompute::getInlinePredicate expr= " << expr->toString() <
   for (const auto i : c10::irange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
-  std::cout << "cond: " << cond->definition() << std::endl;
+
   RECORD_AND_RETURN(cond);
 }
 

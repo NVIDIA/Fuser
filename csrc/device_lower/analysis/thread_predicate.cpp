@@ -34,8 +34,8 @@ Val* getPredicatePerParallelType(
   // When BID needs to be predicated, that means it's an output of a grid
   // reduction and only the last block index in that dimension has the right
   // value from the grid reduce.
-  // if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
-  if (isParallelTypeBlockDim(pt)) {
+  if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
+    // if (isParallelTypeBlockDim(pt)) {
     return SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(pt),
         SimplifyingIrBuilder::subExpr(
@@ -72,7 +72,8 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
 
   std::cout << "mask: " << mask.toString() << std::endl;
   std::cout << "pred_types: " << pred_types.toString() << std::endl;
-  std::cout << "redundant_use_types: " << pred_info.redundant_use_types.toString() << std::endl;
+  std::cout << "redundant_use_types: "
+            << pred_info.redundant_use_types.toString() << std::endl;
 
   if (pred_types.none()) {
     return GpuLower::current()->kernel()->trueVal();
@@ -85,7 +86,7 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
   NVF_ERROR(pred != nullptr);
-  std::cout << "pred: " << pred->definition() << std::endl<< std::endl;
+  std::cout << "pred: " << pred->definition() << std::endl << std::endl;
 
   return pred;
 }
@@ -94,7 +95,7 @@ namespace {
 
 // Build redundant predicate flags. Will be stored as
 // PredicateInfo.redundant_types for the given tensor.
-ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv, bool has_gmem_input) {
+ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
   // If the memory type is Local, it's fine to write into it always as
   // it's thread local. If it's Global, it's also fine to let each
   // thread do its own write, unless out_tv is an output of a
@@ -121,12 +122,11 @@ ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv
   //
   // TODO: Revisit if something like Indexing11 could be happening at the same
   // time of a global reduction in a way that could produce an incorrect result.
-  // has_gmem_input = false;
   const bool is_reduction = ir_utils::isReductionOp(out_tv->definition());
   if (!(out_tv->getMemoryType() == MemoryType::Shared ||
         (out_tv->getMemoryType() == MemoryType::Global && is_reduction) ||
         (out_tv->getMemoryType() == MemoryType::Global &&
-         out_tv->uses().empty())) && !has_gmem_input) {
+         out_tv->uses().empty()))) {
     return ParallelTypeBitmap();
   }
 
@@ -137,18 +137,7 @@ ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv
   ParallelTypeBitmap unused_types;
   // Initially all types are conservatively assumed to not be used.
   unused_types = ~unused_types;
-  std::unordered_set<Val*> out_tv_set;
-  out_tv_set.insert((Val*)out_tv);
-  const auto& deps = DependencyCheck::getAllValsBetween(out_tv_set, fusion->outputs());
-
-  for(auto dep : deps){
-    auto tv = dynamic_cast<TensorView*>(dep);
-    if(tv == nullptr){
-      continue;
-    }
-  
-
-  for (auto out_tv_id : tv->getLeafDomain()) {
+  for (auto out_tv_id : out_tv->getLeafDomain()) {
     auto pt = out_tv_id->getParallelType();
     if (!isParallelTypeThread(pt)) {
       continue;
@@ -156,7 +145,7 @@ ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv
     // If the axis is a broadcast domain and is parallelized by TID,
     // it is sufficient to use just one thread since the tensor is on
     // shared memory.
-    if ((tv->getMemoryType() == MemoryType::Shared &&
+    if ((out_tv->getMemoryType() == MemoryType::Shared &&
          out_tv_id->isBroadcast() && isParallelTypeThreadDim(pt)) ||
         // Protect against global memory and is_reduction as we don't want to
         // predicate grid dimensions as codegen will complain predication on
@@ -170,19 +159,14 @@ ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv
         // to propertly ignore predicated types. The new kernel is
         // significantly complex and has not been tested, so the
         // latter option seems more reasonable for now. See #1671.
-        (!is_reduction && tv->getMemoryType() == MemoryType::Global &&
+        (!is_reduction && out_tv->getMemoryType() == MemoryType::Global &&
          out_tv_id->isBroadcast() && isParallelTypeThread(pt))) {
       pred.set(pt);
     }
     unused_types.clear(pt);
   }
-  }
-  std::cout << "\n===================avoidRedundantWrites: " << out_tv->toString() << std::endl;
-  std::cout << "pred: " << pred.toString() << std::endl;
-  std::cout << "unused_types: " << unused_types.toString() << std::endl;
 
   const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
-  std::cout << "par_dim_map: " << par_dim_map.toString() << std::endl;
 
   for (const auto pt : unused_types) {
     // For shared memory tensors, unused BID isn't redundant
@@ -198,7 +182,62 @@ ParallelTypeBitmap avoidRedundantWrites(Fusion* fusion, const TensorView* out_tv
     }
     pred.set(pt);
   }
-  std::cout << "pred: " << pred.toString() << std::endl;
+
+  return pred;
+}
+
+// If a tensor is not parallelized by a specific parallel type, it means
+// the read by that specific parallel type is redundant. A typical case
+// is reduction epilogue, where post reduction tensor is not parallelized
+// by the reduction parallel type, e.g. T1[I0] = sum(T0[I0, R0]), T2[I0] =
+// T1[I0] + T3[I0], if {I0} is parallelized by BIDx and {R0} is parallelizd by
+// TIDx, the read of T3 by parallel type TIDx is redundant. We should generate
+// a predicate similar to: if (TIDx == 0) { T2[I0] = T1[I0] + T3[I0]; }. This
+// improves performance when T3 is on global memory.
+ParallelTypeBitmap avoidRedundantReads(
+    Fusion* fusion,
+    const TensorView* out_tv,
+    bool has_gmem_input) {
+  // it's fine to redundantly load from non-gmem location
+  if (!has_gmem_input) {
+    return ParallelTypeBitmap();
+  }
+
+  // set parallel types that are not used after this output tensor
+  // needs to check all the tvs from this tensor to fusion outputs
+  // start with all parallel types, and remove the ones that are used
+  ParallelTypeBitmap unused_types;
+  unused_types = ~unused_types;
+  std::unordered_set<Val*> out_tv_set;
+  out_tv_set.insert((Val*)out_tv);
+  const auto& deps =
+      DependencyCheck::getAllValsBetween(out_tv_set, fusion->outputs());
+  for (auto dep : deps) {
+    auto tv = dynamic_cast<TensorView*>(dep);
+    if (tv == nullptr) {
+      continue;
+    }
+    for (auto out_tv_id : tv->getLeafDomain()) {
+      auto pt = out_tv_id->getParallelType();
+      if (!isParallelTypeThread(pt)) {
+        continue;
+      }
+      unused_types.clear(pt);
+    }
+  }
+
+  // needs to predicate on all the parallel types that are not used
+  ParallelTypeBitmap pred;
+  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+  for (const auto pt : unused_types) {
+    // If the pt is not used or is proven to be one, it is not
+    // really redundant.
+    auto pt_dim = par_dim_map.get(pt);
+    if (pt_dim == nullptr || pt_dim->isOneInt()) {
+      continue;
+    }
+    pred.set(pt);
+  }
 
   return pred;
 }
@@ -245,7 +284,8 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
     return;
   }
 
-  std::cout << "\nThreadPredicateMap::updateBitSet: " << expr->toString() << std::endl;
+  std::cout << "\nThreadPredicateMap::updateBitSet: " << expr->toString()
+            << std::endl;
   // Which predicates were set for the inputs
   ParallelTypeBitmap input_preds;
 
@@ -331,9 +371,7 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
     const auto bcast_reset_mask = ~(this_input_preds & id_bcasts);
     this_input_preds &= bcast_reset_mask;
 
-    std::cout << "this_input_preds: " << this_input_preds.toString() << std::endl;
-
-    if(tv_inp->getMemoryType() == MemoryType::Global){
+    if (tv_inp->getMemoryType() == MemoryType::Global) {
       has_gmem_input = true;
     }
 
@@ -369,9 +407,13 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
 
   // Run through outputs and set bitset predicates
   for (auto* out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    auto redundant_types = avoidRedundantWrites(fusion, out_tv, has_gmem_input);
-    std::cout << "redundant_types: " << redundant_types.toString() << std::endl;
-    update(out_tv, output_preds, redundant_types);
+    auto redundant_write = avoidRedundantWrites(out_tv);
+    auto redundant_read = avoidRedundantReads(fusion, out_tv, has_gmem_input);
+    // std::cout << "redundant_write: " << redundant_write.toString() <<
+    // std::endl; std::cout << "redundant_read: " << redundant_read.toString()
+    // << std::endl; std::cout << "redundant_write | redundant_read: "
+    //           << (redundant_write | redundant_read).toString() << std::endl;
+    update(out_tv, output_preds, redundant_write | redundant_read);
   }
 }
 
@@ -787,7 +829,6 @@ void ThreadPredicateMap::build(Fusion* fusion) {
   populateRedundantUseMap(fusion);
   std::cout << "\n\n================after populateRedundantUseMap";
   print();
-
 }
 
 void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
@@ -927,9 +968,12 @@ void ThreadPredicateMap::print() const {
   debug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
     debug() << "T" << kv.first->name() << ":\n";
-    debug() << "limited_types:  {" << kv.second.limited_types.toString() << "}\n";
-    debug() << "redundant_types: {" << kv.second.redundant_types.toString() << "}\n";
-    debug() << "redundant_use_types: {" << kv.second.redundant_use_types.toString() << "}\n";
+    debug() << "limited_types:  {" << kv.second.limited_types.toString()
+            << "}\n";
+    debug() << "redundant_types: {" << kv.second.redundant_types.toString()
+            << "}\n";
+    debug() << "redundant_use_types: {"
+            << kv.second.redundant_use_types.toString() << "}\n";
   }
   debug() << "--------------------------------\n\n";
 }
