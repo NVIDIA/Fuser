@@ -36,6 +36,13 @@ bool isOutputLocal(const Expr* expr) {
       });
 }
 
+bool isInputLocal(const Expr* expr) {
+  return std::all_of(
+      expr->inputs().begin(), expr->inputs().end(), [](const Val* input) {
+        return !input->isA<TensorView>() ||
+            input->as<TensorView>()->getMemoryType() == MemoryType::Local;
+      });
+}
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
@@ -351,7 +358,7 @@ Val* PredicateCompute::getInlinePredicate(
   const auto gpu_lower = GpuLower::current();
 
   // If outputs are registers, no need to predicate for threads
-  if (isOutputLocal(expr)) {
+  if (isOutputLocal(expr) && isInputLocal(expr)) {
     thread_pred = gpu_lower->kernel()->trueVal();
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
