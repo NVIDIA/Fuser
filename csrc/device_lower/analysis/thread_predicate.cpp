@@ -202,6 +202,10 @@ ParallelTypeBitmap avoidRedundantReads(
     return ParallelTypeBitmap();
   }
 
+  if(std::getenv("USE_OLD")) {
+    return ParallelTypeBitmap();
+  }
+
   // set parallel types that are not used after this output tensor
   // needs to check all the tvs from this tensor to fusion outputs
   // start with all parallel types, and remove the ones that are used
