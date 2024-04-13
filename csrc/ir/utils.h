@@ -71,7 +71,10 @@ struct MatmulInputs {
   // For addmm/matmul ([M,K] x [K,N]): M=0, N=2, K=1
   // For linear ([M,K] x [N,K]): M=0, N=1, K=2
   // mma_dims_pos = {m_pos, n_pos, k_pos}
-  std::optional<std::vector<int>> mma_dims_pos = std::nullopt;
+  std::tuple<int, int, int> mma_dims_pos = {};
+  // The elements denote if the corresponding iterdomain in the bias was a new
+  // broadcast dimension. This is used to broadcast the bias for matmul/addmm
+  // during evaluation.
   std::vector<bool> bias_bcast_flags = {};
 };
 

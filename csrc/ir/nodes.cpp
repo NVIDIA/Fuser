@@ -427,9 +427,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       // Matmul/Addmm: n_pos=2, k_pos=1
       // Linear: n_pos=1, k_pos=2
       const int k_pos =
-          matmul_inp.mma_dims_pos.value()[(size_t)MatmulDomain::K];
+          std::get<(size_t)MatmulDomain::K>(matmul_inp.mma_dims_pos);
       const int n_pos =
-          matmul_inp.mma_dims_pos.value()[(size_t)MatmulDomain::N];
+          std::get<(size_t)MatmulDomain::N>(matmul_inp.mma_dims_pos);
 
       if (matmul_inp.bias == nullptr) {
         auto out = k_pos < n_pos ? alpha * a.matmul(b) : at::linear(a, b);

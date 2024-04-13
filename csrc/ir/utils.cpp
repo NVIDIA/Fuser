@@ -1312,7 +1312,8 @@ MmaOpDetails getMmaOpDetails(
 }
 
 namespace {
-std::vector<int> getMmaDimsPositions(MmaOp* mma) {
+// Returns the position of M,N,K axis in mma operands.
+std::tuple<int, int, int> getMmaDimsPositions(MmaOp* mma) {
   auto mma_domains = mma_utils::getProblemIterDomains(mma->fusion());
   NVF_ERROR(mma_domains.isValid(), mma_domains.getErrorMsg());
 
@@ -1321,7 +1322,9 @@ std::vector<int> getMmaDimsPositions(MmaOp* mma) {
   const auto n_id = domains_data[(size_t)MatmulDomain::N];
   const auto k_id = domains_data[(size_t)MatmulDomain::K];
 
-  std::optional<int> m_pos, n_pos, k_pos = std::nullopt;
+  int m_pos = -1;
+  int n_pos = -1;
+  int k_pos = -1;
 
   auto out_tv = mma->out()->as<TensorView>();
   int ndims = (int)out_tv->nDims();
@@ -1339,9 +1342,9 @@ std::vector<int> getMmaDimsPositions(MmaOp* mma) {
   }
 
   NVF_ERROR(
-      m_pos.has_value() && n_pos.has_value() && k_pos.has_value(),
+      m_pos != -1 && n_pos != -1 && k_pos != -1,
       "Valid index not found for all problem iterdomains.")
-  return {m_pos.value(), n_pos.value(), k_pos.value()};
+  return {m_pos, n_pos, k_pos};
 }
 } // namespace
 
@@ -1459,7 +1462,7 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   matmul_inp->mma_dims_pos = getMmaDimsPositions(mma);
 
   NVF_ERROR(
-      matmul_inp->mma_dims_pos.value()[(size_t)MatmulDomain::M] == 0,
+      std::get<(size_t)MatmulDomain::M>(matmul_inp->mma_dims_pos) == 0,
       "Expected M to be the first dimension.");
 
   if (!has_bias) {
