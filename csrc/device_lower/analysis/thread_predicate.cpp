@@ -34,8 +34,7 @@ Val* getPredicatePerParallelType(
   // When BID needs to be predicated, that means it's an output of a grid
   // reduction and only the last block index in that dimension has the right
   // value from the grid reduce.
-  if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
-    // if (isParallelTypeBlockDim(pt)) {
+  if (isParallelTypeBlockDim(pt)) {
     return SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(pt),
         SimplifyingIrBuilder::subExpr(
