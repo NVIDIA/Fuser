@@ -628,7 +628,7 @@ $\square$
 Similar to the proof of 2.7.2. We have
 $$-|c| < b < |c|$$
 and
-$$-|c/g| + 1 \le (a/g) \mathbin{\\%} (c/g) \le |c/g| - 1$$
+$$-|c/g| + 1 \le (a/|g|) \mathbin{\\%} (c/|g|) \le |c/g| - 1$$
 then
 $$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
 
