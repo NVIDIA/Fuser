@@ -193,7 +193,7 @@ Therefore, we have
 $$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < (|c/g| - 1) \times |g| + |g|$$
 That is: $$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
 
-Therefore:
+Therefore by Theorem 2.7:
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
 $\square$
 
@@ -632,7 +632,7 @@ $$-|c/g| + 1 \le (a/|g|) \mathbin{\\%} (c/|g|) \le |c/g| - 1$$
 then
 $$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
 
-Therefore:
+Therefore by Theorem 4.7:
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
 $\square$
 
