@@ -18,11 +18,13 @@
 
 namespace nvfuser {
 
+using MultiDeviceUtilsTest = NVFuserTest;
+
 // TODO: This test checks that isSharded generates an error when a split/merged
 // axis is parallelized with DIDx. Update when this restriction is lifted.
-TEST_F(NVFuserTest, TestIsSharded) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+TEST_F(MultiDeviceUtilsTest, TestIsSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
   TensorView* a = makeSymbolicTensor(3);
   a->axis(2)->parallelize(ParallelType::DIDx);
@@ -38,6 +40,30 @@ TEST_F(NVFuserTest, TestIsSharded) {
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
   EXPECT_ANY_THROW(isSharded(c));
+}
+
+TEST_F(MultiDeviceUtilsTest, TestPropagateSharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = makeSymbolicTensor(3);
+  TensorView* c = add(a, b);
+
+  DeviceMesh mesh({0, 1, 2});
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDx);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(c);
+  propagateShardings(&fusion);
+
+  EXPECT_TRUE(mesh == c->getDeviceMesh());
+  EXPECT_TRUE(c->axis(0)->getParallelType() == ParallelType::DIDx);
+  EXPECT_TRUE(c->axis(1)->getParallelType() == ParallelType::Serial);
+  EXPECT_TRUE(c->axis(2)->getParallelType() == ParallelType::Serial);
 }
 
 class ShardedComputeTest : public NVFuserTest,
@@ -100,8 +126,9 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
   std::iota(devices.begin(), devices.end(), 0);
   DeviceMesh mesh(devices);
   std::vector<int64_t> input_size = {2, 3, 2, 4};
+  int sharded_output_dim = 3;
   input_size[sharded_dim] = num_devices;
-  input_size[sharded_dim + 1] = num_devices;
+  input_size[sharded_output_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor ? makeConcreteTensor(input_size)
                                             : makeSymbolicTensor(4);
@@ -116,7 +143,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 
   tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-  tv3->axis(sharded_dim + 1)->parallelize(ParallelType::DIDx);
+  tv3->axis(sharded_output_dim)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
   for (auto tv : tvs) {
@@ -183,6 +210,11 @@ INSTANTIATE_TEST_SUITE_P(
     OutermostShard,
     ShardingTest,
     testing::Combine(testing::Bool(), testing::Values(0)));
+
+INSTANTIATE_TEST_SUITE_P(
+    InnermostShard,
+    ShardingTest,
+    testing::Combine(testing::Bool(), testing::Values(1)));
 
 } // namespace nvfuser
 #endif

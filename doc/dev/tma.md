@@ -85,8 +85,6 @@ inner split that IterDomain by the box size of that dimension.
 We call this split expression a "*boxing split*", the input of this split a "*partitioned IterDomain*",
 the inner output of this split a "*box IterDomain*", and the outer output of this split a "*coordinate IterDomain*".
 
-TODO: currently "partitioned IterDomain" is called "TMA-global IterDomain" in the code. I need to update the code.
-
 For the case of Figure 1, if both box dimensions are defined by partitioning,
 the schedule should look like the Figure 3 below:
 

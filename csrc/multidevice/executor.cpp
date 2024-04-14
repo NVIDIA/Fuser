@@ -51,7 +51,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     Communicator& comm,
     MultiDeviceExecutorParams params)
     : comm_(comm), params_(params) {
+  propagateShardings(fusion.get());
   insertReshardings(fusion.get());
+  insertShardedAxisReordering(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
@@ -98,7 +100,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
 }
 
-void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
+void MultiDeviceExecutor::postKernel(
+    SegmentedGroup* group,
+    const LaunchParams& launch_params) {
   if (!should_run_.at(group)) {
     return;
   }
@@ -123,20 +127,18 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
+    auto fusion = staged_fusion_->makeFusion(group).second;
     fec_.try_emplace(
-        group,
-        staged_fusion_->makeFusion(group),
-        0,
-        !params_.skip_auto_scheduling);
+        group, std::move(fusion), 0, !params_.skip_auto_scheduling);
     outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(group);
     auto& fe = it->second;
     if (has_emplaced) {
-      fe.compileFusion(
-          staged_fusion_->makeFusion(group).get(), group_input_IValues);
+      auto fusion = staged_fusion_->makeFusion(group).second;
+      fe.compileFusion(fusion.get(), group_input_IValues, launch_params);
     }
-    outputs = fe.runFusion(group_input_IValues);
+    outputs = fe.runFusion(group_input_IValues, launch_params);
     if (!params_.cache_fusion_executor) {
       fe_.erase(group);
     }
@@ -182,7 +184,8 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs) {
+    const std::vector<c10::IValue>& inputs,
+    const LaunchParams& launch_params) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
@@ -209,7 +212,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
-      postKernel(group);
+      postKernel(group, launch_params);
     } else {
       postCommunication(group);
     }
@@ -262,7 +265,7 @@ std::ostream& MultiDeviceExecutor::print() {
       communication_counter++;
     } else {
       debug() << "Compute segment " << compute_segment_counter << ":{\n";
-      auto fusion = staged_fusion_->makeFusion(group);
+      auto fusion = staged_fusion_->makeFusion(group).second;
       fusion->print();
       debug() << "}\n";
       compute_segment_counter++;

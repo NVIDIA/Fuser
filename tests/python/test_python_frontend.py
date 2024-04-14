@@ -1824,7 +1824,7 @@ class TestNvFuserFrontend(TestCase):
             )
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
 
-            # Attemp to get strings for inputs that do not heuristically match
+            # Attempt to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.cuda_code_for(big_inputs)

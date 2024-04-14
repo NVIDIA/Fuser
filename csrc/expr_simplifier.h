@@ -44,6 +44,9 @@
 // I) If -|a| < r < |a|, then r % a = r, r / a = 0
 // J) Distributivity of % over +:
 //    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
+// J.1) If compatible_sign(a, b) and a % c = 0, then (a + b) % c = b % c
+// J.2) Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|
+//      then (a + b) % c = a % c + b
 // K) Distributivity of % over *:
 //    If compatible_sign(a, b), then (a * b) % c = (a % c * b % c) % c
 // L) If a is a multiple of b, then a % b = 0
@@ -53,6 +56,9 @@
 // P) If b is a multiple of c, then a/(b/c) = (a*c)/b
 // Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
 //    (a+b)/c = a/c + b/c
+// Q.1) If compatible_sign(a, b) and a % c = 0, then (a+b)/c = a/c + b/c
+// Q.2) Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|
+//      then (a + b) / c = a/c
 //
 // See doc/math/integer-division.md for proofs of these rules.
 //
