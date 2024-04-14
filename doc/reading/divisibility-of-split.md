@@ -146,8 +146,7 @@ Then the index of `I0` is $i_0 = i_2 / N$.
 Suppose that the extents of `I0` and `I2` are $P$ and $Q$, then $Q = N \times P$.
 "the index of `I0` is in boundary" means $i_0 < P$, which is:
 $$i_2 / N < P$$
-According to "Rule 1" in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
-(TODO: move this theorem to a md file)
+According to Theorem 2.16 in [Integer Division](../math/integer-division.md),
 $$i_2 / N < P \Leftrightarrow i_2 < Q$$
 $\square$
 
