@@ -281,7 +281,7 @@ $$i \mathbin{\\%} (N_2 / N) \times N + j = (i \times N) \mathbin{\\%} N_2  + j$$
 
 In schedule 2, the indices of `I1` and `I2` are
 $(i \times N + j) / N_2$ and $(i \times N + j) \mathbin{\\%} N_2$.
-According to the theorem in `expr_simplifier.cpp` before `distributeGcdRemainderDivMod` (TODO: move this to md file),
+According to Theorem 2.7.2, 2.15.2 in [Integer Division](../math/integer-division.md),
 $$(i \times N + j) / N_2 = (i \times N) / N_2$$
 $$(i \times N + j) \mathbin{\\%} N_2 = (i \times N) \mathbin{\\%} N_2  + j$$
 
