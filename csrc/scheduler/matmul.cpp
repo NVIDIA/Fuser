@@ -468,7 +468,7 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
    * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
    * row_stride_znz (which is row_stride % num_megabanks), g should also
    * divide row_stride, because according to the fundamental
-   * division-with-remainder property (see comment in expr_simplifier.h):
+   * division-with-remainder property (see doc/math/integer-division.md):
    *   row_stride = q * num_megabanks + row_stride_znz
    * which means, we can just consider each num_gigabanks matrices as a group,
    * and we always have complete groups (i.e. no group has less than
