@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
 -->
 
-# Symbol visibility
+# Symbol Visibility
 
 [Symbol visibility](https://gcc.gnu.org/wiki/Visibility) is a feature of
 compilers that allows fine-grained control over which symbols are exposed from

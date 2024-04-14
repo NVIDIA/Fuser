@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
 -->
 
-# TMA support in nvFuser
+# Introduction to TMA Support in NVFuser
 
 ## Introduction
 
