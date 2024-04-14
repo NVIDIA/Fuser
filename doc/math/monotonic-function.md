@@ -20,7 +20,7 @@ Reference: [Wikipedia](https://en.wikipedia.org/wiki/Monotonic_function)
 $x < y \implies f(x) < f(y)$ by definition.
 
 $x \le y \implies f(x) \le f(y)$:
-$x \le y means either $x < y$ or $x = y$. For the first case, $f(x) < f(y)$.
+$x \le y$ means either $x < y$ or $x = y$. For the first case, $f(x) < f(y)$.
 For the second case, $f(x) = f(y)$, in combination, $f(x) \le f(y)$.
 
 $f(x) < f(y) \implies x < y$:
