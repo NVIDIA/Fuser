@@ -4,6 +4,7 @@ Reference: [Wikipedia](https://en.wikipedia.org/wiki/Monotonic_function)
 
 **Definition 1:** A function is called strictly increasing if for all $x < y$,
   we have $f(x) < f(y)$.
+
 **Definition 2:** A function is called weakly increasing if for all $x \le y$,
   we have $f(x) \le f(y)$.
 
