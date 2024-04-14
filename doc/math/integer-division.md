@@ -162,7 +162,7 @@ applying Theorem 1.3, we get what we need.
 
 </details>
 
-**Theorem 2.7.1** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
+**Theorem 2.7.1:** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
 
 <details>
 
@@ -173,7 +173,7 @@ $\square$
 
 </details>
 
-**Theorem 2.7.2** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
+**Theorem 2.7.2:** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
 
 <details>
 
@@ -343,7 +343,7 @@ Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
 
 </details>
 
-**Theorem 2.15.1** If $a \mathbin{\\%} c = 0$, we have $(a+b)/c = a/c + b/c$.
+**Theorem 2.15.1:** If $a \mathbin{\\%} c = 0$, we have $(a+b)/c = a/c + b/c$.
 
 <details>
 
@@ -355,7 +355,7 @@ $\square$
 
 </details>
 
-**Theorem 2.15.2** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) / c = a/c$.
+**Theorem 2.15.2:** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) / c = a/c$.
 
 <details>
 
@@ -370,7 +370,7 @@ $\square$
 
 </details>
 
-**Theorem 2.16** If $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
+**Theorem 2.16:** If $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
 
 <details>
 
@@ -636,7 +636,7 @@ applying Theorem 1.3, we get what we want.
 
 </details>
 
-**Theorem 4.7.1** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$,
+**Theorem 4.7.1:** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$,
 where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
 <details>
@@ -648,7 +648,7 @@ $\square$
 
 </details>
 
-**Theorem 4.7.2** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
+**Theorem 4.7.2:** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
 
 <details>
 
@@ -752,7 +752,7 @@ The rest of the proof is the same as 2.15.
 
 </details>
 
-**Theorem 4.15.1** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$,
+**Theorem 4.15.1:** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$,
 then $(a+b)/c = a/c + b/c$. ,
 The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
@@ -766,7 +766,7 @@ $\square$
 
 </details>
 
-**Theorem 4.15.2** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) / c = a / c$.
+**Theorem 4.15.2:** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) / c = a / c$.
 
 <details>
 
@@ -783,7 +783,7 @@ $\square$
 
 </details>
 
-**Theorem 4.16** If $i \ge 0$ and $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
+**Theorem 4.16:** If $i \ge 0$ and $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
 
 <details>
 
