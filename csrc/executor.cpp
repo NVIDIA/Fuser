@@ -1405,15 +1405,21 @@ void FusionExecutor::setUsedTVs() {
 
 KernelArgumentHolder FusionExecutor::inferOutputSizes(
     Fusion* fusion,
-    const KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args,
+    PrecomputedValues* evaluator_precomputed_values) {
   FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
-  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
-      std::make_unique<PrecomputedValues>(fusion);
-  evaluator_precomputed_values->bindInputs(args);
-  evaluator_precomputed_values->evaluate();
-
   ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
+  if (evaluator_precomputed_values == nullptr) {
+    evaluator_precomputed_values_up =
+        std::make_unique<PrecomputedValues>(fusion);
+    evaluator_precomputed_values_up->bindInputs(args);
+    evaluator_precomputed_values_up->evaluate();
+    evaluator_precomputed_values = evaluator_precomputed_values_up.get();
+  }
+  NVF_ERROR(evaluator_precomputed_values != nullptr);
+  expr_eval.precomputedValues() = evaluator_precomputed_values;
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
 
