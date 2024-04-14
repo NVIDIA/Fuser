@@ -376,8 +376,6 @@ $\square$
 
 **<summary>Proof:</summary>**
 
-Rule 1: For i >= 0, d > 0, i / d < D \Leftrightarrow i < D \times d
-
 $i / d < D \implies i < D \times d$:
 
 Consider the function $f(x) = x / d$, it is weakly increasing.
