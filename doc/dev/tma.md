@@ -175,6 +175,8 @@ TODO: change image link
 ![Figure 6: Indivisible strided tile data](../reading/tma-modeling-in-depth/no-strong-correctness-data.svg)
 
 From the above figure, we see that there are two tiles where the first half tile is blue and the second half tile is red.
+However, the granularity on TMA that programmer has control of is per tile.
+There is no way for a programmer to tell the hardware that they want part of a tile to be filled with data but part of it filled with zero even if they are not out of boundary.
 
 The above observation leads to the following theorem:
 
