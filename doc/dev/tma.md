@@ -74,4 +74,52 @@ for example, we can not merge discontiguous IterDomains ([why?](../reading/divis
 
 ### Step 2: create box
 
+#### Define box by compositing
+
+Define box by compositing is to select a slice of IterDomains from the TMA domain and consider the innermost IterDomain(s) in the slice as box.
+The IterDomains within the slice must be contiguous to each other.
+For example, if the TMA domain of a tensor is `T[I1{1024}, I2{2}, I3{4}, I4{8}]`, and the tensor is contiguous,
+then we can select `[I3{4}, I4{8}]` as box IterDomains.
+This splits the tensor with 65536 items into boxes of size 32, and there are in total 2048 boxes.
+
+It is helpful to imagine the tensor as shown in the following Figure 4:
+
+![Figure 4: Define box by compositing](tma/box-by-compositing.svg)
+
+In this mental model, `I1`, `I2`, `I3` and `I4` were first imaginarily merged to form `I5`.
+Then we defined box on `I5` by partitioning.
+The terms used in defining box by partitioning is also valid here,
+the only difference is that these terms now refers to imaginary splits and IterDomains instead of real ones.
+For convenience, we also call `[I3, I4]` "*box IterDomain*" (
+Note that we never call `I3` or `I4` itself a box IterDomain,
+we only call `I3` and `I4` together box IterDomain).
+Similarly, we call `[I1, I2]` "*coordinate IterDomain*".
+
+As we can see in Figure 4, when we define box by compositing,
+the dimensionality of the TMA domain does not equal to the dimensionality of the TMA instruction.
+Instead, the dimensionality of the imaginary TMA domain equals to the dimensionality of TMA instruction.
+
+Note that the number of IterDomains in a slice selected as box can be arbitrary.
+It can be as small as 0 IterDomains, or as large as the entire slice.
+When 0 IterDomains are selected as box, the box size is implicitly 1.
+When the entire slice is selected as box, the tensor only have 1 box on this dimension.
+
+We can use both styles of box defining at the same time in the same tensor, as shown in Figure 5 below:
+
+![Figure 5: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
+
+In the above figure, the TMA domain of the tensor has 9 dimensions.
+The contiguity of these 9 dimensions is `(T, T, T, F, T, T, T, T, T)`.
+Green color means box IterDomain and orange color means coordinate IterDomain.
+The imaginary TMA domain has 5 IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `I5`, and `merge(I6, I7, I8, I9)`.
+Therefore, the above schedule creates 5D box.
+We define one dimension of the box by partition.
+`I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
+The other dimensions of the box are defined by compositing.
+The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` is box IterDomain.
+The second dimension is `I3`.
+The third dimension is `I4`, it has no box IterDomain, therefore, the box size is implicitly one.
+The fourth dimension is `I5`, it has no coordinate IterDomain, therefore this dimension only has one box.
+The fifth dimension is `[I6, I7, I8, I9]`, where `I8` and `I9` are box IterDomain, and `I6` and `I7` are coordinate IterDomain.
+
 TODO: this documentation is under construction
