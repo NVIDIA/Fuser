@@ -109,7 +109,7 @@ For example, in Figure 5 below:
 
 ![Figure 5: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
-In the above figure, the TMA domain of the tensor has 9 dimensions.
+The TMA domain of the tensor has 9 dimensions.
 The contiguity of these 9 dimensions is `(T, T, T, F, T, T, T, T, T)`.
 Green color means box IterDomain and orange color means coordinate IterDomain.
 The imaginary TMA domain has 5 IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `I5`, and `merge(I6, I7, I8, I9)`.
