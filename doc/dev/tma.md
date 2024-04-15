@@ -111,16 +111,15 @@ For example, in Figure 5 below:
 
 The TMA domain of the tensor has 9 dimensions.
 The contiguity of these 9 dimensions is `(T, T, T, F, T, T, T, T, T)`.
+We defined a 5D TMA, where in these five dimensions, one of them defines box by partitioning, and the other defines boxes by compositing.
 Green color means box IterDomain and orange color means coordinate IterDomain.
-The imaginary TMA domain has 5 IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `I5`, and `merge(I6, I7, I8, I9)`.
-Therefore, the above schedule creates 5D box.
-We define one dimension of the box by partition.
 `I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
 The other dimensions of the box are defined by compositing.
 The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` is box IterDomain.
-The second dimension is `I3`.
+The second dimension is `I3`, it is the only dimension that defines box by partitioning.
 The third dimension is `I4`, it has no box IterDomain, therefore, the box size is implicitly one.
 The fourth dimension is `I5`, it has no coordinate IterDomain, therefore this dimension only has one box.
 The fifth dimension is `[I6, I7, I8, I9]`, where `I8` and `I9` are box IterDomain, and `I6` and `I7` are coordinate IterDomain.
+The imaginary TMA domain has five IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `I5`, and `merge(I6, I7, I8, I9)`.
 
 TODO: this documentation is under construction
