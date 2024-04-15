@@ -58,6 +58,13 @@ std::unique_ptr<KernelConfig> defaultConfigFactory() {
 }
 
 thread_local KernelConfigFactory config_factory = defaultConfigFactory;
+// We just need to check for the special case of the default factory, so that we
+// can further check for a user-provided plugin. However, comparing
+// std::functions directly is difficult to do well. See
+// https://stackoverflow.com/questions/20833453/comparing-stdfunctions-for-equality
+// Instead, the following flag indicates whether the default factory has been
+// overridden.
+thread_local bool config_factory_modified = false;
 
 //! Utility to standardize conversion of MmaLayout to uint8_t
 uint8_t layoutToByte(MmaLayout layout) {
@@ -215,19 +222,19 @@ bool hasPlugin() {
 
   // To check whether we have set a non-default factory, find the address of
   // config_factory and compare it to defaultConfigFactory.
-  KernelConfigFactoryPointer config_factory_ptr =
-      config_factory.target<std::unique_ptr<KernelConfig>()>();
-
-  return config_factory_ptr != defaultConfigFactory || plugin.available();
+  return config_factory_modified || plugin.available();
 }
 
 KernelConfigFactoryGuard::KernelConfigFactoryGuard(KernelConfigFactory func)
-    : prev_factory_(config_factory) {
+    : prev_factory_(config_factory),
+      prev_factory_modified_(config_factory_modified) {
   config_factory = func;
+  config_factory_modified = true;
 }
 
 KernelConfigFactoryGuard::~KernelConfigFactoryGuard() {
   config_factory = prev_factory_;
+  config_factory_modified = prev_factory_modified_;
 }
 
 } // namespace matmul_heuristic_plugin

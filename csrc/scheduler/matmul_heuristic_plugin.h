@@ -56,6 +56,7 @@ class KernelConfigFactoryGuard {
 
  private:
   KernelConfigFactory prev_factory_;
+  bool prev_factory_modified_;
 };
 
 } // namespace matmul_heuristic_plugin
