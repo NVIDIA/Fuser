@@ -29,6 +29,10 @@ In Figure 1, we have box size `(6, 4)` for both diagram.
 For the diagram on the left, we have tile size `(6, 4)` and stride `(1, 1)`.
 For the diagram on the right, we have tile size `(6, 2)`, and stride `(1, 3)`.
 
+Box and tile for the above example is shown below in Figure 2:
+
+![Figure 2: Box and tile](tma/box-and-tile.svg)
+
 ## Schedule
 
 In order to use TMA, we need to tell the hardware what is the dimensionality of our tensor.
@@ -62,9 +66,9 @@ In this mental model, the input and output tensors are all 2D:
 The first step of scheduling TMA is to schedule the consumer of the TMA expression the way matching the mental model of the problem.
 The result domain of this step is called the *TMA domain*.
 
-The TMA domain for the above matmul example is shown in the Figure 2 below:
+The TMA domain for the above matmul example is shown in the Figure 3 below:
 
-![Figure 2: The TMA domain of the matmul example](tma/matmul-tma-domain.svg)
+![Figure 3: The TMA domain of the matmul example](tma/matmul-tma-domain.svg)
 
 Please note that the TMA domain is not a member of a TensorDomain like the root/rFactor/allocation/leaf domains.
 Instead, it is a virtual domain that only exists in the user's mind.
@@ -82,9 +86,9 @@ For example, if the TMA domain of a tensor is `T[I1{1024}, I2{2}, I3{4}, I4{8}]`
 then we can select `[I3{4}, I4{8}]` as box IterDomains.
 This defines boxes of size 32, and there are in total 2048 boxes.
 
-It is helpful to imagine the tensor as shown in the following Figure 4:
+It is helpful to imagine the tensor as shown in the following Figure 5:
 
-![Figure 4: Define box by compositing](tma/box-by-compositing.svg)
+![Figure 5: Define box by compositing](tma/box-by-compositing.svg)
 
 In this mental model, `I1`, `I2`, `I3` and `I4` were first imaginarily merged to form `I5`.
 Then we defined box on `I5` by partitioning.
@@ -95,7 +99,7 @@ Note that we never call `I3` or `I4` itself a box IterDomain,
 we only call `I3` and `I4` together box IterDomain).
 Similarly, we call `[I1, I2]` "*coordinate IterDomain*".
 
-As we can see in Figure 4, when we define box by compositing,
+As we can see in Figure 5, when we define box by compositing,
 the dimensionality of the TMA domain does not equal to the dimensionality of the TMA instruction.
 Instead, the dimensionality of the imaginary TMA domain equals to the dimensionality of TMA instruction.
 
@@ -105,9 +109,9 @@ When 0 IterDomains are selected as box, the box size is implicitly one.
 When the entire slice is selected as box, the tensor only have one box on that dimension, and the size of the box equals the size of that dimension.
 
 We can use both styles of box defining at the same time in the same tensor.
-For example, in Figure 5 below:
+For example, in Figure 6 below:
 
-![Figure 5: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
+![Figure 6: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
 The TMA domain of the tensor has nine IterDomains.
 The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
@@ -131,9 +135,9 @@ and use the word *tile* and *box* interchangably.
 For strided tile, we do an inner-split on the box IterDomain by the *element stride*.
 We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
 and the outer output of this split "*tile IterDomain*".
-For the example in Figure 1 on the right hand side, the schedule looks like the Figure 6 below:
+For the example in Figure 1 on the right hand side, the schedule looks like the Figure 7 below:
 
-![Figure 6: Strided tile](./tma/strided-tile.svg)
+![Figure 7: Strided tile](./tma/strided-tile.svg)
 
 Note that if the box is defined by compositing,
 the box IterDomain can be a list of IterDomains instead of a single IterDomain.
