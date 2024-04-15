@@ -44,9 +44,14 @@ struct MyKernelConfig : KernelConfig {
     instruction_tile = {16, 8, 16};
     splitk_factor = 2;
     load_stages = 3;
+    async_gmem_load_operands = true;
     grid_swizzle_factor = 1;
     cta_order = 0;
   };
+
+  ~MyKernelConfig() {
+    std::cout << "~MyKernelConfig" << std::endl;
+  }
 };
 
 extern "C" std::unique_ptr<KernelConfig> makeConfig() {
