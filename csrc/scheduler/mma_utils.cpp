@@ -1514,6 +1514,20 @@ void CombineMulSum::replaceWithMmaOp() {
   return;
 }
 
+char dtypeToChar(const DataType& dtype) {
+  if (dtype == DataType::Half) {
+    return 'H';
+  } else if (dtype == DataType::BFloat16) {
+    return 'T';
+  } else if (dtype == DataType::Float) {
+    return 'S';
+  } else if (dtype == DataType::Double) {
+    return 'D';
+  }
+  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  return 0;
+}
+
 } // namespace mma_utils
 
 } // namespace nvfuser
