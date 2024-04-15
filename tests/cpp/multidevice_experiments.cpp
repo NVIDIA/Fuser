@@ -19,7 +19,10 @@ namespace nvfuser {
 
 class GlobalContext : public testing::Environment {
   public:
-    void SetUp() override {}
+    void SetUp() override {
+        // call getStreamFromPool to trigger the lazy init
+        c10::cuda::getStreamFromPool(/* high priority */true);
+    }
     void TearDown() override {}
 };
 
@@ -136,7 +139,7 @@ TEST_P(OverlapTest, PurePytorch) {
 
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
-        setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */false, my_device_index));
+        setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         // local compute
         auto tv1_j = compute_ATen(tv0_slices.at(j));
 
