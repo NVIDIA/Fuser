@@ -166,7 +166,7 @@ and the former is not equivalent to the latter as discussed in [Divisibility of 
 > [!WARNING]
 > When the element stride does not divide the box size,
 > extra care is needed because there are holes not filled with zero.
-> See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md) for more detail.
+> See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md#the-unachievability-of-strong-correctness-for-indivisible-element-stride) for more detail.
 
 ### Step 4: Schedule tile
 
