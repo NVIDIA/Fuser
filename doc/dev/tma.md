@@ -80,7 +80,7 @@ Define box by compositing is to select a slice of IterDomains from the TMA domai
 The IterDomains within the slice must be contiguous to each other.
 For example, if the TMA domain of a tensor is `T[I1{1024}, I2{2}, I3{4}, I4{8}]`, and the tensor is contiguous,
 then we can select `[I3{4}, I4{8}]` as box IterDomains.
-This splits the tensor with 65536 items into boxes of size 32, and there are in total 2048 boxes.
+This defines boxes of size 32, and there are in total 2048 boxes.
 
 It is helpful to imagine the tensor as shown in the following Figure 4:
 
