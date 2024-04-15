@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
 #include <multidevice/communication.h>
@@ -79,22 +78,6 @@ class MultiDeviceTest : public NVFuserTest {
   bool disable_skip;
 };
 
-class CommunicationTest
-    : public MultiDeviceTest,
-      public ::testing::WithParamInterface<CommunicatorBackend> {
- protected:
-  void SetUp() override;
-  void validate(at::Tensor obtained, at::Tensor expected);
-  void resetDstBuffers();
-  static constexpr DeviceIdxType root = 0;
-  static constexpr int tensor_size = 1024;
-  static constexpr int number_of_repetitions = 8;
-  static constexpr c10d::ReduceOp::RedOpType red_op =
-      c10d::ReduceOp::RedOpType::SUM;
-  CommParams params;
-  std::vector<DeviceIdxType> all_ranks;
-};
-
 class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
@@ -116,5 +99,3 @@ class PipelineTest : public MultiDeviceTest {
 };
 
 } // namespace nvfuser
-
-#endif
