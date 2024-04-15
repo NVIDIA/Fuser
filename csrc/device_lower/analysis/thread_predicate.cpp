@@ -34,7 +34,7 @@ Val* getPredicatePerParallelType(
   // When BID needs to be predicated, that means it's an output of a grid
   // reduction and only the last block index in that dimension has the right
   // value from the grid reduce.
-  if (isParallelTypeBlockDim(pt)) {
+  if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
     return SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(pt),
         SimplifyingIrBuilder::subExpr(
@@ -69,11 +69,6 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
   const auto pred_types =
       (pred_info.limited_types | pred_info.redundant_types) & mask;
 
-  std::cout << "mask: " << mask.toString() << std::endl;
-  std::cout << "pred_types: " << pred_types.toString() << std::endl;
-  std::cout << "redundant_use_types: "
-            << pred_info.redundant_use_types.toString() << std::endl;
-
   if (pred_types.none()) {
     return GpuLower::current()->kernel()->trueVal();
   }
@@ -81,11 +76,9 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
   Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    std::cout << "tp: " << tp->definition() << std::endl;
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
   NVF_ERROR(pred != nullptr);
-  std::cout << "pred: " << pred->definition() << std::endl << std::endl;
 
   return pred;
 }
@@ -185,66 +178,6 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
   return pred;
 }
 
-// If a tensor is not parallelized by a specific parallel type, it means
-// the read by that specific parallel type is redundant. A typical case
-// is reduction epilogue, where post reduction tensor is not parallelized
-// by the reduction parallel type, e.g. T1[I0] = sum(T0[I0, R0]), T2[I0] =
-// T1[I0] + T3[I0], if {I0} is parallelized by BIDx and {R0} is parallelizd by
-// TIDx, the read of T3 by parallel type TIDx is redundant. We should generate
-// a predicate similar to: if (TIDx == 0) { T2[I0] = T1[I0] + T3[I0]; }. This
-// improves performance when T3 is on global memory.
-ParallelTypeBitmap avoidRedundantReads(
-    Fusion* fusion,
-    const TensorView* out_tv,
-    bool has_gmem_input) {
-  // it's fine to redundantly load from non-gmem location
-  if (!has_gmem_input) {
-    return ParallelTypeBitmap();
-  }
-
-  if(std::getenv("USE_OLD")) {
-    return ParallelTypeBitmap();
-  }
-
-  // set parallel types that are not used after this output tensor
-  // needs to check all the tvs from this tensor to fusion outputs
-  // start with all parallel types, and remove the ones that are used
-  ParallelTypeBitmap unused_types;
-  unused_types = ~unused_types;
-  std::unordered_set<Val*> out_tv_set;
-  out_tv_set.insert((Val*)out_tv);
-  const auto& deps =
-      DependencyCheck::getAllValsBetween(out_tv_set, fusion->outputs());
-  for (auto dep : deps) {
-    auto tv = dynamic_cast<TensorView*>(dep);
-    if (tv == nullptr) {
-      continue;
-    }
-    for (auto out_tv_id : tv->getLeafDomain()) {
-      auto pt = out_tv_id->getParallelType();
-      if (!isParallelTypeThread(pt)) {
-        continue;
-      }
-      unused_types.clear(pt);
-    }
-  }
-
-  // needs to predicate on all the parallel types that are not used
-  ParallelTypeBitmap pred;
-  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
-  for (const auto pt : unused_types) {
-    // If the pt is not used or is proven to be one, it is not
-    // really redundant.
-    auto pt_dim = par_dim_map.get(pt);
-    if (pt_dim == nullptr || pt_dim->isOneInt()) {
-      continue;
-    }
-    pred.set(pt);
-  }
-
-  return pred;
-}
-
 // If tv is an output of a reduction with unused parallel types, those
 // unused parallel types need to be predicated if the tensor is on
 // global memory.
@@ -264,7 +197,7 @@ ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
 } // namespace
 
 // Update the reduction_deps bitset based on provided Expr
-void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
+void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap::updateBitSet");
 
   auto tv_out = ir_utils::getTvOutput(expr);
@@ -287,8 +220,6 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
     return;
   }
 
-  std::cout << "\nThreadPredicateMap::updateBitSet: " << expr->toString()
-            << std::endl;
   // Which predicates were set for the inputs
   ParallelTypeBitmap input_preds;
 
@@ -307,7 +238,6 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
       });
 
   // Run through inputs and update bitsets
-  bool has_gmem_input = false;
   for (const auto* inp : expr->inputs()) {
     if (!ir_utils::isTV(inp)) {
       continue;
@@ -348,10 +278,6 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
         }
       }
     }
-    std::cout << "tv_inp: " << tv_inp->toString() << std::endl;
-    std::cout << "id_reductions: " << id_reductions.toString() << std::endl;
-    std::cout << "id_bcasts: " << id_bcasts.toString() << std::endl;
-    std::cout << "id_ptypes: " << id_ptypes.toString() << std::endl;
 
     // Validate the combination of ptypes, reductions, bcasts
     for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
@@ -374,10 +300,6 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
     const auto bcast_reset_mask = ~(this_input_preds & id_bcasts);
     this_input_preds &= bcast_reset_mask;
 
-    if (tv_inp->getMemoryType() == MemoryType::Global) {
-      has_gmem_input = true;
-    }
-
     // If the input is on shared or global memory and is predicated,
     // and the output is parallelized by the predicate type, a RAW
     // sync is automatically inserted, so the predication can be
@@ -397,7 +319,6 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
 
     id_reductions |=
         getReductionPredicateForUnusedParallelTypes(tv_inp, at(tv_inp));
-    std::cout << "id_reductions: " << id_reductions.toString() << std::endl;
 
     // Accumulate
     input_reductions |= id_reductions;
@@ -406,17 +327,11 @@ void ThreadPredicateMap::updateBitSet(Fusion* fusion, const Expr* expr) {
   // Update map for this tv, before accumulating to other inputs
   // Add any reductions this id has to any input predicates
   auto output_preds = input_preds | input_reductions;
-  std::cout << "output_preds: " << output_preds.toString() << std::endl;
 
   // Run through outputs and set bitset predicates
   for (auto* out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    auto redundant_write = avoidRedundantWrites(out_tv);
-    auto redundant_read = avoidRedundantReads(fusion, out_tv, has_gmem_input);
-    // std::cout << "redundant_write: " << redundant_write.toString() <<
-    // std::endl; std::cout << "redundant_read: " << redundant_read.toString()
-    // << std::endl; std::cout << "redundant_write | redundant_read: "
-    //           << (redundant_write | redundant_read).toString() << std::endl;
-    update(out_tv, output_preds, redundant_write | redundant_read);
+    auto redundant_types = avoidRedundantWrites(out_tv);
+    update(out_tv, output_preds, redundant_types);
   }
 }
 
@@ -812,15 +727,9 @@ void ThreadPredicateMap::build(Fusion* fusion) {
       update(tv, ParallelTypeBitmap(), ParallelTypeBitmap());
     }
   }
-
-  std::cout << "\n\n================before updateBitSet";
-  print();
-
   for (auto expr : fusion->exprs()) {
-    updateBitSet(fusion, expr);
+    updateBitSet(expr);
   }
-  std::cout << "\n\n================after updateBitSet";
-  print();
 
   for (auto tv : ir_utils::allTvs(fusion)) {
     if (tv->getMemoryType() == MemoryType::Global) {
@@ -830,8 +739,6 @@ void ThreadPredicateMap::build(Fusion* fusion) {
 
   updated_tvs_.clear();
   populateRedundantUseMap(fusion);
-  std::cout << "\n\n================after populateRedundantUseMap";
-  print();
 }
 
 void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
@@ -911,7 +818,6 @@ Val* ThreadPredicateMap::getPredicate(
   DEBUG_PRINT_SCOPE_NAME("ThreadPredicateMap::getPredicate", tv, mask);
   NVF_ERROR(find(tv) != end(), "Couldn't find ", tv);
   auto pred_info = getPredicateInfo(tv);
-  std::cout << "getPredicate: " << tv->toString() << std::endl;
   RECORD_AND_RETURN(getPredicateFromPredicateInfo(pred_info, mask));
 }
 
@@ -970,13 +876,10 @@ void ThreadPredicateMap::print() const {
   debug() << "\nThreadPredicateMap\n";
   debug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
-    debug() << "T" << kv.first->name() << ":\n";
-    debug() << "limited_types:  {" << kv.second.limited_types.toString()
-            << "}\n";
-    debug() << "redundant_types: {" << kv.second.redundant_types.toString()
-            << "}\n";
-    debug() << "redundant_use_types: {"
-            << kv.second.redundant_use_types.toString() << "}\n";
+    debug() << "T" << kv.first->name();
+    debug() << " {" << kv.second.limited_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
   debug() << "--------------------------------\n\n";
 }
