@@ -49,4 +49,5 @@ foo.bin
 
 *_generated.*
 
+# Mac OS internal file
 .DS_Store
