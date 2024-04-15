@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
 #include <c10/core/DeviceType.h>
@@ -148,5 +147,3 @@ class MultiDeviceExecutor {
 };
 
 } // namespace nvfuser
-
-#endif
