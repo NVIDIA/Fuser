@@ -747,6 +747,66 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       getTolerances());
 }
 
+TEST_F(DistributedMatmulTest, LayoutNN_Allgather) {
+  // A is sharded on dimension M
+  // Tests local matmul + allgather
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh = createDeviceMesh();
+
+  int M = 1024, N = 512, K = 256;
+  int Mo = num_devices;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {K, Mo, Mi};
+  std::vector<int> b_shape = {N, K};
+
+  TensorView* a = makeContigTensor(3, DataType::Half); // (K,Mo,Mi)
+  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
+  // Permute a into Transponsed layout. 
+  TensorView* a_p = permute(a, {1,2,0}); // (Mo,Mi,K)
+  TensorView* a_b = broadcast(a_p, {false, false, true, false}); // (Mo,Mi,b,K)
+  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
+  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
+  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  // Sharding M dimension
+  a->setDeviceMesh(mesh);
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  auto all_sharded_tvs = {a_p, a_b, b_b, ab};
+  for (auto tv : all_sharded_tvs) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+
+  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NN, M, N, K);
+  a_ = a_.view({K, Mo, Mi});
+  c_ = c_.view({Mo, Mi, N});
+
+  std::vector<c10::IValue> inputs = {
+      shardTensor(a_, a, communicator->deviceId()), b_};
+  auto expected_output = shardTensor(c_, c, communicator->deviceId());
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params);
+  auto outputs = runtime.runWithInput(inputs);
+
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__,
+      "",
+      LaunchParams(),
+      getTolerances());
+}
+
 TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.

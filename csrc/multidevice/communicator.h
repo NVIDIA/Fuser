@@ -108,7 +108,8 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
-  // returns local rank
+  // returns local rank associted with the current process,
+  // i.e. the rank within a node instead of the rank within the world.
   RankType local_rank() const {
     return local_rank_;
   }
