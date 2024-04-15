@@ -104,7 +104,8 @@ It can be as small as 0 IterDomains, or as large as the entire slice.
 When 0 IterDomains are selected as box, the box size is implicitly one.
 When the entire slice is selected as box, the tensor only have one box on that dimension.
 
-We can use both styles of box defining at the same time in the same tensor, as shown in Figure 5 below:
+We can use both styles of box defining at the same time in the same tensor.
+For example, in Figure 5 below:
 
 ![Figure 5: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
