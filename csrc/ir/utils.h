@@ -66,7 +66,7 @@ struct MatmulInputs {
   Val* bias = nullptr;
   Val* alpha = nullptr;
   Val* beta = nullptr;
-  // Ordering of dimensions M,N,K in inputs.
+  // Ordering of dimensions M,N,K in MmaOp's output TensorView's root domain. 
   // Determined based on position of iterdomains.
   // For addmm/matmul ([M,K] x [K,N]): M=0, N=2, K=1
   // For linear ([M,K] x [N,K]): M=0, N=1, K=2
