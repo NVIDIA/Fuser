@@ -7,16 +7,12 @@
 // clang-format on
 #include <benchmark/benchmark.h>
 #include <benchmarks/cpp/utils.h>
-#include <cuda_runtime.h>
-#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
-#include <scheduler/all_schedulers.h>
 #include <tests/cpp/utils.h>
-#include <sstream>
 
 using namespace nvfuser;
 
