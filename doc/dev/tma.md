@@ -99,7 +99,7 @@ As we can see in Figure 4, when we define box by compositing,
 the dimensionality of the TMA domain does not equal to the dimensionality of the TMA instruction.
 Instead, the dimensionality of the imaginary TMA domain equals to the dimensionality of TMA instruction.
 
-Note that the number of IterDomains in a slice selected as box can be arbitrary.
+Note that the number of IterDomains selected as box in a slice can be arbitrary.
 It can be as small as 0 IterDomains, or as large as the entire slice.
 When 0 IterDomains are selected as box, the box size is implicitly 1.
 When the entire slice is selected as box, the tensor only have 1 box on this dimension.
