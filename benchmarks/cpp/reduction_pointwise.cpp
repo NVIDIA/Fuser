@@ -73,7 +73,7 @@ static void NvFuserScheduler_ReductionPointwise(
 
   runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
 
-  // inputs: input tensor [I*R] + epilogue tensor [I]
+  // inputs: input tensor [I*R] + epilogue tensor [I] or [I*R]
   // outputs: output_of_reduction [I]
   auto epilogue_size = is_broadcast ? iter_size * reduction_size : iter_size;
   benchmark_state.SetBytesProcessed(
