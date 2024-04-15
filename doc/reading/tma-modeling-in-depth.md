@@ -6,6 +6,9 @@
 
 # TMA Modeling In Depth
 
+> [!NOTE]
+> We use $\div$ for true division, and $/$ for TODO Euclidean division. For example, $5\div 2 = 2.5$, $5/2=2$.
+
 This document means to provide a deeper insight into how we model TMA, primarily at IterDomain level.
 This document is not an introduction to our TMA support, which can be found [here](../dev/tma.md).
 This document does not discuss topics like hardware, performance, computer architecture, etc.,
@@ -198,9 +201,9 @@ The above observation leads to the following theorem:
 If the striding split is an indivisible split,
 then it is impossible to achieve strong correctness.
 
-global size: S
-box size: B
-element stride: e
+global size: S in Z+
+box size: B in Z+
+element stride: e in Z+
 partitioned ID: ip
 coordinate ID: ic
 box ID: ib
@@ -210,18 +213,118 @@ stride ID: is
 ib = it * e + is
 ip = ic * B + ib
 
-ip < S
-exist is, it s.t.
-is < B &&
-is < e
-B <= it * e + is < S
-ceilDiv(B, e) - 1
+0 <= ip < S
 
+exist is, ic, it1, it2 in Z s.t.
+0 <= is < e
+0 <= ic < ceilDiv(S, B)
+0 <= it1, it2 < ceilDiv(B, e)
+0 <= ic * B + it1 * e + is < S
+0 <= ic * B + it2 * e + is < S
+0 <= it1 * e + is < B
+it2 * e + is >= B
 
-B - is <= it * e  < S - is
+logically: If p -> r, then p && r <-> p
+p->r => p -> (p && r): https://en.wikipedia.org/wiki/Absorption_(logic)
+p && r -> p: https://en.wikipedia.org/wiki/Conjunction_elimination
 
-(ceilDiv(B, e) - 1) * e >= B - is
-B - e >= B - is
-B/e*e >= B - is
-is >= B % e
-e < B
+r = ... >= 0, p = others, simplify as:
+
+exist is, ic, it1, it2 in Z s.t.
+0 <= is < e
+0 <= ic < ceilDiv(S, B)
+0 <= it1, it2 < ceilDiv(B, e)
+ic * B + it1 * e + is < S
+ic * B + it2 * e + is < S
+it1 * e + is < B
+it2 * e + is >= B
+
+rephrase as
+
+exist is, it1, it2 in Z s.t.
+0 <= is < e
+0 <= it1, it2 < ceilDiv(B, e)
+it1 * e + is < B
+it2 * e + is >= B
+exist ic in Z s.t.
+0 <= ic < ceilDiv(S, B)
+ic < (S - (it1 * e + is)) \div B
+ic < (S - (it2 * e + is)) \div B
+
+the inner qualifier equiv to
+
+0 < ceilDiv(S, B)
+0 < (S - (it1 * e + is)) \div B
+0 < (S - (it2 * e + is)) \div B
+
+simplify as
+
+it1 * e + is < S
+it2 * e + is < S
+
+so overall
+
+exist is, it1, it2 in Z s.t.
+0 <= is < e
+0 <= it1, it2 < ceilDiv(B, e)
+it1 * e + is < B
+it2 * e + is >= B
+it1 * e + is < S
+it2 * e + is < S
+
+rephrase as
+
+exist is, it2 in Z s.t.
+0 <= is < e
+0 <= it2 < ceilDiv(B, e)
+it2 * e + is >= B
+it2 * e + is < S
+exist it1 in Z s.t.
+0 <= it1 < ceilDiv(B, e)
+it1 < (B - is) \div e
+it1 < (S - is) \div e
+
+the inner qualifier equiv to
+
+0 < ceilDiv(B, e)
+0 < (B - is) \div e
+0 < (S - is) \div e
+
+simplify to
+
+is < B
+is < S
+
+so overall
+
+exist is, it2 in Z s.t.
+0 <= is < e
+is < B
+is < S
+0 <= it2 < ceilDiv(B, e)
+it2 * e + is >= B
+it2 * e + is < S
+
+rephrase
+
+exist is in Z s.t.
+0 <= is < e
+is < B
+is < S
+exist it2 in Z s.t.
+0 <= it2 < ceilDiv(B, e)
+(B - is) \div e <= it2
+it2 < (S - is) \div e
+
+the inner qualifier equiv to
+
+0 < ceilDiv(B, e)
+0 < (S - is) \div e
+ceilDiv(B - is, e) < ceilDiv(B, e)
+ceilDiv(B - is, e) < (S - is) \div e
+
+simplify to
+
+is < S
+ceilDiv(B - is, e) < ceilDiv(B, e)
+ceilDiv(B - is, e) < (S - is) \div e
