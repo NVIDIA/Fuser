@@ -7,6 +7,9 @@
 // clang-format on
 #ifdef NVFUSER_DISTRIBUTED
 #include <tests/cpp/multidevice.h>
+#include <ops/all_ops.h>
+#include <ir/utils.h>
+#include <fusion.h>
 #include <c10/util/ArrayRef.h>
 #include <ATen/Functions.h>
 
@@ -29,8 +32,28 @@ class GlobalContext : public testing::Environment {
 auto global_context = static_cast<GlobalContext*>(
     testing::AddGlobalTestEnvironment(new GlobalContext));
 
+enum class ComputeMode {
+    Pytorch,
+    nvFuserFusionExecutor,
+    nvFuserFusionExecutorCache
+};
+
+std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
+  switch (mode) {
+    case ComputeMode::Pytorch:
+      return out << "ComputeMode::Pytorch";
+    case ComputeMode::nvFuserFusionExecutor:
+      return out << "ComputeMode::nvFuserFusionExecutor";
+    case ComputeMode::nvFuserFusionExecutorCache:
+      return out << "ComputeMode::nvFuserFusionExecutorCache";
+    default:
+      NVF_ERROR(false);
+  }
+  return out;
+}
+
 // <interleave comms/compute>
-using OverlapTestParams = std::tuple<bool>;
+using OverlapTestParams = std::tuple<bool, ComputeMode>;
 
 class OverlapTest : public MultiDeviceTest,
       public testing::WithParamInterface<OverlapTestParams> {
@@ -48,8 +71,9 @@ class OverlapTest : public MultiDeviceTest,
         bool interleave_comm_compute = std::get<0>(GetParam());
         // Define the constants
         A = num_devices;
-        B = getNvFuserEnv("OVERLAP_B")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,4);
-        C = getNvFuserEnv("OVERLAP_C")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,16);
+        B = getNvFuserEnv("OVERLAP_B")? std::pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): std::pow(2,4);
+        C = getNvFuserEnv("OVERLAP_C")? std::pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): std::pow(2,16);
+        unsharded_sizes = {A, B, C};
 
         tile_size = interleave_comm_compute?
                     getNvFuserEnv("OVERLAP_TILE_SIZE")?
@@ -62,6 +86,27 @@ class OverlapTest : public MultiDeviceTest,
         n_iterations = getNvFuserEnv("OVERLAP_N_ITERATIONS")?
                                 std::atoi(getNvFuserEnv("OVERLAP_N_ITERATIONS"))
                                 : 1;
+
+        fusion = std::make_unique<Fusion>();
+        FusionGuard fg(fusion.get());
+
+        TensorView* tv = makeConcreteTensor({A,tile_size,C});
+        fusion->addInput(tv);
+        for (auto _=0; _<n_iterations; _++) {
+            tv = add(tv, tv);
+            tv = mul(tv,tv);
+            tv = sub(tv,tv);
+        }
+        fusion->addOutput(tv);
+
+        DeviceMesh mesh(devices);
+        for (auto tv: ir_utils::filterByType<TensorView>(fusion->vals())) {
+            tv->setDeviceMesh(mesh);
+            tv->axis(0)->parallelize(ParallelType::DIDx);
+        }
+
+        fe = std::make_unique<FusionExecutor>();
+        fec = std::make_unique<FusionExecutorCache>(std::make_unique<Fusion>(*fusion.get()));
     }
 
     // network backend
@@ -73,6 +118,7 @@ class OverlapTest : public MultiDeviceTest,
     int64_t A;
     int64_t B;
     int64_t C;
+    std::vector<int64_t> unsharded_sizes;
 
     // optimization parameters
     int64_t tile_size;
@@ -80,6 +126,10 @@ class OverlapTest : public MultiDeviceTest,
 
     // compute params
     int n_iterations;
+
+    std::unique_ptr<Fusion> fusion;
+    std::unique_ptr<FusionExecutor> fe;
+    std::unique_ptr<FusionExecutorCache> fec;
 
     at::Tensor get_slice(at::Tensor t, int64_t i, int64_t j) {
         return t.index({at::indexing::Slice(i, i+1),
@@ -92,6 +142,22 @@ class OverlapTest : public MultiDeviceTest,
             t = t+t;
             t = t*t;
             t = t-t;
+        }
+        return t;
+    }
+
+    at::Tensor compute(at::Tensor t) {
+        ComputeMode compute_mode = std::get<1>(GetParam());
+        switch (compute_mode)
+        {
+        case ComputeMode::Pytorch:
+            return compute_ATen(t);
+        case ComputeMode::nvFuserFusionExecutor:
+            return fe->runFusion({t}).at(0);
+        case ComputeMode::nvFuserFusionExecutorCache:
+            return fec->runFusionWithInputs({t}).at(0);
+        default:
+            break;
         }
         return t;
     }
@@ -111,10 +177,9 @@ We want to compare this baseline program with the following one, which is functi
 where "[j]" referes to taking a slice onto the "B" dimension.
 This program should in principle achieve overlap between comms and compute
 */
-TEST_P(OverlapTest, PurePytorch) {
+TEST_P(OverlapTest, SimpleComputeComm) {
     // Input set-up
     // define the unsharded inputs for validation
-    std::vector<int64_t> unsharded_sizes = {A, B, C};
     auto options =
         at::TensorOptions().dtype(at::kFloat).device(communicator->device());
     auto tv0_unsharded = at::randn(unsharded_sizes, options);
@@ -137,11 +202,14 @@ TEST_P(OverlapTest, PurePytorch) {
         tv2_slices.push_back({std::move(tv2_j_slices)});
     }
 
+    if (std::get<1>(GetParam()) == ComputeMode::nvFuserFusionExecutor) {
+        fe->compileFusion(fusion.get(), {tv0_slices.at(0)});
+    }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
         setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         // local compute
-        auto tv1_j = compute_ATen(tv0_slices.at(j));
+        auto tv1_j = compute(tv0_slices.at(j));
 
         // communication
         std::vector<at::Tensor> src_buf = {tv1_j};
@@ -172,8 +240,14 @@ INSTANTIATE_TEST_SUITE_P(
     Manual,
     OverlapTest,
     testing::Combine(
-        testing::Bool()
-    ));
+        testing::Bool(),
+        testing::Values(
+            ComputeMode::Pytorch,
+            ComputeMode::nvFuserFusionExecutor
+            // ComputeMode::nvFuserFusionExecutorCache
+        )
+    )
+);
 
 } // namespace nvfuser
 
