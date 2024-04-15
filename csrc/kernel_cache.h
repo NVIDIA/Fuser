@@ -124,7 +124,7 @@ class FusionKernelRuntime {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
-          return executor.isCompiled();
+          return executor.isCompiled() || executor.isCompilationSkipped();
         });
   }
 
