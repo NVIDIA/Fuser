@@ -365,6 +365,8 @@ bool needFloatSuffix(RNGOpType t) {
 }
 
 static const char* unary_op_type2string(UnaryOpType t) {
+  // Use fast math for some ops if option is not disabled.
+  bool is_fast_math = !isOptionDisabled(DisableOption::FastMath);
   switch (t) {
     case UnaryOpType::Abs:
       return "abs";
@@ -451,7 +453,7 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Tan:
       return "tan";
     case UnaryOpType::Tanh:
-      return "tanh";
+      return is_fast_math ? "fast_tanh" : "tanh";
     case UnaryOpType::Trunc:
       return "trunc";
     case UnaryOpType::IsFinite:

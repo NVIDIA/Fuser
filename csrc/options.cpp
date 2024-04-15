@@ -175,6 +175,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"expr_simplify", DisableOption::ExprSimplify},
       {"fallback", DisableOption::Fallback},
       {"fma", DisableOption::Fma},
+      {"fast_math", DisableOption::FastMath},
       {"grouped_grid_welford_outer_opt",
        DisableOption::GroupedGridWelfordOuterOpt},
       {"index_hoist", DisableOption::IndexHoist},
@@ -195,6 +196,11 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
         "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+  }
+
+  if (options.count(DisableOption::FastMath)) {
+    TORCH_WARN(
+        "fast math is disabled, which could negatively affect performance. Try removing `fast_math` from env variable NVFUSER_DISABLE for optimal performance.");
   }
 
   return options;

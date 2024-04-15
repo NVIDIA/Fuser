@@ -112,6 +112,7 @@ enum class DisableOption {
                  //! examined
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
+  FastMath, //! Disable fast math
   Fma, //! Disable FMA instructions
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel

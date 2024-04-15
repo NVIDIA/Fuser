@@ -36,6 +36,7 @@
 #include <nvfuser_resources/block_welford_outer.h>
 #include <nvfuser_resources/broadcast.h>
 #include <nvfuser_resources/complex_number.h>
+#include <nvfuser_resources/fast_math.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
@@ -72,6 +73,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::complex_number_cu;
 
   ss << nvfuser_resources::fp16_support_cu;
+  ss << nvfuser_resources::fast_math_cu;
   ss << nvfuser_resources::bf16_support_cu;
   ss << nvfuser_resources::fp8_support_cu;
 

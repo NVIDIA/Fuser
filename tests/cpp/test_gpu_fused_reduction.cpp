@@ -2496,6 +2496,11 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
+  // disable fast math when validating against torch which does not use fast
+  // math
+  DisableOptionsGuard opt_guard;
+  opt_guard.getCurOptions().set(DisableOption::FastMath);
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, {at_grad, at_xvar}, reduction_params->lparams);
   auto cg_outputs = fe.runFusion({at_grad, at_xvar}, reduction_params->lparams);
