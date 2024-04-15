@@ -162,6 +162,43 @@ applying Theorem 1.3, we get what we need.
 
 </details>
 
+**Theorem 2.7.1:** If $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$
+
+<details>
+
+**<summary>Proof:</summary>**
+
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = b \mathbin{\\%} c \mathbin{\\%} c = b \mathbin{\\%} c$$
+$\square$
+
+</details>
+
+**Theorem 2.7.2:** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Because $0 \le b < |g|$, and $|g| \le |c|$, we know $0 \le b < |c|$.
+According to Theorem 2.5, we have $$b \mathbin{\\%} c = b$$
+According to Theorem 2.13, we have $$a \mathbin{\\%} c = ((a/|g|) \mathbin{\\%} (c/|g|)) \times |g|$$
+So
+$$a \mathbin{\\%} c + b \mathbin{\\%} c = ((a/|g|) \mathbin{\\%} (c/|g|)) \times |g| + b$$
+Because $$0 \le (a/|g|) \mathbin{\\%} (c/|g|) < |c/g|$$
+for integers, we have
+$$0 \le (a/|g|) \mathbin{\\%} (c/|g|) \le |c/g| - 1$$
+So
+$$0 \le a \mathbin{\\%} c \le (|c/g| - 1) \times |g|$$
+Therefore, we have
+$$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < (|c/g| - 1) \times |g| + |g|$$
+That is: $$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore by Theorem 2.7:
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
+$\square$
+
+</details>
+
 **Theorem 2.8:** $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$
 
 <details>
@@ -306,6 +343,59 @@ Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
 
 </details>
 
+**Theorem 2.15.1:** If $a \mathbin{\\%} c = 0$, we have $(a+b)/c = a/c + b/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+If $a \mathbin{\\%} c = 0$, we have $$a \mathbin{\\%} c + b \mathbin{\\%} c = b \mathbin{\\%} c < |c|$$
+From Theorem 2.15, we get the conclusion.
+$\square$
+
+</details>
+
+**Theorem 2.15.2:** Let $g = gcd(a, c)$. If $0 \le b < |g|$, we have $(a + b) / c = a/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to the proof of 2.7.2, we have
+$$0 \le b < |c|$$
+$$0 \le a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+So we have
+$$(a + b) / c = a/c + b/c = a/c$$
+$\square$
+
+</details>
+
+**Theorem 2.16:** If $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+$i / d < D \implies i < D \times d$:
+
+Consider the function $f(x) = x / d$, it is weakly increasing.
+Also note that $D = (D \times d) / d$.
+According to Theorem 2 (4) in [Monotonic Function](monotonic-function.md),
+we have $f(i) < f(D \times d) \implies i < D \times d$.
+
+$i < D \times d \implies i / d < D$:
+
+According to the fundamental division-with-remainder equation,
+$i < D \times d$ can be written as $i / d \times d + i \mathbin{\\%} d < D \times d$,
+where $i \mathbin{\\%} d \ge 0$.
+So $$i / d \times d \le i / d \times d + i \mathbin{\\%} d < D \times d$$
+Consider the function $g(x) = x \times d$, which is strictly increasing.
+According to Theorem 1 (1) in [Monotonic Function](monotonic-function.md),
+$g(i / d) < g(D)$ implies $i/d < D$.
+$\square$
+
+</details>
+
 ## 3. Implementations of Div and Mod
 
 Unfortunately, modern hardwares and programming languages does not implement div and mod consistent with Euclid's division lemma,
@@ -344,6 +434,9 @@ The properties of truncation division are:
 1. Good: $(-a)/b = -(a/b) = a/(-b)$
 2. Good: $(-a)\mathbin{\\%}b = -(a\mathbin{\\%}b) = a\mathbin{\\%}(-b)$
 3) Bad: $a \mathbin{\\%} b = a' \mathbin{\\%} b$ is not equivalent to $a = a' \pmod b$
+
+For all types of division (Euclidean/truncation/floor) $f(x) = x / d$,
+$f$ is weakly increasing if $d > 0$, and weakly decreasing if $d < 0$.
 
 ## 4. Properties of Truncation Division
 
@@ -543,6 +636,37 @@ applying Theorem 1.3, we get what we want.
 
 </details>
 
+**Theorem 4.7.1:** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$, we have $(a + b) \mathbin{\\%} c = b \mathbin{\\%} c$,
+where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to the proof of 2.7.1
+$\square$
+
+</details>
+
+**Theorem 4.7.2:** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) \mathbin{\\%} c = a \mathbin{\\%} c + b$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to the proof of 2.7.2. We have
+$$-|c| < b < |c|$$
+and
+$$-|c/g| + 1 \le (a/|g|) \mathbin{\\%} (c/|g|) \le |c/g| - 1$$
+then
+$$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore by Theorem 4.7:
+$$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c = a \mathbin{\\%} c + b$$
+$\square$
+
+</details>
+
 **Theorem 4.8:** If $\mathrm{compatible\\_sign}(a, b)$, then $(a \times b) \mathbin{\\%} c = (a \mathbin{\\%} c \times b \mathbin{\\%} c) \mathbin{\\%} c$,
 where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 
@@ -625,5 +749,47 @@ The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 From Theorem 4.7 and Theorem 4.5
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
 The rest of the proof is the same as 2.15.
+
+</details>
+
+**Theorem 4.15.1:** If $\mathrm{compatible\\_sign}(a, b)$ and $a \mathbin{\\%} c = 0$,
+then $(a+b)/c = a/c + b/c$. ,
+The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+If $a \mathbin{\\%} c = 0$, we have $$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c = b \mathbin{\\%} c < |c|$$
+From Theorem 4.15, we get the conclusion.
+$\square$
+
+</details>
+
+**Theorem 4.15.2:** Let $g = gcd(a, c)$. If $\mathrm{compatible\\_sign}(a, b)$ and $-|g| < b < |g|$, we have $(a + b) / c = a / c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to the proof of 2.7.2, we have
+$$-|c| < b < |c|$$
+and
+$$-|c| < a \mathbin{\\%} c + b \mathbin{\\%} c < |c|$$
+
+Therefore:
+$$(a + b) / c = a/c + b/c = a / c$$
+$\square$
+
+</details>
+
+**Theorem 4.16:** If $i \ge 0$ and $d > 0$, we have $i / d < D \Leftrightarrow i < D \times d$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Similar to Theorem 2.16, except that we need both $i \ge 0$ and $d > 0$ to make $i \mathbin{\\%} d \ge 0$.
+$\square$
 
 </details>

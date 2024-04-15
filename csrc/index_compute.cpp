@@ -3413,41 +3413,41 @@ Val* Index::eye(
 //
 // In the above diagram, boxId(I4) is I4, and boxId(I7) is I6.
 //
-// Definition 4: "tmaGlobalId" is a function that takes an originating bulk
+// Definition 4: "partitionedId" is a function that takes an originating bulk
 // IterDomain as its input, and returns another IterDomain. Given an originating
-// bulk IterDomain I1, the return value, tmaGlobalId(I1) is:
+// bulk IterDomain I1, the return value, partitionedId(I1) is:
 //   - The parent of I1 if I1 is the inner of the split that defines it
 //   - The grandparent of I1 if I1 is the outer of the split that defines it
 //
-// In the above diagram, tmaGlobalId(I4) is I1, and tmaGlobalId(I7) is I2.
+// In the above diagram, partitionedId(I4) is I1, and partitionedId(I7) is I2.
 //
 // Definition 5: "innerId" is a function that takes an originating bulk who is
 // the outer of the split that defines it, and returns its sibling IterDomain.
 //
 // In the above diagram, innerId(I7) is I8.
 //
-// Definition 6: An IterDomain I1 is "TMA-global" if there exists an originating
-// bulk IterDomain I2 such that I1 == tmaGlobalId(I2).
+// Definition 6: An IterDomain I1 is "partitioned" if there exists an
+// originating bulk IterDomain I2 such that I1 == partitionedId(I2).
 //
-// In the above diagram, I1 and I2 are TMA-global IterDomains.
+// In the above diagram, I1 and I2 are partitioned IterDomains.
 //
-// Note that the number of TMA-global IterDomains should always be equal to the
+// Note that the number of partitioned IterDomains should always be equal to the
 // number of originating bulk IterDomains, which should always be equal to the
 // dimensionality of the tensor in the eyes of TMA.
 //
-// Also note that TMA-global IterDomains can not have dependencies between each
-// other, that is, no one TMA-global IterDomains can be an ancestor or
-// descendant of another TMA-global IterDomains. That is, schedules like this is
-// not allowed:
+// Also note that partitioned IterDomains can not have dependencies between each
+// other, that is, no one partitioned IterDomains can be an ancestor or
+// descendant of another partitioned IterDomains. That is, schedules like this
+// is not allowed:
 //   I1 -> split -> Bulk (inner)
 //              \-> I2 (outer) -> split -> Bulk (inner)
 //                                     \-> I3 (outer)
-// Also note that the set of all TMA-global IterDomains must be "equivalent" to
+// Also note that the set of all partitioned IterDomains must be "equivalent" to
 // the allocation domain of the tensor (ignoring unrelated IterTypes like
 // broadcast and reduction), as defined in
 // `ir_utils::validateDomainEquivalence`.
 //
-// Definition 7: The "TMA domain" of a tensor is the set of all TMA-global
+// Definition 7: The "TMA domain" of a tensor is the set of all partitioned
 // IterDomains with a specific order. The order is determined by the order of
 // the allocation domain of the tensor.
 //
@@ -3464,7 +3464,7 @@ Val* Index::eye(
 // Originating bulk IterDomains: { I3, I5 }
 // Box IterDomains: { I3, I5 }
 // Inner IterDomains: {}
-// TMA-global IterDomains: { I1, I2 }
+// partitioned IterDomains: { I1, I2 }
 // TMA domain: [I2, I1].
 //
 // Example 2:
@@ -3477,7 +3477,7 @@ Val* Index::eye(
 // Originating bulk IterDomains: { I3, I8 }
 // Box IterDomains: { I3, I5 }
 // Inner IterDomains: { I7 }
-// TMA-global IterDomains: { I1, I2 }
+// partitioned IterDomains: { I1, I2 }
 // TMA domain: [I2, I1].
 //
 // Example 3:
@@ -3488,7 +3488,7 @@ Val* Index::eye(
 // Originating bulk IterDomains: { I3 }
 // Box IterDomains: { I3 }
 // Inner IterDomains: {}
-// TMA-global IterDomains: { I2 }
+// partitioned IterDomains: { I2 }
 // TMA domain: [I2].
 namespace {
 
@@ -3699,24 +3699,24 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     originating_bulk_ids.pushBack(id);
   }
 
-  // Step 2: Get boxId and tmaGlobalId, and innerId for each originating bulk
-  // IterDomain. Similarily, the order of the `tma_global_ids` has no meaning.
-  // So `tma_global_ids` contains the same set of IDs as the TMA domain, but can
-  // be in different order. We are using a std::vector<Val*> just to make the
-  // algorithm deterministic, not because we care about its order.
+  // Step 2: Get boxId and partitionedId, and innerId for each originating bulk
+  // IterDomain. Similarily, the order of the `partitioned_ids` has no meaning.
+  // So `partitioned_ids` contains the same set of IDs as the TMA domain, but
+  // can be in different order. We are using a std::vector<Val*> just to make
+  // the algorithm deterministic, not because we care about its order.
 
-  std::vector<Val*> tma_global_ids;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_box_id;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_orig_bulk_id;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_inner_id;
+  std::vector<Val*> partitioned_ids;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_box_id;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_orig_bulk_id;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_inner_id;
   for (auto id : originating_bulk_ids) {
     auto def = id->definition()->as<Split>();
     if (id == def->inner()) {
       IterDomain* box_id = id;
-      IterDomain* tma_global_id = def->in();
-      tma_global_ids.push_back(tma_global_id);
-      tma_global_id_to_box_id[tma_global_id] = box_id;
-      tma_global_id_to_orig_bulk_id[tma_global_id] = id;
+      IterDomain* partitioned_id = def->in();
+      partitioned_ids.push_back(partitioned_id);
+      partitioned_id_to_box_id[partitioned_id] = box_id;
+      partitioned_id_to_orig_bulk_id[partitioned_id] = id;
       NVF_ERROR(
           bulk_ids.count(def->outer()) == 0,
           "When an originating bulk IterDomain is an inner of a split, ",
@@ -3744,16 +3744,16 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           "the outer of its parent's definition must not be a bulk IterDomain, but ",
           def2->outer()->toString(),
           " is.");
-      IterDomain* tma_global_id = def2->in();
-      tma_global_ids.push_back(tma_global_id);
-      tma_global_id_to_box_id[tma_global_id] = box_id;
-      tma_global_id_to_orig_bulk_id[tma_global_id] = id;
-      tma_global_id_to_inner_id[tma_global_id] = def->inner();
+      IterDomain* partitioned_id = def2->in();
+      partitioned_ids.push_back(partitioned_id);
+      partitioned_id_to_box_id[partitioned_id] = box_id;
+      partitioned_id_to_orig_bulk_id[partitioned_id] = id;
+      partitioned_id_to_inner_id[partitioned_id] = def->inner();
     }
   }
 
-  // Stpe 3: Propagate from the allocation domain to TMA-global IterDomains,
-  // compute the order, contiguity, and stride of TMA-global IterDomains. Note
+  // Stpe 3: Propagate from the allocation domain to partitioned IterDomains,
+  // compute the order, contiguity, and stride of partitioned IterDomains. Note
   // that this order is meaningful, and it is the order that defines which is
   // inner and which is outer. The strides are also meaningful, and they are the
   // `globalStrides` of the `cuTensorMapEncodeTiled`. After propagation,
@@ -3776,9 +3776,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
     allocation_domain_set.insert(id);
   }
-  // Propagate forward from the allocation domain to TMA-global IterDomains
+  // Propagate forward from the allocation domain to partitioned IterDomains
   for (Expr* expr : DependencyCheck::getAllExprsBetween(
-           allocation_domain_set, tma_global_ids)) {
+           allocation_domain_set, partitioned_ids)) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       auto in = split->in();
       auto in_it =
@@ -3787,7 +3787,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           in_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
           in->toString(),
           " is not on the path.");
       Val* is_divisible = SimplifyingIrBuilder::eqExpr(
@@ -3815,14 +3815,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           outer_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
           outer->toString(),
           " is not on the path.");
       auto inner = merge->inner();
       auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
           inner->toString(),
           " is not on the path.");
       NVF_ERROR(
@@ -3836,7 +3836,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     } else {
       NVF_ERROR(
           false,
-          "Unsupported expression between the allocation domain and the TMA-global IterDomains: ",
+          "Unsupported expression between the allocation domain and the partitioned IterDomains: ",
           expr->toString());
     }
   }
@@ -3854,15 +3854,15 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       originating_bulk_ids.size());
 
   // Validate that frontier contains exactly the same IterDomains as
-  // tma_global_ids, otherwise there is something wrong in the schedule.
+  // partitioned_ids, otherwise there is something wrong in the schedule.
   std::unordered_set<IterDomain*> seen;
   for (auto tuple : frontier) {
     auto id = std::get<0>(tuple);
     NVF_ERROR(
-        seen.insert(id).second && tma_global_id_to_box_id.count(id) > 0,
-        "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+        seen.insert(id).second && partitioned_id_to_box_id.count(id) > 0,
+        "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
         id->toString(),
-        " is either duplicate or not a TMA-global IterDomain.");
+        " is either duplicate or not a partitioned IterDomain.");
   }
 
   // Step 4: Compute the tensor map descriptor and the index
@@ -3886,17 +3886,17 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
     }
     box_sizes_inner_to_outer.push_back(
-        tma_global_id_to_box_id.at(id)->extent());
+        partitioned_id_to_box_id.at(id)->extent());
 
-    auto inner_it = tma_global_id_to_inner_id.find(id);
+    auto inner_it = partitioned_id_to_inner_id.find(id);
     if (it == frontier.rbegin()) {
       NVF_ERROR(
-          inner_it == tma_global_id_to_inner_id.end(),
+          inner_it == partitioned_id_to_inner_id.end(),
           "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
           "(this is always the case for nvFuser now)",
           ", the first element of elementStrides must be one.");
     }
-    if (inner_it != tma_global_id_to_inner_id.end()) {
+    if (inner_it != partitioned_id_to_inner_id.end()) {
       element_strides_inner_to_outer.push_back(inner_it->second->extent());
     } else {
       element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
