@@ -121,6 +121,7 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
     output[2] = gemm_tile.k;
   };
   config->load_stages = params.double_buffer_options.smem_double_buffer_stage;
+  config->async_gmem_load_operands = params.async_gmem_load_operands;
   setConfigTile(config->cta_tile, params.tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, params.tile_sizes.warp_tile);
   setConfigTile(config->instruction_tile, params.tile_sizes.instruction_tile);
@@ -146,6 +147,7 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
   setGemmTile(params.tile_sizes.warp_tile, config->warp_tile);
   setGemmTile(params.tile_sizes.instruction_tile, config->instruction_tile);
   params.double_buffer_options.smem_double_buffer_stage = config->load_stages;
+  params.async_gmem_load_operands = config->async_gmem_load_operands;
   // Update mma macro if necessary to match instruction tile
   MmaMacroEncode menc(params.mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
@@ -176,9 +178,6 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
   // enable double buffering or circular buffering if configured
   params.double_buffer_options.double_buffer_smem_write =
       config->load_stages > 1;
-
-  // async load only for circular buffering (stages > 2)
-  params.async_gmem_load_operands = config->load_stages > 2;
 }
 
 } // namespace
