@@ -7,7 +7,15 @@
 # Divisibility of Split
 
 > [!NOTE]
-> We use $\div$ for true division, and $/$ for integer division. For example, $5\div 2 = 2.5$, $5/2=2$.
+> We use $\div$ for true division, and $/$ for Euclidean division. For example, $5\div 2 = 2.5$, $5/2=2$.
+
+> [!WARNING]
+> In this documentation, we use Euclidean division instead of truncation division for its better mathematical properties.
+> Please note that, as described in [Integer Division](../math/integer-division.md), Euclidean division is different from C++'s truncation division `/` for negative numbers.
+> Today, indices and extents of all IterDomains are $\ge 0$, so we do not need to worry about the difference of variants of divisions.
+> However, if in the future, we want to allow negative indices/extents, we need to make sure that our generated indices are using Euclidean division as well,
+> for example, the indexing of `Merge` should be `euclideanDiv(i, N)`, and `euclideanMod(i, N)` instead of the native `i / N` and `i % N` in C++,
+> otherwise some theorems in this document will fail.
 
 ## Introduction
 
@@ -115,18 +123,42 @@ To maintain program semantics, the predicate we use must be logically equivalent
 
 The following theorems are useful tools to find mathematically simple predicates that are logically equivalent to predicating all holes:
 
-**Theorem 1** Suppose that there is a split `I1, I2 = Split(I0, N)`.
-Then "the index of `I0` is in boundary" implies "the index of `I1` is in boundary".
+**Theorem 1** Suppose that there is a split `I1, I2 = Split(I0)`.
+Then "the indices of `I0` and `I2` are in boundary" implies "the index of `I1` is in boundary".
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I1` is $i_1$, the index of `I2` is $i_2$, the extent of `I0` is $S$.
-The index of `I0` is then $i_0 = i_1 \times N + i_2$.
-"the index of `I0` is in boundary" means $i_0 < S$.
-Because $i_2 \ge 0$,
-$$i_0 < S \implies i_1 \times N < S \implies i_1 < S \div N \implies i_1 < \mathrm{ceilDiv}(S, N)$$
+Suppose the indices and extents of `I0`, `I1`, and `I2` are $i_0$, $i_1$, $i_2$, $N_0$, $N_1$, and $N_2$.
+Then $i_0 = i_1 \times N_2 + i_2$.
+"the indices of `I0` and `I2` are in boundary" means $0 \le i_0 < N_0$ and $0 \le i_2 < N_2$.
+
+*Upper bound:*
+
+Because $i_2 \ge 0$ and $i_0 < N_0 $, we have
+$$i_1 \times N_2 < N_0$$
+which is equivalent to
+$$i_1 < N_0 \div N_2$$
+Note that because $N_1 N_2 \ge N_0$, we have $N_0 \div N_2 \le N_1$.
+Therefore,
+$$i_1 < N_1$$
+
+*Lower bound:*
+
+Consider the Euclidean division $f(x) = x / N_2$, because $N_2 > 0$, $f(x)$ is weakly increasing.
+According to Lemma 2 in `[Simplification of boolean predicates]` in `csrc/expr_simplifier.h`,
+(TODO: move this theorem to a md file)
+$$0 \le i_0 \implies f(0) \le f(i_0) \Leftrightarrow 0 \le i_0 / N_2$$
+According to Theorem 2.15 in [Integer Division](../math/integer-division.md),
+$$i_0 / N_2 = (i_1 \times N_2 + i_2) / N_2 = (i_1 \times N_2) / N_2 + i_2 / N_2$$
+Because $0 \le i_2 < N_2$, we have $i_2 / N_2 = 0$.
+According to Theorem 2.14 in [Integer Division](../math/integer-division.md),
+$$(i_1 \times N_2) / N_2 = i_1 / (N_2 / N_2) = i_1$$
+Therefore
+$$i_0 / N_2 = i_1$$
+That is:
+$$0 \le i_0 \implies 0 \le i_1$$
 $\square$
 
 </details>
@@ -141,30 +173,48 @@ Then "the index of `I0` is in boundary" is equivalent to "the index of `I2` is i
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I2` is $i_2$, the extent of `I1` is $N$.
-Then the index of `I0` is $i_0 = i_2 / N$.
-Suppose that the extents of `I0` and `I2` are $P$ and $Q$, then $Q = N \times P$.
-"the index of `I0` is in boundary" means $i_0 < P$, which is:
-$$i_2 / N < P$$
+Suppose the index of `I2` is $i_2$, the extent of `I1` is $N_1$.
+Then the index of `I0` is $i_0 = i_2 / N_1$.
+Suppose that the extents of `I0` and `I2` are $N_0$ and $N_2$, then $N_2 = N_0 \times N_1$.
+"the index of `I0` is in boundary" means $0 \le i_0 < N_0$
+
+*Lower bound:*
+
+Because $N_1 > 0$, it is a property of Euclidean division that $i_2 / N_1 \ge 0 \Leftrightarrow i_2 \ge 0$. See:
+
+> Boute, Raymond T. "The Euclidean definition of the functions div and mod." ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992): 127-144.
+
+Note that truncation division does not have this property.
+
+*Upper bound:*
+
 According to Theorem 2.16 in [Integer Division](../math/integer-division.md),
-$$i_2 / N < P \Leftrightarrow i_2 < Q$$
+$$i_2 / N_1 < N_0 \Leftrightarrow i_2 < N_0 \times N_1 \Leftrightarrow i_2 < N_2$$
 $\square$
 
 </details>
 
 **Theorem 3** Suppose that there is a resize `I1 = Resize(I0, L, R)`.
-Then "the index of `I0` is in boundary" implies "the index of `I1` is in boundary" if $R >= 0$.
+Then "the index of `I0` is in boundary" implies "the index of `I1` is in boundary" if $L \ge 0$ and $R \ge 0$.
 
 <details>
 
 **<summary>Proof:</summary>**
 
-Suppose the index of `I1` is $i_1$, the extent of `I0` is $N$.
+Suppose the index of `I1` is $i_1$, the extent of `I0` is $N_0$.
 The index of `I0` is then $i_0 = i_1 - L$.
-The extent of `I1` is `N + L + R`
-"the index of `I0` is in boundary" means $i_0 < N$.
+The extent of `I1` is $N_0 + L + R$.
+"the index of `I0` is in boundary" means $0 \leq i_0 < N_0$.
+
+*Lower bound:*
+
+Because $L \ge 0$,
+$$i_0 \ge 0 \Leftrightarrow i_1 \ge L \implies i_1 \ge 0$$
+
+*Upper bound:*
+
 Because $R \ge 0$,
-$$i_0 < N \Leftrightarrow i_1 < N + L \implies i_1 < N + L + R$$
+$$i_0 < N \Leftrightarrow i_1 < N_0 + L \implies i_1 < N + L + R$$
 $\square$
 
 </details>
@@ -219,7 +269,7 @@ This inspires the concept of weak and strong correctness:
 and there is no error raise in the kernel.
 
 **Definition 2:** A schedule/lowering strategy is strongly correct if all the valid items in the consumer's allocation domain are filled with the correct value,
-and all the out-of-boundary values are filled with a desired filling value.
+and all holes are filled with a desired filling value.
 
 ## Properties of split
 

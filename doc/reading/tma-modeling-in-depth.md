@@ -126,17 +126,24 @@ This leads to the following definition:
 1. It is a partitioned IterDomain.
 2. It is the outer output of a split of a TMA-protected IterDomain.
 3. It is the output of a merge whose outer input is a TMA-protected IterDomain.
-4. It is the output of a resize whose input is a TMA-protected IterDomain and `right_expand >= 0`.
+4. It is the output of a resize whose input is a TMA-protected IterDomain and `left_expand >= 0 && right_expand >= 0`.
 5. It is the `X` output of a swizzle whose `X` input a TMA-protected IterDomain.
 
 TMA-protected IterDomain has the following very important property:
 
-**Theorem 4:** "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
+**Theorem 4:** If non-TMA-protected IterDomains are in boundary,
+then "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
 
-**Proof:** This is a natural conclusion of Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication). $\square$
+**Proof:**
+It is easy to see that the above rules 2-5 maps to Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication),
+except that Theorem 1 has an additional requirement for `I2` being in bound,
+which is guaranteed by the statement "if non-TMA-protected IterDomains are in boundary".
+$\square$
 
-With the above theorem, we can easily see that, when any of the indices of TMA-protected IterDomains
-goes out of boundary, some partitioned IterDomain's index will also go out of boundary.
+With the above theorem, we can easily see that,
+if non-TMA-protected IterDomains are in boundary,
+when any of the indices of TMA-protected IterDomains goes out of boundary,
+some partitioned IterDomain's index will also go out of boundary.
 Therefore, TMA will use zero to fill these regions.
 That is:
 
