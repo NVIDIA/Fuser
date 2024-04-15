@@ -7,6 +7,7 @@
 // clang-format on
 #include <exceptions.h>
 #include <executor_utils.h>
+#include <sys_utils.h>
 
 #if defined(__linux__)
 
@@ -16,12 +17,15 @@
 #include <string>
 #include <vector>
 
+#include <dlfcn.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
 
-namespace nvfuser::executor_utils {
+namespace nvfuser {
+
+namespace executor_utils {
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,
@@ -129,16 +133,58 @@ std::string disassembleBinary(
   }
 }
 
-} // namespace nvfuser::executor_utils
+} // namespace executor_utils
+
+void* LibraryLoader::getSymbol(const char* symbol_name) {
+  if (handle_ == nullptr) {
+    handle_ = dlopen(filename_.c_str(), RTLD_LAZY);
+    NVF_CHECK(
+        handle_ != nullptr,
+        "Dynamic library ",
+        filename_,
+        " could not be loaded. ",
+        dlerror());
+  }
+  void* symbol = dlsym(handle_, symbol_name);
+  NVF_CHECK(
+      symbol != nullptr,
+      "Failed to load symbol: ",
+      symbol_name,
+      " ",
+      dlerror());
+  return symbol;
+}
+
+LibraryLoader::~LibraryLoader() {
+  if (handle_ != nullptr) {
+    dlclose(handle_);
+    handle_ = nullptr;
+  }
+}
+
+} // namespace nvfuser
 
 #else
 
-namespace nvfuser::executor_utils {
+namespace nvfuser {
+
+namespace executor_utils {
 
 std::string disassembleBinary(const std::vector<char>& binary) {
   NVF_CHECK(false, "disassembling cubin is only supported on Linux");
 }
 
-} // namespace nvfuser::executor_utils
+} // namespace executor_utils
+
+void* LibraryLoader::getSymbol(const char* symbol_name) {
+  NVF_ERROR(false, "LibraryLoader::getSymbol is only supported on Linux");
+  return nullptr;
+}
+
+LibraryLoader::~LibraryLoader {
+  // TODO: implement non-linux versions of LibraryLoader
+}
+
+} // namespace nvfuser
 
 #endif
