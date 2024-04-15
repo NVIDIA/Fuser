@@ -2086,7 +2086,7 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   return value;
 }
 
-// Apply rule 1 in [Simplification of boolean predicates] to convert
+// Apply Theorem 4.16 in doc/math/integer-division.md to convert
 // i / d < D into i < d * D
 Val* convertDivToMulInPredicate(Val* value, const Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());

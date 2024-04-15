@@ -30,6 +30,8 @@
 // - doc/math/integer-division.md reviews the definitions and properties of div
 //   and mod in textbooks, it also describes some theorems that we proved
 //   ourselves that is useful for simplifying integer expressions.
+// - doc/math/monotonic-function.md reviews the definition and properties of
+//   monotonic function.
 //
 // We can use the following rules to simplify integer expressions:
 //
@@ -101,79 +103,6 @@
 // (a * 4 + b) / 4 = a + b / 4
 // = a + 0 (Rule I)
 // = a
-
-// Note: [Simplification of boolean predicates]
-//
-// TODO: move this note to a markdown file.
-//
-// This note lists some rules we use to simplify boolean predicates, and provide
-// the proofs of these rules.
-//
-// The following definitions and lemmas are helpful:
-// (Reference: https://en.wikipedia.org/wiki/Monotonic_function)
-//
-// Definition 1: A function is called strictly increasing if for all x < y,
-//   we have f(x) < f(y)
-// Definition 2: A function is called weakly increasing if for all x <= y,
-//   we have f(x) <= f(y)
-//
-// Lemma 1: if f is strictly increasing, then
-// 1. x < y <=> f(x) < f(y)
-// 2. x <= y <=> f(x) <= f(y)
-// Proof:
-// 1. x < y => f(x) < f(y) by definition.
-// 2. x <= y => f(x) <= f(y)
-//    x <= y means either x < y or x = y. For the first case, f(x) < f(y).
-//    For the second case, f(x) = f(y), in combination, f(x) <= f(y).
-// 1. f(x) < f(y) => x < y
-//    Assume x < y was not true, then y <= x, then f(y) <= f(x), which conflict
-//    with f(x) < f(y)
-// 2. f(x) <= f(y) => x <= y
-//    Assume x <= y was not true, then y < x, then f(y) < f(x), which conflict
-//    with f(x) <= f(y)
-//
-// Lemma 2: if f is weakly increasing, then
-// 1. x <= y => f(x) <= f(y)
-// 2. x < y => f(x) <= f(y)
-// 3. f(x) <= f(y) does not provide much information, especially, it is not
-//    guaranteed that x <= y
-// 4. f(x) < f(y) => x < y
-// Proof:
-// 1. x <= y => f(x) <= f(y) by definition
-// 2. x < y => f(x) <= f(y) because x < y => x <= y
-// 3. Consider f(x) = 1 (constant function), then f is weakly increasing. For
-//    this function, f(x) <= f(y) is trivially true, and x and y can be
-//    arbitrary number.
-// 4. f(x) < f(y) => x < y
-//    Assume that x < y was not true, that is, y <= x, then f(y) <= f(x), which
-//    conflict with f(x) < f(y)
-//
-// With these lemmas, we can study possible simplification rules for boolean
-// predicates. One interesting application is on division.
-//
-// Different type of divisions are studied in the following paper:
-//   Boute, Raymond T. "The Euclidean definition of the functions div and mod."
-//   ACM Transactions on Programming Languages and Systems (TOPLAS) 14.2 (1992):
-//   127-144.
-// Referring to that paper, we can conclude that:
-// - For all types of division (Euclidean/trunc/floor div) f(x) = x / d, f is
-//   weakly increasing if d > 0, and weakly decreasing if d < 0.
-//
-// So, we have the following rule:
-// Rule 1: For Euclidean division, i / d < D <=> i < D * d
-// For trunc division, if i >= 0, d > 0, we have i / d < D <=> i < D * d
-// Proof:
-// 1. i / d < D => i < D * d
-//    Consider the function f(x) = x / d, it is weakly increasing. Also note
-//    that D = (D * d) / d.
-//    According to Lemma 2 (4), we have f(i) < f(D*d) => i < D*d.
-// 2. i < D * d => i / d < D
-//    According to the fundamental division-with-remainder equation, i < D * d
-//    can be written as i / d * d + i % d < D * d. Because in Eucledean div,
-//    or in trunc div when i >= 0, d > 0, we
-//    have i % d >= 0. So i / d * d <= i / d * d + i % d < D * d. That is,
-//    i / d * d < D * d. Consider the function g(x) = x * d, which is strictly
-//    increasing. According to Lemma 1 (1), g(i / d) < g(D) indicates i/d < D.
 
 namespace nvfuser {
 
