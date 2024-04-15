@@ -36,6 +36,13 @@ TEST_F(FeaturesTest, DefaultFeatures) {
   // Test copy constructor
   FeatureSet feats_copy = feats;
   EXPECT_FALSE(feats.has(Feature::IndexHoist));
+
+  // Test adding an argument, retrieving it. Test that it survives a copy.
+  EXPECT_TRUE(feats.args(Feature::WarnRegisterSpill).empty());
+  feats.args(Feature::WarnRegisterSpill).push_back("foo");
+  EXPECT_EQ(feats.args(Feature::WarnRegisterSpill).size(), 1);
+  FeatureSet feats_copy2 = feats;
+  EXPECT_EQ(feats_copy2.args(Feature::WarnRegisterSpill).size(), 1);
 }
 
 } // namespace nvfuser
