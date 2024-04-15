@@ -16,7 +16,7 @@
 
 using namespace nvfuser;
 
-static void setupReductionPointwise(
+static void setupReductionEpilogue(
     Fusion* fusion,
     DataType dtype,
     int red_axis,
@@ -47,7 +47,7 @@ static void setupReductionPointwise(
   fusion->addOutput(t3);
 }
 
-static void NvFuserScheduler_ReductionPointwise(
+static void NvFuserScheduler_ReductionEpilogue(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype,
@@ -87,9 +87,9 @@ static void NvFuserScheduler_ReductionPointwise(
 #define NVFUSER_REDUCTION_POINTWISE(                     \
     NAME_SUFFIX, DATA_TYPE, REDU_DIM, BCAST_ELOG)        \
   NVFUSER_BENCHMARK_DEFINE(                              \
-      NvFuserScheduler_ReductionPointwise_##NAME_SUFFIX, \
-      setupReductionPointwise,                           \
-      NvFuserScheduler_ReductionPointwise,               \
+      NvFuserScheduler_ReductionEpilogue_##NAME_SUFFIX, \
+      setupReductionEpilogue,                           \
+      NvFuserScheduler_ReductionEpilogue,               \
       DATA_TYPE,                                         \
       REDU_DIM,                                          \
       BCAST_ELOG)
@@ -112,12 +112,12 @@ NVFUSER_REDUCTION_POINTWISE(Inner_fp16_BcastElog, DataType::Half, 1, true);
       ->Unit(benchmark::kMicrosecond)              \
       ->UseManualTime();
 
-NV_RUN(NvFuserScheduler_ReductionPointwise_Outer_fp32_NonBcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Outer_fp16_NonBcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Inner_fp32_NonBcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Inner_fp16_NonBcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Outer_fp32_NonBcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Outer_fp16_NonBcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Inner_fp32_NonBcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Inner_fp16_NonBcastElog);
 
-NV_RUN(NvFuserScheduler_ReductionPointwise_Outer_fp32_BcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Outer_fp16_BcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Inner_fp32_BcastElog);
-NV_RUN(NvFuserScheduler_ReductionPointwise_Inner_fp16_BcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Outer_fp32_BcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Outer_fp16_BcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Inner_fp32_BcastElog);
+NV_RUN(NvFuserScheduler_ReductionEpilogue_Inner_fp16_BcastElog);
