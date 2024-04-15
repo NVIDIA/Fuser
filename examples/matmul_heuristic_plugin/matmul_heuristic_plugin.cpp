@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/matmul_heuristic_plugin_api.h>
+#include <matmul_heuristic_plugin_api.h>
 
 #include <cstdint>
 #include <iostream>
