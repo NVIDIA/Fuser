@@ -110,7 +110,7 @@ For example, in Figure 5 below:
 ![Figure 5: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
 The TMA domain of the tensor has nine IterDomains.
-The contiguity of these nine IterDomains is `(T, T, T, F, T, T, T, T, T)`.
+The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
 We defined a 5D TMA, where in these five dimensions, one of them defines box by partitioning, and the other defines boxes by compositing.
 Green color means box IterDomain and orange color means coordinate IterDomain.
 `I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
