@@ -261,6 +261,7 @@ void reductionViewAddFusion(
 
   auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
   for (auto has_implicit_broadcast : {false, true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -349,11 +350,19 @@ std::vector<reshape_example> all_reshape_examples = {
 };
 
 TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
+  // reshape_example e {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}};
+  // reshape_example e {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}};
+  // std::cerr << "e: " << e << std::endl;
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
+    std::cerr << "Input e1: " << e << std::endl;
     maybeClearAllocator();
     reductionViewAddFusion(
         e.first, e.second, true /* reshape_before_reduction */);
@@ -374,8 +383,10 @@ TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
       {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
       {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
+
   for (auto e : reshape_after_reduce_examples) {
     maybeClearAllocator(); // see above
+    std::cerr << "Input e2: " << e << std::endl;
     reductionViewAddFusion(
         e.first, e.second, false /* reshape_before_reduction */);
   }

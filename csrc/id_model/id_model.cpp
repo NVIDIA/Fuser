@@ -582,8 +582,40 @@ void IdModel::buildAlmostExactGraph() {
     }
   }
 
+  std::cerr << "Almost exact graph\n";
+  for (const auto& g :
+       idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().disjointSets()) {
+    std::cerr << nvfuser::toString(g) << std::endl;
+  }
+
   for (const auto& [id1, id2] : ids_to_map) {
+#if 0
+    VERBOSE() << "Mapping almost exact: " << id1->name() << ", " << id2->name()
+              << std::endl;
+#endif
     almost_exact_graph.mapVals(id1, id2);
+#if 0
+    std::cerr << "Updated\n";
+    for (const auto& g :
+             idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().disjointSets()) {
+      std::cerr << nvfuser::toString(g) << std::endl;
+    }
+#endif
+
+#if 0
+    for (const auto& g :
+         idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().disjointSets()) {
+      auto is_84 = std::find_if(g->begin(), g->end(), [](auto val) {
+        return val->name() == 84;
+      }) != g->end();
+      auto is_86 = std::find_if(g->begin(), g->end(), [](auto val) {
+                     return val->name() == 86;
+                   }) != g->end();
+      if (is_84 && is_86) {
+        VERBOSE() << "Mapped: " << nvfuser::toString(g) << std::endl;
+      }
+    }
+#endif
   }
 
   almost_exact_graph.validateConsistency();
@@ -1167,16 +1199,16 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
+  buildAlmostExactGraph();
+  if (false && validate_) {
+    validator->checkAlmostExactGraphEquivalence(
+        idGraph(IdMappingMode::ALMOSTEXACT));
+  }
+
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
-  }
-
-  buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
   }
 
   buildPermissiveGraph();
@@ -1186,12 +1218,17 @@ void IdModel::buildAllGraphs() {
         idGraph(IdMappingMode::PERMISSIVE));
   }
 
-  // Permissive graph needs the trivial exprs from the almost exact graph to
-  // build correctly. Once built though we can remove the trivial expressions
-  // from the almost exact graph.
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
-
   buildLoopGraph();
+
+  // Simplify the AlmostExact graph by removing trivial exprs. Note
+  // that since trivial exps are now gone, if trivial exprs are
+  // replayed, their trivial mappings won't be automatically detected.
+  // Explicit updates with the AlmostExact mapping rules will be
+  // required. For example, if this removal were done before
+  // buildLoopGraph, the resulting AlmostExact graph would include
+  // unmapped domains should be mapped according to the AlmostExact
+  // mapping rules.
+  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {

@@ -189,6 +189,7 @@ void ValGraphBFS::traverse() {
   ss << "   } IdGraph\n" << std::endl;
 
   std::cerr << ss.str();
+#endif
 
   std::cerr << "From: ";
   for (const auto& g : from_groups_) {
@@ -200,7 +201,6 @@ void ValGraphBFS::traverse() {
     std::cerr << " " << toString(g);
   }
   std::cerr << std::endl;
-#endif
 
   auto is_all_terminal_visited = [&]() -> bool {
     // std::cerr << "Is all terminal visited\n";

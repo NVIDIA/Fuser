@@ -489,6 +489,13 @@ void TensorIndexer::buildLoopIndexMap() {
     std::cerr << nvfuser::toString(g) << std::endl;
   }
 
+  std::cerr << "Almost Exact Graph:\n";
+  for (const auto& g : id_model_.idGraph(IdMappingMode::ALMOSTEXACT)
+                           .disjointValSets()
+                           .disjointSets()) {
+    std::cerr << nvfuser::toString(g) << std::endl;
+  }
+  
   if (getenv("DOT")) {
     std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
     auto dot_string =
@@ -616,7 +623,11 @@ void TensorIndexer::buildLoopIndexMap() {
 // 5. Propagate the initial indices of the loop domains to the index
 // domains
 Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
-  const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  //const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  const ValGraph& almost_exact_graph =
+      id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+
+  const auto& index_graph = almost_exact_graph;
 
   bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
@@ -642,7 +653,7 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   VERBOSE() << ss.str();
 
   auto indexing_path =
-      getExprsBetween(loop_domains, index_domains, exact_graph);
+      getExprsBetween(loop_domains, index_domains, index_graph);
 
   VERBOSE() << "Indexing path:\n";
   for (const auto& expr_group : indexing_path) {
@@ -662,13 +673,40 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
         id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
     auto loop_index_map_it = loop_index_map_.find(loop_group);
     NVF_ERROR(loop_index_map_it != loop_index_map_.end());
-    const auto& exact_group = exact_graph.toGroup(loop_id);
-    NVF_ERROR(initial_index_map.emplace(exact_group, loop_index_map_it->second)
-                  .second);
+    Val* loop_initial_index = loop_index_map_it->second;
+    const auto& exact_group = index_graph.toGroup(loop_id);
+    VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
+              << nvfuser::toString(exact_group) << ", "
+              << loop_index_map_it->second->toString() << std::endl;
+
+    if (initial_index_map.find(exact_group) != initial_index_map.end()) {
+      // Initial index already set. This can happen as exact_group is
+      // actually an almost-exact group. It should be just size-1
+      // domain.
+      NVF_ERROR(
+          loop_initial_index->isZeroInt(),
+          "Unexpected initial index: ",
+          loop_initial_index->toInlineString());
+      auto existing_index = initial_index_map.at(exact_group);
+      NVF_ERROR(
+          existing_index->isZeroInt(),
+          "Unexpected initial index: ",
+          existing_index->toInlineString());
+      continue;
+    }
+        
+    NVF_ERROR(
+        initial_index_map.emplace(exact_group, loop_index_map_it->second)
+            .second,
+        "Initial index already set for ",
+        nvfuser::toString(exact_group),
+        ". Existing: ",
+        initial_index_map.at(exact_group)->toInlineString(),
+        ". New: ", loop_index_map_it->second->toInlineString());
   }
 
   IndexCompute index_compute(
-      id_model_.idGraph(IdMappingMode::EXACT), initial_index_map);
+      index_graph, initial_index_map);
 
   for (const auto& expr_group : indexing_path) {
     index_compute.propagate(expr_group);
