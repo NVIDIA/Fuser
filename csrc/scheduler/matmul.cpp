@@ -1243,6 +1243,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduler_utils::rotateLoop(
         mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
+
+  NVF_ERROR(!cached_outputs.empty());
+  mma_utils::MmaDataTypes data_types = {
+      a->dtype(), b->dtype(), mma_result->dtype()};
+  // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
+  // batch loop
+  bool guaranteed_operand_reuse = num_batch_dims == 0 || num_splitk_dims == 0;
+  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+      params,
+      data_types,
+      /*smem_a_reuse_guaranteed=*/guaranteed_operand_reuse,
+      /*smem_b_reuse_guaranteed=*/guaranteed_operand_reuse);
+  fusion->setExpectedDynamicSmemBytes(estimated_smem);
 }
 
 } // namespace nvfuser

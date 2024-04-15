@@ -117,6 +117,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     }
   }
 
+  to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
+
   return ir_cloner;
 }
 
