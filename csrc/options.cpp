@@ -450,12 +450,12 @@ void fillDefaultFeatures(FeatureSet* feats) {
           "Contradiction in environment variables. Found ",
           featureNames()[idx],
           " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
-      std::vector<std::string>& args = feats->args(feature);
-      args.clear();
+      std::vector<std::string> args;
       args.reserve(feature_args.size());
       for (auto& arg : feature_args) {
         args.push_back(arg);
       }
+      feats->setArgs(feature, args);
       feats->bitset()[idx] = true;
     }
     for (const auto& [feature, feature_args] : disabled) {
@@ -477,6 +477,15 @@ void fillDefaultFeatures(FeatureSet* feats) {
 
 FeatureSet::FeatureSet() {
   fillDefaultFeatures(this);
+}
+
+const std::vector<std::string>& FeatureSet::getArgs(Feature feat) const {
+  auto it = args_.find(feat);
+  NVF_ERROR(
+      "Arguments requested for feature ",
+      featureNames()[(size_t)toUnderlying(feat)],
+      " but none exist. FeatureSet::hasArgs() should be used to guard this call");
+  return it->second;
 }
 
 std::ostream& operator<<(std::ostream& os, Feature f) {

@@ -188,20 +188,24 @@ class FeatureSet : public EnumSet<Feature> {
   //! Inspect env vars and fall back to compile-time defaults for features.
   FeatureSet();
 
-  const std::vector<std::string>& args(Feature feat) const {
-    return args_[toUnderlying(feat)];
+  //! Each feature can have an ordered collection of strings as "arguments". For
+  //! example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
+  //! more than 10 registers are spilled. This method checks whether such
+  //! arguments were given.
+  bool hasArgs(Feature feat) const {
+    return args_.find(feat) != args_.end();
   }
 
-  std::vector<std::string>& args(Feature feat) {
-    return args_[toUnderlying(feat)];
+  //! Get args vector for given feature. This should only be called if
+  //! hasArgs(feat) returned true.
+  const std::vector<std::string>& getArgs(Feature feat) const;
+
+  void setArgs(Feature feat, const std::vector<std::string>& args) {
+    args_[feat] = args;
   }
 
  private:
-  // Each feature can have an ordered collection of strings as "arguments". For
-  // example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
-  // more than 10 registers are spilled. This variable holds one vector of
-  // arguments for each feature.
-  std::array<std::vector<std::string>, enumSize<Feature>()> args_;
+  std::unordered_map<Feature, std::vector<std::string>> args_;
 };
 
 //! Types of features to enable

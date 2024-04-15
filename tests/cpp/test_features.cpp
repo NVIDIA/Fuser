@@ -11,6 +11,8 @@
 #include <options.h>
 #include <tests/cpp/utils.h>
 
+#include <iostream>
+
 namespace nvfuser {
 
 namespace {
@@ -38,11 +40,13 @@ TEST_F(FeaturesTest, DefaultFeatures) {
   EXPECT_FALSE(feats.has(Feature::IndexHoist));
 
   // Test adding an argument, retrieving it. Test that it survives a copy.
-  EXPECT_TRUE(feats.args(Feature::WarnRegisterSpill).empty());
-  feats.args(Feature::WarnRegisterSpill).push_back("foo");
-  EXPECT_EQ(feats.args(Feature::WarnRegisterSpill).size(), 1);
+  EXPECT_FALSE(feats.hasArgs(Feature::WarnRegisterSpill));
+  feats.setArgs(Feature::WarnRegisterSpill, {"10"});
+  EXPECT_TRUE(feats.hasArgs(Feature::WarnRegisterSpill));
+  EXPECT_EQ(feats.getArgs(Feature::WarnRegisterSpill).size(), 1);
   FeatureSet feats_copy2 = feats;
-  EXPECT_EQ(feats_copy2.args(Feature::WarnRegisterSpill).size(), 1);
+  EXPECT_TRUE(feats_copy2.hasArgs(Feature::WarnRegisterSpill));
+  EXPECT_EQ(feats_copy2.getArgs(Feature::WarnRegisterSpill).size(), 1);
 }
 
 } // namespace nvfuser
