@@ -168,66 +168,6 @@ and the former is not equivalent to the latter as discussed in [Divisibility of 
 > extra care is needed because there are holes not filled with zero.
 > See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md) for more detail.
 
-### Step 4: Schedule data swizzle
+### Step 4: Schedule tile
 
 ### Step 5: Schedule coordinates
-
-## Things after this doesn't belong here
-
-## The unachievability of strong correctness for indivisible element stride
-
-Let's take a look at the example in the following Figure 5:
-
-TODO: change image link
-![Figure 5: Indivisible strided tile](../reading/tma-modeling-in-depth/no-strong-correctness-schedule.svg)
-
-TMA-protected IterDomains are `I1`, `I2`, and `I3`.
-We can see that `I4` is indivisibly split but not TMA-protected,
-so there exist out-of-boundary index of `I4` that is not eventually translated to out-of-boundary index of `I1`.
-For example, let $i_3$, $i_4$, and $i_1$ be the indices of `I3`, `I4`, and `I1`,
-if $i_3 = 0$ and $i_4 = 4$, then $i_1 = 4$ is an in-boundary value.
-To make it even worse, the index of `I4` depends on the index of `I5`,
-which is hardware parallelized and the programmer has no access to,
-so it is not even possible to write a `if` check for the boundary of `I4`.
-For this example, the data loaded in shared memory looks like the following Figure 6:
-
-TODO: change image link
-![Figure 6: Indivisible strided tile data](../reading/tma-modeling-in-depth/no-strong-correctness-data.svg)
-
-From the above figure, we see that there are two tiles where the first half tile is blue and the second half tile is red.
-However, the granularity on TMA that programmer has control of is per tile.
-There is no way for a programmer to tell the hardware that they want part of a tile to be filled with data but part of it filled with zero even if they are not out of boundary.
-
-The above observation leads to the following theorem:
-
-**Theorem 6 (the unachievability of strong correctness):**
-If the striding split is an indivisible split,
-then it is impossible to achieve strong correctness.
-
-global size: S
-box size: B
-element stride: e
-partitioned ID: ip
-coordinate ID: ic
-box ID: ib
-tile ID: it
-stride ID: is
-
-ib = it * e + is
-ip = ic * B + ib
-
-ip < S
-exist is, it s.t.
-is < B &&
-is < e
-B <= it * e + is < S
-ceilDiv(B, e) - 1
-
-
-B - is <= it * e  < S - is
-
-(ceilDiv(B, e) - 1) * e >= B - is
-B - e >= B - is
-B/e*e >= B - is
-is >= B % e
-e < B
