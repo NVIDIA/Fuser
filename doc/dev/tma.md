@@ -128,12 +128,15 @@ Most commonly, we use dense tile.
 For dense tile, we define the *tile IterDomain* as the box IterDomain,
 and use the word *tile* and *box* interchangably.
 
-For strided tile, we do an inner-split on the strided box IterDomain by the element stride.
+For strided tile, we do an inner-split on the strided box IterDomain by the *element stride*.
 We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
 and the outer output of this split "*tile IterDomain*".
 For the example in Figure 1 on the right hand side, the schedule looks like the Figure 6 below:
 
 ![Figure 6: Strided tile](./tma/strided-tile.svg)
 
+Note that when the element stride does not divide the box size,
+extra care is needed because there are holes not filled with zero.
+See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md) for more detail.
 
 TODO: this documentation is under construction
