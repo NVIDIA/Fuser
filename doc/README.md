@@ -1,4 +1,4 @@
-Table of Content:
+Table of Contents:
 
 - Basic Notes to Developers ([dev](dev/))
   - [Symbol Visibility](dev/visibility.md)
