@@ -76,7 +76,7 @@ Instead, it is a virtual domain that only exists in the user's mind.
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
 for example, we can not merge discontiguous IterDomains ([why?](../reading/divisibility-of-split.md#merging-discontiguous-iterdomains)), and we can not have indivisible splits either.
 
-### Step 2: Define box
+### Step 2: define box
 
 After having scheduled a TMA domain, the next step is to define box.
 There are two ways of defining box: partitioning and compositing.
