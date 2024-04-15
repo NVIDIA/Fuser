@@ -6,10 +6,8 @@
  */
 // clang-format on
 #include <multidevice/communication.h>
-#ifdef NVFUSER_DISTRIBUTED
-#ifdef USE_C10D_NCCL
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
-#endif
 #endif
 #include <utils.h>
 

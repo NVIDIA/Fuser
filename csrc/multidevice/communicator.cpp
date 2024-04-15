@@ -25,16 +25,22 @@
 
 namespace nvfuser {
 
-std::map<CommunicatorBackend, std::string> communicator_backend_to_string = {
-    {CommunicatorBackend::nccl, "NCCL"},
-    {CommunicatorBackend::ucc, "UCC"},
-    {CommunicatorBackend::gloo, "GLOO"},
-};
-
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
-  return out << communicator_backend_to_string.at(cb);
+  switch (cb) {
+    case CommunicatorBackend::nccl:
+      out << "NCCL";
+      break;
+    case CommunicatorBackend::ucc:
+      out << "UCC";
+      break;
+    case CommunicatorBackend::gloo:
+      out << "GLOO";
+      break;
+  }
+  return out;
 }
 
+namespace {
 // Parse the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
 // Returns true if the distributed configuration is valid, false otherwise
@@ -126,7 +132,6 @@ inline std::string getTeamKey(const Team& team, CommunicatorBackend backend) {
       });
 }
 
-namespace {
 #ifdef NVFUSER_DISTRIBUTED
 // creates and return a process group backend
 c10::intrusive_ptr<c10d::Backend> createBackend(
