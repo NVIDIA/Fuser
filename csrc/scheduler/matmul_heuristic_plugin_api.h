@@ -27,8 +27,6 @@ namespace matmul_heuristic_plugin {
 //! NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libfoo.so to use the plugin to
 //! determine matmul parameters automatically.
 
-//! This is the return type of a HeuristicFunc (defined below) implemented in a
-//! plugin. This is used to set values in MatmulParams
 struct KernelConfig {
   //! This is the information available to the plugin to determine the kernel
   //! configuration.

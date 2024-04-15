@@ -38,7 +38,7 @@ bool updateMatmulParams(
     const mma_utils::RolesMap& roles_map);
 
 //! Defines the type of the "makeConfig" symbol
-typedef std::function<std::unique_ptr<KernelConfig>()> KernelConfigFactory;
+using KernelConfigFactory = std::function<std::unique_ptr<KernelConfig>()>;
 
 //! This function can be used to imitate a plugin. To do so, subclass
 //! KernelConfig, implementing a custom `configure` method, then create a guard
