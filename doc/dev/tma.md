@@ -44,7 +44,7 @@ That is, the dimensionality of TMA is not necessarily the same as the dimensiona
 In order to support the flexibility of using a dimensionality of TMA different from the dimensionality of the tensor,
 we design the scheduling of TMA as a multiple-step process:
 
-### Step 1: create TMA domain
+### Step 1: define TMA domain
 
 When a user is ready to schedule the consumer of the TMA expression,
 the user should already have an idea of how the problem should be viewed.
@@ -72,7 +72,7 @@ Instead, it is a virtual domain that only exists in the user's mind.
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
 for example, we can not merge discontiguous IterDomains ([why?](../reading/divisibility-of-split.md#merging-discontiguous-iterdomains)), and we can not have indivisible splits either.
 
-### Step 2: create box
+### Step 2: define box
 
 #### Define box by compositing
 
@@ -120,5 +120,20 @@ The third dimension is `I4`, it has no box IterDomain, therefore, the box size i
 The fourth dimension is `[I5, I6]`, it has no coordinate IterDomain, therefore this dimension only has one box.
 The fifth dimension is `[I7, I8, I9]`, where `I8` and `I9` are box IterDomain, and `I7` is coordinate IterDomain.
 The imaginary TMA domain has five IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `merge(I5, I6)`, and `merge(I7, I8, I9)`.
+
+### Step 3: Define tile
+
+TMA's tile can be dense or strided.
+Most commonly, we use dense tile.
+For dense tile, we define the *tile IterDomain* as the box IterDomain,
+and use the word *tile* and *box* interchangably.
+
+For strided tile, we do an inner-split on the strided box IterDomain by the element stride.
+We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
+and the outer output of this split "*tile IterDomain*".
+For the example in Figure 1 on the right hand side, the schedule looks like the Figure 6 below:
+
+![Figure 6: Strided tile](./tma/strided-tile.svg)
+
 
 TODO: this documentation is under construction
