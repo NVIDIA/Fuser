@@ -86,7 +86,7 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 template <typename Enum>
@@ -97,10 +97,6 @@ constexpr auto enumSize() {
 template <typename Enum>
 class EnumSet {
  public:
-  EnumSet() {
-    fillEnumSetDefaults(this);
-  }
-
   std::string toString() const {
     std::stringstream ss;
     ss << "{ ";
@@ -136,11 +132,14 @@ class EnumSet {
     return bitset_[toUnderlying(feat)];
   }
 
+  std::bitset<enumSize<Enum>()>& bitset() {
+    return bitset_;
+  }
+
   const std::bitset<enumSize<Enum>()>& bitset() const {
     return bitset_;
   }
 
- private:
  private:
   std::bitset<enumSize<Enum>()> bitset_;
 };
@@ -184,10 +183,26 @@ enum class Feature {
 
 std::ostream& operator<<(std::ostream& os, Feature);
 
-using FeatureSet = EnumSet<Feature>;
+class FeatureSet : public EnumSet<Feature> {
+ public:
+  //! Inspect env vars and fall back to compile-time defaults for features.
+  FeatureSet();
 
-//! Inspect env vars and fall back to compile-time defaults for features.
-void fillEnumSetDefaults(FeatureSet* feats);
+  const std::vector<std::string>& args(Feature feat) const {
+    return args_[toUnderlying(feat)];
+  }
+
+  std::vector<std::string>& args(Feature feat) {
+    return args_[toUnderlying(feat)];
+  }
+
+ private:
+  // Each feature can have an ordered collection of strings as "arguments". For
+  // example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
+  // more than 10 registers are spilled. This variable holds one vector of
+  // arguments for each feature.
+  std::array<std::vector<std::string>, enumSize<Feature>()> args_;
+};
 
 //! Types of features to enable
 //!
@@ -203,7 +218,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! Types of features to disable
@@ -232,7 +247,7 @@ enum class DisableOption {
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
                                 //! types match
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! Options to set for Fusion Profiling.  Whenever the profiler
@@ -253,7 +268,7 @@ enum class ProfilerOption {
   PrintVerbose, //! Enables the profiler and prints a complete set of columns
                 //! to the console.  WARNING: The output is will wrap on small
                 //! screens!
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! The base template class for the options such as EnableOption

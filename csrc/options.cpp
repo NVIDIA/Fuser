@@ -20,7 +20,7 @@ auto parseEnvOptions(
     const std::unordered_map<std::string, OptionEnum>& available_options) {
   // Make sure available_options includes all of the enum values
   NVF_ERROR(
-      available_options.size() == static_cast<int>(OptionEnum::EndOfOption),
+      available_options.size() == static_cast<int>(OptionEnum::EndOfEnum),
       "Invalid available option map");
 
   std::unordered_map<OptionEnum, std::vector<std::string>> options;
@@ -301,10 +301,6 @@ const std::vector<std::string>& getDisableOptionArguments(
   return ProfilerOptionsGuard::getCurOptions().getArgs(option);
 }
 
-void fillEnumSetDefaults(FeatureSet* feats) {
-  std::cout << "defaultFeatures()" << std::endl;
-}
-
 namespace {
 
 // To define a new feature, create a new enum label in Features in options.h,
@@ -426,9 +422,62 @@ const std::vector<std::string>& featureNames() {
   return feature_names;
 }
 
+std::unordered_map<std::string, Feature> nameToFeature() {
+  std::unordered_map<std::string, Feature> named_features;
+#define INSERT_NAMED_FEATURE(name, label, enabled, cache_key, desc) \
+  named_features.emplace(name, Feature::label);
+  FOR_EACH_FEATURE(INSERT_NAMED_FEATURE);
+#undef INSERT_NAMED_FEATURE
+  return named_features;
+}
+
+void fillDefaultFeatures(FeatureSet* feats) {
+  static bool initialized = false;
+  if (!initialized) {
+#define ENABLE_DEFAULT_FEATURE(name, label, enabled, cache_key, desc) \
+  if (enabled) {                                                      \
+    feats->bitset()[toUnderlying(Feature::label)] = true;             \
+  }
+    FOR_EACH_FEATURE(ENABLE_DEFAULT_FEATURE);
+#undef ENABLE_DEFAULT_FEATURE
+    auto named_features = nameToFeature();
+    auto enabled = parseEnvOptions("ENABLE", named_features);
+    auto disabled = parseEnvOptions("DISABLE", named_features);
+    for (const auto& [feature, feature_args] : enabled) {
+      size_t idx = (size_t)toUnderlying(feature);
+      NVF_CHECK(
+          disabled.find(feature) == disabled.end(),
+          "Contradiction in environment variables. Found ",
+          featureNames()[idx],
+          " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
+      std::vector<std::string>& args = feats->args(feature);
+      args.clear();
+      args.reserve(feature_args.size());
+      for (auto& arg : feature_args) {
+        args.push_back(arg);
+      }
+      feats->bitset()[idx] = true;
+    }
+    for (const auto& [feature, feature_args] : disabled) {
+      size_t idx = (size_t)toUnderlying(feature);
+      NVF_CHECK(
+          enabled.find(feature) == enabled.end(),
+          "Contradiction in environment variables. Found ",
+          featureNames()[idx],
+          " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
+      feats->bitset()[idx] = false;
+    }
+    initialized = true;
+  }
+}
+
 #undef FOR_EACH_FEATURE
 
 } // namespace
+
+FeatureSet::FeatureSet() {
+  fillDefaultFeatures(this);
+}
 
 std::ostream& operator<<(std::ostream& os, Feature f) {
   os << featureNames().at(toUnderlying(f));
