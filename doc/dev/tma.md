@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
 -->
 
-# TMA support in nvFuser
+# Introduction to TMA Support in NVFuser
 
 ## Introduction
 
@@ -72,6 +72,26 @@ Instead, it is a virtual domain that only exists in the user's mind.
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
 for example, we can not merge discontiguous IterDomains ([why?](../reading/divisibility-of-split.md#merging-discontiguous-iterdomains)), and we can not have indivisible splits either.
 
-### Step 2: create box
+### Step 2: Define box
+
+After having scheduled a TMA domain, the next step is to define box.
+There are two ways of defining box: partitioning and compositing.
+
+#### Define box by partitioning
+
+Defining box by partitioning is as simple as: select an IterDomain in the TMA domain, then
+inner split that IterDomain by the box size of that dimension.
+
+We call this split expression a "*boxing split*", the input of this split a "*partitioned IterDomain*",
+the inner output of this split a "*box IterDomain*", and the outer output of this split a "*coordinate IterDomain*".
+
+For the case of Figure 1, if both box dimensions are defined by partitioning,
+the schedule should look like the Figure 3 below:
+
+![Figure 3: Boxing by partitioning](tma/box-by-partitioning.svg)
+
+Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
+
+#### Define box by compositing
 
 TODO: this documentation is under construction

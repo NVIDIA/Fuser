@@ -468,7 +468,7 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
    * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
    * row_stride_znz (which is row_stride % num_megabanks), g should also
    * divide row_stride, because according to the fundamental
-   * division-with-remainder property (see comment in expr_simplifier.h):
+   * division-with-remainder property (see doc/math/integer-division.md):
    *   row_stride = q * num_megabanks + row_stride_znz
    * which means, we can just consider each num_gigabanks matrices as a group,
    * and we always have complete groups (i.e. no group has less than
@@ -1243,6 +1243,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduler_utils::rotateLoop(
         mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
+
+  NVF_ERROR(!cached_outputs.empty());
+  mma_utils::MmaDataTypes data_types = {
+      a->dtype(), b->dtype(), mma_result->dtype()};
+  // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
+  // batch loop
+  bool guaranteed_operand_reuse = num_batch_dims == 0 || num_splitk_dims == 0;
+  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
+      params,
+      data_types,
+      /*smem_a_reuse_guaranteed=*/guaranteed_operand_reuse,
+      /*smem_b_reuse_guaranteed=*/guaranteed_operand_reuse);
+  fusion->setExpectedDynamicSmemBytes(estimated_smem);
 }
 
 } // namespace nvfuser
