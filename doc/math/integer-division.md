@@ -6,8 +6,8 @@
 
 # Integer Division
 
-**Note on notation:**
-- We use $\div$ for true division, and $/$ for integer division (which may refer to different things in different sections). For example, $5\div 2 = 2.5$, $5/2=2$.
+> [!NOTE]
+> We use $\div$ for true division, and $/$ for integer division (which may refer to different things in different sections). For example, $5\div 2 = 2.5$, $5/2=2$.
 
 We learnt arithmetic from as early as elementary school,
 and have been used to simplify expressions using rules like $a(b+c) = ab+ac$,
@@ -80,6 +80,8 @@ The properties of $/$ and $\mathbin{\\%}$ under truncation division will be revi
 - $a/(b/c) \neq (a/b) \times c \neq (a \times c)/b$ because of the counter example that
   $5/(3/2)$, $(5/3) \times 2$, and $(5 \times 2)/3$ are three different numbers: $5$, $2$, and $3$.
 
+$\square$
+
 </details>
 
 **Theorem 2.2:** Euclidean division is NOT right distributive
@@ -88,7 +90,7 @@ The properties of $/$ and $\mathbin{\\%}$ under truncation division will be revi
 
 **<summary>Proof:</summary>**
 
-Counter example: $(1+1)/2 \neq 1/2 + 1/2$
+Counter example: $(1+1)/2 \neq 1/2 + 1/2$ $\square$
 
 </details>
 
@@ -98,17 +100,19 @@ Counter example: $(1+1)/2 \neq 1/2 + 1/2$
 
 **<summary>Proof:</summary>**
 
-Direction ==>:
+*Direction ==>:*
 $a\mathbin{\\%}b = a'\mathbin{\\%}b$ is equivalent to $a-(a/b)b = a'-(a'/b)b$
 which is equivalent to $(a-a')\div b = (a/b-a'/b) = \text{integer}$
 So $a\mathbin{\\%}b = a'\mathbin{\\%}b$ ==> $a = a' \pmod b$.
-Direction <==:
+
+*Direction <==:*
 if $a = a' \pmod b$, then $a = a' + kb$.
 According to the Euclid's division lemma, $a' = q'b + r'$,
 then $a = (q'+k)b + r'$, where $q'+k$ and $r'$.
 It is easy to verify that, if we define $q = q'+k$ and $r = r'$,
 then $a = qb + r$ also satisfies the condition in Euclid's division lemma.
 Thanks to the uniqueness of $q$ and $r$, we have $a\mathbin{\\%}b = r = r' = a'\mathbin{\\%}b$.
+$\square$
 
 </details>
 
@@ -123,6 +127,7 @@ the beautiful Theorem 2.3 does not hold, so many theorems in this section needs 
 **<summary>Proof:</summary>**
 
 According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is integer.
+$\square$
 
 </details>
 
@@ -133,6 +138,7 @@ According to Euclid's division lemma, $(a - a \mathbin{\\%} b) \div b = q$ is in
 **<summary>Proof:</summary>**
 
 This can be proved directly from Euclid's division lemma.
+$\square$
 
 </details>
 
@@ -144,6 +150,7 @@ This can be proved directly from Euclid's division lemma.
 
 $a = bq+r$ is equivalent to $a = (-b)(-q) + r$
 Due to the uniqueness of $q$ and $r$, we get our conclusion.
+$\square$
 
 </details>
 
@@ -159,6 +166,7 @@ Because of Theorem 2.4, we have
 $$a = a \mathbin{\\%} c \pmod c$$
 $$b = b \mathbin{\\%} c \pmod c$$
 applying Theorem 1.3, we get what we need.
+$\square$
 
 </details>
 
@@ -206,6 +214,7 @@ $\square$
 **<summary>Proof:</summary>**
 
 Similar to above
+$\square$
 
 </details>
 
@@ -215,7 +224,8 @@ Similar to above
 
 **<summary>Proof:</summary>**
 
-This can be proved directly from Euclid's division lemma
+This can be proved directly from Euclid's division lemma.
+$\square$
 
 </details>
 
@@ -242,6 +252,7 @@ The second term in the above equation is $0$, so we have
 $$0 = [(a \times b)/c - a \times (b/c)]  \times  c$$
 
 Because $c \neq 0$, we have $(a \times b)/c = a \times (b/c)$.
+$\square$
 
 </details>
 
@@ -268,6 +279,7 @@ since $a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$ is in the correct range
 and due to the uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have:
 $$a/(bc) = (a/b)/c$$
 $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
+$\square$
 
 </details>
 
@@ -278,6 +290,7 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 **<summary>Proof:</summary>**
 
 Already proved in the proof of Theorem 2.11
+$\square$
 
 </details>
 
@@ -297,6 +310,7 @@ according to Theorem 2.9:
 $$a \mathbin{\\%} d = 0$$
 so we have:
 $$a \mathbin{\\%} b = ((a / d) \mathbin{\\%} (b / d)) \times d$$
+$\square$
 
 </details>
 
@@ -320,6 +334,7 @@ $$0 = ( a/(b/c) - (ac)/b ) \times b + ( (a\mathbin{\\%}(b/c)) \times c - (ac)\ma
 The second term in the above equation is $0$, so we have
 $$0 = (a/(b/c) - (ac)/b) \times b$$
 because $b \neq 0$, we get $a/(b/c) = (ac)/b$.
+$\square$
 
 </details>
 
@@ -340,6 +355,7 @@ $$0 = ((a/c + b/c) - (a+b)/c) * c + (a \mathbin{\\%} c + b \mathbin{\\%} c - (a 
 The second term in the above equation is $0$, so we have
 $$0 = ((a/c + b/c) - (a+b)/c) * c$$
 Because $c \neq 0$, we have $(a/c + b/c) = (a+b)/c$.
+$\square$
 
 </details>
 
@@ -469,6 +485,7 @@ which obtains $a - r$, to the nearest multiple of $b$.
 We are shifting towards zero if and only if $r$ and $a$ have the same sign.
 Also, $|r|$ must be smaller than $|b|$ otherwise it won't be the nearest multiple of $b$, and this shift is unique.
 We therefore proved (1) and (2) above and the uniqueness.
+$\square$
 
 </details>
 
@@ -517,6 +534,7 @@ since $a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$ is in the correct range
 and due to the uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have
 $$a/(bc) = (a/b)/c$$
 $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
+$\square$
 
 </details>
 
@@ -527,6 +545,7 @@ $$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
 **<summary>Proof:</summary>**
 
 The same counter example as in Theorem 2.2 applies.
+$\square$
 
 </details>
 
@@ -587,6 +606,7 @@ it is easy to verify that $0 < r < |b|$.
 Due to the uniqueness:
 $a\mathbin{\\%}b = r' + |b|$
 $a/b = q+k-sign(b)$
+$\square$
 
 </details>
 
@@ -597,6 +617,7 @@ $a/b = q+k-sign(b)$
 **<summary>Proof:</summary>**
 
 According to Definition 4.0, $(a - a \mathbin{\\%} b) \div b = q$ is integer.
+$\square$
 
 </details>
 
@@ -606,7 +627,8 @@ According to Definition 4.0, $(a - a \mathbin{\\%} b) \div b = q$ is integer.
 
 **<summary>Proof:</summary>**
 
-This can be proved directly from Definition 4.0
+This can be proved directly from Definition 4.0.
+$\square$
 
 </details>
 
@@ -617,6 +639,7 @@ This can be proved directly from Definition 4.0
 **<summary>Proof:</summary>**
 
 See [the previous section](#3-implementations-of-div-and-mod), this is written in the paper.
+$\square$
 
 </details>
 
@@ -633,6 +656,7 @@ Because of Theorem 4.4, we have
 $$a = a \mathbin{\\%} c \pmod c$$
 $$b = b \mathbin{\\%} c \pmod c$$
 applying Theorem 1.3, we get what we want.
+$\square$
 
 </details>
 
@@ -675,6 +699,7 @@ where $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 **<summary>Proof:</summary>**
 
 Similar to above.
+$\square$
 
 </details>
 
@@ -685,6 +710,7 @@ Similar to above.
 **<summary>Proof:</summary>**
 
 This can be proved directly from Definition 4.0.
+$\square$
 
 </details>
 
@@ -695,6 +721,7 @@ This can be proved directly from Definition 4.0.
 **<summary>Proof:</summary>**
 
 Same proof as 2.10.
+$\square$
 
 </details>
 
@@ -705,6 +732,7 @@ Same proof as 2.10.
 **<summary>Proof:</summary>**
 
 This is part of Theorem 4.1.
+$\square$
 
 </details>
 
@@ -715,6 +743,7 @@ This is part of Theorem 4.1.
 **<summary>Proof:</summary>**
 
 Already proved in the proof of Theorem 4.1.
+$\square$
 
 </details>
 
@@ -725,6 +754,7 @@ Already proved in the proof of Theorem 4.1.
 **<summary>Proof:</summary>**
 
 Same proof as 2.13.
+$\square$
 
 </details>
 
@@ -735,6 +765,7 @@ Same proof as 2.13.
 **<summary>Proof:</summary>**
 
 Proof: Same proof as 2.14.
+$\square$
 
 </details>
 
@@ -749,6 +780,7 @@ The $\mathrm{compatible\\_sign}(a, b)$ is defined as $ab \ge 0$.
 From Theorem 4.7 and Theorem 4.5
 $$(a + b) \mathbin{\\%} c = (a \mathbin{\\%} c + b \mathbin{\\%} c) \mathbin{\\%} c = a \mathbin{\\%} c + b \mathbin{\\%} c$$
 The rest of the proof is the same as 2.15.
+$\square$
 
 </details>
 
