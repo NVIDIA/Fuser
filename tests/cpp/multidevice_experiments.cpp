@@ -26,7 +26,11 @@ class GlobalContext : public testing::Environment {
 auto global_context = static_cast<GlobalContext*>(
     testing::AddGlobalTestEnvironment(new GlobalContext));
 
-class OverlapTest : public MultiDeviceTest {
+// <interleave comms/compute>
+using OverlapTestParams = std::tuple<bool>;
+
+class OverlapTest : public MultiDeviceTest,
+      public testing::WithParamInterface<OverlapTestParams> {
   protected:
     void SetUp() override {
         MultiDeviceTest::SetUp();
@@ -38,12 +42,17 @@ class OverlapTest : public MultiDeviceTest {
         world_communicator = communicator->getBackendForTeam(
             devices, std::nullopt /* default backend */);
 
+        bool interleave_comm_compute = std::get<0>(GetParam());
         // Define the constants
         A = num_devices;
         B = getNvFuserEnv("OVERLAP_B")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,4);
         C = getNvFuserEnv("OVERLAP_C")? pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): pow(2,16);
 
-        tile_size = getNvFuserEnv("OVERLAP_TILE_SIZE")? std::atoi(getNvFuserEnv("OVERLAP_TILE_SIZE")): 1;
+        tile_size = interleave_comm_compute?
+                    getNvFuserEnv("OVERLAP_TILE_SIZE")?
+                        std::atoi(getNvFuserEnv("OVERLAP_TILE_SIZE"))
+                        : 1
+                    :B;
         NVF_ERROR(B % tile_size == 0);
         number_of_tiles = B / tile_size;
 
@@ -99,8 +108,7 @@ We want to compare this baseline program with the following one, which is functi
 where "[j]" referes to taking a slice onto the "B" dimension.
 This program should in principle achieve overlap between comms and compute
 */
-TEST_F(OverlapTest, OverlapExperiment) {
-
+TEST_P(OverlapTest, PurePytorch) {
     // Input set-up
     // define the unsharded inputs for validation
     std::vector<int64_t> unsharded_sizes = {A, B, C};
@@ -156,6 +164,13 @@ TEST_F(OverlapTest, OverlapExperiment) {
         }
     }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    Manual,
+    OverlapTest,
+    testing::Combine(
+        testing::Bool()
+    ));
 
 } // namespace nvfuser
 
