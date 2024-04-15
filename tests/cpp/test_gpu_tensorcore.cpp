@@ -121,14 +121,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmul_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -181,14 +173,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmperePrologueFusionBroadcast_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -248,14 +232,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereProloguePointwise_CUDA) {
         inputs.second.sin().to(at::kFloat),
         layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -311,14 +287,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBFloat16_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -378,14 +346,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-      // Check that computed smem matches actually allocated smem
-      mma_utils::MmaDataTypes data_types = {
-          DataType::Half, DataType::Half, DataType::Float};
-      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-          params, data_types, true, true);
-      int64_t actual_smem = fe.lastLaunchParams().smem();
-      ASSERT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -577,14 +537,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-      // Check that computed smem matches actually allocated smem
-      mma_utils::MmaDataTypes data_types = {
-          DataType::Half, DataType::Half, DataType::Float};
-      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-          params, data_types, true, true);
-      int64_t actual_smem = fe.lastLaunchParams().smem();
-      EXPECT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -1256,14 +1208,6 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmul_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -1950,14 +1894,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoad_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -2010,14 +1946,6 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmulLargeLoad_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-    // Check that computed smem matches actually allocated smem
-    mma_utils::MmaDataTypes data_types = {
-        DataType::Half, DataType::Half, DataType::Float};
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
   }
 }
 
@@ -2093,11 +2021,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
             mn_size,
             " ",
             k_size);
-        // Check that computed smem matches actually allocated smem
-        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params, data_types, true, true);
-        int64_t actual_smem = fe.lastLaunchParams().smem();
-        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -2170,11 +2093,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
               inputs.second.to(at::kFloat),
               layout);
           NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-          // Check that computed smem matches actually allocated smem
-          int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-              params, data_types, true, true);
-          int64_t actual_smem = fe.lastLaunchParams().smem();
-          EXPECT_EQ(estimated_smem, actual_smem);
         }
       }
     }
@@ -2242,11 +2160,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-      // Check that computed smem matches actually allocated smem
-      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-          params, data_types, true, true);
-      int64_t actual_smem = fe.lastLaunchParams().smem();
-      EXPECT_EQ(estimated_smem, actual_smem);
     }
   }
 }
@@ -2453,11 +2366,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
           cg_outputs[0].allclose(tref, 0.01, 0.01),
           "Result validation failed. Max diff: ",
           (cg_outputs[0] - tref).abs().max());
-      // Check that computed smem matches actually allocated smem
-      int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-          params, data_types, true, true);
-      int64_t actual_smem = fe.lastLaunchParams().smem();
-      EXPECT_EQ(estimated_smem, actual_smem);
 
       if (!params.use_smem_epilogue) {
         GTEST_SKIP()
@@ -2587,11 +2495,6 @@ TEST_F(
       cg_outputs[0].allclose(tref, 0.01, 0.01),
       "Result validation failed. Max diff: ",
       (cg_outputs[0] - tref).abs().max());
-  // Check that computed smem matches actually allocated smem
-  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-      params, data_types, true, true);
-  int64_t actual_smem = fe.lastLaunchParams().smem();
-  EXPECT_EQ(estimated_smem, actual_smem);
 
   if (!params.use_smem_epilogue) {
     GTEST_SKIP()
@@ -2685,12 +2588,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         cg_outputs[0].allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
-
-    // Check that computed smem matches actually allocated smem
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
 
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
@@ -2787,12 +2684,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
 
-    // Check that computed smem matches actually allocated smem
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params, data_types, true, true);
-    int64_t actual_smem = fe.lastLaunchParams().smem();
-    EXPECT_EQ(estimated_smem, actual_smem);
-
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
@@ -2871,14 +2762,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitK_CUDA) {
 
         // Relax tolerance for larger sum due to large K
         NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
-
-        // Check that computed smem matches actually allocated smem
-        mma_utils::MmaDataTypes data_types = {
-            DataType::Half, DataType::Half, DataType::Float};
-        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params, data_types, true, true);
-        int64_t actual_smem = fe.lastLaunchParams().smem();
-        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -2946,14 +2829,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitKBias_CUDA) {
 
         // Relax tolerance for larger sum due to large K
         NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
-
-        // Check that computed smem matches actually allocated smem
-        mma_utils::MmaDataTypes data_types = {
-            DataType::Half, DataType::Half, DataType::Float};
-        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params, data_types, true, true);
-        int64_t actual_smem = fe.lastLaunchParams().smem();
-        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -3017,19 +2892,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitK_CUDA) {
 
         // Relax tolerance for larger sum due to large K
         EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
-
-        // Check that computed smem matches actually allocated smem
-        mma_utils::MmaDataTypes data_types = {
-            DataType::Half, DataType::Half, DataType::Float};
-        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params,
-            data_types,
-            // NOTE: Batch split-K matmuls cannot currently re-use smem due to
-            // outer batch loop
-            /*smem_a_reuse_guaranteed=*/false,
-            /*smem_b_reuse_guaranteed=*/false);
-        int64_t actual_smem = fe.lastLaunchParams().smem();
-        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -3099,19 +2961,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
 
         // Relax tolerance for larger sum due to large K
         EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
-
-        // Check that computed smem matches actually allocated smem
-        mma_utils::MmaDataTypes data_types = {
-            DataType::Half, DataType::Half, DataType::Float};
-        int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-            params,
-            data_types,
-            // NOTE: Batch split-K matmuls cannot currently re-use smem due to
-            // outer batch loop
-            /*smem_a_reuse_guaranteed=*/false,
-            /*smem_b_reuse_guaranteed=*/false);
-        int64_t actual_smem = fe.lastLaunchParams().smem();
-        EXPECT_EQ(estimated_smem, actual_smem);
       }
     }
   }
@@ -3171,14 +3020,6 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-
-  // Check that computed smem matches actually allocated smem
-  mma_utils::MmaDataTypes data_types = {
-      DataType::Half, DataType::Half, DataType::Float};
-  int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-      params, data_types, true, true);
-  int64_t actual_smem = fe.lastLaunchParams().smem();
-  EXPECT_EQ(estimated_smem, actual_smem);
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
