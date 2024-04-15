@@ -84,14 +84,14 @@ static void NvFuserScheduler_ReductionEpilogue(
 
 // define 8 benchmarks for different combinations of data type, reduction dim
 // and epilogue.
-#define NVFUSER_REDUCTION_POINTWISE(                     \
-    NAME_SUFFIX, DATA_TYPE, REDU_DIM, BCAST_ELOG)        \
-  NVFUSER_BENCHMARK_DEFINE(                              \
+#define NVFUSER_REDUCTION_POINTWISE(                    \
+    NAME_SUFFIX, DATA_TYPE, REDU_DIM, BCAST_ELOG)       \
+  NVFUSER_BENCHMARK_DEFINE(                             \
       NvFuserScheduler_ReductionEpilogue_##NAME_SUFFIX, \
       setupReductionEpilogue,                           \
       NvFuserScheduler_ReductionEpilogue,               \
-      DATA_TYPE,                                         \
-      REDU_DIM,                                          \
+      DATA_TYPE,                                        \
+      REDU_DIM,                                         \
       BCAST_ELOG)
 
 NVFUSER_REDUCTION_POINTWISE(Outer_fp32_NonBcastElog, DataType::Float, 0, false);
