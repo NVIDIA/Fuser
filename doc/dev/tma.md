@@ -183,3 +183,31 @@ The above observation leads to the following theorem:
 **Theorem 6 (the unachievability of strong correctness):**
 If the striding split is an indivisible split,
 then it is impossible to achieve strong correctness.
+
+global size: S
+box size: B
+element stride: e
+partitioned ID: ip
+coordinate ID: ic
+box ID: ib
+tile ID: it
+stride ID: is
+
+ib = it * e + is
+ip = ic * B + ib
+
+ip < S
+exist is, it s.t.
+is < B &&
+is < e
+B <= it * e + is < S
+ceilDiv(B, e) - 1
+
+
+B - is <= it * e  < S - is
+
+(ceilDiv(B, e) - 1) * e >= B - is
+B - e >= B - is
+B/e*e >= B - is
+is >= B % e
+e < B
