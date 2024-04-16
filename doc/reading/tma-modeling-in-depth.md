@@ -358,20 +358,23 @@ which simplifies to
 
 So (eq 7) can be simplified as
 
-> **(eq 7)** All the following conditions are satisfied:
+> **(eq 8)** All the following conditions are satisfied:
+>
 > - $B < S$
 > - There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
 >   1. $0 < i_{t2} < \mathrm{ceilDiv}(B, e)$
 >   2. $i_{t2} \times e < S$
 >   3. $B - e < i_{t2} \times e$
 
-equiv to
+Rephrase (eq 8) as
 
-B < S
-exist i_{t2} in Z s.t.
-0 < i_{t2}
-B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t2} < S \div e
+> **(eq 9)** All the following conditions are satisfied:
+>
+> - $B < S$
+> - There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>   1. $0 < i_{t2}$
+>   2. $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$
+>   3. $i_{t2} < S \div e$
 
 if e divide B, equiv to
 B / e - 1 < i_{t2} < B / e
