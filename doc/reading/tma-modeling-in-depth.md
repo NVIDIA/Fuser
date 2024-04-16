@@ -234,7 +234,7 @@ this means that there exist a tile that part of it contains valid items and part
 and there are holes satisfting the builtin predicate of TMA.
 That is:
 
-> There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+> **(eq 1)** There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
@@ -244,9 +244,9 @@ That is:
 > 6. $0 \le i_{t1} * e + i_s < B$
 > 7. $i_{t2} * e + i_s \ge B$
 
-Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify the above predicate as
+Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify (eq 1) as:
 
-> There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+> **(eq 2)** There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
@@ -256,34 +256,31 @@ Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify the above
 > 6. $i_{t1} * e + i_s < B$
 > 7. $i_{t2} * e + i_s \ge B$
 
-Rephrase the above predicate as:
+Rephrase (eq 2) as:
 
-> There exists $i_s \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+> **(eq 3)** There exists $i_s \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
 > 3. $i_{t1} * e + i_s < B$
 > 4. $i_{t2} * e + i_s \ge B$
 > 5. There exists $i_c \in \mathbb{Z}$ that satisfies all of the following conditions:
->    i. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
->    ii. $i_c < (S - (i_{t1} * e + i_s)) \div B$
->    iii. $i_c < (S - (i_{t2} * e + i_s)) \div B$
+>    1. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+>    2. $i_c < (S - (i_{t1} * e + i_s)) \div B$
+>    3. $i_c < (S - (i_{t2} * e + i_s)) \div B$
 
+The condition 5 in (eq 3) is true if and only if
 
+> - $0 < \mathrm{ceilDiv}(S, B)$, and
+> - $0 < (S - (i_{t1} * e + i_s)) \div B$, and
+> - $0 < (S - (i_{t2} * e + i_s)) \div B$
 
+which can be simplified as
 
-the inner qualifier equiv to
+> - $i_{t1} * e + i_s < S$, and
+> - $i_{t2} * e + i_s < S$
 
-0 < \mathrm{ceilDiv}(S, B)
-0 < (S - (i_{t1} * e + is)) \div B
-0 < (S - (i_{t2} * e + is)) \div B
-
-simplify as
-
-i_{t1} * e + is < S
-i_{t2} * e + is < S
-
-so overall
+So (eq 3) can be simplified as:
 
 exist is, i_{t1}, i_{t2} in Z s.t.
 0 \le is < e
