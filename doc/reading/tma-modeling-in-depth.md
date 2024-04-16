@@ -216,11 +216,11 @@ Consider a dimension, let's define some notation first:
 - size of dimension: $S \in \mathbb{Z}^+$
 - box size: $B \in \mathbb{Z}^+$
 - element stride: $e \in \mathbb{Z}^+$
-- index of the partitioned ID: $i_p$
-- index of the coordinate ID: $i_c$
-- index of the box ID: $i_b$
-- index of the tile ID: $i_t$
-- index of the stride ID: $i_s$
+- index of the partitioned ID: $i_p \in \mathbb{Z}$
+- index of the coordinate ID: $i_c \in \mathbb{Z}$
+- index of the box ID: $i_b \in \mathbb{Z}$
+- index of the tile ID: $i_t \in \mathbb{Z}$
+- index of the stride ID: $i_s \in \mathbb{Z}$
 
 Then we have:
 $$i_b = i_t * e + i_s$$
