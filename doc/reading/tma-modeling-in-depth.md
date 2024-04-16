@@ -265,9 +265,9 @@ Rephrase the above predicate as:
 > 3. $i_{t1} * e + i_s < B$
 > 4. $i_{t2} * e + i_s \ge B$
 > 5. There exists $i_c \in \mathbb{Z}$ that satisfies all of the following conditions:
->    1. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
->    2. $i_c < (S - (i_{t1} * e + i_s)) \div B$
->    3. $i_c < (S - (i_{t2} * e + i_s)) \div B$
+>    i. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+>    ii. $i_c < (S - (i_{t1} * e + i_s)) \div B$
+>    iii. $i_c < (S - (i_{t2} * e + i_s)) \div B$
 
 
 
