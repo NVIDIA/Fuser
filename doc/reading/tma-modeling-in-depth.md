@@ -214,13 +214,13 @@ The above observation leads to the following theorem:
 Consider a dimension, let's define some notation first
 
 - size of dimension: $S \in \mathbb{Z}^+$
-box size: B in Z+
-element stride: e in Z+
-partitioned ID: ip
-coordinate ID: ic
-box ID: ib
-tile ID: it
-stride ID: is
+- box size: $B \in \mathbb{Z}^+$
+- element stride: $e \in \mathbb{Z}^+$
+- index of the partitioned ID: $i_p$
+- index of the coordinate ID: $i_c$
+- index of the box ID: $i_b$
+- index of the tile ID: $i_t$
+- index of the stride ID: $i_s$
 
 ib = it * e + is
 ip = ic * B + ib
