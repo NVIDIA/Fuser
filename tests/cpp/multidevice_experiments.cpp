@@ -255,6 +255,34 @@ INSTANTIATE_TEST_SUITE_P(
     )
 );
 
+TEST_P(OverlapTest, SimpleCompute) {
+    // Input set-up
+    // define the unsharded inputs for validation
+    auto options =
+        at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+    std::vector<c10::IValue> input = {at::randn({1,tile_size,C}, options)};
+    std::vector<at::Tensor> output = {at::empty({1,tile_size,C}, options)};
+
+    fe->compileFusion(fusion.get(), input);
+
+    for (int i=0; i<16; i++) {
+        fe->runFusion(input, output);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    OnlyCompute,
+    OverlapTest,
+    testing::Combine(
+        testing::Values(
+            false
+        ),
+        testing::Values(
+            ComputeMode::nvFuserFusionExecutor
+        )
+    )
+);
+
 } // namespace nvfuser
 
 #endif
