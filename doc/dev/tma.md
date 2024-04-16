@@ -134,7 +134,7 @@ For example, in Figure 6 below:
 The TMA domain of the tensor has nine IterDomains.
 The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
 We scheduled a 5D TMA operation, where in these five dimensions, one of them defines box by partitioning, and others define box by compositing.
-Green color means box IterDomain and orange color means coordinate IterDomain.
+Green color means box IterDomain and brown color means coordinate IterDomain.
 The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` is box IterDomain.
 The second dimension is `I3`, it is the only dimension that defines box by partitioning.
 `I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
