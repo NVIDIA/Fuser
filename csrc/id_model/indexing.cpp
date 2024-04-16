@@ -103,6 +103,113 @@ Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
+namespace {
+
+std::optional<std::vector<IterDomain*>>
+getAllocationDomainOfTransposedSmemTensor(TensorView* tv, const ValGraph& exact_graph) {
+  if (tv->getMemoryType() != MemoryType::Shared) {
+    return std::nullopt;
+  }
+
+  // Can there be multiple stores with a single smem buffer?
+  if (tv->uses().size() != 1) {
+    return std::nullopt;
+  }
+
+  auto ls_op = dynamic_cast<LoadStoreOp*>(tv->uses().front());
+  if (ls_op == nullptr) {
+    return std::nullopt;
+  }
+
+  auto consumer = ls_op->out()->as<TensorView>();
+
+  if (consumer->getMemoryType() != MemoryType::Global) {
+    return std::nullopt;
+  }
+
+  // the non-inlined domains must be derived from a domain that merges
+  // two constant-sized domains.
+
+  auto getOriginatingMerge = [](IterDomain* id) -> Merge* {
+    while (id != nullptr) {
+      auto def = id->definition();
+      if (def == nullptr) {
+        return nullptr;
+      } else if (auto merge = dynamic_cast<Merge*>(def)) {
+        return merge;
+      } else if (auto split = dynamic_cast<Split*>(def)) {
+        id = split->in();
+      } else {
+        // Unsupported op
+        NVF_ERROR(
+            false,
+            "Unsupported domain to get originating merge: ",
+            id->toString());
+      }
+    }
+    return nullptr;
+  };
+
+  // Find the dominating merge output domain
+
+  std::vector<IterDomain*> non_inlined_domains{
+      tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
+      tv->getLeafDomain().end()};
+
+  if (non_inlined_domains.empty()) {
+    return std::nullopt;
+  }
+
+  Merge* producer_common_merge = getOriginatingMerge(non_inlined_domains.front());
+  if (producer_common_merge == nullptr) {
+    return std::nullopt;
+  }
+
+  // Make sure all non inlined domains are derived from the same merge
+  for (auto non_inlined_domain : non_inlined_domains) {
+    auto merge = getOriginatingMerge(non_inlined_domain);
+    if (merge != producer_common_merge) {
+      return std::nullopt;
+    }
+  }
+
+  std::cerr << "Common merge op: " << producer_common_merge->toString();
+
+  std::vector<IterDomain*> consumer_non_inlined_domains{
+    consumer->getLeafDomain().begin() + (consumer->nDims() - non_inlined_domains.size()),
+    consumer->getLeafDomain().end()};
+
+  Merge* consumer_common_merge =
+      getOriginatingMerge(consumer_non_inlined_domains.front());
+  if (consumer_common_merge == nullptr) {
+    return std::nullopt;
+  }
+  // Make sure all non inlined domains are derived from the same merge
+  for (auto non_inlined_domain : consumer_non_inlined_domains) {
+    auto merge = getOriginatingMerge(non_inlined_domain);
+    if (merge != consumer_common_merge) {
+      return std::nullopt;
+    }
+  }
+
+  // Check if the inputs to the common merge ops match
+  if (exact_graph.toGroup(producer_common_merge->inner()) !=
+      exact_graph.toGroup(consumer_common_merge->outer())) {
+    return std::nullopt;
+  }
+
+  if (exact_graph.toGroup(producer_common_merge->outer()) !=
+      exact_graph.toGroup(consumer_common_merge->inner())) {
+    return std::nullopt;
+  }
+
+  // At this point, it should be safe to use the consumer non-inlined
+  // domains as the allocation domain of hte producer
+  return consumer_non_inlined_domains;
+}
+
+} // namespace
+
 std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     TensorView* tv,
     Expr* expr,
@@ -220,6 +327,14 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
         index_domains = reordered_index_domains;
       }
     }
+  }
+
+  // WAR for transpose
+  auto transposed_smem_alloc_dom =
+      getAllocationDomainOfTransposedSmemTensor(tv, id_model.idGraph(IdMappingMode::EXACT));
+  if (transposed_smem_alloc_dom.has_value()) {
+    std::cerr << "Using consumer domain as the allocation domain of the shared memory producer: " << tv->toString() << std::endl;
+    index_domains = transposed_smem_alloc_dom.value();
   }
 
   NVF_ERROR(index_domains.size() == contiguity.size());
@@ -364,6 +479,7 @@ Val* IndexCompute::getIndex(IterDomain* id) const {
 }
 
 void IndexCompute::setIndex(IterDomain* id, Val* idx) {
+  std::cerr << "setIndex: " << id->name() << " -> " << idx->toInlineString() << std::endl;
   const ValGroup& id_group = exact_graph_.toGroup(id);
   NVF_ERROR(
       index_map_.emplace(id_group, idx).second,
@@ -496,7 +612,7 @@ void TensorIndexer::buildLoopIndexMap() {
                            .disjointSets()) {
     std::cerr << nvfuser::toString(g) << std::endl;
   }
-  
+
   if (getenv("DOT")) {
     std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
     auto dot_string =
@@ -695,7 +811,7 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
           existing_index->toInlineString());
       continue;
     }
-        
+
     NVF_ERROR(
         initial_index_map.emplace(exact_group, loop_index_map_it->second)
             .second,
@@ -730,59 +846,56 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   return index;
 }
 
+namespace {
+
+std::string getDisableReason(TensorView* tv) {
+  std::stringstream reason;
+
+  if (tv->isDoubleBuffered() || tv->isCircularBuffered()) {
+    reason << "Double/circular buffering is used: " << tv->toString();
+    return reason.str();
+  }
+
+  for (const auto& id : ir_utils::allIDsOf(tv)) {
+    if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+      reason << "MialignedVectorize is used: " << id->toString();
+      return reason.str();
+    } else if (auto resize = dynamic_cast<Resize*>(id->definition())) {
+      reason << "Resize not supported: " << resize->toString();
+      return reason.str();
+    } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
+      reason << "Swizzle not supported: " << swizzle->toString();
+      return reason.str();
+    } else if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+      reason << "Swizzle2D not supported: " << swizzle2d->toString();
+      return reason.str();
+    }
+
+    if (ir_utils::isIndexedID(tv, id)) {
+      reason << "Index ops such as select not supported: " << tv->toString();
+      return reason.str();
+    }
+  }
+
+  // Returns an empty string when supported
+  return "";
+}
+
+} // namespace
+
 bool TensorIndexer::isSupported(Fusion* fusion) {
   const auto all_tvs = ir_utils::allTvs(fusion);
 
-  bool supported = true;
-  std::stringstream reason;
-
   for (const auto& tv : all_tvs) {
-    for (const auto& id : ir_utils::allIDsOf(tv)) {
-      if (id->getParallelType() == ParallelType::MisalignedVectorize) {
-        supported = false;
-        reason << "MialignedVectorize is used: " << id->toString();
-        break;
-      } else if (auto resize = dynamic_cast<Resize*>(id->definition())) {
-        supported = false;
-        reason << "Resize not supported: " << resize->toString();
-        break;
-      } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
-        supported = false;
-        reason << "Swizzle not supported: " << swizzle->toString();
-        break;
-      } else if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-        supported = false;
-        reason << "Swizzle2D not supported: " << swizzle2d->toString();
-        break;
-      }
-
-      if (ir_utils::isIndexedID(tv, id)) {
-        supported = false;
-        reason << "Index ops such as select not supported: " << tv->toString();
-      }
-    }
-
-    // Transpose not working. Disable it for now.
-    if (tv->hasRFactor() && tv->getRootDomain() != tv->getRFactorDomain()) {
-      std::unordered_set<IterDomain*> root_set(
-          tv->getRootDomain().begin(), tv->getRootDomain().end());
-      std::unordered_set<IterDomain*> rf_set(
-          tv->getRFactorDomain().begin(), tv->getRFactorDomain().end());
-      if (root_set == rf_set) {
-        // Root and rfactor are just reordered, meaning this tv is transposed
-        supported = false;
-        reason << "Transpose not supported: " << tv->definition()->toString();
-        break;
-      }
+    std::string disable_reason = getDisableReason(tv);
+    if (!disable_reason.empty()) {
+      std::cerr << "TensorIndexer disabled due to: " << disable_reason
+                << std::endl;
+      return false;
     }
   }
 
-  if (!supported) {
-    std::cerr << "TensorIndexer disabled due to: " << reason.str() << std::endl;
-    return false;
-  } else {
-    return true;
-  }
+  return true;
 }
 
 } // namespace nvfuser
