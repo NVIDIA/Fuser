@@ -6,7 +6,7 @@
 
 # Mathematical Logic
 
-**Theorem 1:** If $p \lthen r$, then $p \land r \equiv p$.
+**Theorem 1:** If $p \rightarrow r$, then $p \land r \leftrightarrow p$.
 
 <details>
 
