@@ -196,7 +196,7 @@ For this example, the data loaded in shared memory looks like the following Figu
 
 From the above figure, we see that there are two tiles where the first half tile is blue and the second half tile is red.
 However, the granularity on TMA that programmer has control of is per tile.
-There is no way for a programmer to tell the hardware that they want part of a tile to be filled with data but part of it filled with zero even if they are not out of boundary.
+There is no way for a programmer to tell the hardware that they want part of a tile to be filled with data but part of it filled with zero even if they are not out of the boundary of global memory.
 
 The above observation leads to the following theorem:
 
