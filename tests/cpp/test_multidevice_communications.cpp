@@ -34,8 +34,9 @@ class CommunicationTest
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
-  if (!communicator->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
+  CommunicatorBackend backend = GetParam();
+  if (!communicator->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend not available: " << backend;
   }
   all_ranks = std::vector<DeviceIdxType>(communicator->size());
   std::iota(all_ranks.begin(), all_ranks.end(), 0);

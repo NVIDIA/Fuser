@@ -46,11 +46,6 @@ void MultiDeviceTest::SetUp() {
   do_barrier_at_test =
       multidevice_env->doBarrierAtTest() && communicator->is_available();
   disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip &&
-      (!communicator->is_available() || communicator->size() < 2 ||
-       torch::cuda::device_count() < 2)) {
-    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
-  }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
 }

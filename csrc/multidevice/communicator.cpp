@@ -44,7 +44,7 @@ namespace {
 // Parse the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
 // Returns true if the distributed configuration is valid, false otherwise
-bool parseEnv(
+bool parseMpiEnv(
     RankType& rank,
     int64_t& size,
     RankType& local_rank,
@@ -173,17 +173,16 @@ Communicator::Communicator(
     : is_available_(false),
       default_backend_(backend),
       rank_(0),
-      size_(0),
+      size_(1),
       local_rank_(0),
-      local_size_(0),
+      local_size_(1),
       master_port_(0),
       ucc_available_(false),
       nccl_available_(false) {
   // retrieves rank and communicator size
-  is_available_ = parseEnv(
+  bool run_in_mpi = parseMpiEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
-
-  if (!is_available_) {
+  if (!run_in_mpi) {
     return;
   }
 
@@ -203,7 +202,7 @@ Communicator::Communicator(
       c10d::TCPStoreOptions::kDefaultPort; // 29500
   store_opts.port = master_port_ ? master_port_ : comm_master_port_default;
   store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
-#endif
+  is_available_ = true;
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   ucc_available_ = true;
@@ -211,6 +210,7 @@ Communicator::Communicator(
 
 #ifdef USE_C10D_NCCL
   nccl_available_ = true;
+#endif
 #endif
 }
 

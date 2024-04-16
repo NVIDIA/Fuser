@@ -61,7 +61,7 @@ class Communicator {
   Communicator& operator=(const Communicator&) = delete;
 
   // returns if distributed config is available
-  auto is_available() const {
+  bool is_available() const {
     return is_available_;
   }
 
@@ -138,6 +138,7 @@ class Communicator {
     return backend.value_or(default_backend_);
   }
 
+  // TODO: seems equivalent to store_ == nullptr.
   bool is_available_;
   CommunicatorBackend default_backend_;
   RankType rank_;
