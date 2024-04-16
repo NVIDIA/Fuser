@@ -139,7 +139,8 @@ The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` 
 The second dimension is `I3`, it is the only dimension that defines box by partitioning.
 `I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
 The third dimension is `I4`, it has no box IterDomain, therefore, the box size is implicitly one.
-The fourth dimension is `[I5, I6]`, it has no coordinate IterDomain, therefore this dimension only has one box.
+The fourth dimension is `[I5, I6]`, it has no coordinate IterDomain, therefore this dimension only has one box,
+whose size is the produce of the extents of `I5` and `I6`.
 The fifth dimension is `[I7, I8, I9]`, where `I8` and `I9` are box IterDomain, and `I7` is coordinate IterDomain.
 The imaginary TMA domain has five IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `merge(I5, I6)`, and `merge(I7, I8, I9)`.
 
