@@ -445,7 +445,7 @@ So raise an error if strong correctness is required.
 If strong correctness is not required, generate code like below:
 
 ```C++
-if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomain) {
+if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains) {
   // Do TMA normally
   tma(...);
 } else {
@@ -458,7 +458,8 @@ if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomain) {
 If the condition of FTTC is false, then we always achieve strong correctness by generate the following code:
 
 ```C++
-if (predicates_for_all_non_TMA_protected_IterDomains_including_box_IterDomain) {
+if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains
+    && maybe_special_predicate_for_stride_IterDomains) {
   // Do TMA normally
   tma(...);
 } else {
@@ -467,5 +468,8 @@ if (predicates_for_all_non_TMA_protected_IterDomains_including_box_IterDomain) {
 }
 ```
 
-Note that the predicate for box IterDomain needs special handling.
-F
+The special predicate `maybe_special_predicate_for_stride_IterDomain` has the form
+`index < box_size`, and is needed only when the striding split is indivisible and
+element stride is larger than box size.
+For the case where element stride is not larger than box size,
+there is no harm to keep it as well because it is always true.
