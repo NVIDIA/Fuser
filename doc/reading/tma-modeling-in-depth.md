@@ -326,34 +326,35 @@ so (eq 5) can be simplified as
 > 5. $i_s < B$
 > 6. $i_s < S$
 
-rephrase
+Rephrase (eq 6) as
 
-exist i_{t2} in Z s.t.
-0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
-exist is in Z s.t.
-0 \le is < e
-is < B
-is < S
-B - i_{t2} * e \le is
-is < S - i_{t2} * e
+> **(eq 7)** There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>
+> 1. $0 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 2. There exists $i_s \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 \le i_s < e$
+>    2. $i_s < B$
+>    3. $i_s < S$
+>    4. $B - i_{t2} * e \le i_s$
+>    5. $i_s < S - i_{t2} * e$
 
-the inner qualifier equiv to
+The condition 2 of (eq 7) is equivalent to
 
-0 < e
-0 < B
-0 < S
-0 < S - i_{t2} * e
-B - i_{t2} * e < e
-B - i_{t2} * e < B
-B - i_{t2} * e < S
-B - i_{t2} * e < S - i_{t2} * e
+> - $0 < e$, and
+> - $0 < B$, and
+> - $0 < S$, and
+> - $0 < S - i_{t2} * e$, and
+> - $B - i_{t2} * e < e$, and
+> - $B - i_{t2} * e < B$, and
+> - $B - i_{t2} * e < S$, and
+> - $B - i_{t2} * e < S - i_{t2} * e$
 
-simplify to
+which simplifies to
 
-i_{t2} * e < S
-B - e < i_{t2} * e
-0 < i_{t2}
-B < S
+> - $i_{t2} * e < S$
+> - $B - e < i_{t2} * e$
+> - $0 < i_{t2}$
+> - $B < S$
 
 so overall
 
