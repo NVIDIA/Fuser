@@ -410,33 +410,34 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
   };
 
   if (is_downcast() && input(0)->definition() != nullptr) {
-    Val* mma_lhs = nullptr;
-    Val* mma_rhs = nullptr;
+    MmaOpUtils::MatmulInputs matmul_inp;
 
-    // Case 1: MmaOp + Cast (Matmul)
-    if (MmaOpUtils::matchMatmulCast(
-            this, std::ref(mma_lhs), std::ref(mma_rhs))) {
+    if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
       // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
-      const auto a =
-          ee.evaluate(mma_lhs, known_values).as<at::Tensor>().squeeze(-1);
-      const auto b =
-          ee.evaluate(mma_rhs, known_values).as<at::Tensor>().squeeze(0);
-      return {a.matmul(b)};
-    }
+      const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
+                         .as<at::Tensor>()
+                         .squeeze(-1);
+      const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
+                         .as<at::Tensor>()
+                         .squeeze(0);
+      const c10::Scalar alpha = matmul_inp.alpha
+          ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
+          : 1;
 
-    Val* bias = nullptr;
-    // Case 2: Matmul + Bias
-    if (MmaOpUtils::matchMatmulBiasCast(
-            this, std::ref(mma_lhs), std::ref(mma_rhs), std::ref(bias))) {
-      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
-      const auto a =
-          ee.evaluate(mma_lhs, known_values).as<at::Tensor>().squeeze(-1);
-      const auto b =
-          ee.evaluate(mma_rhs, known_values).as<at::Tensor>().squeeze(0);
-      // Bias is of shape [M,].
-      const auto bias_tensor =
-          ee.evaluate(bias, known_values).as<at::Tensor>().unsqueeze(-1);
-      return {at::addmm(bias_tensor, a, b)};
+      if (matmul_inp.bias == nullptr) {
+        return {alpha * a.matmul(b)};
+      }
+      auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
+      if (bias.dim() != a.dim()) {
+        // Bias is of shape [M,].
+        NVF_ERROR(bias.dim() == a.dim() - 1);
+        bias = bias.unsqueeze(-1);
+      }
+      const c10::Scalar beta = matmul_inp.beta
+          ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
+          : 1;
+
+      return {at::addmm(bias, a, b, beta, alpha)};
     }
   }
 
