@@ -403,18 +403,19 @@ which is equivalent to
 >    3. $i_{t2} < S \div e$
 
 The condition (3.ii) in (eq 11) is achievable only if $i_{t2} = \mathrm{ceilDiv}(B, e) - 1$.
+So (eq 11) is equivalent to
 
-so equiv to
+> **(eq 12)** All the following conditions are satisfied:
+>
+> 1. $B < S$
+> 2. $e$ does not divide $B$
+> 3. $\mathrm{ceilDiv}(B, e) \ge 2$
+> 4. $S > e \times (\mathrm{ceilDiv}(B, e) - 1)$
 
-B < S
-e does not divide B
-\mathrm{ceilDiv}(B, e) \ge 2
-S > e * (\mathrm{ceilDiv}(B, e) - 1)
+which simplifies to
 
-simplify to
+> $e < B < S$ and $e$ does not divide $B$
 
-e < B < S
-e does not divide B
 $\square$
 
 </details>
