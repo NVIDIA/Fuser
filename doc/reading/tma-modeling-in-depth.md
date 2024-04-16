@@ -448,10 +448,6 @@ If strong correctness is not required, generate code like below:
 if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains) {
   // Do TMA normally
   tma(...);
-} else {
-  // Manually create out of bound access so that there is no need to actually
-  // loading any data.
-  tma(x = -bs, ...);
 }
 ```
 
