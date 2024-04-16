@@ -12,6 +12,9 @@
 
 **<summary>Proof:</summary>**
 
+$p \land r \leftarrow p$: By [Absorption](https://en.wikipedia.org/wiki/Absorption_(logic))
+
+$p \land r \rightarrow p$: By [Conjunction elimination](https://en.wikipedia.org/wiki/Conjunction_elimination)
 
 $\square$
 

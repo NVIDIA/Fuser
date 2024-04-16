@@ -244,8 +244,6 @@ That is:
 > - $i_{t2} * e + i_s \ge B$
 
 logically: If p -> r, then p && r <-> p
-p->r => p -> (p && r): https://en.wikipedia.org/wiki/Absorption_(logic)
-p && r -> p: https://en.wikipedia.org/wiki/Conjunction_elimination
 
 r = ... \ge 0, p = others, simplify as:
 
