@@ -379,7 +379,6 @@ Rephrase (eq 8) as
 If $e$ divide $B$, then $\mathrm{ceilDiv}(B, e) = B / e = B \div e$,
 then $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$ is not possible
 because there is no other integers between two consecutive integers.
-
 So (eq 9) can be simplified as
 
 > **(eq 10)** All the following conditions are satisfied:
