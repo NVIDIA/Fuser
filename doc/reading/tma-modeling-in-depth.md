@@ -223,8 +223,8 @@ Consider a dimension, let's define some notation first:
 - index of the stride ID: $i_s \in \mathbb{Z}$
 
 Then we have:
-$$i_b = i_t * e + i_s$$
-$$i_p = i_c * B + i_b$$
+$$i_b = i_t \times e + i_s$$
+$$i_p = i_c \times B + i_b$$
 
 The builtin predicate for TMA is:
 $$0 \le i_p < S$$
@@ -239,10 +239,10 @@ That is:
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
 > 3. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 4. $0 \le i_c * B + i_{t1} * e + i_s < S$
-> 5. $0 \le i_c * B + i_{t2} * e + i_s < S$
-> 6. $0 \le i_{t1} * e + i_s < B$
-> 7. $i_{t2} * e + i_s \ge B$
+> 4. $0 \le i_c \times B + i_{t1} \times e + i_s < S$
+> 5. $0 \le i_c \times B + i_{t2} \times e + i_s < S$
+> 6. $0 \le i_{t1} \times e + i_s < B$
+> 7. $i_{t2} \times e + i_s \ge B$
 
 Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify (eq 1) as:
 
@@ -251,10 +251,10 @@ Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify (eq 1) as
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
 > 3. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 4. $i_c * B + i_{t1} * e + i_s < S$
-> 5. $i_c * B + i_{t2} * e + i_s < S$
-> 6. $i_{t1} * e + i_s < B$
-> 7. $i_{t2} * e + i_s \ge B$
+> 4. $i_c \times B + i_{t1} \times e + i_s < S$
+> 5. $i_c \times B + i_{t2} \times e + i_s < S$
+> 6. $i_{t1} \times e + i_s < B$
+> 7. $i_{t2} \times e + i_s \ge B$
 
 Rephrase (eq 2) as:
 
@@ -262,23 +262,23 @@ Rephrase (eq 2) as:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 3. $i_{t1} * e + i_s < B$
-> 4. $i_{t2} * e + i_s \ge B$
+> 3. $i_{t1} \times e + i_s < B$
+> 4. $i_{t2} \times e + i_s \ge B$
 > 5. There exists $i_c \in \mathbb{Z}$ that satisfies all of the following conditions:
 >    1. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
->    2. $i_c < (S - (i_{t1} * e + i_s)) \div B$
->    3. $i_c < (S - (i_{t2} * e + i_s)) \div B$
+>    2. $i_c < (S - (i_{t1} \times e + i_s)) \div B$
+>    3. $i_c < (S - (i_{t2} \times e + i_s)) \div B$
 
 The condition 5 in (eq 3) is true if and only if
 
 > - $0 < \mathrm{ceilDiv}(S, B)$, and
-> - $0 < (S - (i_{t1} * e + i_s)) \div B$, and
-> - $0 < (S - (i_{t2} * e + i_s)) \div B$
+> - $0 < (S - (i_{t1} \times e + i_s)) \div B$, and
+> - $0 < (S - (i_{t2} \times e + i_s)) \div B$
 
 which can be simplified as
 
-> - $i_{t1} * e + i_s < S$, and
-> - $i_{t2} * e + i_s < S$
+> - $i_{t1} \times e + i_s < S$, and
+> - $i_{t2} \times e + i_s < S$
 
 So (eq 3) can be simplified as:
 
@@ -286,10 +286,10 @@ So (eq 3) can be simplified as:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 3. $i_{t1} * e + i_s < B$
-> 4. $i_{t2} * e + i_s \ge B$
-> 5. $i_{t1} * e + i_s < S$
-> 6. $i_{t2} * e + i_s < S$
+> 3. $i_{t1} \times e + i_s < B$
+> 4. $i_{t2} \times e + i_s \ge B$
+> 5. $i_{t1} \times e + i_s < S$
+> 6. $i_{t2} \times e + i_s < S$
 
 Rephrase (eq 4) as:
 
@@ -297,8 +297,8 @@ Rephrase (eq 4) as:
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 3. $i_{t2} * e + i_s \ge B$
-> 4. $i_{t2} * e + i_s < S$
+> 3. $i_{t2} \times e + i_s \ge B$
+> 4. $i_{t2} \times e + i_s < S$
 > 5. There exists $i_{t1} \in \mathbb{Z}$ that satisfies all of the following conditions:
 >    1. $0 \le i_{t1} < \mathrm{ceilDiv}(B, e)$
 >    2. $i_{t1} < (B - i_s) \div e$
@@ -321,8 +321,8 @@ so (eq 5) can be simplified as
 >
 > 1. $0 \le i_s < e$
 > 2. $0 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
-> 3. $i_{t2} * e + i_s \ge B$
-> 4. $i_{t2} * e + i_s < S$
+> 3. $i_{t2} \times e + i_s \ge B$
+> 4. $i_{t2} \times e + i_s < S$
 > 5. $i_s < B$
 > 6. $i_s < S$
 
@@ -335,24 +335,24 @@ Rephrase (eq 6) as
 >    1. $0 \le i_s < e$
 >    2. $i_s < B$
 >    3. $i_s < S$
->    4. $B - i_{t2} * e \le i_s$
->    5. $i_s < S - i_{t2} * e$
+>    4. $B - i_{t2} \times e \le i_s$
+>    5. $i_s < S - i_{t2} \times e$
 
 The condition 2 of (eq 7) is equivalent to
 
 > - $0 < e$, and
 > - $0 < B$, and
 > - $0 < S$, and
-> - $0 < S - i_{t2} * e$, and
-> - $B - i_{t2} * e < e$, and
-> - $B - i_{t2} * e < B$, and
-> - $B - i_{t2} * e < S$, and
-> - $B - i_{t2} * e < S - i_{t2} * e$
+> - $0 < S - i_{t2} \times e$, and
+> - $B - i_{t2} \times e < e$, and
+> - $B - i_{t2} \times e < B$, and
+> - $B - i_{t2} \times e < S$, and
+> - $B - i_{t2} \times e < S - i_{t2} \times e$
 
 which simplifies to
 
-> - $i_{t2} * e < S$
-> - $B - e < i_{t2} * e$
+> - $i_{t2} \times e < S$
+> - $B - e < i_{t2} \times e$
 > - $0 < i_{t2}$
 > - $B < S$
 
