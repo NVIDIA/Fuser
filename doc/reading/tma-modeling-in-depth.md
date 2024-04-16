@@ -211,7 +211,7 @@ The above observation leads to the following theorem:
 
 **<summary>Proof:</summary>**
 
-Consider a dimension, let's define some notation first
+Consider a dimension, let's define some notation first:
 
 - size of dimension: $S \in \mathbb{Z}^+$
 - box size: $B \in \mathbb{Z}^+$
@@ -227,80 +227,85 @@ $$i_b = i_t * e + i_s$$
 $$i_p = i_c * B + i_b$$
 
 The builtin predicate for TMA is:
-$$0 \le ip < S$$
+$$0 \le i_p < S$$
 
-exist is, ic, it1, it2 in Z s.t.
-0 \le is < e
-0 \le ic < ceilDiv(S, B)
-0 \le it1, it2 < ceilDiv(B, e)
-0 \le ic * B + it1 * e + is < S
-0 \le ic * B + it2 * e + is < S
-0 \le it1 * e + is < B
-it2 * e + is >= B
+If this dimension makes strong correctness unachievable,
+this means that there exist a tile that part of it contains valid items and part contains holes,
+and there are holes satisfting the builtin predicate of TMA.
+That is
+
+> There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+- $0 \le i_s < e$
+- $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+- $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+- $0 \le i_c * B + i_{t1} * e + i_s < S$
+- $0 \le i_c * B + i_{t2} * e + i_s < S$
+- $0 \le i_{t1} * e + i_s < B$
+- $i_{t2} * e + i_s \ge B$
 
 logically: If p -> r, then p && r <-> p
 p->r => p -> (p && r): https://en.wikipedia.org/wiki/Absorption_(logic)
 p && r -> p: https://en.wikipedia.org/wiki/Conjunction_elimination
 
-r = ... >= 0, p = others, simplify as:
+r = ... \ge 0, p = others, simplify as:
 
-exist is, ic, it1, it2 in Z s.t.
+exist is, ic, i_{t1}, i_{t2} in Z s.t.
 0 \le is < e
-0 \le ic < ceilDiv(S, B)
-0 \le it1, it2 < ceilDiv(B, e)
-ic * B + it1 * e + is < S
-ic * B + it2 * e + is < S
-it1 * e + is < B
-it2 * e + is >= B
+0 \le ic < \mathrm{ceilDiv}(S, B)
+0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
+ic * B + i_{t1} * e + is < S
+ic * B + i_{t2} * e + is < S
+i_{t1} * e + is < B
+i_{t2} * e + is \ge B
 
 rephrase as
 
-exist is, it1, it2 in Z s.t.
+exist is, i_{t1}, i_{t2} in Z s.t.
 0 \le is < e
-0 \le it1, it2 < ceilDiv(B, e)
-it1 * e + is < B
-it2 * e + is >= B
+0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t1} * e + is < B
+i_{t2} * e + is \ge B
 exist ic in Z s.t.
-0 \le ic < ceilDiv(S, B)
-ic < (S - (it1 * e + is)) \div B
-ic < (S - (it2 * e + is)) \div B
+0 \le ic < \mathrm{ceilDiv}(S, B)
+ic < (S - (i_{t1} * e + is)) \div B
+ic < (S - (i_{t2} * e + is)) \div B
 
 the inner qualifier equiv to
 
-0 < ceilDiv(S, B)
-0 < (S - (it1 * e + is)) \div B
-0 < (S - (it2 * e + is)) \div B
+0 < \mathrm{ceilDiv}(S, B)
+0 < (S - (i_{t1} * e + is)) \div B
+0 < (S - (i_{t2} * e + is)) \div B
 
 simplify as
 
-it1 * e + is < S
-it2 * e + is < S
+i_{t1} * e + is < S
+i_{t2} * e + is < S
 
 so overall
 
-exist is, it1, it2 in Z s.t.
+exist is, i_{t1}, i_{t2} in Z s.t.
 0 \le is < e
-0 \le it1, it2 < ceilDiv(B, e)
-it1 * e + is < B
-it2 * e + is >= B
-it1 * e + is < S
-it2 * e + is < S
+0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t1} * e + is < B
+i_{t2} * e + is \ge B
+i_{t1} * e + is < S
+i_{t2} * e + is < S
 
 rephrase as
 
-exist is, it2 in Z s.t.
+exist is, i_{t2} in Z s.t.
 0 \le is < e
-0 \le it2 < ceilDiv(B, e)
-it2 * e + is >= B
-it2 * e + is < S
-exist it1 in Z s.t.
-0 \le it1 < ceilDiv(B, e)
-it1 < (B - is) \div e
-it1 < (S - is) \div e
+0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t2} * e + is \ge B
+i_{t2} * e + is < S
+exist i_{t1} in Z s.t.
+0 \le i_{t1} < \mathrm{ceilDiv}(B, e)
+i_{t1} < (B - is) \div e
+i_{t1} < (S - is) \div e
 
 the inner qualifier equiv to
 
-0 < ceilDiv(B, e)
+0 < \mathrm{ceilDiv}(B, e)
 0 < (B - is) \div e
 0 < (S - is) \div e
 
@@ -311,80 +316,80 @@ is < S
 
 so overall
 
-exist is, it2 in Z s.t.
+exist is, i_{t2} in Z s.t.
 0 \le is < e
 is < B
 is < S
-0 \le it2 < ceilDiv(B, e)
-it2 * e + is >= B
-it2 * e + is < S
+0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t2} * e + is \ge B
+i_{t2} * e + is < S
 
 rephrase
 
-exist it2 in Z s.t.
-0 \le it2 < ceilDiv(B, e)
+exist i_{t2} in Z s.t.
+0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
 exist is in Z s.t.
 0 \le is < e
 is < B
 is < S
-B - it2 * e \le is
-is < S - it2 * e
+B - i_{t2} * e \le is
+is < S - i_{t2} * e
 
 the inner qualifier equiv to
 
 0 < e
 0 < B
 0 < S
-0 < S - it2 * e
-B - it2 * e < e
-B - it2 * e < B
-B - it2 * e < S
-B - it2 * e < S - it2 * e
+0 < S - i_{t2} * e
+B - i_{t2} * e < e
+B - i_{t2} * e < B
+B - i_{t2} * e < S
+B - i_{t2} * e < S - i_{t2} * e
 
 simplify to
 
-it2 * e < S
-B - e < it2 * e
-0 < it2
+i_{t2} * e < S
+B - e < i_{t2} * e
+0 < i_{t2}
 B < S
 
 so overall
 
 B < S
-exist it2 in Z s.t.
-0 < it2 < ceilDiv(B, e)
-it2 * e < S
-B - e < it2 * e
+exist i_{t2} in Z s.t.
+0 < i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t2} * e < S
+B - e < i_{t2} * e
 
 equiv to
 
 B < S
-exist it2 in Z s.t.
-0 < it2
-B \div e - 1 < it2 < ceilDiv(B, e)
-it2 < S \div e
+exist i_{t2} in Z s.t.
+0 < i_{t2}
+B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t2} < S \div e
 
 if e divide B, equiv to
-B / e - 1 < it2 < B / e
+B / e - 1 < i_{t2} < B / e
 impossible
 
 equiv to
 
 B < S
 e does not divide B
-exist it2 in Z s.t.
-1 \le it2
-ceilDiv(B, e) - 1 \le it2 < ceilDiv(B, e)
-it2 < S \div e
+exist i_{t2} in Z s.t.
+1 \le i_{t2}
+\mathrm{ceilDiv}(B, e) - 1 \le i_{t2} < \mathrm{ceilDiv}(B, e)
+i_{t2} < S \div e
 
-qualifier can only take it2 = ceilDiv(B, e) - 1
+qualifier can only take i_{t2} = \mathrm{ceilDiv}(B, e) - 1
 
 so equiv to
 
 B < S
 e does not divide B
-ceilDiv(B, e) >= 2
-S > e * (ceilDiv(B, e) - 1)
+\mathrm{ceilDiv}(B, e) \ge 2
+S > e * (\mathrm{ceilDiv}(B, e) - 1)
 
 simplify to
 
