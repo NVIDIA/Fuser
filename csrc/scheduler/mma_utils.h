@@ -405,6 +405,21 @@ int64_t computeExpectedSharedMemoryUsage(
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false);
 
+//! Encode DataType as character using the following mapping (not all are
+//! supported yet in nvFuser):
+//!  B = Int8
+//!  I = Int32
+//!  Q = FP8 (E4M3)
+//!  R = FP8 (E5M2)
+//!  T = BFloat16
+//!  H = Float16
+//!  F = TensorFloat32
+//!  S = Float32
+//!  D = Float64
+//!  C = complex<float>
+//!  Z = complex<double>
+char dtypeToChar(const DataType& dtype);
+
 } // namespace mma_utils
 
 } // namespace nvfuser

@@ -1269,7 +1269,7 @@ TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit1) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but")));
+          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit2) {

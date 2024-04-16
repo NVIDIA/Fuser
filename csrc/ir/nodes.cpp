@@ -413,31 +413,50 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     MmaOpUtils::MatmulInputs matmul_inp;
 
     if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
-      const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(-1);
-      const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(0);
+      // Inputs to the pattern are of the shape [M, K] x [K, N] (matmul) / [M,
+      // K] x [N, K] (linear). Note: alpha, beta parameters are nullptr for
+      // linear.
+      const auto a =
+          ee.evaluate(matmul_inp.mma_lhs, known_values).as<at::Tensor>();
+      const auto b =
+          ee.evaluate(matmul_inp.mma_rhs, known_values).as<at::Tensor>();
       const c10::Scalar alpha = matmul_inp.alpha
           ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
           : 1;
 
+      // Matmul/Addmm: n_pos=2, k_pos=1
+      // Linear: n_pos=1, k_pos=2
+      const int k_pos =
+          std::get<(size_t)MatmulDomain::K>(matmul_inp.mma_dims_pos);
+      const int n_pos =
+          std::get<(size_t)MatmulDomain::N>(matmul_inp.mma_dims_pos);
+
       if (matmul_inp.bias == nullptr) {
-        return {alpha * a.matmul(b)};
+        auto out = k_pos < n_pos ? alpha * a.matmul(b) : at::linear(a, b);
+        return {out};
       }
+
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
-      if (bias.dim() != a.dim()) {
-        // Bias is of shape [M,].
-        NVF_ERROR(bias.dim() == a.dim() - 1);
-        bias = bias.unsqueeze(-1);
+
+      // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
+      if (bias.dim() != a.dim() && (k_pos < n_pos)) {
+        // Unsqueeze the broadcast dimensions.
+        // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
+        for (auto dim :
+             c10::irange((int64_t)matmul_inp.bias_bcast_flags.size())) {
+          if (matmul_inp.bias_bcast_flags[dim]) {
+            bias = bias.unsqueeze(dim);
+          }
+        }
       }
+
       const c10::Scalar beta = matmul_inp.beta
           ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
           : 1;
 
-      return {at::addmm(bias, a, b, beta, alpha)};
+      auto out = k_pos < n_pos ? at::addmm(bias, a, b, beta, alpha)
+                               : at::linear(a, b, bias);
+      return {out};
     }
   }
 

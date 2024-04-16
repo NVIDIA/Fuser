@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <scheduler/mma_utils.h>
 
 #include <limits>
 #include <set>
@@ -1313,6 +1314,43 @@ MmaOpDetails getMmaOpDetails(
   return details;
 }
 
+namespace {
+// Returns the position of M,N,K axis in mma operands.
+std::tuple<int, int, int> getMmaDimsPositions(MmaOp* mma) {
+  auto mma_domains = mma_utils::getProblemIterDomains(mma->fusion());
+  NVF_ERROR(mma_domains.isValid(), mma_domains.getErrorMsg());
+
+  const auto domains_data = mma_domains.getData();
+  const auto m_id = domains_data[(size_t)MatmulDomain::M];
+  const auto n_id = domains_data[(size_t)MatmulDomain::N];
+  const auto k_id = domains_data[(size_t)MatmulDomain::K];
+
+  int m_pos = -1;
+  int n_pos = -1;
+  int k_pos = -1;
+
+  auto out_tv = mma->out()->as<TensorView>();
+  int ndims = (int)out_tv->nDims();
+
+  for (auto idx : c10::irange(ndims)) {
+    auto id = out_tv->axis(idx);
+    // Categorize each original iterdomain position
+    if (m_id->sameAs(id)) {
+      m_pos = idx;
+    } else if (n_id->sameAs(id)) {
+      n_pos = idx;
+    } else if (k_id->sameAs(id)) {
+      k_pos = idx;
+    }
+  }
+
+  NVF_ERROR(
+      m_pos != -1 && n_pos != -1 && k_pos != -1,
+      "Valid index not found for all problem iterdomains.")
+  return {m_pos, n_pos, k_pos};
+}
+} // namespace
+
 // Verifies the assumptions made when evaluating a fusion containing MmaOp:
 // 1. MmaOp is preceded by a broadcast.
 // 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
@@ -1344,9 +1382,12 @@ void verifyMmaOpForEvaluation(
   NVF_ERROR(
       in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
       "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
   NVF_ERROR(
-      tv_a->getRootDomain().back()->isBroadcast(),
-      "Expected last dimension to be broadcasted for first operand.");
+      tv_a->getRootDomain().back()->isBroadcast() ||
+          tv_a->getRootDomain()[1]->isBroadcast(),
+      "Expected middle/last dimension to be broadcasted for first operand.");
+
   NVF_ERROR(
       tv_b->getRootDomain().front()->isBroadcast(),
       "Expected first dimension to be broadcasted for second operand.");
@@ -1417,15 +1458,22 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
 
   // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
   MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
-  matmul_inp->mma_lhs = mma->inA();
-  matmul_inp->mma_rhs = mma->inB();
+
+  // Get the non-broadcasted values to avoid inferring squeeze dimensions.
+  matmul_inp->mma_lhs = mma->inA()->definition()->input(0);
+  matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
+  matmul_inp->mma_dims_pos = getMmaDimsPositions(mma);
+
+  NVF_ERROR(
+      std::get<(size_t)MatmulDomain::M>(matmul_inp->mma_dims_pos) == 0,
+      "Expected M to be the first dimension.");
 
   if (!has_bias) {
     return true;
   }
 
   // Based on the presence of beta parameter, the expected ops are:
-  // CastOp(bias, fp32) -> -> Broadcast (Optional) -> Mul (if beta is present)
+  // CastOp(bias, fp32) -> Broadcast (Optional) -> Mul (if beta is present)
   // -> Add
 
   // Check for beta parameter
@@ -1444,20 +1492,21 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
     }
   }
 
+  auto bias_ndims = matmul_inp->bias->as<TensorView>()->nDims();
+  auto inp_ndims = matmul_inp->mma_lhs->as<TensorView>()->nDims();
+
+  NVF_ERROR(
+      (bias_ndims == inp_ndims - 1) || (bias_ndims == inp_ndims),
+      "Bias should be 1D / 2D tensor.");
+
   // Check if bias was broadcasted
   auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
-  if (bcast != nullptr) { // mma_lhs is broadcasted
-    // Bias of shape [M, 1]
-    NVF_ERROR(
-        matmul_inp->bias->as<TensorView>()
-            ->getRootDomain()
-            .back()
-            ->isBroadcast(),
-        "Expected last dimension to be broadcasted for bias tensor.");
+  if (bcast != nullptr) {
+    // Bias of shape [M, 1] / [1, N]
+    matmul_inp->bias_bcast_flags = bcast->getBroadcastDimFlags();
     matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
   }
 
-  // Verify the dimensions of the bias
   auto* bias_cast = dynamic_cast<UnaryOp*>(matmul_inp->bias->definition());
 
   // The bias tensor and matmul inputs should be of the same dtype.
@@ -1468,8 +1517,7 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
       *(bias_cast->input(0)->getDataType()) == final_out_dtype,
       "Bias should be originally of the same type as the final output dtype.");
 
-  matmul_inp->bias =
-      bias_cast->input(0); // Input bias tensor of [M]/[M, N] shape.
+  matmul_inp->bias = bias_cast->input(0);
 
   return true;
 }
