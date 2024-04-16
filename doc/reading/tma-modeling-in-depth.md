@@ -432,7 +432,40 @@ the red items in Figure 6 would still exist without extra protextion,
 because the example of $i_3 = 0$, $i_4 = 4$, and $i_1 = 4$ mentioned above is still valid.
 However, by lowering smartly, we can add a check for the range of `I6` (i.e. $i_6 < 4$) to get rid of the red items.
 
-## Achieving strong correctness
+## The lowering strategy
 
-Theorem 6 is so powerful that it deserve a fancier name "**The fundamental theorem of TMA correctness**".
-It is powerful because the condition in it is both necessary and sufficient.
+Theorem 6 is so powerful that it deserve a fancier name "**The fundamental theorem of TMA correctness**",
+or **FTTC** in short.
+It is powerful because the condition in it is both necessary and sufficient,
+and it directly tells us the correct lowering strategy:
+
+We should check the condition of FTTC.
+If the condition is true, then it is impossible to achieve strong correctness.
+So raise an error if strong correctness is required.
+If strong correctness is not required, generate code like below:
+
+```C++
+if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomain) {
+  // Do TMA normally
+  tma(...);
+} else {
+  // Manually create out of bound access so that there is no need to actually
+  // loading any data.
+  tma(x = -bs, ...);
+}
+```
+
+If the condition of FTTC is false, then we always achieve strong correctness by generate the following code:
+
+```C++
+if (predicates_for_all_non_TMA_protected_IterDomains_including_box_IterDomain) {
+  // Do TMA normally
+  tma(...);
+} else {
+  // Manually create out of bound access to ensure strong correctness
+  tma(x = -bs, ...);
+}
+```
+
+Note that the predicate for box IterDomain needs special handling.
+F
