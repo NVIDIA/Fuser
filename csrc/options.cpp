@@ -432,11 +432,13 @@ std::unordered_map<std::string, Feature> nameToFeature() {
 }
 
 void fillDefaultFeatures(FeatureSet* feats) {
+  static std::bitset<enumSize<Feature>()> bitset;
+  static std::unordered_map<Feature, std::vector<std::string>> all_args;
   static bool initialized = false;
   if (!initialized) {
 #define ENABLE_DEFAULT_FEATURE(name, label, enabled, cache_key, desc) \
   if (enabled) {                                                      \
-    feats->bitset()[toUnderlying(Feature::label)] = true;             \
+    bitset[toUnderlying(Feature::label)] = true;                      \
   }
     FOR_EACH_FEATURE(ENABLE_DEFAULT_FEATURE);
 #undef ENABLE_DEFAULT_FEATURE
@@ -455,8 +457,8 @@ void fillDefaultFeatures(FeatureSet* feats) {
       for (auto& arg : feature_args) {
         args.push_back(arg);
       }
-      feats->setArgs(feature, args);
-      feats->bitset()[idx] = true;
+      all_args.emplace(feature, args);
+      bitset[idx] = true;
     }
     for (const auto& [feature, feature_args] : disabled) {
       size_t idx = (size_t)toUnderlying(feature);
@@ -465,10 +467,12 @@ void fillDefaultFeatures(FeatureSet* feats) {
           "Contradiction in environment variables. Found ",
           featureNames()[idx],
           " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
-      feats->bitset()[idx] = false;
+      bitset[idx] = false;
     }
     initialized = true;
   }
+  feats->bitset() = bitset;
+  feats->setArgs(all_args);
 }
 
 #undef FOR_EACH_FEATURE

@@ -200,8 +200,15 @@ class FeatureSet : public EnumSet<Feature> {
   //! hasArgs(feat) returned true.
   const std::vector<std::string>& getArgs(Feature feat) const;
 
+  //! Set args for a single feature
   void setArgs(Feature feat, const std::vector<std::string>& args) {
     args_[feat] = args;
+  }
+
+  //! Set args for all features at once by copying a whole unordered_map
+  void setArgs(
+      const std::unordered_map<Feature, std::vector<std::string>>& all_args) {
+    args_ = all_args;
   }
 
  private:
