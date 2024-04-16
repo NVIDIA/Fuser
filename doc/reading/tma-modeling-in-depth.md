@@ -282,36 +282,38 @@ which can be simplified as
 
 So (eq 3) can be simplified as:
 
-exist is, i_{t1}, i_{t2} in Z s.t.
-0 \le is < e
-0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t1} * e + is < B
-i_{t2} * e + is \ge B
-i_{t1} * e + is < S
-i_{t2} * e + is < S
+> **(eq 4)** There exists $i_s \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 3. $i_{t1} * e + i_s < B$
+> 4. $i_{t2} * e + i_s \ge B$
+> 5. $i_{t1} * e + i_s < S$
+> 6. $i_{t2} * e + i_s < S$
 
-rephrase as
+Rephrase (eq 4) as:
 
-exist is, i_{t2} in Z s.t.
-0 \le is < e
-0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t2} * e + is \ge B
-i_{t2} * e + is < S
-exist i_{t1} in Z s.t.
-0 \le i_{t1} < \mathrm{ceilDiv}(B, e)
-i_{t1} < (B - is) \div e
-i_{t1} < (S - is) \div e
+> **(eq 5)** There exists $i_s \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 3. $i_{t2} * e + i_s \ge B$
+> 4. $i_{t2} * e + i_s < S$
+> 5. There exists $i_{t1} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 \le i_{t1} < \mathrm{ceilDiv}(B, e)$
+>    2. $i_{t1} < (B - i_s) \div e$
+>    3. $i_{t1} < (S - i_s) \div e$
 
 the inner qualifier equiv to
 
 0 < \mathrm{ceilDiv}(B, e)
-0 < (B - is) \div e
-0 < (S - is) \div e
+0 < (B - i_s) \div e
+0 < (S - i_s) \div e
 
 simplify to
 
-is < B
-is < S
+i_s < B
+i_s < S
 
 so overall
 
