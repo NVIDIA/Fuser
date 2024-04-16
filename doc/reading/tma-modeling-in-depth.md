@@ -232,16 +232,16 @@ $$0 \le i_p < S$$
 If this dimension makes strong correctness unachievable,
 this means that there exist a tile that part of it contains valid items and part contains holes,
 and there are holes satisfting the builtin predicate of TMA.
-That is
+That is:
 
 > There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
-- $0 \le i_s < e$
-- $0 \le i_c < \mathrm{ceilDiv}(S, B)$
-- $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-- $0 \le i_c * B + i_{t1} * e + i_s < S$
-- $0 \le i_c * B + i_{t2} * e + i_s < S$
-- $0 \le i_{t1} * e + i_s < B$
-- $i_{t2} * e + i_s \ge B$
+> - $0 \le i_s < e$
+> - $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+> - $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> - $0 \le i_c * B + i_{t1} * e + i_s < S$
+> - $0 \le i_c * B + i_{t2} * e + i_s < S$
+> - $0 \le i_{t1} * e + i_s < B$
+> - $i_{t2} * e + i_s \ge B$
 
 logically: If p -> r, then p && r <-> p
 p->r => p -> (p && r): https://en.wikipedia.org/wiki/Absorption_(logic)
