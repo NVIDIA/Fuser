@@ -243,18 +243,18 @@ That is:
 > - $0 \le i_{t1} * e + i_s < B$
 > - $i_{t2} * e + i_s \ge B$
 
-logically: If p -> r, then p && r <-> p
+Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify the above predicate as
 
 r = ... \ge 0, p = others, simplify as:
 
-exist is, ic, i_{t1}, i_{t2} in Z s.t.
-0 \le is < e
-0 \le ic < \mathrm{ceilDiv}(S, B)
-0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
-ic * B + i_{t1} * e + is < S
-ic * B + i_{t2} * e + is < S
-i_{t1} * e + is < B
-i_{t2} * e + is \ge B
+> There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+> - $0 \le i_s < e$
+> - $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+> - $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> - i_c * B + i_{t1} * e + i_s < S$
+> - i_c * B + i_{t2} * e + i_s < S$
+> - i_{t1} * e + i_s < B$
+> - $i_{t2} * e + i_s \ge B$
 
 rephrase as
 
