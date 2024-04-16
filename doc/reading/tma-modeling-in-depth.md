@@ -418,8 +418,8 @@ $\square$
 </details>
 
 Now, let's go back to the example in Figure 5.
-In this example, all the conditions of Theorem 6 is satisfied, so strong correctness is unachievable.
-What if some condition is violated?
+In this example, all the conditions of Theorem 6 are satisfied for the outer dimension,
+so strong correctness is unachievable. What if some condition is violated?
 
 If the element stride divided the box size, then the striding split would not create any hole at all.
 
