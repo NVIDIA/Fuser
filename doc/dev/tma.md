@@ -165,8 +165,10 @@ It is wrong to just do the striding split on the innermost box IterDomain withou
 and the former is not equivalent to the latter as discussed in [Divisibility of Split](../reading/divisibility-of-split.md#merge-then-split-vs-split-then-merge).
 
 > [!WARNING]
-> When the element stride does not divide the box size,
+> When the element stride does not divide and is smaller than the box size,
+> and the tensor size is larger than the box size,
 > extra care is needed because there are holes not filled with zero.
+> This is called "**The fundamental theorem of TMA correctness**", or **FTTC** in short.
 > See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md#the-unachievability-of-strong-correctness-for-indivisible-element-stride) for more detail.
 
 ### Step 4: Schedule tile
