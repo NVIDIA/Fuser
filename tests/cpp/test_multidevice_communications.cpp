@@ -171,6 +171,10 @@ TEST_P(CommunicationTest, Communication_Broadcast) {
 }
 
 TEST_P(CommunicationTest, Communication_SendRecv) {
+  if (communicator->size() < 2 || torch::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (communicator->deviceId() > 1) { // only devices 0 and 1 participate
