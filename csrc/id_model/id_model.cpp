@@ -1458,19 +1458,31 @@ void IdModel::propagatePromotionsInIELGraph(
     std::vector<IterDomain*> maybe_promoted_inputs;
     maybe_promoted_inputs.reserve(iel_inp_groups.size());
 
+    // FusionReshapePersistentShmoo with
+    // std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
+    // std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
+    // Incorrect loop promotion at the second segment. Need to use the
+    // step 3 result when propagating through IEL expr of merge 104
+    // and 197.
+    bool war = iel_expr->front()->isA<Split>() &&
+        iel_expr->front()->input(0)->definition() &&
+        iel_expr->front()->input(0)->definition()->isA<Merge>();
+
     for (const ValGroup& iel_inp_group : iel_inp_groups) {
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
 
-      // Propagate IEL promotions when available.
-      if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
-          inp_promo_it != iel_promotion_map.end()) {
-        maybe_promoted_inputs.push_back(inp_promo_it->second);
-        an_input_was_promoted = true;
-        VERBOSE() << "Promoted input by IEL promotion: "
-                  << nvfuser::toString(iel_inp_group) << " -> "
-                  << inp_promo_it->second->name() << std::endl;
-        continue;
+      if (!war) {
+        // Propagate IEL promotions when available.
+        if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
+            inp_promo_it != iel_promotion_map.end()) {
+          maybe_promoted_inputs.push_back(inp_promo_it->second);
+          an_input_was_promoted = true;
+          VERBOSE() << "Promoted input by IEL promotion: "
+                    << nvfuser::toString(iel_inp_group) << " -> "
+                    << inp_promo_it->second->name() << std::endl;
+          continue;
+        }
       }
 
       // Promote loops based on the loop promotion map. If the loop promotion
