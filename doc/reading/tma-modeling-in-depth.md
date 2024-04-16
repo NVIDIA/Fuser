@@ -307,24 +307,72 @@ it2 * e + is < S
 
 rephrase
 
+exist it2 in Z s.t.
+0 <= it2 < ceilDiv(B, e)
 exist is in Z s.t.
 0 <= is < e
 is < B
 is < S
-exist it2 in Z s.t.
-0 <= it2 < ceilDiv(B, e)
-(B - is) \div e <= it2
-it2 < (S - is) \div e
+B - it2 * e <= is
+is < S - it2 * e
 
 the inner qualifier equiv to
 
-0 < ceilDiv(B, e)
-0 < (S - is) \div e
-ceilDiv(B - is, e) < ceilDiv(B, e)
-ceilDiv(B - is, e) < (S - is) \div e
+0 < e
+0 < B
+0 < S
+0 < S - it2 * e
+B - it2 * e < e
+B - it2 * e < B
+B - it2 * e < S
+B - it2 * e < S - it2 * e
 
 simplify to
 
-is < S
-ceilDiv(B - is, e) < ceilDiv(B, e)
-ceilDiv(B - is, e) < (S - is) \div e
+it2 * e < S
+B - e < it2 * e
+0 < it2
+B < S
+
+so overall
+
+B < S
+exist it2 in Z s.t.
+0 < it2 < ceilDiv(B, e)
+it2 * e < S
+B - e < it2 * e
+
+equiv to
+
+B < S
+exist it2 in Z s.t.
+0 < it2
+B \div e - 1 < it2 < ceilDiv(B, e)
+it2 < S \div e
+
+if e divide B, equiv to
+B / e - 1 < it2 < B / e
+impossible
+
+equiv to
+
+B < S
+e does not divide B
+exist it2 in Z s.t.
+1 <= it2
+ceilDiv(B, e) - 1 <= it2 < ceilDiv(B, e)
+it2 < S \div e
+
+qualifier can only take it2 = ceilDiv(B, e) - 1
+
+so equiv to
+
+B < S
+e does not divide B
+ceilDiv(B, e) >= 2
+S > e * (ceilDiv(B, e) - 1)
+
+simplify to
+
+e < B < S
+e does not divide B
