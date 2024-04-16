@@ -356,13 +356,14 @@ which simplifies to
 > - $0 < i_{t2}$
 > - $B < S$
 
-so overall
+So (eq 7) can be simplified as
 
-B < S
-exist i_{t2} in Z s.t.
-0 < i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t2} * e < S
-B - e < i_{t2} * e
+> **(eq 7)** All the following conditions are satisfied:
+> - $B < S$
+> - There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>   1. $0 < i_{t2} < \mathrm{ceilDiv}(B, e)$
+>   2. $i_{t2} \times e < S$
+>   3. $B - e < i_{t2} \times e$
 
 equiv to
 
