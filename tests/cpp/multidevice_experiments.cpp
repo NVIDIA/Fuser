@@ -53,7 +53,7 @@ std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
 }
 
 // <interleave comms/compute>
-using OverlapTestParams = std::tuple<bool, ComputeMode>;
+using OverlapTestParams = std::tuple<bool, ComputeMode, CommunicatorBackend>;
 
 class OverlapTest : public MultiDeviceTest,
       public testing::WithParamInterface<OverlapTestParams> {
@@ -66,7 +66,7 @@ class OverlapTest : public MultiDeviceTest,
         std::vector<int64_t> devices(num_devices);
         std::iota(devices.begin(), devices.end(), 0);
         world_communicator = communicator->getBackendForTeam(
-            devices, std::nullopt /* default backend */);
+            devices, std::get<2>(GetParam())/* backend */);
 
         bool interleave_comm_compute = std::get<0>(GetParam());
         // Define the constants
@@ -131,35 +131,38 @@ class OverlapTest : public MultiDeviceTest,
     std::unique_ptr<FusionExecutor> fe;
     std::unique_ptr<FusionExecutorCache> fec;
 
-    at::Tensor get_slice(at::Tensor t, int64_t i, int64_t j) {
-        return t.index({at::indexing::Slice(i, i+1),
+    c10::IValue get_slice(c10::IValue t, int64_t i, int64_t j) {
+        return t.toTensor().index({at::indexing::Slice(i, i+1),
                         at::indexing::Slice(j*tile_size, (j+1)*tile_size),
                         "..."});
     }
 
-    at::Tensor compute_ATen (at::Tensor t, at::Tensor output) {
+    void compute_ATen (at::Tensor& t, at::Tensor& output) {
         for (auto _=0; _<n_iterations; _++) {
-            at::add_out(output, t,t);
-            at::mul_out(output, output,output);
-            at::sub_out(output, output,output);
+            at::add_out(output, t, t);
+            at::mul_out(output, output, output);
+            at::sub_out(output, output, output);
         }
-        return output;
     }
 
-    at::Tensor compute(at::Tensor t, at::Tensor output) {
+    void compute(std::vector<c10::IValue>& t, std::vector<at::Tensor>& output) {
         ComputeMode compute_mode = std::get<1>(GetParam());
         switch (compute_mode)
         {
         case ComputeMode::Pytorch:
-            return compute_ATen(t, output);
+            compute_ATen(t.at(0).toTensor(), output.at(0));
+            break;
         case ComputeMode::nvFuserFusionExecutor:
-            return fe->runFusion({t}, {output}).at(0);
+            fe->runFusion(t, output);
+            break;
         case ComputeMode::nvFuserFusionExecutorCache:
-            return fec->runFusionWithInputs({t}).at(0);
+            NVF_ERROR(false);
+            // fec->runFusionWithInputs(t).at(0);
+            break;
         default:
             break;
         }
-        return t;
+        return;
     }
 };
 
@@ -185,14 +188,14 @@ TEST_P(OverlapTest, SimpleComputeComm) {
     auto tv0_unsharded = at::randn(unsharded_sizes, options);
     // Index into the unsharded inputs to get the local input tv0
     // We prepare the inputs slices, because profiling shows that slicing sometimes result in a copy instead of a view
-    std::vector<at::Tensor> tv0_slices;
+    std::vector<std::vector<c10::IValue>> tv0_slices;
     for (auto j: c10::irange(number_of_tiles)) {
-        tv0_slices.push_back(get_slice(tv0_unsharded, my_device_index, j));
+        tv0_slices.push_back({get_slice(tv0_unsharded, my_device_index, j)});
     }
 
-    std::vector<at::Tensor> tv1_slices;
+    std::vector<std::vector<at::Tensor>> tv1_slices;
     for (int _=0; _<number_of_tiles; _++) {
-        tv1_slices.push_back(at::empty({1,tile_size,C}, options));
+        tv1_slices.push_back({at::empty({1,tile_size,C}, options)});
     }
 
     // Allocate ouput global buffer for tv2 for the data to be allgathered
@@ -202,13 +205,13 @@ TEST_P(OverlapTest, SimpleComputeComm) {
     for (auto j: c10::irange(number_of_tiles)) {
         std::vector<at::Tensor> tv2_j_slices;
         for (auto i: c10::irange(num_devices)) {
-            tv2_j_slices.push_back(get_slice(tv2_buf, i, j));
+            tv2_j_slices.push_back(get_slice(tv2_buf, i, j).toTensor());
         }
         tv2_slices.push_back({std::move(tv2_j_slices)});
     }
 
     if (std::get<1>(GetParam()) == ComputeMode::nvFuserFusionExecutor) {
-        fe->compileFusion(fusion.get(), {tv0_slices.at(0)});
+        fe->compileFusion(fusion.get(), tv0_slices.at(0));
     }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
@@ -217,9 +220,7 @@ TEST_P(OverlapTest, SimpleComputeComm) {
         compute(tv0_slices.at(j), tv1_slices.at(j));
 
         // communication
-        std::vector<at::Tensor> src_buf = {tv1_slices.at(j)};
-        std::vector<std::vector<at::Tensor>>& dst_bufs = tv2_slices.at(j);
-        auto req_handle = world_communicator->allgather(dst_bufs, src_buf);
+        auto req_handle = world_communicator->allgather(tv2_slices.at(j), tv1_slices.at(j));
         // req_handle->wait();
     }
 
@@ -230,7 +231,7 @@ TEST_P(OverlapTest, SimpleComputeComm) {
     // compare obtained and expected outputs
     for (auto i: c10::irange(num_devices)) {
         for (auto j: c10::irange(number_of_tiles)) {
-            auto expected = get_slice(tv2_ref, i, j);
+            auto expected = get_slice(tv2_ref, i, j).toTensor();
             auto obtained = tv2_slices.at(j).at(0).at(i);
             EXPECT_TRUE(torch::allclose(expected, obtained))
                 << "On device " << my_device_index << "\n"
@@ -251,6 +252,9 @@ INSTANTIATE_TEST_SUITE_P(
             ComputeMode::Pytorch,
             ComputeMode::nvFuserFusionExecutor
             // ComputeMode::nvFuserFusionExecutorCache
+        ),
+        testing::Values(
+            CommunicatorBackend::nccl
         )
     )
 );
@@ -260,13 +264,18 @@ TEST_P(OverlapTest, SimpleCompute) {
     // define the unsharded inputs for validation
     auto options =
         at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-    std::vector<c10::IValue> input = {at::randn({1,tile_size,C}, options)};
+    // std::vector<c10::IValue> input = {at::randn({1,tile_size,C}, options)};
     std::vector<at::Tensor> output = {at::empty({1,tile_size,C}, options)};
+    std::vector<std::vector<at::Tensor>> dst_buffers;
+    for (int i=0; i<num_devices; i++) {
+        dst_buffers.push_back({at::empty({1,tile_size,C}, options)});
+    }
 
-    fe->compileFusion(fusion.get(), input);
+    // fe->compileFusion(fusion.get(), input);
 
     for (int i=0; i<16; i++) {
-        fe->runFusion(input, output);
+        // fe->runFusion(input, output);
+        world_communicator->allgather(dst_buffers, output);
     }
 }
 
@@ -275,10 +284,14 @@ INSTANTIATE_TEST_SUITE_P(
     OverlapTest,
     testing::Combine(
         testing::Values(
-            false
+            true
         ),
         testing::Values(
             ComputeMode::nvFuserFusionExecutor
+        ),
+        testing::Values(
+            CommunicatorBackend::nccl,
+            CommunicatorBackend::ucc
         )
     )
 );
