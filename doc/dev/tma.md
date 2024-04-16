@@ -162,7 +162,7 @@ Note that if the box is defined by compositing,
 the box IterDomain can be a list of IterDomains instead of a single IterDomain.
 If we want to define a strided tile in this case, we need first merge all these IterDomains to get a single box IterDomain then do the striding split.
 It is wrong to just do the striding split on the innermost box IterDomain without merging them first,
-and the former is not equivalent to the latter as discussed in [Divisibility of Split](../reading/divisibility-of-split.md).
+and the former is not equivalent to the latter as discussed in [Divisibility of Split](../reading/divisibility-of-split.md#merge-then-split-vs-split-then-merge).
 
 > [!WARNING]
 > When the element stride does not divide the box size,
