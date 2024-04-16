@@ -467,7 +467,7 @@ if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains
 The special predicate `maybe_special_predicate_for_stride_IterDomain` has the form `index < box_size`,
 and is needed only when the striding split is indivisible and element stride is larger than box size.
 For the case where element stride is not larger than box size,
-there is no harm to keep it as well because it is always true.
+functionally there is no harm to keep it as well because it is always true.
 
 > [!WARNING]
 > TODO: This strategy is not implemented yet
