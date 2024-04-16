@@ -209,7 +209,7 @@ The above observation leads to the following theorem:
 
 **<summary>Proof:</summary>**
 
-Consider a dimension, let's define some notation first:
+Let's choose a dimension of the tensor to consider, and define some notation first:
 
 - size of dimension: $S \in \mathbb{Z}^+$
 - box size: $B \in \mathbb{Z}^+$
