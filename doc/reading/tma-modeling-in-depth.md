@@ -78,7 +78,7 @@ def tma(x, sa, *, ga, gs, bs, gr, er, op):
                     ga[gmem_idx] = sa[smem_idx]
 ```
 
-## Predication and correctness
+## Correctness model
 
 We all know that TMA has built-in boundary check and automatic zero filling for out-of-boundary items.
 But what does this mean? Does it mean that we don't need to predicate a TMA expression at all?
@@ -175,8 +175,6 @@ Another example is the following Figure 4:
 
 In this figure, `I2`, `I3` and `I10` are the only IterDomains that could run out of boundary,
 they are all TMA-protected. So we can achieve strong correctness.
-
-TODO: explain how to upgrade weak correctness to strong correctness by initializing and predicating?
 
 ## The unachievability of strong correctness for indivisible element stride
 
@@ -418,3 +416,23 @@ which simplifies to
 $\square$
 
 </details>
+
+Now, let's go back to the example in Figure 5.
+In this example, all the conditions of Theorem 6 is satisfied, so strong correctness is unachievable.
+What if some condition is violated?
+
+If the element stride divided the box size, then the striding split would not create any hole at all.
+
+If the the tensor shape was `(4, 2)` instead of `(8, 2)`,
+which violated the condition that the box size is smaller than the tensor size,
+then the red items in Figure 6 would not exist, because items from `8` to `15` would now be out of boundary.
+
+If the element stride was `5` instead of `3`,
+the red items in Figure 6 would still exist without extra protextion,
+because the example of $i_3 = 0$, $i_4 = 4$, and $i_1 = 4$ mentioned above is still valid.
+However, by lowering smartly, we can add a check for the range of `I6` (i.e. $i_6 < 4$) to get rid of the red items.
+
+## Achieving strong correctness
+
+Theorem 6 is so powerful that it deserve a fancier name "**The fundamental theorem of TMA correctness**".
+It is powerful because the condition in it is both necessary and sufficient.
