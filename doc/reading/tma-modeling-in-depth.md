@@ -235,36 +235,42 @@ and there are holes satisfting the builtin predicate of TMA.
 That is:
 
 > There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
-> - $0 \le i_s < e$
-> - $0 \le i_c < \mathrm{ceilDiv}(S, B)$
-> - $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> - $0 \le i_c * B + i_{t1} * e + i_s < S$
-> - $0 \le i_c * B + i_{t2} * e + i_s < S$
-> - $0 \le i_{t1} * e + i_s < B$
-> - $i_{t2} * e + i_s \ge B$
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+> 3. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 4. $0 \le i_c * B + i_{t1} * e + i_s < S$
+> 5. $0 \le i_c * B + i_{t2} * e + i_s < S$
+> 6. $0 \le i_{t1} * e + i_s < B$
+> 7. $i_{t2} * e + i_s \ge B$
 
 Using Theorem 1 in [Mathematical Logic](../math/logic.md), we simplify the above predicate as
 
 > There exists $i_s \in \mathbb{Z}$, $i_c \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
-> - $0 \le i_s < e$
-> - $0 \le i_c < \mathrm{ceilDiv}(S, B)$
-> - $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
-> - $i_c * B + i_{t1} * e + i_s < S$
-> - $i_c * B + i_{t2} * e + i_s < S$
-> - $i_{t1} * e + i_s < B$
-> - $i_{t2} * e + i_s \ge B$
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+> 3. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 4. $i_c * B + i_{t1} * e + i_s < S$
+> 5. $i_c * B + i_{t2} * e + i_s < S$
+> 6. $i_{t1} * e + i_s < B$
+> 7. $i_{t2} * e + i_s \ge B$
 
-rephrase as
+Rephrase the above predicate as:
 
-exist is, i_{t1}, i_{t2} in Z s.t.
-0 \le is < e
-0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t1} * e + is < B
-i_{t2} * e + is \ge B
-exist ic in Z s.t.
-0 \le ic < \mathrm{ceilDiv}(S, B)
-ic < (S - (i_{t1} * e + is)) \div B
-ic < (S - (i_{t2} * e + is)) \div B
+> There exists $i_s \in \mathbb{Z}$, $i_{t1} \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_{t1}, i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 3. $i_{t1} * e + i_s < B$
+> 4. $i_{t2} * e + i_s \ge B$
+> 5. There exists $i_c \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 \le i_c < \mathrm{ceilDiv}(S, B)$
+>    2. $i_c < (S - (i_{t1} * e + i_s)) \div B$
+>    3. $i_c < (S - (i_{t2} * e + i_s)) \div B$
+
+
+
 
 the inner qualifier equiv to
 
