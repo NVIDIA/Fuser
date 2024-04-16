@@ -465,7 +465,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         maybe_alloc = lower_utils::allocGlobalBufferForGridComm(
             lower_utils::getGridSyncBufferSize(sync_bitmap),
             DataType::Int,
-            true);
+            /*zero_init=*/true,
+            /*resets_to_zero=*/true);
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {

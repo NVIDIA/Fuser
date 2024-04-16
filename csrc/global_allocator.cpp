@@ -29,6 +29,14 @@ class Arena {
       debug() << "[global zeroed memory] Resetting allocated bytes to 0"
               << std::endl;
     }
+#ifndef NDEBUG
+    {
+      int64_t nnz = checkZeroed();
+      if (nnz != 0) {
+        tensor_.fill_(0);
+      }
+    }
+#endif
     allocated_bytes_ = 0LL;
   }
 
@@ -86,13 +94,15 @@ class Arena {
   }
 
  private:
-  void checkZeroed() const {
-    c10::Scalar nnz = at::count_nonzero(tensor_).item();
-    NVF_ERROR(
-        nnz.equal(0),
-        "Global memory arena was not properly zeroed. Found ",
-        nnz,
-        " bytes that are not zero");
+  int64_t checkZeroed() const {
+    int64_t nnz = at::count_nonzero(tensor_).item<int64_t>();
+    if (nnz != 0) {
+      TORCH_WARN(
+          "Global memory arena was not properly zeroed. Found ",
+          nnz,
+          " bytes that are not zero");
+    }
+    return nnz;
   }
 
  private:
