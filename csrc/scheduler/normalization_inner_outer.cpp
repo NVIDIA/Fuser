@@ -355,9 +355,10 @@ std::vector<TensorView*> sortProjectableBufferInputs(
   }();
 
   // set latency for each buffer.
-  // Assume load from gmem to smem has a latency of 100, load from smem to
-  // register has a latency of 10. Total latency is proportional to data type
-  // size. Reused in each iteration if the buffer is an outer broadcast tensor.
+  // Assume load from smem to register has a latency of 1, from gmem to smem has
+  // a latency of 10. Total latency is proportional to data type size. Reused in
+  // each iteration if the buffer is an outer broadcast tensor.
+  constexpr int gmem_to_smem_latency = 10;
   for (auto idx = 0; idx < n_buffer_inputs; idx++) {
     int latency = 0;
     auto input_buffer = projectable_buffer_inputs.at(idx);
@@ -367,10 +368,10 @@ std::vector<TensorView*> sortProjectableBufferInputs(
         [&input_buffer](TensorView* tv) {
           return DependencyCheck::isDependencyOf(input_buffer, tv);
         });
-    // for each load from gmem to smem, latency += 100
-    latency += 100 * (is_reused ? 1 : n_outer_loop);
-    // for each load from smem to regs, latency += 10
-    latency += 10 * n_outer_loop * n_proj_buffer_uses.at(idx);
+    // gmem to smem
+    latency += gmem_to_smem_latency * (is_reused ? 1 : n_outer_loop);
+    // smem to register
+    latency += n_outer_loop * n_proj_buffer_uses.at(idx);
     int dtype_size = (int)dataTypeSize(input_buffer->getDataType().value());
     buffer_latency[idx] = latency * dtype_size;
   }
@@ -486,10 +487,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
               reduction_tvs,
               runtime_info)
         : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
-    // calculate the accumulated buffer size of the first N buffers
+    
+    // determine the number of buffers to move to shared memory
     const int64_t n_buffers = (int64_t)sorted_candidate_tvs.size();
-    std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
-    std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
+    int64_t acc_regs_buffer_size = 0, acc_smem_buffer_size = 0;
+    int64_t n_smem_buffer = -1;
     for (int i = 1; i <= n_buffers; i++) {
       auto current_tv = sorted_candidate_tvs[i - 1];
       int64_t tv_buffer_size_regs =
@@ -504,17 +506,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           InnerOuterPersistentKernelScheduler::threads_per_block_max,
           dev_prop->warpSize);
 
-      acc_regs_buffer_sizes[i] =
-          acc_regs_buffer_sizes[i - 1] + tv_buffer_size_regs;
-      acc_smem_buffer_sizes[i] =
-          acc_smem_buffer_sizes[i - 1] + tv_buffer_size_smem;
-    }
-
-    // Determine the least number of buffers to transfer to shared memory
-    // to ensure the register buffer size doesn't exceed the available limit.
-    int64_t n_smem_buffer = -1;
-    for (int i = 1; i <= n_buffers; i++) {
-      if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
+      acc_regs_buffer_size += tv_buffer_size_regs;
+      acc_smem_buffer_size += tv_buffer_size_smem;
+      // check if we have enough registers after moving the first-i buffers to
+      // shared memory
+      if (buffer_params.regs_buffer_size - acc_regs_buffer_size <=
           available_regs) {
         n_smem_buffer = i;
         break;
@@ -523,8 +519,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
     // Can't be scheduled if n_smem_buffer is not set or requested shared memory
     // is larger than available.
-    if (n_smem_buffer == -1 ||
-        acc_smem_buffer_sizes[n_smem_buffer] > available_smem) {
+    if (n_smem_buffer == -1 || acc_smem_buffer_size > available_smem) {
       buffer_params.has_enough_regs_and_smem = false;
       return buffer_params;
     }
@@ -533,8 +528,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     for (int i = 0; i < n_smem_buffer; i++) {
       buffer_params.smem_persistent_tvs.emplace_back(sorted_candidate_tvs[i]);
     }
-    buffer_params.regs_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer];
-    buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
+    buffer_params.regs_buffer_size -= acc_regs_buffer_size;
+    buffer_params.smem_buffer_size = acc_smem_buffer_size;
   }
 
   buffer_params.has_enough_regs_and_smem =
