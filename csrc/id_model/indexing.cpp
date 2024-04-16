@@ -80,8 +80,9 @@ std::vector<IterDomain*> getLoopDomains(Expr* expr, const IdModel& id_model) {
 }
 
 bool isAllocated(IterDomain* id, TensorView* tv) {
+  // If the extent is 1, it's effectively the same as broadcast.
   return ir_utils::isShared(tv->getMemoryType(), id->getParallelType()) &&
-      !id->isBroadcast() && !id->isReduction();
+      !id->isBroadcast() && !id->isReduction() && !id->extent()->isOneInt();
 }
 
 Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {

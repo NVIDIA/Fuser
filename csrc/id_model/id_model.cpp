@@ -1199,10 +1199,12 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  buildAlmostExactGraph();
-  if (false && validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
+  if (!getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
   }
 
   // Make sure there's no self mapping in the Exact graph as that
@@ -1228,6 +1230,14 @@ void IdModel::buildAllGraphs() {
   // buildLoopGraph, the resulting AlmostExact graph would include
   // unmapped domains should be mapped according to the AlmostExact
   // mapping rules.
+
+  if (getenv("POST")) {
+    buildAlmostExactGraph();
+    if (false && validate_) {
+      validator->checkAlmostExactGraphEquivalence(
+          idGraph(IdMappingMode::ALMOSTEXACT));
+    }
+  }
   idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
@@ -1472,17 +1482,37 @@ void IdModel::propagatePromotionsInIELGraph(
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
 
-      if (!war) {
-        // Propagate IEL promotions when available.
-        if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
-            inp_promo_it != iel_promotion_map.end()) {
-          maybe_promoted_inputs.push_back(inp_promo_it->second);
-          an_input_was_promoted = true;
-          VERBOSE() << "Promoted input by IEL promotion: "
-                    << nvfuser::toString(iel_inp_group) << " -> "
-                    << inp_promo_it->second->name() << std::endl;
-          continue;
+
+      if (war) {
+        // This is a copy of the loop_promote_inputs block below. When
+        // war is true, this block should be prioritized.
+
+        // Promote loops based on the loop promotion map. If the loop promotion
+        // map should be used and has an entry we should use that promotion.
+        if (loop_promote_inputs) {
+          const ValGroup& loop_copy_group =
+              loop_graph.toGroup(iel_inp_group->front());
+          auto inp_loop_promo_it = loop_graph_promotion_map.find(loop_copy_group);
+          if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
+            maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
+            an_input_was_promoted = true;
+            VERBOSE() << "Promoted input by loop promotion: "
+                      << nvfuser::toString(iel_inp_group) << " -> "
+                      << inp_loop_promo_it->second->name() << std::endl;
+            continue;
+          }
         }
+      }
+
+      // Propagate IEL promotions when available.
+      if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
+          inp_promo_it != iel_promotion_map.end()) {
+        maybe_promoted_inputs.push_back(inp_promo_it->second);
+        an_input_was_promoted = true;
+        VERBOSE() << "Promoted input by IEL promotion: "
+                  << nvfuser::toString(iel_inp_group) << " -> "
+                  << inp_promo_it->second->name() << std::endl;
+        continue;
       }
 
       // Promote loops based on the loop promotion map. If the loop promotion

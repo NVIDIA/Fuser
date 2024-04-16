@@ -406,6 +406,7 @@ void persistentViewAddFusion(
   auto bias_shape =
       reshape_before_persistent ? inferred_input : inferred_output;
   for (auto has_implicit_broadcast : {false, true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -438,21 +439,31 @@ void persistentViewAddFusion(
 }
 
 TEST_F(GpuViewTest, FusionReshapePersistentShmoo) {
+#if 0
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
     maybeClearAllocator();
+    std::cerr << "Test1: " << e << std::endl;
     persistentViewAddFusion(
         e.first, e.second, true /* reshape_before_persistent */);
   }
-
+#endif
+  std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
+  std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
+  persistentViewAddFusion(
+      x, y,
+      false);
+#if 1
   for (auto e : all_reshape_examples) {
     maybeClearAllocator(); // see above
+    std::cerr << "Test2: " << e << std::endl;
     persistentViewAddFusion(
         e.first, e.second, false /* reshape_before_persistent */);
   }
+#endif
 }
 
 void addViewGeluFusion(

@@ -217,6 +217,10 @@ void ValGraphBFS::traverse() {
     addNewNeighbors(g);
   }
 
+  for (const auto& x : visited_) {
+    std::cerr << "Initial visited group: " << toString(x) << std::endl;
+  }
+
   while (!is_all_terminal_visited()) {
     bool something_was_processed = false;
     std::deque<GroupType> not_ready_;
@@ -231,7 +235,9 @@ void ValGraphBFS::traverse() {
 
 #if 1
       if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
-        std::cerr << "Visiting EG: " << nvfuser::toString(*eg) << std::endl;
+        std::cerr << "Visiting EG: "
+                  << nvfuser::toString(*eg)
+                  << (*eg)->front()->toString();
       } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
         std::cerr << "Visiting VG: " << nvfuser::toString(*vg) << std::endl;
       }
