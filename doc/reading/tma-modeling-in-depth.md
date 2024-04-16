@@ -360,36 +360,49 @@ So (eq 7) can be simplified as
 
 > **(eq 8)** All the following conditions are satisfied:
 >
-> - $B < S$
-> - There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
->   1. $0 < i_{t2} < \mathrm{ceilDiv}(B, e)$
->   2. $i_{t2} \times e < S$
->   3. $B - e < i_{t2} \times e$
+> 1. $B < S$
+> 2. There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 < i_{t2} < \mathrm{ceilDiv}(B, e)$
+>    2. $i_{t2} \times e < S$
+>    3. $B - e < i_{t2} \times e$
 
 Rephrase (eq 8) as
 
 > **(eq 9)** All the following conditions are satisfied:
 >
-> - $B < S$
-> - There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
->   1. $0 < i_{t2}$
->   2. $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$
->   3. $i_{t2} < S \div e$
+> 1. $B < S$
+> 2. There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 < i_{t2}$
+>    2. $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$
+>    3. $i_{t2} < S \div e$
 
-if e divide B, equiv to
-B / e - 1 < i_{t2} < B / e
-impossible
+If $e$ divide $B$, then $\mathrm{ceilDiv}(B, e) = B / e = B \div e$,
+then $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$ is not possible
+because there is no other integers between two consecutive integers.
 
-equiv to
+So (eq 9) can be simplified as
 
-B < S
-e does not divide B
-exist i_{t2} in Z s.t.
-1 \le i_{t2}
-\mathrm{ceilDiv}(B, e) - 1 \le i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t2} < S \div e
+> **(eq 10)** All the following conditions are satisfied:
+>
+> 1. $B < S$
+> 2. $e$ does not divide $B$
+> 3. There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $0 < i_{t2}$
+>    2. $B \div e - 1 < i_{t2} < \mathrm{ceilDiv}(B, e)$
+>    3. $i_{t2} < S \div e$
 
-qualifier can only take i_{t2} = \mathrm{ceilDiv}(B, e) - 1
+which is equivalent to
+
+> **(eq 11)** All the following conditions are satisfied:
+>
+> 1. $B < S$
+> 2. $e$ does not divide $B$
+> 3. There exists $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>    1. $1 \le i_{t2}$
+>    2. $\mathrm{ceilDiv}(B, e) - 1 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
+>    3. $i_{t2} < S \div e$
+
+The condition (3.ii) in (eq 11) is achievable only if $i_{t2} = \mathrm{ceilDiv}(B, e) - 1$.
 
 so equiv to
 
