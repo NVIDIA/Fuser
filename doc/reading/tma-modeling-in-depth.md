@@ -137,11 +137,16 @@ TMA-protected IterDomain has the following very important property:
 **Theorem 4:** If non-TMA-protected IterDomains are in boundary,
 then "TMA's builtin predicates are satisfied" implies "the indices of all TMA-protected IterDomains are in boundary".
 
-**Proof:**
+<details>
+
+**<summary>Proof:</summary>**
+
 It is easy to see that the above rules 2-5 maps to Theorem 1-4 in ["Divisibility of Split"](../reading/divisibility-of-split.md#predication),
 except that Theorem 1 has an additional requirement for `I2` being in bound,
 which is guaranteed by the statement "if non-TMA-protected IterDomains are in boundary".
 $\square$
+
+</details>
 
 With the above theorem, we can easily see that,
 if non-TMA-protected IterDomains are in boundary,
@@ -197,11 +202,18 @@ There is no way for a programmer to tell the hardware that they want part of a t
 
 The above observation leads to the following theorem:
 
-**Theorem 6 (the unachievability of strong correctness):**
-If the striding split is an indivisible split,
-then it is impossible to achieve strong correctness.
+**Theorem 6:** It is impossible to achieve strong correctness if and only if there exist a dimension that satisfies all of the following conditions:
 
-global size: S in Z+
+1. The element stride does not divide and is smaller than the box size on that dimension.
+2. The box size is smaller than the tensor size on that dimension.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Consider a dimension, let's define some notation first
+
+- size of dimension: $S \in \mathbb{Z}^+$
 box size: B in Z+
 element stride: e in Z+
 partitioned ID: ip
@@ -376,3 +388,6 @@ simplify to
 
 e < B < S
 e does not divide B
+$\square$
+
+</details>
