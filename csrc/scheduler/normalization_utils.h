@@ -298,6 +298,8 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // inputs are cached instead of the persistent buffers. The decision of
 // projection is primarily based on the required sizes of the two cases --
 // projection is done if projecting to the inputs results in a smaller size.
+// If the scheduler is innerOuter with outer broadcast, projection is allowed
+// even it leads to a larger buffer size.
 // However, we experimentally found that certain relatively expensive operations
 // should not be projected even when that would require a larger buffer size.
 // Specifically,
@@ -312,6 +314,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const bool is_inner_reduction);
+    const ScheduleHeuristic sh,
+    const bool is_inner_outer_with_outer_bcast = false);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

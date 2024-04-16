@@ -222,7 +222,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   std::vector<bool> ref_broadcast_mask;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& root = tv->getMaybeAllocationDomain();
+      const auto& root = tv->getMaybeRFactorDomain();
       ref_broadcast_mask.reserve(root.size());
       for (const auto i : c10::irange(root.size())) {
         ref_broadcast_mask.push_back(!root.at(i)->isReduction());
@@ -448,12 +448,14 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Note: in current use cases (layer norm bwd and RMS norm bwd), there are
   // outer broadcast tvs and always project to inputs.
   const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
-  buffer_params.project_to_input = can_project &&
-      (!outer_broadcast_tvs.empty() ||
-       persistent_buffer_size_info.projected_persistent_buffer_size <
-           persistent_buffer_size_info.persistent_buffer_size);
+  buffer_params.project_to_input =
+      normalization_scheduler_utils::isProjectBufferToInputs(
+          fusion,
+          runtime_info,
+          persistent_buffer_info,
+          persistent_buffer_size_info,
+          ScheduleHeuristic::InnerOuterPersistent,
+          !outer_broadcast_tvs.empty());
 
   auto total_buffer_size = buffer_params.project_to_input
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -487,7 +489,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
               reduction_tvs,
               runtime_info)
         : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
-    
+
     // determine the number of buffers to move to shared memory
     const int64_t n_buffers = (int64_t)sorted_candidate_tvs.size();
     int64_t acc_regs_buffer_size = 0, acc_smem_buffer_size = 0;

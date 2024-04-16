@@ -855,7 +855,8 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const bool is_inner_reduction) {
+    const ScheduleHeuristic sh,
+    const bool is_inner_outer_with_outer_bcast) {
   // don't project if there are view ops and no buffer can be projected
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
@@ -863,21 +864,27 @@ bool isProjectBufferToInputs(
     return false;
   }
 
-  // don't project if can't reduce buffer size
-  if (persistent_buffer_size_info.projected_persistent_buffer_size >=
-      persistent_buffer_size_info.persistent_buffer_size) {
+  // don't project if can't reduce buffer size unless it's innerOuter with
+  // outer broadcast where project to inputs reduces gmem access.
+  if (!is_inner_outer_with_outer_bcast &&
+      persistent_buffer_size_info.projected_persistent_buffer_size >=
+          persistent_buffer_size_info.persistent_buffer_size) {
     return false;
   }
 
   // must project to inputs otherwise don't have enough register or shared
   // memory to store the buffers. Even after projecting, may still not have
   // enough register or shared memory, then canScheduleRunTime will return
-  // false.
-  int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
-      runtime_info, persistent_buffer_info.persistent_buffers);
-  if (max_available_buffer <
-      persistent_buffer_size_info.persistent_buffer_size) {
-    return true;
+  // false. For InnerOuterPersistent, both register and shared memory are used
+  // and will be handled in getPersistentBufferStorageParams.
+  if (sh != ScheduleHeuristic::InnerOuterPersistent) {
+    int64_t max_available_buffer =
+        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            runtime_info, persistent_buffer_info.persistent_buffers);
+    if (max_available_buffer <
+        persistent_buffer_size_info.persistent_buffer_size) {
+      return true;
+    }
   }
 
   // check ops between persistent buffer and inputs.
@@ -906,7 +913,7 @@ bool isProjectBufferToInputs(
   }
 
   // consider buffer size when exp op exists
-  if (is_inner_reduction) {
+  if (sh == ScheduleHeuristic::InnerPersistent) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
     // isn't buying us anything.
@@ -1007,13 +1014,12 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
-  bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
   bool project_persistent_buffers = isProjectBufferToInputs(
       fusion,
       runtime_info,
       persistent_buffer_info,
       persistent_buffer_size_info,
-      is_inner_reduction);
+      heuristic);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
