@@ -7,7 +7,7 @@
 # TMA Modeling In Depth
 
 > [!NOTE]
-> We use $\div$ for true division, and $/$ for TODO Euclidean division. For example, $5\div 2 = 2.5$, $5/2=2$.
+> We use $\div$ for true division, and $/$ for Euclidean division. For example, $5\div 2 = 2.5$, $5/2=2$.
 
 This document means to provide a deeper insight into how we model TMA, primarily at IterDomain level.
 This document is not an introduction to our TMA support, which can be found [here](../dev/tma.md).
