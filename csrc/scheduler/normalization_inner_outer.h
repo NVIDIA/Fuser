@@ -27,7 +27,7 @@ class HeuristicSummary;
 class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
   constexpr static int64_t threads_per_block_min = 128l;
-  constexpr static int64_t threads_per_block_max = 256l;
+  constexpr static int64_t threads_per_block_max = 512l;
 
   explicit InnerOuterPersistentKernelScheduler(
       Fusion* fusion,

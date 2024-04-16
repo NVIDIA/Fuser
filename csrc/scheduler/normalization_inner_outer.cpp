@@ -909,7 +909,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // device properties
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t threads_per_warp = (int64_t)dev_prop->warpSize;
-  const int64_t max_threads_per_block = 256;
+  const int64_t max_threads_per_block = InnerOuterPersistentKernelScheduler::threads_per_block_max;
   const int64_t max_threads_per_sm =
       (int64_t)dev_prop->maxThreadsPerMultiProcessor;
   const int64_t device_multiprocessor_count =
