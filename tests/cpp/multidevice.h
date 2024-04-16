@@ -16,6 +16,10 @@
 
 namespace nvfuser {
 
+// Checks tv has the same shardings as ref.
+// Requires tv and ref have same number of dimensions.
+void checkSameShardings(TensorView* ref, TensorView* tv);
+
 class MultiDeviceEnvironment : public testing::Environment {
  public:
   void SetUp() override;

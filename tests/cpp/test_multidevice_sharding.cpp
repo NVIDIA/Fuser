@@ -58,12 +58,10 @@ TEST_F(MultiDeviceUtilsTest, TestPropagateSharding) {
   fusion.addInput(a);
   fusion.addInput(b);
   fusion.addOutput(c);
+  // Expected behavior: a's shardings propagate to c.
   propagateShardings(&fusion);
 
-  EXPECT_TRUE(mesh == c->getDeviceMesh());
-  EXPECT_TRUE(c->axis(0)->getParallelType() == ParallelType::DIDx);
-  EXPECT_TRUE(c->axis(1)->getParallelType() == ParallelType::Serial);
-  EXPECT_TRUE(c->axis(2)->getParallelType() == ParallelType::Serial);
+  checkSameShardings(a, c);
 }
 
 class ShardedComputeTest : public NVFuserTest,

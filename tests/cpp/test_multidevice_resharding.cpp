@@ -15,6 +15,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <tests/cpp/multidevice.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -181,6 +182,89 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(!isResharding(tv24->definition()));
   GTEST_EXPECT_TRUE(!isResharding(tv25->definition()));
   GTEST_EXPECT_TRUE(isResharding(tv26->definition()));
+}
+
+TEST_F(NVFuserTest, InsertResharding_Before) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = makeSymbolicTensor(3);
+  TensorView* c = add(a, b);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(c);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh0);
+  c->setDeviceMesh(mesh1);
+
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  std::vector<Val*> outputs = fusion.outputs();
+
+  c = outputs[0]->as<TensorView>();
+  for (auto input : c->definition()->inputs()) {
+    checkSameShardings(c, input->as<TensorView>());
+  }
+}
+
+TEST_F(NVFuserTest, InsertResharding_Permute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = relu(a);
+  TensorView* c = add(a, b);
+  fusion.addInput(a);
+  fusion.addOutput(c);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh1);
+  c->setDeviceMesh(mesh1);
+
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  insertShardedAxisReordering(&fusion);
+  
+  for (auto expr : fusion.exprs()) {
+    std::cout << expr->toString() << std::endl;
+  }
+}
+
+TEST_F(NVFuserTest, InsertResharding_After) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = relu(a);
+  fusion.addInput(a);
+  fusion.addOutput(b);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh1);
+
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  std::vector<Val*> outputs = fusion.outputs();
+
+  b = outputs[0]->as<TensorView>();
+  Expr* expr = b->definition();
+  EXPECT_TRUE(expr->isA<LoadStoreOp>());
+  EXPECT_TRUE(expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
+  checkSameShardings(a, expr->inputs()[0]->as<TensorView>());
 }
 
 using automaticSetInsertionTestParams =

@@ -87,10 +87,10 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
     // Ignore sharded reductions on the output
     // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
-    if (in_root->isDeviceDim() && !out_root->isDeviceDim() &&
+    if (in_root->isDeviceDim() && !in_root->isBroadcast() && !out_root->isDeviceDim() &&
         !out_root->isReduction()) {
       shard_deletions.push_back(in_root);
-    } else if (!in_root->isDeviceDim() && out_root->isDeviceDim()) {
+    } else if (!in_root->isDeviceDim() && out_root->isDeviceDim() && !out_root->isBroadcast()) {
       shard_additions.push_back(out_root);
     } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
       NVF_ERROR(
@@ -220,7 +220,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::DIDx});
+    scheduler_utils::parallelizeAllLike(ref, tvs);
   }
 }
 } // namespace
@@ -254,7 +254,11 @@ void insertReshardings(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
+  std::unordered_map<Expr*, Expr*> replacement_map = {};
   for (auto expr : exprs) {
+    if (replacement_map.find(expr) != replacement_map.end()) {
+      expr = replacement_map[expr];
+    }
     if (isLowerableToCommunication(expr)) {
       continue;
     }
@@ -266,30 +270,58 @@ void insertReshardings(Fusion* fusion) {
         expr->outputs().size() == 1,
         "multi-output expressions are not supported");
     auto output = expr->outputs().at(0)->as<TensorView>();
-    std::vector<TensorView*> new_inputs;
-    for (auto input : getTvsWithDifferentSharding(
-             output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
-      // TODO: reuse cacheAfter?
-      // TODO: here we should add a mechanism to potentially reuse the inserted
-      // resharding accross all the consumer of the resharded tensor. This way
-      // we could avoid wasteful resharding set insertion.
-      TensorView* new_input = set(input);
-      new_inputs.push_back(new_input);
-      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+   
+    auto inputs = getTvsWithDifferentSharding(
+        output, ir_utils::filterByType<TensorView>(expr->inputs()));
+
+    // Insert resharding set after the expr when there is only one input.
+    // input [expr] output [set] new_output
+    if (!inputs.empty() && expr->inputs().size() == 1) {
+      auto input = *inputs.begin();
+      TensorView* new_output = set(output);
+      for (auto e : output->uses()) {
+        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
+        replacement_map[e] = new_expr;
+      }
+      if (output->isFusionOutput()) {
+        fusion->replaceOutput(output, new_output);
+      }
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // Update shardings new_output takes output's sharding, output takes
+      // input's sharding
+      shardAllLike(output, {new_output});
+      shardAllLike(input, {output});
+    } else {
+      // For expressions with > 1 input, insert resharding set before the expr
+      // for each input (input [set] new_input) [expr] output
+      std::vector<TensorView*> new_inputs;
+      for (auto input : inputs) {
+        // TODO: reuse cacheAfter?
+        // TODO: here we should add a mechanism to potentially reuse the
+        // inserted resharding accross all the consumer of the resharded tensor.
+        // This way we could avoid wasteful resharding set insertion.
+        TensorView* new_input = set(input);
+        new_inputs.push_back(new_input);
+        expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+      }
+      shardAllLike(output, new_inputs);
     }
-    shardAllLike(output, new_inputs);
   }
 }
 
 void insertShardedAxisReordering(Fusion* fusion) {
   auto exprs = fusion->exprs();
   std::vector<Expr*> reshard_exprs;
+  std::unordered_map<Expr*, Expr*> replacement_map = {};
   for (auto expr : exprs) {
     if (isResharding(expr)) {
       reshard_exprs.push_back(expr);
     }
   }
   for (auto expr : reshard_exprs) {
+    if (replacement_map.find(expr) != replacement_map.end()) {
+      expr = replacement_map[expr];
+    }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported : ",
@@ -324,7 +356,14 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);
       TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      for (auto e : output->uses()) {
+        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
+        replacement_map.insert({e, new_expr});
+      }
+      if (output->isFusionOutput()) {
+        fusion->replaceOutput(output, new_output);
+      }
 
       // Propagate shardings from input and manually apply sharding deletions.
       shardAllLike(input, {input_permute, output_permute, new_output});
@@ -382,7 +421,14 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // Note this is a no-op and is moving a device parallel axis back
       TensorView* new_output =
           permute(output_permute, {{0, sharding_axis_after_permute}});
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      for (auto e : output->uses()) {
+        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
+        replacement_map.insert({e, new_expr});
+      }
+      if (output->isFusionOutput()) {
+        fusion->replaceOutput(output, new_output);
+      }
 
       // Propagate shardings from input and manually apply sharding additions.
       shardAllLike(input, {input_permute, output_permute, new_output});
