@@ -186,7 +186,7 @@ TMA-protected IterDomains are `I1`, `I2`, and `I3`.
 We can see that `I4` is indivisibly split but not TMA-protected,
 so there exist out-of-boundary index of `I4` that is not eventually translated to out-of-boundary index of `I1`.
 For example, let $i_3$, $i_4$, and $i_1$ be the indices of `I3`, `I4`, and `I1`,
-if $i_3 = 0$ and $i_4 = 4$, then $i_1 = 4$ is an in-boundary value.
+if $i_3 = 0$ and $i_4 = 4$, then $i_1 = 4$ is a hole but in-boundary for global memory.
 To make it even worse, the index of `I4` depends on the index of `I5`,
 which is hardware parallelized and the programmer has no access to,
 so it is not even possible to write a `if` check for the boundary of `I4`.
