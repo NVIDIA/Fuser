@@ -137,23 +137,23 @@ class OverlapTest : public MultiDeviceTest,
                         "..."});
     }
 
-    at::Tensor compute_ATen (at::Tensor t) {
+    at::Tensor compute_ATen (at::Tensor t, at::Tensor output) {
         for (auto _=0; _<n_iterations; _++) {
-            t = t+t;
-            t = t*t;
-            t = t-t;
+            at::add_out(output, t,t);
+            at::mul_out(output, output,output);
+            at::sub_out(output, output,output);
         }
-        return t;
+        return output;
     }
 
-    at::Tensor compute(at::Tensor t) {
+    at::Tensor compute(at::Tensor t, at::Tensor output) {
         ComputeMode compute_mode = std::get<1>(GetParam());
         switch (compute_mode)
         {
         case ComputeMode::Pytorch:
-            return compute_ATen(t);
+            return compute_ATen(t, output);
         case ComputeMode::nvFuserFusionExecutor:
-            return fe->runFusion({t}).at(0);
+            return fe->runFusion({t}, {output}).at(0);
         case ComputeMode::nvFuserFusionExecutorCache:
             return fec->runFusionWithInputs({t}).at(0);
         default:
@@ -190,6 +190,11 @@ TEST_P(OverlapTest, SimpleComputeComm) {
         tv0_slices.push_back(get_slice(tv0_unsharded, my_device_index, j));
     }
 
+    std::vector<at::Tensor> tv1_slices;
+    for (int _=0; _<number_of_tiles; _++) {
+        tv1_slices.push_back(at::empty({1,tile_size,C}, options));
+    }
+
     // Allocate ouput global buffer for tv2 for the data to be allgathered
     auto tv2_buf = at::empty(unsharded_sizes, options);
     // Setup the recv buffer slices. c10d needs the destinations buffers to be in a certain format
@@ -209,18 +214,19 @@ TEST_P(OverlapTest, SimpleComputeComm) {
     for (auto j: c10::irange(number_of_tiles)) {
         setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         // local compute
-        auto tv1_j = compute(tv0_slices.at(j));
+        compute(tv0_slices.at(j), tv1_slices.at(j));
 
         // communication
-        std::vector<at::Tensor> src_buf = {tv1_j};
+        std::vector<at::Tensor> src_buf = {tv1_slices.at(j)};
         std::vector<std::vector<at::Tensor>>& dst_bufs = tv2_slices.at(j);
         auto req_handle = world_communicator->allgather(dst_bufs, src_buf);
-        req_handle->wait();
+        // req_handle->wait();
     }
 
     // validation
     // compute the expected output
-    auto tv2_ref = compute_ATen(tv0_unsharded);
+    auto tv2_ref = at::empty(unsharded_sizes, options);
+    compute_ATen(tv0_unsharded, tv2_ref);
     // compare obtained and expected outputs
     for (auto i: c10::irange(num_devices)) {
         for (auto j: c10::irange(number_of_tiles)) {
