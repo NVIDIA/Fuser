@@ -19,3 +19,9 @@ $p \land r \rightarrow p$: By [Conjunction elimination](https://en.wikipedia.org
 $\square$
 
 </details>
+
+Theorem 1 can be used to simplify boolean predicates.
+For example, if I have a predicate $i < 5 \land i < 6$,
+let $p = i < 5$ and $r = i < 6$, then from Theorem 1,
+we know that the original predicate is equivalent to $i < 5$.
+So we have simplified the predicate without changing when this predicate is true and when it is false.
