@@ -304,26 +304,27 @@ Rephrase (eq 4) as:
 >    2. $i_{t1} < (B - i_s) \div e$
 >    3. $i_{t1} < (S - i_s) \div e$
 
-the inner qualifier equiv to
+The condition 5 in (eq 5) is equivalent to
 
-0 < \mathrm{ceilDiv}(B, e)
-0 < (B - i_s) \div e
-0 < (S - i_s) \div e
+> - $0 < \mathrm{ceilDiv}(B, e)$, and
+> - $0 < (B - i_s) \div e$, and
+> - $0 < (S - i_s) \div e$
 
-simplify to
+which simplifies to
 
-i_s < B
-i_s < S
+> - $i_s < B$, and
+> - $i_s < S$
 
-so overall
+so (eq 5) can be simplified as
 
-exist is, i_{t2} in Z s.t.
-0 \le is < e
-is < B
-is < S
-0 \le i_{t2} < \mathrm{ceilDiv}(B, e)
-i_{t2} * e + is \ge B
-i_{t2} * e + is < S
+> **(eq 6)** There exists $i_s \in \mathbb{Z}$, $i_{t2} \in \mathbb{Z}$ that satisfies all of the following conditions:
+>
+> 1. $0 \le i_s < e$
+> 2. $0 \le i_{t2} < \mathrm{ceilDiv}(B, e)$
+> 3. $i_{t2} * e + i_s \ge B$
+> 4. $i_{t2} * e + i_s < S$
+> 5. $i_s < B$
+> 6. $i_s < S$
 
 rephrase
 
