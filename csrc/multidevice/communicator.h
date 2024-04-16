@@ -109,7 +109,8 @@ class Communicator {
   }
 
   // returns local rank associted with the current process,
-  // i.e. the rank within a node instead of the rank within the world.
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
   RankType local_rank() const {
     return local_rank_;
   }
