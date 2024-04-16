@@ -222,18 +222,20 @@ Consider a dimension, let's define some notation first
 - index of the tile ID: $i_t$
 - index of the stride ID: $i_s$
 
-ib = it * e + is
-ip = ic * B + ib
+Then we have:
+$$i_b = i_t * e + i_s$$
+$$i_p = i_c * B + i_b$$
 
-0 <= ip < S
+The builtin predicate for TMA is:
+$$0 \le ip < S$$
 
 exist is, ic, it1, it2 in Z s.t.
-0 <= is < e
-0 <= ic < ceilDiv(S, B)
-0 <= it1, it2 < ceilDiv(B, e)
-0 <= ic * B + it1 * e + is < S
-0 <= ic * B + it2 * e + is < S
-0 <= it1 * e + is < B
+0 \le is < e
+0 \le ic < ceilDiv(S, B)
+0 \le it1, it2 < ceilDiv(B, e)
+0 \le ic * B + it1 * e + is < S
+0 \le ic * B + it2 * e + is < S
+0 \le it1 * e + is < B
 it2 * e + is >= B
 
 logically: If p -> r, then p && r <-> p
@@ -243,9 +245,9 @@ p && r -> p: https://en.wikipedia.org/wiki/Conjunction_elimination
 r = ... >= 0, p = others, simplify as:
 
 exist is, ic, it1, it2 in Z s.t.
-0 <= is < e
-0 <= ic < ceilDiv(S, B)
-0 <= it1, it2 < ceilDiv(B, e)
+0 \le is < e
+0 \le ic < ceilDiv(S, B)
+0 \le it1, it2 < ceilDiv(B, e)
 ic * B + it1 * e + is < S
 ic * B + it2 * e + is < S
 it1 * e + is < B
@@ -254,12 +256,12 @@ it2 * e + is >= B
 rephrase as
 
 exist is, it1, it2 in Z s.t.
-0 <= is < e
-0 <= it1, it2 < ceilDiv(B, e)
+0 \le is < e
+0 \le it1, it2 < ceilDiv(B, e)
 it1 * e + is < B
 it2 * e + is >= B
 exist ic in Z s.t.
-0 <= ic < ceilDiv(S, B)
+0 \le ic < ceilDiv(S, B)
 ic < (S - (it1 * e + is)) \div B
 ic < (S - (it2 * e + is)) \div B
 
@@ -277,8 +279,8 @@ it2 * e + is < S
 so overall
 
 exist is, it1, it2 in Z s.t.
-0 <= is < e
-0 <= it1, it2 < ceilDiv(B, e)
+0 \le is < e
+0 \le it1, it2 < ceilDiv(B, e)
 it1 * e + is < B
 it2 * e + is >= B
 it1 * e + is < S
@@ -287,12 +289,12 @@ it2 * e + is < S
 rephrase as
 
 exist is, it2 in Z s.t.
-0 <= is < e
-0 <= it2 < ceilDiv(B, e)
+0 \le is < e
+0 \le it2 < ceilDiv(B, e)
 it2 * e + is >= B
 it2 * e + is < S
 exist it1 in Z s.t.
-0 <= it1 < ceilDiv(B, e)
+0 \le it1 < ceilDiv(B, e)
 it1 < (B - is) \div e
 it1 < (S - is) \div e
 
@@ -310,22 +312,22 @@ is < S
 so overall
 
 exist is, it2 in Z s.t.
-0 <= is < e
+0 \le is < e
 is < B
 is < S
-0 <= it2 < ceilDiv(B, e)
+0 \le it2 < ceilDiv(B, e)
 it2 * e + is >= B
 it2 * e + is < S
 
 rephrase
 
 exist it2 in Z s.t.
-0 <= it2 < ceilDiv(B, e)
+0 \le it2 < ceilDiv(B, e)
 exist is in Z s.t.
-0 <= is < e
+0 \le is < e
 is < B
 is < S
-B - it2 * e <= is
+B - it2 * e \le is
 is < S - it2 * e
 
 the inner qualifier equiv to
@@ -371,8 +373,8 @@ equiv to
 B < S
 e does not divide B
 exist it2 in Z s.t.
-1 <= it2
-ceilDiv(B, e) - 1 <= it2 < ceilDiv(B, e)
+1 \le it2
+ceilDiv(B, e) - 1 \le it2 < ceilDiv(B, e)
 it2 < S \div e
 
 qualifier can only take it2 = ceilDiv(B, e) - 1
