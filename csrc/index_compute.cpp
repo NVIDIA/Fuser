@@ -3551,7 +3551,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           striding_split->inner()->toString(),
           " is.");
       IterDomain* box_id = striding_split->in();
-      Split boxing_split = dynamic_cast<Split*>(box_id->definition());
+      Split* boxing_split = dynamic_cast<Split*>(box_id->definition());
       NVF_ERROR(
           boxing_split != nullptr && boxing_split->inner() == box_id,
           "Box IterDomain is not defined as the inner output of the boxing split.",
