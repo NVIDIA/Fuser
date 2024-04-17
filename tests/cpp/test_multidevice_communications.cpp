@@ -316,8 +316,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
-    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)
-
-);
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
