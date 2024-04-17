@@ -24,8 +24,53 @@
 namespace nvfuser {
 
 using namespace at::indexing;
+using MultiDeviceUtilsTest = NVFuserTest;
 
-TEST_F(NVFuserTest, ReshardingDetection) {
+// TODO: This test checks that isSharded generates an error when a split/merged
+// axis is parallelized with DIDx. Update when this restriction is lifted.
+TEST_F(MultiDeviceUtilsTest, TestIsSharded) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  a->axis(2)->parallelize(ParallelType::DIDx);
+  a->split(0, 4);
+  EXPECT_TRUE(isSharded(a));
+
+  TensorView* b = makeSymbolicTensor(3);
+  b->split(1, 4);
+  b->axis(1)->parallelize(ParallelType::DIDx);
+  EXPECT_ANY_THROW(isSharded(b));
+
+  TensorView* c = makeSymbolicTensor(3);
+  c->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+  EXPECT_ANY_THROW(isSharded(c));
+}
+
+TEST_F(MultiDeviceUtilsTest, TestPropagateSharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = makeSymbolicTensor(3);
+  TensorView* c = add(a, b);
+
+  DeviceMesh mesh({0, 1, 2});
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDx);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(c);
+  // Expected behavior: a's shardings propagate to c.
+  propagateShardings(&fusion);
+
+  checkSameShardings(a, c);
+}
+
+TEST_F(MultiDeviceUtilsTest, ReshardingDetection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -184,7 +229,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(isResharding(tv26->definition()));
 }
 
-TEST_F(NVFuserTest, InsertResharding_Before) {
+TEST_F(MultiDeviceUtilsTest, InsertResharding_Before) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -213,34 +258,7 @@ TEST_F(NVFuserTest, InsertResharding_Before) {
   }
 }
 
-TEST_F(NVFuserTest, InsertResharding_Permute) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* a = makeSymbolicTensor(3);
-  TensorView* b = relu(a);
-  TensorView* c = add(a, b);
-  fusion.addInput(a);
-  fusion.addOutput(c);
-
-  DeviceMesh mesh0({0, 1});
-  DeviceMesh mesh1({2});
-  a->setDeviceMesh(mesh0);
-  b->setDeviceMesh(mesh1);
-  c->setDeviceMesh(mesh1);
-
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
-
-  insertReshardings(&fusion);
-  insertShardedAxisReordering(&fusion);
-  
-  for (auto expr : fusion.exprs()) {
-    std::cout << expr->toString() << std::endl;
-  }
-}
-
-TEST_F(NVFuserTest, InsertResharding_After) {
+TEST_F(MultiDeviceUtilsTest, InsertResharding_After) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -265,6 +283,33 @@ TEST_F(NVFuserTest, InsertResharding_After) {
   EXPECT_TRUE(expr->isA<LoadStoreOp>());
   EXPECT_TRUE(expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
   checkSameShardings(a, expr->inputs()[0]->as<TensorView>());
+}
+
+TEST_F(MultiDeviceUtilsTest, InsertShardedAxisReordering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = relu(a);
+  TensorView* c = add(a, b);
+  fusion.addInput(a);
+  fusion.addOutput(c);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh1);
+  c->setDeviceMesh(mesh1);
+
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  insertShardedAxisReordering(&fusion);
+
+  for (auto expr : fusion.exprs()) {
+    std::cout << expr->toString() << std::endl;
+  }
 }
 
 using automaticSetInsertionTestParams =

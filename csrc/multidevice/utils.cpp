@@ -87,10 +87,12 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
     // Ignore sharded reductions on the output
     // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
-    if (in_root->isDeviceDim() && !in_root->isBroadcast() && !out_root->isDeviceDim() &&
-        !out_root->isReduction()) {
+    if (in_root->isDeviceDim() && !in_root->isBroadcast() &&
+        !out_root->isDeviceDim() && !out_root->isReduction()) {
       shard_deletions.push_back(in_root);
-    } else if (!in_root->isDeviceDim() && out_root->isDeviceDim() && !out_root->isBroadcast()) {
+    } else if (
+        !in_root->isDeviceDim() && out_root->isDeviceDim() &&
+        !out_root->isBroadcast()) {
       shard_additions.push_back(out_root);
     } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
       NVF_ERROR(
@@ -270,7 +272,7 @@ void insertReshardings(Fusion* fusion) {
         expr->outputs().size() == 1,
         "multi-output expressions are not supported");
     auto output = expr->outputs().at(0)->as<TensorView>();
-   
+
     auto inputs = getTvsWithDifferentSharding(
         output, ir_utils::filterByType<TensorView>(expr->inputs()));
 
@@ -286,9 +288,9 @@ void insertReshardings(Fusion* fusion) {
       if (output->isFusionOutput()) {
         fusion->replaceOutput(output, new_output);
       }
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      // Update shardings new_output takes output's sharding, output takes
-      // input's sharding
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
+      // new_output); Update shardings new_output takes output's sharding,
+      // output takes input's sharding
       shardAllLike(output, {new_output});
       shardAllLike(input, {output});
     } else {
@@ -356,7 +358,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);
       TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
+      // new_output);
       for (auto e : output->uses()) {
         auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
         replacement_map.insert({e, new_expr});
@@ -421,7 +424,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // Note this is a no-op and is moving a device parallel axis back
       TensorView* new_output =
           permute(output_permute, {{0, sharding_axis_after_permute}});
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
+      // new_output);
       for (auto e : output->uses()) {
         auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
         replacement_map.insert({e, new_expr});
