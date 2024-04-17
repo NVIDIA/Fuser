@@ -543,8 +543,7 @@ std::string testNameTMASimpleLdstTest(
   auto dtype = std::get<1>(info.param);
   auto dim = std::get<2>(info.param);
   std::stringstream ss;
-  ss << dim << "D"
-     << "_" << toString(swizzle) << "_" << dtype;
+  ss << dim << "D" << "_" << toString(swizzle) << "_" << dtype;
   return ss.str();
 }
 
@@ -1173,9 +1172,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
@@ -1235,7 +1232,7 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit1) {
+TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1269,10 +1266,10 @@ TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit1) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but")));
+          "The TMA domain must be equivalent to the allocation domain, but")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit2) {
+TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1306,8 +1303,7 @@ TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit2) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "When an originating bulk IterDomain is an outer of a split, "
-          "The parent of an originating bulk IterDomain must be an inner output of a split, but")));
+          "Box IterDomain is not defined as the inner output of the boxing split.")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
@@ -1342,7 +1338,7 @@ TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The innermost IterDomain of the allocation domain must be contiguous")));
+          "The innermost IterDomain of the TMA domain must be contiguous")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, MergeDiscontiguous) {
@@ -1458,7 +1454,7 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "An originating bulk IterDomain must be the output of a split, but")));
+          "A tile IterDomain must be the output of a split, but")));
 }
 
 // End TMA tests
