@@ -3312,6 +3312,10 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 // TODO: we do not support "define box by compositing" yet.
 // WIP PR: https://github.com/NVIDIA/Fuser/pull/1991
 //
+// See doc/dev/tma.md for definitions of terms. These terms include:
+// partitioned IterDomain, box IterDomain, coordinate IterDomain, tile
+// IterDomain, stride IterDomain, boxing split, striding split, element stride.
+//
 // Analyze the schedule of the gmem tensor (for TMA load, it needs to be
 // replayed as its consumer) and create IR nodes that compute the N-dimensional
 // coordinate and the tensor map descriptor. Also return the byte of transfer.
@@ -3518,43 +3522,51 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   for (auto id : tile_ids) {
     auto def = id->definition()->as<Split>();
     if (id == def->inner()) {
+      // Implicit element stride one
+      //
+      // partitioned ID --boxing-> (inner)box ID (== tile ID)
+      //                   split-> (outer)coordinate ID
+      //
+      // there is no striding split
+      Split* boxing_split = def;
       IterDomain* box_id = id;
-      IterDomain* partitioned_id = def->in();
+      IterDomain* partitioned_id = boxing_split->in();
       partitioned_ids.push_back(partitioned_id);
       partitioned_id_to_box_id[partitioned_id] = box_id;
       partitioned_id_to_tile_id[partitioned_id] = id;
       NVF_ERROR(
-          bulk_ids.count(def->outer()) == 0,
-          "When a tile IterDomain is an inner of a split, ",
-          "the outer of this split must not be a bulk IterDomain, but ",
-          def->outer()->toString(),
+          bulk_ids.count(boxing_split->outer()) == 0,
+          "The outer output of boxing split must not be a bulk IterDomain, but ",
+          boxing_split->outer()->toString(),
           " is.");
     } else {
+      // Explicit element stride defined by the striding split
+      //
+      // partitioned ID--boxing-> (inner)box ID -----striding-> (inner)stride ID
+      //                  split-> (outer)coordinate ID  split-> (outer)tile ID
+      Split* striding_split = def;
       NVF_ERROR(
-          bulk_ids.count(def->inner()) == 0,
-          "When a tile IterDomain is an outer of a split, ",
-          "the inner of this split must not be a bulk IterDomain, but ",
-          def->inner()->toString(),
+          bulk_ids.count(striding_split->inner()) == 0,
+          "The inner output of striding split must not be a bulk IterDomain, but ",
+          striding_split->inner()->toString(),
           " is.");
-      IterDomain* box_id = def->in();
-      auto def2 = dynamic_cast<Split*>(box_id->definition());
+      IterDomain* box_id = striding_split->in();
+      Split boxing_split = dynamic_cast<Split*>(box_id->definition());
       NVF_ERROR(
-          def2 != nullptr && def2->inner() == box_id,
-          "When a tile IterDomain is an outer of a split, ",
-          "The parent of a tile IterDomain must be an inner output of a split, but ",
-          box_id->toString(),
-          " is not.");
+          boxing_split != nullptr && boxing_split->inner() == box_id,
+          "Box IterDomain is not defined as the inner output of the boxing split.",
+          " Box IterDomain: ",
+          box_id->toString());
       NVF_ERROR(
-          bulk_ids.count(def2->outer()) == 0,
-          "When a tile IterDomain is an outer of a split, ",
-          "the outer of its parent's definition must not be a bulk IterDomain, but ",
-          def2->outer()->toString(),
+          bulk_ids.count(boxing_split->outer()) == 0,
+          "The outer output of boxing split must not be a bulk IterDomain, but ",
+          boxing_split->outer()->toString(),
           " is.");
-      IterDomain* partitioned_id = def2->in();
+      IterDomain* partitioned_id = boxing_split->in();
       partitioned_ids.push_back(partitioned_id);
       partitioned_id_to_box_id[partitioned_id] = box_id;
       partitioned_id_to_tile_id[partitioned_id] = id;
-      partitioned_id_to_stride_id[partitioned_id] = def->inner();
+      partitioned_id_to_stride_id[partitioned_id] = striding_split->inner();
     }
   }
 
@@ -3593,7 +3605,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           in_it != frontier.end(),
-          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           in->toString(),
           " is not on the path.");
       Val* is_divisible = SimplifyingIrBuilder::eqExpr(
@@ -3621,14 +3633,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           outer_it != frontier.end(),
-          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           outer->toString(),
           " is not on the path.");
       auto inner = merge->inner();
       auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
-          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           inner->toString(),
           " is not on the path.");
       NVF_ERROR(
@@ -3649,7 +3661,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   NVF_ERROR(
       std::get<1>(frontier.back()),
-      "The innermost IterDomain of the allocation domain must be contiguous");
+      "The innermost IterDomain of the TMA domain must be contiguous");
 
   int64_t dim = (int64_t)frontier.size();
   NVF_ERROR(
@@ -3666,7 +3678,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     auto id = std::get<0>(tuple);
     NVF_ERROR(
         seen.insert(id).second && partitioned_id_to_box_id.count(id) > 0,
-        "The set of all partitioned IterDomains must be equivalent to the allocation domain, but ",
+        "The TMA domain must be equivalent to the allocation domain, but ",
         id->toString(),
         " is either duplicate or not a partitioned IterDomain.");
   }
