@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <multidevice/communication.h>
@@ -15,6 +14,49 @@
 #include <iostream>
 
 namespace nvfuser {
+
+class CommunicationTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<CommunicatorBackend> {
+ protected:
+  void SetUp() override;
+  void validate(at::Tensor obtained, at::Tensor expected);
+  void resetDstBuffers();
+
+  static constexpr DeviceIdxType root = 0;
+  static constexpr int tensor_size = 1024;
+  static constexpr int number_of_repetitions = 8;
+  static constexpr c10d::ReduceOp::RedOpType red_op =
+      c10d::ReduceOp::RedOpType::SUM;
+  CommParams params;
+  std::vector<DeviceIdxType> all_ranks;
+};
+
+void CommunicationTest::SetUp() {
+  MultiDeviceTest::SetUp();
+  if (!communicator->isBackendAvailable(GetParam())) {
+    GTEST_SKIP() << "Backend not available";
+  }
+  all_ranks = std::vector<DeviceIdxType>(communicator->size());
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+}
+
+void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
+  NVF_ERROR(
+      obtained.equal(expected),
+      "Device ",
+      communicator->deviceId(),
+      " expected tensor:\n",
+      expected,
+      "\nbut obtained tensor:\n",
+      obtained);
+}
+
+void CommunicationTest::resetDstBuffers() {
+  for (auto& buf : params.dst_bufs) {
+    buf.copy_(at::full(tensor_size, nan(""), tensor_options));
+  }
+}
 
 TEST_P(CommunicationTest, Communication_Gather) {
   params.root = root;
@@ -268,11 +310,9 @@ TEST_P(CommunicationTest, Communication_ReduceScatter) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    CommunicatorBackend,
+    ,
     CommunicationTest,
     testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser
-
-#endif
