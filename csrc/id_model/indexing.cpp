@@ -937,9 +937,6 @@ std::string getDisableReason(TensorView* tv) {
     if (id->getParallelType() == ParallelType::MisalignedVectorize) {
       reason << "MialignedVectorize is used: " << id->toString();
       return reason.str();
-    } else if (auto resize = dynamic_cast<Resize*>(id->definition())) {
-      //reason << "Resize not supported: " << resize->toString();
-      //return reason.str();
     } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
       reason << "Swizzle not supported: " << swizzle->toString();
       return reason.str();

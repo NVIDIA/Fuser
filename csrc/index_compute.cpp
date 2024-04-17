@@ -2489,6 +2489,17 @@ kir::TensorIndex* Index::getProducerIndex(
     std::cerr << "Using the new indexer for producer: " << producer->toString()
               << std::endl;
     index = getProducerStridedIndices2(producer, consumer, tensor_indexer);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            address_offset,
+            IrBuilder::create<Val>(
+                dataTypeSize(*producer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), address_offset);
+    }
     std::cerr << "New index: " << index->toInlineString() << std::endl;
     auto old_index = getProducerStridedIndices(
         producer,
@@ -2605,6 +2616,17 @@ kir::TensorIndex* Index::getConsumerIndex(
     std::cerr << "Using the new indexer for consumer: " << consumer->toString()
               << std::endl;
     index = getConsumerStridedIndices2(consumer, tensor_indexer);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (consumer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            index,
+            IrBuilder::create<Val>(
+                dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), address_offset);
+    }
     std::cerr << "New index: " << index->toInlineString() << std::endl;
     auto old_index = getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index, generate_pointer);
