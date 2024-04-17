@@ -2,8 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser import FusionDefinition
 from .core import run_benchmark, clear_cuda_cache
 import torch
 
@@ -11,19 +10,11 @@ import csv
 import os
 
 
-def matmul_fusion(fd: FusionDefinition, dtype: DataType) -> None:
-    # Decide contiguity based on layout
-    a = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )
-    b = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )
+def matmul_fusion(fd: FusionDefinition, inputs: list[torch.Tensor]) -> None:
+    a = fd.from_pytorch(inputs[0])
+    b = fd.from_pytorch(inputs[1])
     out = fd.ops.matmul(a, b)
     fd.add_output(out)
-
-
-precision_types = {"H": torch.float16, "S": torch.float32, "T": torch.bfloat16}
 
 
 def load_matmul_problems():
@@ -33,7 +24,9 @@ def load_matmul_problems():
         return list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
 
 
-@pytest.mark.parametrize("config", load_matmul_problems())
+@pytest.mark.parametrize(
+    "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
+)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_reduction_nvf_benchmark(
     benchmark,
@@ -44,8 +37,6 @@ def test_reduction_nvf_benchmark(
 ):
     clear_cuda_cache()
     m, n, k, layout = config
-
-    # a_dtype, b_dtype, out_dtype = [precision_types[prec] for prec in precision]
     a = torch.randn(m, k, device="cuda", dtype=dtype)
     b = torch.randn(k, n, device="cuda", dtype=dtype)
 
@@ -55,7 +46,7 @@ def test_reduction_nvf_benchmark(
         b = b.as_strided(size=[k, n], stride=[1, k])
 
     with FusionDefinition() as fd:
-        matmul_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
+        matmul_fusion(fd, [a, b])
 
     if not disable_validation:
         eager_output = torch.matmul(a, b)
