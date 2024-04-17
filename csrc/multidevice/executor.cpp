@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
@@ -127,20 +126,16 @@ void MultiDeviceExecutor::postKernel(
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
+    auto fusion = staged_fusion_->makeFusion(group).second;
     fec_.try_emplace(
-        group,
-        staged_fusion_->makeFusion(group),
-        0,
-        !params_.skip_auto_scheduling);
+        group, std::move(fusion), 0, !params_.skip_auto_scheduling);
     outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(group);
     auto& fe = it->second;
     if (has_emplaced) {
-      fe.compileFusion(
-          staged_fusion_->makeFusion(group).get(),
-          group_input_IValues,
-          launch_params);
+      auto fusion = staged_fusion_->makeFusion(group).second;
+      fe.compileFusion(fusion.get(), group_input_IValues, launch_params);
     }
     outputs = fe.runFusion(group_input_IValues, launch_params);
     if (!params_.cache_fusion_executor) {
@@ -269,7 +264,7 @@ std::ostream& MultiDeviceExecutor::print() {
       communication_counter++;
     } else {
       debug() << "Compute segment " << compute_segment_counter << ":{\n";
-      auto fusion = staged_fusion_->makeFusion(group);
+      auto fusion = staged_fusion_->makeFusion(group).second;
       fusion->print();
       debug() << "}\n";
       compute_segment_counter++;
@@ -279,5 +274,3 @@ std::ostream& MultiDeviceExecutor::print() {
 }
 
 } // namespace nvfuser
-
-#endif
