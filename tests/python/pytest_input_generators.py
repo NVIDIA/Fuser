@@ -1499,7 +1499,7 @@ def matmul_or_linear_input_generator(
             map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
         )
 
-    is_linear = True if op.name == "linear" else False
+    is_linear = op.name == "linear"
 
     # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
     # Use a Cartesian product to create a wide range of matrix shapes
