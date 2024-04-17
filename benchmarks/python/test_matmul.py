@@ -41,7 +41,7 @@ def test_reduction_nvf_benchmark(
     b = torch.randn(k, n, device="cuda", dtype=dtype)
 
     if layout == "NT" or layout == "NN":
-        a = a.as_strided(size=[m, k], stride=[1, k])
+        a = a.as_strided(size=[m, k], stride=[1, m])
     if layout == "TN" or layout == "NN":
         b = b.as_strided(size=[k, n], stride=[1, k])
 
