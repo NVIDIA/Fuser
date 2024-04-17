@@ -58,7 +58,7 @@ void CommunicationTest::resetDstBuffers() {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Gather) {
+TEST_P(CommunicationTest, Gather) {
   params.root = root;
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
@@ -88,7 +88,7 @@ TEST_P(CommunicationTest, Communication_Gather) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Allgather) {
+TEST_P(CommunicationTest, Allgather) {
   params.team = all_ranks;
   params.src_bufs = {
       at::empty(tensor_size, tensor_options) * communicator->deviceId()};
@@ -114,7 +114,7 @@ TEST_P(CommunicationTest, Communication_Allgather) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Scatter) {
+TEST_P(CommunicationTest, Scatter) {
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
@@ -143,7 +143,7 @@ TEST_P(CommunicationTest, Communication_Scatter) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Broadcast) {
+TEST_P(CommunicationTest, Broadcast) {
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
@@ -170,7 +170,11 @@ TEST_P(CommunicationTest, Communication_Broadcast) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_SendRecv) {
+TEST_P(CommunicationTest, SendRecv) {
+  if (communicator->size() < 2 || torch::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (communicator->deviceId() > 1) { // only devices 0 and 1 participate
@@ -203,7 +207,7 @@ TEST_P(CommunicationTest, Communication_SendRecv) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_SendRecvToSelf) {
+TEST_P(CommunicationTest, SendRecvToSelf) {
   DeviceIdxType sender = 0;
   if (communicator->deviceId() > 0) { // only device 0 participates
     return;
@@ -227,7 +231,7 @@ TEST_P(CommunicationTest, Communication_SendRecvToSelf) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Reduce) {
+TEST_P(CommunicationTest, Reduce) {
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
@@ -256,7 +260,7 @@ TEST_P(CommunicationTest, Communication_Reduce) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_Allreduce) {
+TEST_P(CommunicationTest, Allreduce) {
   params.redOp = red_op;
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
@@ -280,7 +284,7 @@ TEST_P(CommunicationTest, Communication_Allreduce) {
   }
 }
 
-TEST_P(CommunicationTest, Communication_ReduceScatter) {
+TEST_P(CommunicationTest, ReduceScatter) {
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
