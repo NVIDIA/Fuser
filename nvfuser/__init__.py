@@ -43,8 +43,10 @@ def enable_automatic_serialization():
     # Each FusionCache becomes associated with a single device.
     # Automatic serialization saves a separate cache for each device.
     # Set the FusionCache id to the ddp local rank.
-    ddp_local_rank = int(os.environ.get("LOCAL_RANK", -1))
-    _C.FusionCache.get(max_fusions := 8192, ddp_local_rank)
+    env_var_ddp_local_rank = os.environ.get("LOCAL_RANK", None)
+    if env_var_ddp_local_rank is not None:
+        env_var_ddp_local_rank = int(env_var_ddp_local_rank)
+    _C.FusionCache.get(max_fusions := 8192, env_var_ddp_local_rank)
 
 
 # Unregister automatic serialization of Nvfuser cache hierarchy and cuda kernels.

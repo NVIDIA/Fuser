@@ -118,15 +118,6 @@ class IdModel : public PolymorphicBase {
     return view_rfactor_ids_;
   }
 
-  // Returns if a self mapping was detected that would invalidate assumptions of
-  // the overall lowering system.
-  //
-  // TODO: Can we make this more of an alias analysis?
-  // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
-  bool hasSelfMapping() const {
-    return self_mapping_info_.has_value();
-  }
-
   std::string toString() const;
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
@@ -178,7 +169,7 @@ class IdModel : public PolymorphicBase {
   // fusion.
   void buildIterDomainDefinitionsAndUses();
 
-  /// Start loop map by grouping inlined iter domains
+  // Start loop map by grouping inlined iter domains
   void initializeLoopGraph(const StatefulInliningInfo& info);
 
   // Build a map of loop groups to IterDomains that represent actual
@@ -194,8 +185,85 @@ class IdModel : public PolymorphicBase {
       const ValGraph& iel_graph,
       const StatefulInliningInfo& info);
 
+  // Helper function for building loop promotion map.
+  //
+  // Propagate promotion mappings from root IEL groups to intermediate
+  // and leaf IEL groups by traversing IEL exprs. For each expr, if an
+  // input is promoted, the output needs to be promoted too. If
+  // there's already an equivalent expr that uses the promoted inputs,
+  // create a mapping from the outputs of the IEL expr to the outputs
+  // of the equivalent expr. We only consider exprs that are mapped
+  // in the loop graph as we are looking for domains that represent
+  // the actual loops of the input and output domains of the IEL
+  // expr. If no such expr is found, the IEL expr is replayed with the
+  // promoted inputs.
+  //
+  // This is used twice when building the promotion map. The first time
+  // it is used there's no loop graph promotion yet, so only the IEL
+  // promotions are propagated. In that case, loop_graph_promotion_map
+  // should be just empty.
+  //
+  // Propagation uses iel_promotion_map and
+  // loop_graph_promotion_map. If both are available for an IEL group,
+  // the former has the precedence. This is because when this function
+  // is used for step 4, the given iel_promotion_map starts as an
+  // empty map and gets populated during this propagation, so any
+  // mapping in the map is guaranteed to be the correct final mapping,
+  // whereas the loop graph may have invalid mappings for partially
+  // inlined domains.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
+
+  // Same as the other propagatePromotionsInIELGraph but without loop
+  // graph map. This is used for step 2, where there's no loop
+  // graph map yet.
+  void propagatePromotionsInIELGraph(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map);
+
+  // Given an IEL promotion map, identify the mapping of each loop
+  // group. The promotion must represent all the domains in each loop
+  // group. If a valid representative promotion is not found for a
+  // loop group, no mapping is added for the group.
+  std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const StatefulInliningInfo& inlining_info);
+
+  // Find a promoted iter domain of a given loop group that covers all
+  // the exact groups representative of the resolved transformations
+  // within the loop group. Specifically, we examine each IEL group of
+  // the loop group, and if an IEL group has a promotion, we consider it as a
+  // candidate of the promotion of this loop group. If not, we include a
+  // domain of the IEL group as a candidate too. Once all candidates are
+  // obtained, we pick one that covers all the exact domains (cf. concrete
+  // domains in ComputeAtMap)
+  IterDomain* findPromotionOfLoopGroup(
+      const ValGroup& loop_group,
+      const ValGraph& iel_graph,
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+      const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
+
+  // Terminal loop ids are iteration domains in each loop group that:
+  // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
+  //    consumer TV's iter domain maps to this domain in a way that that domain
+  //    is also in the same loop group
+  // 2) Don't have a direct IterDomain consumer within the group
+  VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
+      const StatefulInliningInfo& info);
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // Replay Expr but with the inputs provided. ValGraphs will be updated
+  // for all maps that have entries, adding the output iter domains of the
+  // replayed expression and adding potential mappings through the expression.
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
   // All tensor expressions that this model analyzes
@@ -234,14 +302,17 @@ class IdModel : public PolymorphicBase {
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 
-  // Debug information to hold if a self mapping in a TensorView is found.
-  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = std::nullopt;
-
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
+
+// A utility function to update a map of ValGroups to ID from an old
+// Valgraph to a new ValGraph. The new graph must be a superset of the
+// old graph.
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph);
 
 } // namespace nvfuser

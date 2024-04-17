@@ -117,7 +117,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     return static_reshape_output;
   }
 
-  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+  auto root_domain = ops::newOutputDomain({inp_tv});
 
   // Create placeholder rfactor domain. Note it's not connected with the root
   // domain.
@@ -308,6 +308,12 @@ TensorView* unsqueeze(TensorView* x, int dim) {
   return broadcast(x, broadcast_axes);
 }
 
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<int64_t>& new2old) {
+  return permute(x, std::vector<int64_t>(new2old));
+}
+
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   if (new2old.empty()) {
@@ -352,6 +358,21 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       x->getDataType().value());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::initializer_list<std::pair<const int, int>>& old2new) {
+  return permute(x, std::unordered_map<int, int>(old2new));
+}
+
+TensorView* permute(
+    TensorView* x,
+    const std::unordered_map<int, int>& old2new) {
+  auto y = set(x);
+  y->reorder(old2new);
+  y->commitLeafToRFactor();
+  return y;
 }
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
@@ -610,10 +631,11 @@ TensorView* cat(
         //
         // TODO: what to do if inp_id is not a normal iterdomain, i.e.,
         // broadcast, partial, etc? For now, assume it's a normal
-        // IterDomain.
+        // IterDomain or Symbolic, i.e. Broadcast or Iteration.
         NVF_ERROR(
-            (inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
-                !inp_root_id->maybePartial(),
+            inp_root_id->isSymbolic() ||
+                ((inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
+                 !inp_root_id->maybePartial()),
             "Unsupported IterDomain to concatenate: ",
             inp_root_id->toString());
         // The right pad of the last tensor is just zero

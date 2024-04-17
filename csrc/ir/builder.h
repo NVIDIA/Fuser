@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder_passkey.h>
 #include <utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -100,11 +101,11 @@ class IrBuilder {
   }
 
   // Unary operations
-  static Val* derefExpr(Val* val);
-  static Val* negExpr(Val* val);
-  static Val* logicalNotExpr(Val* val);
+  NVF_API static Val* derefExpr(Val* val);
+  NVF_API static Val* negExpr(Val* val);
+  NVF_API static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
-  static Val* absExpr(Val* val);
+  NVF_API static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
   static Val* maybeRefCastExpr(DataType dtype, Val* val);
@@ -113,39 +114,39 @@ class IrBuilder {
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
 
   // Binary operations
-  static Val* logicalAndExpr(Val* lhs, Val* rhs);
-  static Val* logicalOrExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* logicalAndExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* logicalOrExpr(Val* lhs, Val* rhs);
   static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
   static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
-  static Val* lShiftExpr(Val* lhs, Val* rhs);
-  static Val* rShiftExpr(Val* lhs, Val* rhs);
-  static Val* eqExpr(Val* lhs, Val* rhs);
-  static Val* neExpr(Val* lhs, Val* rhs);
-  static Val* gtExpr(Val* lhs, Val* rhs);
-  static Val* ltExpr(Val* lhs, Val* rhs);
-  static Val* leExpr(Val* lhs, Val* rhs);
-  static Val* geExpr(Val* lhs, Val* rhs);
-  static Val* addExpr(Val* lhs, Val* rhs);
-  static Val* subExpr(Val* lhs, Val* rhs);
-  static Val* mulExpr(Val* lhs, Val* rhs);
-  static Val* divExpr(Val* lhs, Val* rhs);
-  static Val* ceilDivExpr(Val* lhs, Val* rhs);
-  static Val* modExpr(Val* lhs, Val* rhs);
-  static Val* maxExpr(Val* lhs, Val* rhs);
-  static Val* minExpr(Val* lhs, Val* rhs);
-  static Val* gcdExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* lShiftExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* rShiftExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* eqExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* neExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* gtExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* ltExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* leExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* geExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* addExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* subExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* mulExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* divExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* ceilDivExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* modExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* maxExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* minExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* gcdExpr(Val* lhs, Val* rhs);
 
   // Ternary operations
-  static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
+  NVF_API static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 
   // Array and struct access
-  static Val* getItemExpr(Val* array, Val* index);
-  static Val* getItemExpr(Val* array, PolymorphicValue index);
-  static Val* getAttrExpr(Val* struct_, std::string attr);
-  static Val* reverseArrayExpr(Val* array);
+  NVF_API static Val* getItemExpr(Val* array, Val* index);
+  NVF_API static Val* getItemExpr(Val* array, PolymorphicValue index);
+  NVF_API static Val* getAttrExpr(Val* struct_, std::string attr);
+  NVF_API static Val* reverseArrayExpr(Val* array);
 
   // Get tensor metadata
-  static Val* metadataExpr(TensorView* tv);
+  NVF_API static Val* metadataExpr(TensorView* tv);
 
   // Get tensor base address, for gmem tensor, it is something like
   // `T1.data`. For smem tensor, it is something like `toSmem(T1)`.
@@ -226,7 +227,7 @@ class SimplifyingIrBuilder : public IrBuilder {
 
   static Val* subExpr(Val* lhs, Val* rhs);
 
-  static Val* mulExpr(
+  NVF_API static Val* mulExpr(
       Val* lhs,
       PolymorphicValue rhs,
       DataType rhs_dtype = DataType::Null);

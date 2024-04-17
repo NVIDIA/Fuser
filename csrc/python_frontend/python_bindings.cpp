@@ -399,9 +399,16 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Int32", DataType::Int32)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
+      .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
+      .value("Float8_e5m2", DataType::Float8_e5m2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
+
+  //! ParallelType used for scheduling
+  //! Note that we are only using this for multidevice at this point
+  py::enum_<ParallelType>(nvfuser, "ParallelType")
+      .value("mesh_x", ParallelType::DIDx);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -416,7 +423,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "get",
           &FusionCache::get,
           py::arg("max_fusions") = int(16384),
-          py::arg("selected_device") = int(-1),
+          py::arg("selected_device") = py::none(),
           py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
@@ -469,6 +476,10 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+
+  py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
+  device_mesh_class.def(
+      "__repr__", [](DeviceMesh& self) { return self.toString(); });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -542,8 +553,9 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              // Allows for a Vector of Sizes to be inputed as a list
-              if (py::isinstance<py::list>(obj)) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
                   inputs.push_back(
                       torch::jit::toIValue(item, c10::AnyType::get()));
@@ -1138,11 +1150,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;                                                         \
       },                                                                       \
       py::return_value_policy::reference);
-
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
@@ -2727,6 +2735,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_create_device_mesh",
+      [](FusionDefinition::SchedOperators& self,
+         const std::vector<int64_t>& devices) { return DeviceMesh(devices); },
+      py::arg("devices"),
+      py::return_value_policy::reference);
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_set_device_mesh",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const DeviceMesh& mesh) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setDeviceMesh(mesh);
+      },
+      py::arg("tensor"),
+      py::arg("mesh"));
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_parallelize",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int axis,
+         const ParallelType& parallel_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->axis(axis)->parallelize(parallel_type);
+      },
+      py::arg("tensor"),
+      py::arg("axis"),
+      py::arg("parallel_type"));
   nvf_sched.def(
       "merge",
       [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {

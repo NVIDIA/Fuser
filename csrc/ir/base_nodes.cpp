@@ -22,13 +22,10 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
 #include <iostream>
-#include <stdexcept>
 #include <string>
-#include <typeinfo>
 #include <unordered_map>
 
 namespace nvfuser {
@@ -563,6 +560,21 @@ std::vector<PolymorphicValue> Expr::evaluate(
       getOpString(),
       " is not defined. ",
       "Please override the evaluate method");
+}
+
+std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  std::vector<PolymorphicValue> expr_inputs;
+  expr_inputs.reserve(inputs().size());
+  for (auto inp : inputs()) {
+    const auto& eval_i = ee.evaluate(inp, known_values);
+    if (!eval_i.hasValue()) {
+      return {std::monostate{}};
+    }
+    expr_inputs.emplace_back(eval_i);
+  }
+  return this->evaluate(ee, expr_inputs);
 }
 
 void Expr::addDataAttribute(PolymorphicValue attr) {

@@ -18,6 +18,8 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
+#include <ir/serde.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
@@ -300,7 +302,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
-      promote_reuse_(src->promote_reuse_) {}
+      promote_reuse_(src->promote_reuse_),
+      mesh_(src->mesh_) {}
 
 void TensorView::printTransforms() const {
   IrTransformPrinter(std::cout).printTransforms(this);
@@ -987,6 +990,8 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   TensorView* producer =
       IrBuilder::create<TensorView>(producer_domain, getDataType().value());
 
+  producer->setDeviceMesh(mesh_);
+
   // Set domain of consumer
   setDomain(consumer_domain);
   TensorView* consumer = this;
@@ -1476,6 +1481,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
     case MmaOperand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
+        setAllocationDomain(getLeafDomain(), true);
         mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
       }
       break;

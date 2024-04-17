@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <scheduler/reduction_heuristic.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -33,7 +34,7 @@ void multiReductionInliner(
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -43,7 +44,7 @@ void multiReductionInliner(
 // in P2C forward propagate, disable propagation to TensorView in
 // boundaryNodesSet in C2P backward propagate, disable propagation from
 // TensorView in boundaryNodesSet
-void propagateTransformation(
+NVF_API void propagateTransformation(
     TensorView* reference_tv,
     const std::unordered_set<TensorView*>& boundaryNodesSet =
         std::unordered_set<TensorView*>());
@@ -59,13 +60,13 @@ void propagateRFactor(
 // handled for tensorviews in cached_inputs and cached_outputs.
 // If reduction_tv and reference_tv shouldn't be unrolled, clear that parallel
 // type. unroll and vectorize are members of ReductionParams
-void propagateParallelization(
+NVF_API void propagateParallelization(
     Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
     const bool vectorize,
-    const bool is_outer_grid_persistence,
+    const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
@@ -74,21 +75,22 @@ void propagateParallelization(
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
 //
-// [i-block dims, i-thread dims, i-non-constant sized, i-constant sized,
+// [i-device dims, i-block dims, i-thread dims, i-constant sized, i-non-constant
+// sized
 //  r-block dims, r-thread dims, r-non-constant sized, r-constant sized,
 //  i/r-unswitched, i/r-unroll/vectorized, broadcasted dims]
 //
 // Rfactored axes are reductions bound to grid or blocks. If no axes are bound
 // to a grid or block dimension it will rfactor the r-unswitch dimension.
 // Reduction inliner expects an rfactored domain.
-TensorView* sortAndRFactor(TensorView* reference_tv);
+NVF_API TensorView* sortAndRFactor(TensorView* reference_tv);
 
 // If project_to_inputs is true, take all projectable persistent buffers,
 // and move them to the inputs. Otherwise, try to project to their immediate
 // producers if these producers are persistent buffers.
 // This function create dummy outputs which should be used in later stages of
 // the scheduling.
-std::vector<TensorView*> projectPersistentBuffers(
+NVF_API std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
     const bool project_to_inputs);
 

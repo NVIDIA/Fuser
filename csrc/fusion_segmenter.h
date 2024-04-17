@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <deque>
 #include <list>
@@ -128,6 +129,8 @@ class SegmentedGroup {
     return original_inputs_in_cloned_fusion_;
   }
 
+  //! Returns cloned fusion for this segmented group.
+  //! TODO Replace read-only uses of makeFusion with cached getFusion
   Fusion* getFusion() {
     // Build cloned fusion for this segmented group
     if (cloned_fusion_ == nullptr) {
@@ -139,14 +142,19 @@ class SegmentedGroup {
   //! Debug print function
   void print() const;
 
-  //! Returns the segmented fusion that this group is in
-  SegmentedFusion* segmentedFusion() const {
-    return segmented_fusion_;
-  }
-
   //! Utility to re-collect the operators included in this
   //!  segmented group after updating the group boundary.
   void resetExprList();
+
+  //! Try to get a scheduler entry for this group with
+  //!  the given runtime info.
+  //! Returns a new scheduler with the same heuristics
+  //!  for this group if possible.
+  //!  Note that the schedule params can be different.
+  //! Returns a nullopt if this group cannot be scheduled
+  //!  with the same heuristics.
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
   bool isFusionInputGroup() const;
@@ -285,9 +293,6 @@ class FusionHeuristics {
   FusionHeuristics& operator=(const FusionHeuristics&) = delete;
 
   SchedulerEntryOwningPtr& at(int index) {
-    NVF_ERROR(is_segmented_);
-    NVF_ERROR(index >= 0);
-    NVF_ERROR(index < (int)heuristics_.size());
     return heuristics_.at(index);
   }
 
@@ -365,34 +370,14 @@ class SegmentedFusion {
     return complete_fusion_->outputs();
   }
 
-  //! Make a clone of the group and convert to fusion
-  std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
-
   //! Get the fusion for the segmented group and return the IrCloner used to
   //! clone the complete fusion
-  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusionWithCloner(
-      SegmentedGroup* sg);
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      Fusion* local_fusion,
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
-
-  //! Try to get a scheduler entry for this group with
-  //!  the given runtime info.
-  //! Returns a new scheduler with the same heuristics
-  //!  for this group if possible.
-  //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
-  //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
-      Fusion* local_fusion,
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
-
-  //! Inline Debug print for segmented fusion
-  std::string toString(int verbosity) const;
 
   //! Debug drawing for graphviz
   void draw();
@@ -626,13 +611,13 @@ class SegmentCandidateFinder {
 
   static bool hasSegmentHints(Fusion* fusion);
 
-  static bool translateWelfordInFusion(
+  NVF_API static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
  private:
   // Perform segmentation on and take ownership of the given fusion
-  SegmentCandidateFinder(
+  NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder* inputs,
       SegmentCandidateFinderOptions options);
@@ -706,17 +691,25 @@ class SegmentCandidateFinder {
   //!  scalar values in group
   void resolveScalarsInGroup(SegmentedGroup* group);
 
-  //! Duplicate and add all exprs from "inputs" in the group, to complete
-  //! inputs. These expressions are simply unary ops of inputs that we want to
-  //! recompute for each segment, instead of computing and producing a segmented
-  //! val. For example if we have:
-  //! tv1 = tv0 * 2;
-  //! tv3 = tv1 + tv2;
-  //! tv4 = tv1 + tv4
+  //! Duplicate and add all exprs from fusion inputs to `forwarded_input` into
+  //! the group, to complete inputs. These expressions are simply unary ops of
+  //! inputs that we want to recompute for each segment, instead of computing
+  //! and producing a segmented val. For example if we have:
+  //!
+  //!   tv1 = tv0 * 2;
+  //!   tv3 = tv1 + tv2;
+  //!   tv4 = tv1 + tv4
+  //!
   //! If we segmented on tv1, we would be producing an output for tv1 for 2
   //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
   //! tv0.
-  void resolveInputsInGroup(SegmentedGroup* group);
+  void resolveNonscalarForwardedInput(Val* forwarded_input);
+
+  void resolveForwardedInputs();
+
+  // Creates the input group that ends at `forwarded_input`, i.e., the region
+  // between fusion inputs and `forwarded_input`.
+  SegmentedGroup* createInputGroup(Val* forwarded_input);
 
   //! Remove all scalar edges in group
   //!  (TODO: need structure better so we don't have to do this)

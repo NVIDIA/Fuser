@@ -14,7 +14,6 @@
 #include <transform_iter.h>
 
 #include <tuple>
-#include <typeinfo>
 
 namespace nvfuser {
 namespace {
@@ -767,8 +766,10 @@ void IterDomainGraph::initializeId(
   }
 }
 
-ComputeAtMap::ComputeAtMap(Fusion* fusion)
-    : id_graph_(fusion), concretized_bcasts_(fusion), fusion_(fusion) {
+ComputeAtMap::ComputeAtMap(Fusion* fusion, bool allow_self_mapping)
+    : id_graph_(fusion, allow_self_mapping),
+      concretized_bcasts_(fusion),
+      fusion_(fusion) {
   build(fusion);
 }
 

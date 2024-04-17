@@ -9,8 +9,6 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <algorithm>
 #include <limits>
 
@@ -182,9 +180,7 @@ IterType promoteIterType(IterType type1, IterType type2) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
-std::vector<IterDomain*> newOutputDomain(
-    const std::vector<Val*>& vals,
-    DataType dtype) {
+std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (val->getValType() == ValType::TensorView) {
@@ -207,6 +203,7 @@ std::vector<IterDomain*> newOutputDomain(
   std::vector<int64_t> start_offsets(out_domain.size(), 0);
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
+  std::vector<bool> extent_is_from_symbolic(out_domain.size(), true);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
   std::vector<std::optional<IterType>> iter_types(
       out_domain.size(), std::nullopt);
@@ -226,6 +223,13 @@ std::vector<IterDomain*> newOutputDomain(
               promoteSize(expanded_extent_vals[i], dom[i]->expandedExtent());
         }
         continue;
+      }
+      if (extent_is_from_symbolic[i] && !dom[i]->isSymbolic()) {
+        // We prefer to use extents from non-Symbolic inputs if there are any
+        // because they might indicate a broadcast axis that is resolved in this
+        // op.
+        extent_vals[i] = dom[i]->extent();
+        extent_is_from_symbolic[i] = false;
       }
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
       if (iter_types[i].has_value()) {
@@ -282,7 +286,7 @@ std::vector<IterDomain*> newOutputDomain(
 #endif
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
-  auto out_domain = newOutputDomain(vals, dtype);
+  auto out_domain = newOutputDomain(vals);
   return IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
@@ -347,6 +351,15 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(-std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
@@ -383,6 +396,15 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
       break;
+    case DataType::Float8_e4m3fn:
+      // e4m3 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e4m3fn>::max()));
+      break;
+    case DataType::Float8_e5m2:
+      return IrBuilder::create<Val>(static_cast<double>(
+          std::numeric_limits<c10::Float8_e5m2>::infinity()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());
       break;
@@ -397,6 +419,29 @@ Val* getMaximumValue(DataType v) {
       NVF_CHECK(false, "Could not generate a max op for tensor with type: ", v);
   }
   return nullptr;
+}
+
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims) {
+  std::vector<unsigned int> uint_axes;
+  uint_axes.reserve(axes.size());
+  std::transform(
+      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
+        if (axis < 0) {
+          axis += (int)ndims;
+        }
+
+        NVF_CHECK(
+            axis >= 0 && axis < (int)ndims,
+            "Reduction on invalid axis, received: ",
+            axis,
+            " however tensor view only has ",
+            ndims,
+            " non-reduction dims.");
+        return axis;
+      });
+  return uint_axes;
 }
 
 } // namespace ops

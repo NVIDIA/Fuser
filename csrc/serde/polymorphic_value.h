@@ -12,6 +12,7 @@
 #include <ir/serde.h>
 #include <serde/factory.h>
 #include <serde/fusion_cache_generated.h>
+#include <visibility.h>
 #include <functional>
 #include <memory>
 

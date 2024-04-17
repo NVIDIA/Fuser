@@ -171,6 +171,18 @@ void validateIterDomainUsage(Fusion* fusion) {
   }
 }
 
+void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
+  for (auto tv : tvs) {
+    for (auto id : tv->getLeafDomain()) {
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            ir_utils::isCpAsyncBulk(tv->definition()),
+            "ParallelType::Bulk is only supported for cp.async.bulk.");
+      }
+    }
+  }
+}
+
 } // namespace
 
 void validateIr(Fusion* fusion) {
@@ -190,6 +202,9 @@ void validateIr(Fusion* fusion) {
       dynamic_tvs.empty(),
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
+
+  auto all_tvs = ir_utils::allTvs(fusion);
+  validateCpAsyncBulk(all_tvs);
 }
 
 namespace {
@@ -373,6 +388,16 @@ class VectorizeValidator : public OptInDispatch {
       if (r_id->isReduction() || r_id->isBroadcast()) {
         continue;
       }
+      if ((tv->getMemoryType() == MemoryType::Shared ||
+           tv->getMemoryType() == MemoryType::Local) &&
+          r_id->isBlockDim()) {
+        // Inner-most parallelized dimensions don't count in allocation of
+        // shared and local tensors.
+        continue;
+      }
+      if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
+        continue;
+      }
       last_alloc_dim = r_id;
       last_alloc_dim_pos = i - 1;
       break;
@@ -401,9 +426,9 @@ class VectorizeValidator : public OptInDispatch {
           ", allocation domain: ",
           ir_utils::toString(tv->getMaybeAllocationDomain()),
           ", vectorized id: ",
-          validator.vectorized_id_,
+          validator.vectorized_id_->toString(),
           ", innermost id: ",
-          last_alloc_dim,
+          last_alloc_dim->toString(),
           ", contiguity: ",
           contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }
@@ -589,9 +614,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
           def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()),
-          "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
-          "TensorView: ",
-          tv);
+          "Vectorized accesses cannot be inline with computation: ",
+          (def == nullptr ? tv->toString() : def->toString()));
     }
     // Validate the vectorized domain maps to the innermost domain of
     // tv. Note that we don't need to validate its producer tv as
@@ -965,16 +989,6 @@ void validateMmaTensors(MmaOp* mma) {
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
   validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
-
-  // Additionally validate that mma is not directly taking a double buffered
-  //  register input as the double buffer indexing is currently not compatible
-  //  with fragment iteration. Would need to require a cache stage in this case.
-  NVF_ERROR(
-      !mma->inA()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
-  NVF_ERROR(
-      !mma->inB()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
@@ -1016,7 +1030,12 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
+  // To avoid errors in analysis when using ATen evaluation for matmul, only
+  // validate expressions that require codegen. See PR # 1775 and Issue #1812
+  std::vector<Val*> outs_requiring_codegen =
+      lower_utils::getFusionOutputsRequiringCodegen(fusion);
+  auto exprs = StmtSort::getExprsBetween(
+      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -1183,18 +1202,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     if (tv->definition()->isA<ReductionOp>()) {
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
-
-      NVF_CHECK(
-          is_allreduce,
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for allreduce reductions: ",
-          rop->toString());
-
-      NVF_CHECK(
-          tv->domain()->hasGridReduction(),
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for grid reductions: ",
-          rop->toString());
 
       std::vector<BinaryOpType> op_types({rop->getReductionOpType()});
       std::vector<Val*> init_vals({rop->init()});

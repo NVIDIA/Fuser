@@ -12,7 +12,9 @@
 
 #include <c10/util/irange.h>
 
-#include <typeinfo>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace nvfuser {
 
@@ -48,8 +50,14 @@ void ReplayTransformations::handle(Split* s) {
       "Transform traversal failed, modified a node but it was not a leaf node.");
 
   // Replay the split onto mapped
+  NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
   auto outs = IterDomain::split(
-      mapped, s->factor(), s->innerSplit(), s->startOffset(), s->stopOffset());
+      mapped,
+      s->factor(),
+      s->innerSplit(),
+      s->startOffset(),
+      s->stopOffset(),
+      replay_rfactor_ && s->outer()->isRFactorProduct());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
 
@@ -119,7 +127,10 @@ void ReplayTransformations::handle(Merge* m) {
       " however one or both are not leaf nodes.");
 
   // Replay the merge operation
-  auto out = IterDomain::merge(id_outer_mapped, id_inner_mapped);
+  auto out = IterDomain::merge(
+      id_outer_mapped,
+      id_inner_mapped,
+      replay_rfactor_ && m->out()->isRFactorProduct());
 
   // Remove inputs from the leaf IDs
   leaf_ids_.erase(id_outer_mapped);
@@ -161,14 +172,12 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
-  if (replay_swizzle_) {
-    // Replay the swizzle onto mapped
-    outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
+  // Replay the swizzle onto mapped
+  outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
 
-    // Remove mapped from the leaf IDs
-    leaf_ids_.erase(mapped_x);
-    leaf_ids_.erase(mapped_y);
-  }
+  // Remove mapped from the leaf IDs
+  leaf_ids_.erase(mapped_x);
+  leaf_ids_.erase(mapped_y);
 
   // Add outputs to leaf IDs
   leaf_ids_[outs.first] = newCounter();
@@ -251,7 +260,7 @@ void ReplayTransformations::handle(Resize* exp) {
         mapped,
         exp->leftExpand(),
         exp->rightExpand(),
-        mapped->isRFactorProduct());
+        replay_rfactor_ && exp->out()->isRFactorProduct());
   }
 
   leaf_ids_.erase(mapped);

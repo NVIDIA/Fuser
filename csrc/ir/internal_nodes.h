@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 
@@ -15,6 +14,7 @@
 #include <ir/base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
+#include <visibility.h>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -38,7 +38,7 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-class FullOp : public Expr {
+class NVF_API FullOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -129,7 +129,7 @@ class IndexSelectOp : public Expr {
   }
 };
 
-class TorchGatherOp : public Expr {
+class NVF_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -308,7 +308,7 @@ class EyeOp : public Expr {
 //!   2) Negation i.e. val * -1
 //!   3) Reduction across a dimension i.e. val.sum(axis=2)
 //!   4) split/merge
-class UnaryOp : public Expr {
+class NVF_API UnaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -322,7 +322,8 @@ class UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -346,7 +347,7 @@ class UnaryOp : public Expr {
 //! and produce a single output. Examples include:
 //!  1) Add/mul/div/mod/sub (A * B)
 //!  2) LT (A < B)
-class BinaryOp : public Expr {
+class NVF_API BinaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -444,7 +445,10 @@ class ArrayConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+  NVF_API ArrayConstruct(
+      IrBuilderPasskey,
+      Val* output,
+      std::vector<Val*> inputs);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -530,7 +534,7 @@ class StructConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  StructConstruct(
+  NVF_API StructConstruct(
       IrBuilderPasskey,
       Val* output,
       const std::vector<std::pair<std::string, Val*>>& fields);
@@ -765,7 +769,7 @@ class RNGOp : public Expr {
 //! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
 //! is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
-class BroadcastOp : public Expr {
+class NVF_API BroadcastOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -816,7 +820,7 @@ class BroadcastOp : public Expr {
 //! Squeeze in to match out. is_squeeze_dims are relative to in. Where
 //! is_squeeze_dims.size() == in->nDims(). Squeeze is the opposite of
 //! broadcast.
-class SqueezeOp : public Expr {
+class NVF_API SqueezeOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -872,7 +876,7 @@ class SqueezeOp : public Expr {
 //! Output's axes marked as reduction will be reduced to produce an output
 //! tensor. The output tensors size will be the size of all
 //! non-reduction/non-broadcast dimensions.
-class ReductionOp : public Expr {
+class NVF_API ReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1119,7 +1123,7 @@ class WelfordTriplet {
 };
 
 //! Welford Scan operation.
-class WelfordOp : public Expr {
+class NVF_API WelfordOp : public Expr {
  public:
   using Expr::Expr;
   static constexpr int kNumAttrs = 4;
@@ -1353,7 +1357,7 @@ class GroupedWelfordOp : public Expr {
 };
 
 //! Fused Matmul operation
-class MmaOp : public Expr {
+class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
   using MmaLayoutOpt = std::optional<MmaLayout>;
@@ -1444,10 +1448,6 @@ class MmaOp : public Expr {
   const auto& batchAxes() const {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
-
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
 
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
@@ -1631,7 +1631,7 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class ViewOp : public Expr {
+class NVF_API ViewOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1665,7 +1665,7 @@ class ViewOp : public Expr {
 //!
 //! The main usage of this op is to facilitate generation of hardware
 //!   accelerated memory ops, i.e. ldmatrix, cp.async and more to come.
-class LoadStoreOp : public Expr {
+class NVF_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1722,7 +1722,7 @@ class LoadStoreOp : public Expr {
 //! Representation a split on an IterDomain by "factor"
 //! inner_split dictates if the factor section of the split should be inside the
 //! remainer or outside.
-class Split : public Expr {
+class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
@@ -1789,7 +1789,7 @@ class Split : public Expr {
 //! dictate which will be traversed first (inner). Both IterDomains must be of
 //! the same iter or reduction type, as well as the same parallelization
 //! strategy if there is one
-class Merge : public Expr {
+class NVF_API Merge : public Expr {
  public:
   using Expr::Expr;
 
@@ -1867,7 +1867,7 @@ class Swizzle : public Expr {
 };
 
 //! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-class Swizzle2D : public Expr {
+class NVF_API Swizzle2D : public Expr {
  public:
   using Expr::Expr;
 
@@ -1961,7 +1961,7 @@ class Swizzle2D : public Expr {
 };
 
 //! IterDomain expression to resize
-class Resize : public Expr {
+class NVF_API Resize : public Expr {
  public:
   using Expr::Expr;
 
@@ -2008,7 +2008,7 @@ class Resize : public Expr {
 //! - blockDim.z
 //! - T3.stride[2]
 //!
-class NamedScalar : public Val {
+class NVF_API NamedScalar : public Val {
  public:
   NamedScalar(IrBuilderPasskey passkey, std::string name, DataType dtype);
 
@@ -2217,7 +2217,7 @@ class SliceOp : public Expr {
   }
 };
 
-class CatOp : public Expr {
+class NVF_API CatOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2247,7 +2247,8 @@ class CatOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   int64_t concatenatedDim() const {
     return attribute<int64_t>(0);

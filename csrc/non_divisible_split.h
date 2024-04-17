@@ -7,14 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
 
 namespace nvfuser {
 
+//! See doc/reading/divisibility-of-split.md#predication
 //! If an IterDomain is split and its inner output domain is
 //! eventually split too, the second split must be divisible or the
 //! inner domain must be predicated. This class finds Split
@@ -30,7 +31,7 @@ namespace nvfuser {
 //! a vectoried operation is predicated out entirely since we do not
 //! generate a fall-back non-vectorized else path. Runtime check is
 //! done for those domains.
-class NonDivisibleSplitInfo : public IterVisitor {
+class NVF_API NonDivisibleSplitInfo : public IterVisitor {
  public:
   void build(Fusion* fusion);
 
@@ -67,6 +68,9 @@ class NonDivisibleSplitInfo : public IterVisitor {
   //! Remove redundant predicates as divisibility may be validated at
   //! run time
   void removeRedundancy();
+
+  //! Add validations to GpuLower::current()->validations()
+  void addValidations();
 
  private:
   //! Split expressions whose input domain must be predicated

@@ -12,5 +12,5 @@
 #include <torch/csrc/utils/pybind.h>
 
 namespace nvfuser::python_frontend {
-void initNvFuserPythonBindings(PyObject* module);
+NVF_API void initNvFuserPythonBindings(PyObject* module);
 }

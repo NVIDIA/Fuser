@@ -7,9 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <algorithm>
 #include <iterator>
@@ -55,6 +57,36 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b);
+
+void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
+
+struct MatmulInputs {
+  Val* mma_lhs = nullptr;
+  Val* mma_rhs = nullptr;
+  Val* bias = nullptr;
+  Val* alpha = nullptr;
+  Val* beta = nullptr;
+  // Ordering of dimensions M,N,K in MmaOp's output TensorView's root domain.
+  // Determined based on position of iterdomains.
+  // For addmm/matmul ([M,K] x [K,N]): M=0, N=2, K=1
+  // For linear ([M,K] x [N,K]): M=0, N=1, K=2
+  // mma_dims_pos = {m_pos, n_pos, k_pos}
+  std::tuple<int, int, int> mma_dims_pos = {};
+  // The elements denote if the corresponding iterdomain in the bias was a new
+  // broadcast dimension. This is used to broadcast the bias for matmul/addmm
+  // during evaluation.
+  std::vector<bool> bias_bcast_flags = {};
+};
+
+//! Matches the following matmul patterns.
+//! Matmul: A x B, alpha * A x B
+//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
+//!   alpha * A x B  + beta * C
+//! Linear: A x B / A x B + C
+//! Assumptions:
+//! 1. For simplicity, we assume the MmaOp to be in the first operand.
+//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
+bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
 
 } // namespace nvfuser::MmaOpUtils
 
@@ -212,7 +244,10 @@ std::vector<int> normalizeOld2New(
 //! Warning: Invalidates provided Expr.
 //! Warning: Removes connection of reference through provided Expr.
 //! Warning: Creates new Expr defining substitute.
-Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
+NVF_API Expr* replaceValInExprInputs(
+    Expr* expr,
+    Val* reference,
+    Val* substitute);
 
 //! Replace old_val with new_val in all active uses as well as in fusion
 //! outputs.
@@ -242,7 +277,9 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes);
+NVF_API TensorView* rfactorHelper(
+    TensorView* red_tv,
+    const std::vector<int>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.
@@ -302,7 +339,7 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> producerTvsOf(const TensorView* tv);
+NVF_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 
 // Return immediate consumers of tv, this function will return all immediate
 // consumers of tv through Exprs.
@@ -312,7 +349,7 @@ std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
+NVF_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 
 // Return immediate siblings of tv, this function will return all immediate
 // siblings of tv through Exprs.
@@ -357,7 +394,7 @@ std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
 // returns all tensor views in fusion that are used between outputs and inputs.
-std::vector<TensorView*> allTvs(Fusion* fusion);
+NVF_API std::vector<TensorView*> allTvs(Fusion* fusion);
 
 // returns all tensor views used in the provided expressions
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
@@ -365,7 +402,7 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
 
 // returns all tensor views in fusion that are used between outputs and inputs
 // except the specified set.
-std::vector<TensorView*> allTvsExcept(
+NVF_API std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except);
 
@@ -376,7 +413,7 @@ Val* getReductionInitValOf(TensorView* tv);
 bool isReductionOp(const Expr*);
 
 // Returns if Expr is a reduction op with TensorView or TensorIndex
-bool isReductionTvOp(const Expr*);
+NVF_API bool isReductionTvOp(const Expr*);
 
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 bool isPointwiseTvOp(const Expr* expr);
@@ -470,7 +507,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! also an error if both a producer and consumer ID are included in
 //! ids as they partially have the same dependency with the initial
 //! domain.
-void validateDomainEquivalence(
+NVF_API void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
@@ -530,16 +567,16 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
 
 //! Check and return a cycle found in fusion, search starts from `to` and ends
 //! at `from`
-std::vector<Statement*> checkCycle(
+NVF_API std::vector<Statement*> checkCycle(
     Fusion* fusion,
     const std::unordered_set<Statement*>& from,
     const std::vector<Val*>& to);
 
 //! Check and return a cycle found in fusion
-std::vector<Statement*> checkCycle(Fusion* fusion);
+NVF_API std::vector<Statement*> checkCycle(Fusion* fusion);
 
 //! Check if a Val is a tensor size;
-bool isTensorSize(const Val* val);
+NVF_API bool isTensorSize(const Val* val);
 
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);

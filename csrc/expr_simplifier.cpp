@@ -28,6 +28,18 @@
 #include <unordered_set>
 #include <vector>
 
+namespace std {
+template <typename X, typename Y>
+struct hash<std::pair<X, Y>> {
+  std::size_t operator()(const std::pair<X, Y>& pair) const {
+    std::size_t h1 = std::hash<X>()(pair.first);
+    std::size_t h2 = std::hash<Y>()(pair.second);
+    nvfuser::hashCombine(h1, h2);
+    return h1;
+  }
+};
+} // namespace std
+
 namespace nvfuser {
 
 namespace debug_print {
@@ -250,6 +262,9 @@ class Context {
   const std::vector<std::pair<Val*, Val*>>& getKnownLessEqual() const {
     return less_equal_;
   }
+
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_than_cache_;
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_equal_cache_;
 
  private:
   void assume(Val* a) {
@@ -1403,7 +1418,7 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(Val* x, Val* y, const Context& context);
+bool lessThan(Val* x, Val* y, const Context& context, int depth = 0);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1531,16 +1546,45 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(Val* x, Val* y, const Context& context) {
+#define CACHE_AND_RETURN_LT(value)                               \
+  context.less_than_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
+bool lessThan(Val* x, Val* y, const Context& context, int depth) {
+  auto cache_it = context.less_than_cache_.find({x, y});
+  if (cache_it != context.less_than_cache_.end()) {
+    return cache_it->second;
+  }
+  // Max recursion depth of 2 levels was tested to be sufficient transitivity
+  // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
+  // that test, I observed the following test CPU runtimes (average of ten
+  // spaced runs) on a typical workstation:
+  //   recursion depth  time (sec)  Simplified?
+  //        0              1.5         no
+  //        1              1.5         no
+  //        2              1.9         yes
+  //        3              9.3         yes
+  //        4            133           yes
+  // This reflects the combinatorial explosion of brute-forcing the lessThan
+  // transitive closure. For now, we are setting this value to 2 since it
+  // appears to have a relatively minor impact on compile time while still
+  // providing the desired speedup for HSH matmul.
+  const int max_recursion_depth = 2;
+  if (depth >= 0) {
+    // This is used to track recursion depth. Passing depth=-1 disables
+    // incrementing, allowing infinite recursion.
+    depth++;
+  }
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
-    return x->value() < y->value();
+    bool result = x->value() < y->value();
+    CACHE_AND_RETURN_LT(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LT(true);
   }
   // i1 % i2 < i2
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
@@ -1548,60 +1592,92 @@ bool lessThan(Val* x, Val* y, const Context& context) {
     auto denominator = bop->rhs();
     if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
         isNonNegative(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LT(true);
     }
   }
   // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
+      CACHE_AND_RETURN_LT(true);
+    }
+  }
+  if (depth >= max_recursion_depth) {
+    // Limit the recursion depth to avoid infinite recursion
+    // In practice only a few levels are usually enough transitivity to prove
+    // what is needed for index expressions.
+    return false;
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    bool lta = lessThan(x, a, context, depth);
+    bool ltb = lessThan(b, y, context, depth);
+    // x < a implies x <= b
+    bool lea = lta ? true : lessEqual(x, a, context);
+    bool leb = ltb ? true : lessEqual(b, y, context);
+    if (
+        // x < a & a <= b & b <= y  -->  x < y
+        (lta && leb) ||
+        // x <= a & a <= b & b < y  -->  x < y
+        (lea && ltb)) {
       return true;
     }
   }
-  return false;
+  CACHE_AND_RETURN_LT(false);
 }
 
+#undef CACHE_AND_RETURN_LT
+
+#define CACHE_AND_RETURN_LE(value)                                \
+  context.less_equal_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
 bool lessEqual(Val* x, Val* y, const Context& context) {
+  auto cache_it = context.less_equal_cache_.find({x, y});
+  if (cache_it != context.less_equal_cache_.end()) {
+    return cache_it->second;
+  }
+
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
-    return x->value() <= y->value();
+    bool result = x->value() <= y->value();
+    CACHE_AND_RETURN_LE(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   // x == y -> x <= y
   if (x->sameAs(y)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     // x <= b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if a >= 0, b >= 1, then a <= a * b
@@ -1623,7 +1699,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
@@ -1647,13 +1723,15 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
   }
-  return false;
+  CACHE_AND_RETURN_LE(false);
 }
+
+#undef CACHE_AND_RETURN_LE
 
 } // namespace prove
 
@@ -1884,9 +1962,29 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       if (rhs->isOneInt()) {
         return IrBuilder::create<Val>(0L, *value->getDataType());
       }
-    } else if (
-        bop->getBinaryOpType() == BinaryOpType::Div ||
-        bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
+      // a % b -> a  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return lhs;
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
+      // a / b -> 0  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return IrBuilder::create<Val>(0L, *value->getDataType());
+      }
+      // a / 1 -> a
+      // 0 / a -> 0
+      if (rhs->isOne() ||
+          (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
+           lhs->value().is<int64_t>() && lhs->value() == 0)) {
+        return lhs;
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // a / 1 -> a
       // 0 / a -> 0
       if (rhs->isOne() ||
@@ -1992,7 +2090,7 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   return value;
 }
 
-// Apply rule 1 in [Simplification of boolean predicates] to convert
+// Apply Theorem 4.16 in doc/math/integer-division.md to convert
 // i / d < D into i < d * D
 Val* convertDivToMulInPredicate(Val* value, const Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
@@ -2088,15 +2186,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   }
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a + b) / c = a/c + b/c
-//  (a + b) % c = b % c
+// Rule J.1, Q.1
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2146,29 +2236,7 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   return value;
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|, then:
-//  (a + b) / c = a/c
-//  (a + b) % c = a % c + b
-// Proof:
-//  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
-//  Theorem 6.5, we have b % c = b.
-//  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
-//  So, a % c + b % c = ((a/g) % (c/g)) * g + b
-//  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
-//  -|c/g| + 1 <= (a/g) % (c/g) <= |c/g| - 1
-//  So, -(|c/g| - 1) * |g| <= a % c <= (|c/g| - 1) * |g|
-//  Therefore, we have
-//  -(|c/g| - 1) * |g| - |g| < a % c + b % c < (|c/g| - 1) * |g| + |g|
-// That is: -|c| < a % c + b % c < |c|
-// Therefore:
-// (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
-// (a + b) / c = a/c + b/c = a / c
+// Rule J.2, Q.2
 Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2272,6 +2340,12 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
             combo_other.push_back(xs[i]);
           }
         }
+      }
+      if (combo_xs.empty() || combo_other.empty()) {
+        // This can happen when combo_id = 2^k - 1 for some k >= xs.size(). In
+        // that case, ((combo_id >> i) & 1) == 1 for i = 0, ... , k - 1, and we
+        // will place all elements into combo_xs.
+        continue;
       }
       // compute sum of combo_xs and sum of combo_other
       Val* sum_xs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(combo_xs));

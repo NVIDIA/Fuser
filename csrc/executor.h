@@ -27,12 +27,20 @@
 namespace nvfuser {
 
 bool shouldFillAllocationWithNan();
-void setFillAllocationWithNan(bool value);
+NVF_API void setFillAllocationWithNan(bool value);
 
 // TODO: Should this actually be in launch params?
 struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
+
+//! Used in distributed setting where we only want to
+//!  allocate output space and receive output data from
+//!  a different rank instead of computing them.
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device);
 
 class FusionExecutor : public NonCopyable {
  public:
@@ -42,6 +50,7 @@ class FusionExecutor : public NonCopyable {
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
     bool zero_init = false;
+    bool resets_to_zero = false;
     bool is_profile_buffer = false;
   };
 
@@ -66,19 +75,13 @@ class FusionExecutor : public NonCopyable {
   //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
-      const KernelArgumentHolder& args);
-
-  //! Only a single PrecomputedValues is active for a fusion. Consequently, it
-  //! can be necessary to pass PrecomputedValues within a given scope.
-  KernelArgumentHolder inferOutputSizes(
-      Fusion* fusion,
       const KernelArgumentHolder& args,
-      PrecomputedValues* evaluator_precomputed_values);
+      PrecomputedValues* evaluator_precomputed_values = nullptr);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  void compileFusion(
+  NVF_API void compileFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
@@ -120,7 +123,7 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
-  std::vector<at::Tensor> runFusion(
+  NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
@@ -146,6 +149,13 @@ class FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
+  }
+
+  // Register a lowering hooks that are called to modify the GpuLower object
+  // before running lowering passes. The main use case is for unit tests to
+  // modify the lowering process.
+  void registerLoweringHook(std::function<void(GpuLower*)> hook) {
+    lowering_hooks_.push_back(std::move(hook));
   }
 
   // Register a post-lowering hooks that are called to modify the kernel after
@@ -269,17 +279,17 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! Returns the string of the compiled kernel
-  std::string kernelString() const {
+  NVF_API std::string kernelString() const {
     NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
   // Add preamble and wrap in namespace
-  std::string getStructuredCode(
+  NVF_API std::string getStructuredCode(
       const std::string& kernel,
       PrimDataType index_type) const;
 
-  std::string getStructuredCode() const;
+  NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
   const executor_utils::CompiledKernel& compiledKernel() const {
@@ -287,13 +297,14 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! Returns the disassembled latest compiled binary
-  std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
+  NVF_API std::string disassembledBinary(
+      const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
         compiled_kernel_->cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
-  std::string disassembledKernelSASS() const {
+  NVF_API std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
         compiled_kernel_->cubin, "-fun 1 -c");
   }
@@ -353,7 +364,7 @@ class FusionExecutor : public NonCopyable {
   //! strings.
   // TODO: Consider split out compileRtc and runRtc to a different
   //! class. Not much code is shared with the normal path.
-  void compileRtc(
+  NVF_API void compileRtc(
       const std::string& code,
       const std::string& name,
       bool structured,
@@ -361,7 +372,7 @@ class FusionExecutor : public NonCopyable {
 
   //! Internal tests only. Runs the compiled CUDA kernel from
   //! compileRtc. Return the elapsed milliseconds.
-  float runRtc(
+  NVF_API float runRtc(
       const LaunchParams& launch_params,
       const std::vector<at::Tensor>& args,
       PrimDataType indextype);
@@ -386,12 +397,6 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
-
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -409,14 +414,6 @@ class FusionExecutor : public NonCopyable {
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval,
-      DataType index_dtype);
-
-  //! Return information necessay for allocating output tensors. Input
-  //! and output tensors are allowed to alias each other, which is
-  //! specified by the list of int pairs of input and output indices
-  std::vector<GlobalBufferInfo> getOutputBufferInfo(
-      const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
 
@@ -594,6 +591,11 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Lowering hooks that are called after the GpuLower instance is created
+  // before running lowering passes.
+  // The main use case is for unit tests to modify the lowering process.
+  std::vector<std::function<void(GpuLower*)>> lowering_hooks_;
 
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.

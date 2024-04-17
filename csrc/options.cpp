@@ -114,6 +114,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
       {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},
+      {"ftrace", DebugDumpOption::FunctionTrace},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir_original", DebugDumpOption::FusionIrOriginal},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
@@ -121,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
+      {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
@@ -132,6 +134,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
       {"pre_segmenter_logging", DebugDumpOption::PreSegmenterLogging},
+      {"predicate_elimination", DebugDumpOption::PredicateElimination},
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
@@ -155,8 +158,11 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
       {"static_fusion_count", EnableOption::StaticFusionCount},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill}};
+      {"warn_register_spill", EnableOption::WarnRegisterSpill},
+      {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
+  };
 
   return parseEnvOptions("ENABLE", available_options);
 }
@@ -173,6 +179,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
        DisableOption::GroupedGridWelfordOuterOpt},
       {"index_hoist", DisableOption::IndexHoist},
       {"magic_zero", DisableOption::MagicZero},
+      {"matmul_expr_eval", DisableOption::MatmulExprEval},
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
       {"parallel_serde", DisableOption::ParallelSerde},

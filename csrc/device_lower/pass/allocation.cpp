@@ -163,11 +163,12 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<Val*> alloc_dims;
 
     for (const auto id : maybe_rfactor_domain) {
-      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
+      if (id->isReduction() || id->isStride()) {
         continue;
-      } else if (id->isBroadcast()) {
+      } else if (id->isBroadcast() || id->isDeviceDim()) {
         // No matter whether this broadcast is expanded or not, we always
         // allocate size 1
+        // Allocate devices axes as size 1
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
@@ -335,8 +336,8 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
       const auto local_id = info.buffer->axis((int)axis_i);
 
-      // Don't use reduction/stride/broadcast axis in the allocation
-      // computation
+      // Don't use reduction/stride/broadcast/device axis in the
+      // allocation computation
       if (local_id->isReduction() || local_id->isStride() ||
           local_id->isBroadcast() || local_id->isDeviceDim()) {
         continue;
@@ -559,16 +560,24 @@ class AllocationInserter : public kir::ExprMutator {
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
       auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          mbarrier, expr->container()->oneVal(DataType::UInt32));
+          mbarrier,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32,
+              lower_utils::getNumThreadsInTensorView(
+                  expr->output(0)->as<TensorView>()))));
+      auto sync_init = IrBuilder::create<kir::BlockSync>();
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+      auto sync_inval = IrBuilder::create<kir::BlockSync>();
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
       kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(expr, mbarrier_alloc, expr_scope);
       registerInsertBefore(expr, mbarrier_init, expr_scope);
+      registerInsertBefore(expr, sync_init, expr_scope);
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
+      registerInsertAfter(expr, sync_inval, expr_scope);
       GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
     }
   }

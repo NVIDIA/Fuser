@@ -91,7 +91,7 @@ int64_t computeExpectedSharedMemoryUsage(
 
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
@@ -101,6 +101,13 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
   const size_t shared_memory_available =
       device_smem_limit - shared_memory_overhead;
+
+  // We clip smem_double_buffer_stage to 1 since we will always load operands
+  // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
+  // "no double-buffering", but we still stage incoming data to smem.
+  if (smem_double_buffer_stage < 1) {
+    smem_double_buffer_stage = 1;
+  }
 
   // Create a temporary DoubleBufferOptions with full double buffering, for
   // estimating shared memory size.
@@ -127,12 +134,16 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       (smem_a_reuse_guaranteed ? 0 : smem_a) +
           (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
 
+  // Regardless of occupancy considerations, if we cannot fit an smem epilogue
+  // without reuse then we must promote reuse
+  bool must_reuse = shared_memory_available < total_with_noreuse_smem_epilogue;
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
-      return {true, false};
-    } else {
+    if (must_reuse) {
       return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    } else {
+      return {true, false};
     }
   }
 
@@ -156,8 +167,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Return whether we should use smem for epilogue, and whether syncing for
   // re-use is desired. We avoid the sync if omitting it does not decrease
   // occupancy.
-  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
-      blocks_per_sm_with_noreuse_smem_epilogue;
+  bool promote_prologue_smem_reuse = must_reuse ||
+      blocks_per_sm_with_reused_smem_epilogue !=
+          blocks_per_sm_with_noreuse_smem_epilogue;
 
   return {
       blocks_per_sm_with_reused_smem_epilogue ==
@@ -1224,12 +1236,8 @@ RolesMapOpt getTensorsRoles(
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      if (has_m && has_n && !has_k) {
-        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
-        continue;
-      }
       // Bias vectors are assigned to INPUT_C role
-      if (has_m && !has_n && !has_k) {
+      if (!has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
@@ -1500,6 +1508,20 @@ void CombineMulSum::replaceWithMmaOp() {
   generateMulSumCanidates();
   addMMAOp(fusion_, mul_sum_props_);
   return;
+}
+
+char dtypeToChar(const DataType& dtype) {
+  if (dtype == DataType::Half) {
+    return 'H';
+  } else if (dtype == DataType::BFloat16) {
+    return 'T';
+  } else if (dtype == DataType::Float) {
+    return 'S';
+  } else if (dtype == DataType::Double) {
+    return 'D';
+  }
+  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  return 0;
 }
 
 } // namespace mma_utils

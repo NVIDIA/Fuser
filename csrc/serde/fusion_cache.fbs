@@ -139,8 +139,6 @@ enum ExprType: int {
   Merge,
   Mma,
   Pad,
-  PipelineCommunication,
-  PipelineStage,
   Reduction,
   Resize,
   ReverseArray,
@@ -241,7 +239,6 @@ union ValueData {
   DataType,
   IterDomain,
   NamedScalar,
-  PipelineVal,
   PolymorphicValue,
   PolymorphicValueDtype,
   Predicate,
@@ -411,13 +408,14 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv: long = -1;
-  sizes: [long];
-  strides: [long];
-  dtype: long;
-  zero_init: bool;
-  is_profile_buffer: bool;
-  is_fusion_output: bool;
+  tv : long = -1;
+  sizes : [long];
+  strides : [long];
+  dtype : long;
+  zero_init : bool;
+  resets_to_zero : bool;
+  is_profile_buffer : bool;
+  is_fusion_output : bool;
 }
 
 // This table describes the cached ExecutorEntry for a kernel.
@@ -580,11 +578,6 @@ table Predicate {
 table TensorIndex {
   tensorview: long;
   index_val: long;
-}
-
-table PipelineVal {
-  value: long;
-  stage_expr: long;
 }
 
 table NamedScalar {

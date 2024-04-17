@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <c10/core/DeviceType.h>
 
@@ -141,16 +142,17 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
-  PrecomputedValues(PrecomputedValues&&) = default;
+  NVF_API PrecomputedValues(PrecomputedValues&&) = default;
 
-  explicit PrecomputedValues(Fusion* fusion);
+  NVF_API explicit PrecomputedValues(Fusion* fusion);
 
-  ~PrecomputedValues();
+  NVF_API ~PrecomputedValues();
 
-  //! Bind concrete values from fusion runtime inputs
+  //! Bind a list of concrete values to the fusion's runtime inputs.
   void bindInputs(const KernelArgumentHolder& args);
 
-  //! Bind concrete values to a group of fusion values
+  //! Bind a list of concrete values to a list of fusion values. The two lists
+  //! must have the same size.
   void bindValues(
       const std::vector<Val*>& values,
       const KernelArgumentHolder& args);
@@ -169,7 +171,7 @@ class PrecomputedValues {
   void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
-  bool ready() {
+  bool hasValidValues() {
     return has_valid_values_;
   }
 
@@ -233,10 +235,6 @@ class PrecomputedValues {
   //!  infer instructions from the workspace.
   void initializeIntegerMachine() {
     value_machine_ = std::make_unique<NaiveValueMachine>(*this);
-  }
-
-  bool hasValidValues() {
-    return has_valid_values_;
   }
 
   //! Iterate through all the named scalars corresponding

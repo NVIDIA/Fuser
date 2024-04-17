@@ -7,6 +7,7 @@
 // clang-format on
 #include <debug.h>
 #include <instrumentation.h>
+#include <multidevice/communicator.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -31,6 +32,10 @@ const char* dtypeToPyString(PrimDataType t) {
       return "DataType.Half";
     case DataType::BFloat16:
       return "DataType.BFloat16";
+    case DataType::Float8_e4m3fn:
+      return "DataType.Float8_e4m3fn";
+    case DataType::Float8_e5m2:
+      return "DataType.Float8_e5m2";
     case DataType::Int:
       return "DataType.Int";
     case DataType::Int32:
@@ -126,14 +131,26 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
+  // TODO: remove when multidevice executor integration is done natively
+  Fusion* fusion = user_sched_->schedule.get();
+  std::vector<TensorView*> tvs = ir_utils::allTvs(fusion);
+  static Communicator* comm = new Communicator();
+  if (std::any_of(tvs.begin(), tvs.end(), [](Val* v) {
+        return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
+      })) {
+    multidevice_executor_ = std::make_unique<MultiDeviceExecutor>(
+        std::make_unique<Fusion>(*fusion), *comm);
+  }
+
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
-
-  user_sched_->executor->compileFusion(
-      user_sched_->schedule.get(),
-      inputs,
-      user_sched_->fusion_id_,
-      user_sched_->device_id_);
+  if (multidevice_executor_ == nullptr) {
+    user_sched_->executor->compileFusion(
+        user_sched_->schedule.get(),
+        inputs,
+        user_sched_->fusion_id_,
+        user_sched_->device_id_);
+  }
   user_sched_ = nullptr;
 }
 
@@ -166,8 +183,14 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
+  if (multidevice_executor_) {
+    return multidevice_executor_->runWithInput(inputs.vec());
+  }
+
   std::vector<at::Tensor> outputs;
 
+  // NOTE: queryUserSchedule is broken, see issue:
+  // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
@@ -183,8 +206,13 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-      inputs, std::nullopt, selected_device);
+  // when `!override_user_schedule == true`, it *could* have produced an output
+  // already at this point and we would not want to overwrite generated output
+  // through user scheduled kernel.
+  if (outputs.empty()) {
+    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+        inputs, std::nullopt, selected_device);
+  }
 
   if (capture_debug_output) {
     debug_output_ = debug_ss.str();

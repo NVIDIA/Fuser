@@ -45,13 +45,6 @@ void ValueFactory::registerAllParsers() {
           serde::ValueData::NamedScalar>);
 
   registerParser(
-      serde::ValueData::PipelineVal,
-      nvf::IrBuilder::deserializeVal<
-          nvf::PipelineVal,
-          serde::PipelineVal,
-          serde::ValueData::PipelineVal>);
-
-  registerParser(
       serde::ValueData::PolymorphicValue,
       nvf::IrBuilder::deserializeVal<
           nvf::Val,
@@ -254,14 +247,6 @@ void ExpressionFactory::registerAllParsers() {
   registerParser(
       serde::ExprType::UpdateMagicZero,
       nvf::IrBuilder::deserializeExpr<nvf::kir::UpdateMagicZero>);
-
-  // multidevice
-  registerParser(
-      serde::ExprType::PipelineCommunication,
-      nvf::IrBuilder::deserializeExpr<nvf::PipelineCommunication>);
-  registerParser(
-      serde::ExprType::PipelineStage,
-      nvf::IrBuilder::deserializeExpr<nvf::PipelineStage>);
 
   // Expression Simplifier
   registerParser(

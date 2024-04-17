@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -26,45 +26,47 @@ struct ForwardDropoutResult {
   TensorView* mask = nullptr;
 };
 
-ForwardDropoutResult dropout(TensorView* x, Val* prob);
+NVF_API ForwardDropoutResult dropout(TensorView* x, Val* prob);
 
-ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale);
+NVF_API ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale);
 
-TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale);
+NVF_API TensorView* dropout_backward(
+    TensorView* dy,
+    TensorView* mask,
+    Val* scale);
 
 struct LstmResult {
   TensorView* cell = nullptr;
   TensorView* hidden = nullptr;
 };
 
-LstmResult lstm(
+NVF_API LstmResult lstm(
     TensorView* prev_cell,
     TensorView* in_x,
     TensorView* forget_x,
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul functions are temporary internal functions for testing purposes only
-// NOTE: These functions have the following restrictions:
-// 1. M, N, and K dimensions must be multiples of 8
-// 2. Tensors must be contiguously defined.
-// 3. Inputs must be FP16/BF16
-// 4. Heuristic support only exists for Ampere
-TensorView* _matmul_nn(TensorView* a, TensorView* b);
-TensorView* _matmul_nt(TensorView* a, TensorView* b);
-TensorView* _matmul_tn(TensorView* a, TensorView* b);
-TensorView* _matmul_tt(TensorView* a, TensorView* b);
+// Matmul function which takes in tensors with the shapes
+// A[M,K] B[K,N], but the tensors may have different layouts
+// via strides. All restrictions from the matmul APIs also
+// apply here.
+TensorView* matmul(TensorView* a, TensorView* b);
+// This second matmul function is not exposed via
+// the Python interface, but it does the guts of the work and
+// can be used to create mamtuls without a cast operation following it.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
 
-TensorView* sign(TensorView* x);
-Val* sign(Val* x);
+NVF_API TensorView* sign(TensorView* x);
+NVF_API Val* sign(Val* x);
 TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
-TensorView* gelu(TensorView* x);
-TensorView* gelu_backward(TensorView* dy, TensorView* x);
+NVF_API TensorView* gelu(TensorView* x);
+NVF_API TensorView* gelu_backward(TensorView* dy, TensorView* x);
 TensorView* tanh_gelu(TensorView* x);
 TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x);
 TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
 TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
-TensorView* view_as_real(TensorView* x);
+NVF_API TensorView* view_as_real(TensorView* x);
 
 } // namespace nvfuser

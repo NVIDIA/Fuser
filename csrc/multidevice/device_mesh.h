@@ -9,6 +9,7 @@
 #pragma once
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -40,6 +41,10 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
+  bool operator==(const DeviceMesh& other) const {
+    return vector_ == other.vector();
+  }
+
  private:
   void setDevices(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
@@ -52,6 +57,6 @@ class DeviceMesh final {
   std::vector<DeviceIdxType> vector_;
 };
 
-std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
+NVF_API std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser

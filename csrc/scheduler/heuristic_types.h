@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <visibility.h>
 #include <array>
 #include <ostream>
 #include <string>
@@ -70,6 +71,6 @@ constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
 
 std::string toString(ScheduleHeuristic sh);
 
-std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh);
+NVF_API std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh);
 
 } // namespace nvfuser

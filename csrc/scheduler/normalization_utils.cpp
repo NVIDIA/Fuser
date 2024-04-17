@@ -813,22 +813,73 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
-// Returns true if the gains of reducing buffer size is larger than the pains of
-// recalculations. We don't know the real answer until we run it.
-bool projectBufferToInputs(
+int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& persistent_buffers) {
+  // Init to register file size, which is half of the full register file size
+  int64_t available_persistent_buffer_size =
+      scheduler_utils::register_file_size;
+
+  // Check available shared memory
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerBlockOptin;
+  // Some shared memories are reserved for kernel launch overhead and
+  // reduction_broadcast_workspace. Estimation is conservative, but should
+  // be good enough. The actual threads per block is set in the heuristics
+  // and it may be smaller than maxThreadsPerBlock.
+  // TODO: More accurate estimation of available shared memory size.
+  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  int64_t max_buffer_dtype_size = 1;
+  for (auto tv : persistent_buffers) {
+    max_buffer_dtype_size = std::max(
+        max_buffer_dtype_size,
+        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+  }
+  const int64_t reduction_broadcast_workspace =
+      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+  const int64_t available_shared_memory_size =
+      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  available_persistent_buffer_size =
+      std::max(available_persistent_buffer_size, available_shared_memory_size);
+  return available_persistent_buffer_size;
+}
+
+// Returns true if persistent buffers are projected to inputs, meaning the
+// inputs are cached instead of the persistent buffers.
+bool isProjectBufferToInputs(
     Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const bool is_inner_reduction) {
+  // don't project if there are view ops and no buffer can be projected
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  if (!can_project) {
+    return false;
+  }
+
   // don't project if can't reduce buffer size
   if (persistent_buffer_size_info.projected_persistent_buffer_size >=
       persistent_buffer_size_info.persistent_buffer_size) {
     return false;
   }
 
+  // must project to inputs otherwise don't have enough register or shared
+  // memory to store the buffers. Even after projecting, may still not have
+  // enough register or shared memory, then canScheduleRunTime will return
+  // false.
+  int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
+      runtime_info, persistent_buffer_info.persistent_buffers);
+  if (max_available_buffer <
+      persistent_buffer_size_info.persistent_buffer_size) {
+    return true;
+  }
+
   // check ops between persistent buffer and inputs.
-  // TODO: check more ops, e.g. RNGOp
+  // TODO: check more ops
   bool has_exp_op = false;
   const auto& projectable_buffers =
       persistent_buffer_info.projectable_persistent_buffers;
@@ -841,11 +892,18 @@ bool projectBufferToInputs(
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
     }
+    // don't project if recompute requires rng op
+    if (expr->isA<RNGOp>()) {
+      return false;
+    }
   }
+
+  // free to project if no exp op
   if (!has_exp_op) {
     return true;
   }
 
+  // consider buffer size when exp op exists
   if (is_inner_reduction) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
@@ -944,18 +1002,16 @@ PersistentKernelProperties getPersistentKernelProperties(
   // which requires more advanced analysis is batch norm backwards.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
   bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
-  bool project_persistent_buffers = can_project &&
-      projectBufferToInputs(fusion,
-                            persistent_buffer_info,
-                            persistent_buffer_size_info,
-                            is_inner_reduction);
+  bool project_persistent_buffers = isProjectBufferToInputs(
+      fusion,
+      runtime_info,
+      persistent_buffer_info,
+      persistent_buffer_size_info,
+      is_inner_reduction);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;

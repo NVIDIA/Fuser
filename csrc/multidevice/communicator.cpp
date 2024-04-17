@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
-#include <netdb.h>
-
 #include <multidevice/communicator.h>
+
+#include <netdb.h>
+#include <map>
+
+#ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
 #ifdef USE_C10D_GLOO
 #include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
@@ -19,18 +21,26 @@
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
+#endif
 
 namespace nvfuser {
 
-std::map<CommunicatorBackend, std::string> communicator_backend_to_string = {
-    {CommunicatorBackend::nccl, "NCCL"},
-    {CommunicatorBackend::ucc, "UCC"},
-    {CommunicatorBackend::gloo, "GLOO"}};
-
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
-  return out << communicator_backend_to_string.at(cb);
+  switch (cb) {
+    case CommunicatorBackend::nccl:
+      out << "NCCL";
+      break;
+    case CommunicatorBackend::ucc:
+      out << "UCC";
+      break;
+    case CommunicatorBackend::gloo:
+      out << "GLOO";
+      break;
+  }
+  return out;
 }
 
+namespace {
 // Parse the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
 // Returns true if the distributed configuration is valid, false otherwise
@@ -122,6 +132,7 @@ inline std::string getTeamKey(const Team& team, CommunicatorBackend backend) {
       });
 }
 
+#ifdef NVFUSER_DISTRIBUTED
 // creates and return a process group backend
 c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
@@ -153,6 +164,8 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 #endif
   NVF_ERROR(false, "no distributed backend available");
 }
+#endif
+} // namespace
 
 Communicator::Communicator(
     CommunicatorBackend backend,
@@ -174,6 +187,7 @@ Communicator::Communicator(
     return;
   }
 
+#ifdef NVFUSER_DISTRIBUTED
   c10d::TCPStoreOptions store_opts;
   {
     char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
@@ -185,8 +199,11 @@ Communicator::Communicator(
                            master_addr_ == gethostbyname(hostname)->h_name) &&
         local_rank_ == server_local_rank;
   }
+  constexpr int comm_master_port_default =
+      c10d::TCPStoreOptions::kDefaultPort; // 29500
   store_opts.port = master_port_ ? master_port_ : comm_master_port_default;
   store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+#endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   ucc_available_ = true;
@@ -205,6 +222,7 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
+#ifdef NVFUSER_DISTRIBUTED
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(team.begin(), team.end(), deviceId());
     NVF_ERROR(
@@ -219,6 +237,9 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
         static_cast<int64_t>(team.size()));
+#else
+    backends_[team_key] = c10::make_intrusive<c10d::Backend>();
+#endif
   }
   return backends_.at(team_key);
 }
@@ -250,5 +271,3 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(
 }
 
 } // namespace nvfuser
-
-#endif

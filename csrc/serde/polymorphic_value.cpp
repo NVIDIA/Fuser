@@ -10,6 +10,7 @@
 #include <dynamic_transform.h>
 #include <fusion.h>
 #include <ir/cloner.h>
+#include <ir/serde.h>
 #include <kernel_ir.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>

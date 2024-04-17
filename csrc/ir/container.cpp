@@ -9,6 +9,7 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
+#include <ir/serde.h>
 #include <serde/nodes.h>
 
 namespace nvfuser {
