@@ -1153,6 +1153,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
+  nvf_ops.def(
+      "linear",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor arg2,
+         std::optional<Tensor> bias = std::nullopt) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.linear");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+
+        if (bias.has_value()) {
+          fd->defineRecord(
+              new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                  {fd->recordingState(arg1()),
+                   fd->recordingState(arg2()),
+                   fd->recordingState(bias.value()())},
+                  {fd->recordingState(output())},
+                  ("ops.linear"),
+                  serde::RecordType::Ternary_TV,
+                  static_cast<
+                      TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                      linear)));
+        } else {
+          fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+              {fd->recordingState(arg1()), fd->recordingState(arg2())},
+              {fd->recordingState(output())},
+              ("ops.linear"),
+              serde::RecordType::Binary_TV,
+              static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
+        }
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      py::return_value_policy::reference);
+
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
@@ -1908,100 +1947,97 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_TERNARY_WITH_ALPHA_OP("addcmul", addcmul)
 #undef NVFUSER_PYTHON_BINDING_TERNARY_WITH_ALPHA_OP
 
-#define NVFUSER_PYTHON_BINDING_REDUCTION_OP(op_str, op_name, record_type)     \
-  nvf_ops.def(                                                                \
-      op_str,                                                                 \
-      [](FusionDefinition::Operators& self,                                   \
-         Tensor arg,                                                          \
-         PrimDataType dtype) -> Tensor {                                      \
-        FUSER_PERF_SCOPE("Operators." op_str);                                \
-        NVF_CHECK(                                                            \
-            self.validUse(), "Attempting to add to a completed definition!"); \
-        FusionDefinition* fd = self.fusion_definition;                        \
-        size_t ndims = 0;                                                     \
-        std::vector<int> dims(arg.dims);                                      \
-        std::iota(dims.begin(), dims.end(), 0);                               \
-        Tensor output = fd->defineTensor(ndims);                              \
-        fd->defineRecord(new ReductionOpRecord(                               \
-            {fd->recordingState(arg())},                                      \
-            {fd->recordingState(output())},                                   \
-            ("ops." op_str),                                                  \
-            record_type,                                                      \
-            static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
-                                        bool,                                 \
-                                        DataType)>(op_name),                  \
-            dims,                                                             \
-            false,                                                            \
-            dtype));                                                          \
-        return output;                                                        \
-      },                                                                      \
-      py::arg("arg"),                                                         \
-      py::arg("dtype") = DataType::Null,                                      \
-      py::return_value_policy::reference);                                    \
-  nvf_ops.def(                                                                \
-      op_str,                                                                 \
-      [](FusionDefinition::Operators& self,                                   \
-         Tensor arg,                                                          \
-         int dim,                                                             \
-         bool keepdim,                                                        \
-         PrimDataType dtype) -> Tensor {                                      \
-        FUSER_PERF_SCOPE("Operators." op_str);                                \
-        NVF_CHECK(                                                            \
-            self.validUse(), "Attempting to add to a completed definition!"); \
-        FusionDefinition* fd = self.fusion_definition;                        \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - 1);                   \
-        Tensor output = fd->defineTensor(ndims);                              \
-        fd->defineRecord(new ReductionOpRecord(                               \
-            {fd->recordingState(arg())},                                      \
-            {fd->recordingState(output())},                                   \
-            ("ops." op_str),                                                  \
-            record_type,                                                      \
-            static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
-                                        bool,                                 \
-                                        DataType)>(op_name),                  \
-            {dim},                                                            \
-            keepdim,                                                          \
-            dtype));                                                          \
-        return output;                                                        \
-      },                                                                      \
-      py::arg("arg"),                                                         \
-      py::arg("dim"),                                                         \
-      py::arg("keepdim") = false,                                             \
-      py::arg("dtype") = DataType::Null,                                      \
-      py::return_value_policy::reference);                                    \
-  nvf_ops.def(                                                                \
-      op_str,                                                                 \
-      [](FusionDefinition::Operators& self,                                   \
-         Tensor arg,                                                          \
-         const std::vector<int>& dims,                                        \
-         bool keepdim,                                                        \
-         PrimDataType dtype) -> Tensor {                                      \
-        FUSER_PERF_SCOPE("Operators." op_str);                                \
-        NVF_CHECK(                                                            \
-            self.validUse(), "Attempting to add to a completed definition!"); \
-        FusionDefinition* fd = self.fusion_definition;                        \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());         \
-        Tensor output = fd->defineTensor(ndims);                              \
-        fd->defineRecord(new ReductionOpRecord(                               \
-            {fd->recordingState(arg())},                                      \
-            {fd->recordingState(output())},                                   \
-            ("ops." op_str),                                                  \
-            record_type,                                                      \
-            static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
-                                        bool,                                 \
-                                        DataType)>(op_name),                  \
-            dims,                                                             \
-            keepdim,                                                          \
-            dtype));                                                          \
-        return output;                                                        \
-      },                                                                      \
-      py::arg("arg"),                                                         \
-      py::arg("dims"),                                                        \
-      py::arg("keepdim") = false,                                             \
-      py::arg("dtype") = DataType::Null,                                      \
+#define NVFUSER_PYTHON_BINDING_REDUCTION_OP(op_str, op_name, record_type)               \
+  nvf_ops.def(                                                                          \
+      op_str,                                                                           \
+      [](FusionDefinition::Operators& self,                                             \
+         Tensor arg,                                                                    \
+         PrimDataType dtype) -> Tensor {                                                \
+        FUSER_PERF_SCOPE("Operators." op_str);                                          \
+        NVF_CHECK(                                                                      \
+            self.validUse(), "Attempting to add to a completed definition!");           \
+        FusionDefinition* fd = self.fusion_definition;                                  \
+        size_t ndims = 0;                                                               \
+        std::vector<int> dims(arg.dims);                                                \
+        std::iota(dims.begin(), dims.end(), 0);                                         \
+        Tensor output = fd->defineTensor(ndims);                                        \
+        fd->defineRecord(new ReductionOpRecord(                                         \
+            {fd->recordingState(arg())},                                                \
+            {fd->recordingState(output())},                                             \
+            ("ops." op_str),                                                            \
+            record_type,                                                                \
+            static_cast<                                                                \
+                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
+                op_name),                                                               \
+            dims,                                                                       \
+            false,                                                                      \
+            dtype));                                                                    \
+        return output;                                                                  \
+      },                                                                                \
+      py::arg("arg"),                                                                   \
+      py::arg("dtype") = DataType::Null,                                                \
+      py::return_value_policy::reference);                                              \
+  nvf_ops.def(                                                                          \
+      op_str,                                                                           \
+      [](FusionDefinition::Operators& self,                                             \
+         Tensor arg,                                                                    \
+         int dim,                                                                       \
+         bool keepdim,                                                                  \
+         PrimDataType dtype) -> Tensor {                                                \
+        FUSER_PERF_SCOPE("Operators." op_str);                                          \
+        NVF_CHECK(                                                                      \
+            self.validUse(), "Attempting to add to a completed definition!");           \
+        FusionDefinition* fd = self.fusion_definition;                                  \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - 1);                             \
+        Tensor output = fd->defineTensor(ndims);                                        \
+        fd->defineRecord(new ReductionOpRecord(                                         \
+            {fd->recordingState(arg())},                                                \
+            {fd->recordingState(output())},                                             \
+            ("ops." op_str),                                                            \
+            record_type,                                                                \
+            static_cast<                                                                \
+                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
+                op_name),                                                               \
+            {dim},                                                                      \
+            keepdim,                                                                    \
+            dtype));                                                                    \
+        return output;                                                                  \
+      },                                                                                \
+      py::arg("arg"),                                                                   \
+      py::arg("dim"),                                                                   \
+      py::arg("keepdim") = false,                                                       \
+      py::arg("dtype") = DataType::Null,                                                \
+      py::return_value_policy::reference);                                              \
+  nvf_ops.def(                                                                          \
+      op_str,                                                                           \
+      [](FusionDefinition::Operators& self,                                             \
+         Tensor arg,                                                                    \
+         const std::vector<int>& dims,                                                  \
+         bool keepdim,                                                                  \
+         PrimDataType dtype) -> Tensor {                                                \
+        FUSER_PERF_SCOPE("Operators." op_str);                                          \
+        NVF_CHECK(                                                                      \
+            self.validUse(), "Attempting to add to a completed definition!");           \
+        FusionDefinition* fd = self.fusion_definition;                                  \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - dims.size());                   \
+        Tensor output = fd->defineTensor(ndims);                                        \
+        fd->defineRecord(new ReductionOpRecord(                                         \
+            {fd->recordingState(arg())},                                                \
+            {fd->recordingState(output())},                                             \
+            ("ops." op_str),                                                            \
+            record_type,                                                                \
+            static_cast<                                                                \
+                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
+                op_name),                                                               \
+            dims,                                                                       \
+            keepdim,                                                                    \
+            dtype));                                                                    \
+        return output;                                                                  \
+      },                                                                                \
+      py::arg("arg"),                                                                   \
+      py::arg("dims"),                                                                  \
+      py::arg("keepdim") = false,                                                       \
+      py::arg("dtype") = DataType::Null,                                                \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(

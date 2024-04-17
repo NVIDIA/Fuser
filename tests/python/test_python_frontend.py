@@ -2402,6 +2402,55 @@ class TestNvFuserFrontend(TestCase):
             fp16_nvf_out = nvf_out[0]
             self.assertEqual(eager_out, fp16_nvf_out)
 
+    def test_linear(self):
+        m = 24
+        n = 16
+        k = 8
+        bias = torch.randn(n, device="cuda", dtype=torch.float16)
+        inputs_mk_nk = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(n, k, device="cuda", dtype=torch.float16),
+        ]
+
+        inputs_mk_kn = [
+            inputs_mk_nk[0].clone(),
+            inputs_mk_nk[1].clone().as_strided(size=[n, k], stride=[1, n]),
+        ]
+
+        inputs_km_nk = [
+            inputs_mk_nk[0].clone().as_strided(size=[m, k], stride=[1, m]),
+            inputs_mk_nk[1].clone(),
+        ]
+
+        inputs_km_kn = [
+            inputs_km_nk[0].clone(),
+            inputs_mk_kn[1].clone(),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inputs) -> None:
+            t0 = fd.from_pytorch(inputs[0][0])
+            t1 = fd.from_pytorch(inputs[0][1])
+            if len(inputs) > 1:
+                t2 = fd.from_pytorch(inputs[1])
+                t_out = fd.ops.linear(t0, t1, t2)
+            else:
+                t_out = fd.ops.linear(t0, t1)
+            fd.add_output(t_out)
+
+        for inputs in [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]:
+            for use_bias in [True, False]:
+                input = (inputs, bias) if use_bias else (inputs,)
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(fusion_func, inputs=input), input
+                )
+                eager_out = (
+                    F.linear(inputs[0], inputs[1], bias)
+                    if use_bias
+                    else F.linear(inputs[0], inputs[1])
+                )
+                fp16_nvf_out = nvf_out[0]
+                self.assertEqual(eager_out, fp16_nvf_out)
+
     def test_integer_division(self):
         inputs = [
             torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
