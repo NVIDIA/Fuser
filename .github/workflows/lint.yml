@@ -23,8 +23,8 @@ jobs:
       - name: Look for missing license headers
         working-directory: ${{ env.working_directory }}
         run: |
-          FILES=$(find /opt/pytorch/nvfuser -regextype posix-extended -regex '.*\.(cpp|h|py)' \
-            | egrep -v '^/opt/pytorch/nvfuser/(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' \
+          FILES=$(find . -regextype posix-extended -regex '.*\.(cpp|h|py)' \
+            | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' \
             | xargs grep -L SPDX-FileCopyrightText)
 
           echo "$FILES"
