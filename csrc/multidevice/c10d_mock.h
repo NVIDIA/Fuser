@@ -11,7 +11,15 @@ class Work : public torch::CustomClassHolder {
 };
 
 struct ReduceOp : torch::CustomClassHolder {
-  enum RedOpType : uint8_t {
+  enum RedOpType {
+    SUM,
+    AVG,
+    PRODUCT,
+    MIN,
+    MAX,
+    BAND,
+    BOR,
+    BXOR,
     UNUSED,
   };
 

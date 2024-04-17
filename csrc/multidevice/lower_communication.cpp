@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <device_lower/utils.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
@@ -580,19 +579,3 @@ bool isLowerableToCommunication(Expr* expr) {
 }
 
 } // namespace nvfuser
-
-#else // NVFUSER_DISTRIBUTED
-
-#include <ir/base_nodes.h>
-
-namespace nvfuser {
-
-// This is just here so that things can compile even when/if NVFUSER_DISTRIBUTED
-// is not defined. The code paths aren't intended to be hit ever in such cases,
-// so the implementation is unimportant.
-bool isLowerableToCommunication(Expr*) {
-  return false;
-}
-
-} // namespace nvfuser
-#endif
