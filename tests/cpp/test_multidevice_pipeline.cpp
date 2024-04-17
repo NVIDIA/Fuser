@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -577,5 +576,3 @@ INSTANTIATE_TEST_SUITE_P(
         SchedulingMode::ReductionOnly,
         SchedulingMode::Automatic));
 } // namespace nvfuser
-
-#endif

@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -217,4 +216,3 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(testing::Bool(), testing::Values(1)));
 
 } // namespace nvfuser
-#endif
