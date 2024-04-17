@@ -113,11 +113,7 @@ void LayerNormBackward_ShapeInference_Base(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime
-                ->getMaybeHeuristicsFor(
-                    args,
-                    /*forced_index_type=*/std::nullopt)
-                .has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   fec->profile(true);
   fec->disableKernelLaunch();
@@ -191,11 +187,7 @@ void LayerNormForward_ShapeInferenceBase(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  NVF_ERROR(runtime
-                ->getMaybeHeuristicsFor(
-                    args,
-                    /*forced_index_type=*/std::nullopt)
-                .has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   fec->profile(true);
   fec->disableKernelLaunch();
