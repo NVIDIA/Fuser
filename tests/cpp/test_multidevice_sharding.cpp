@@ -24,7 +24,7 @@ class ShardingTest : public MultiDeviceTest,
 // and sharded intermediates, outputs.
 TEST_P(ShardingTest, UnshardedGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
   std::vector<int64_t> devices(num_devices);
@@ -76,7 +76,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 // and replicated intermediates and output.
 TEST_P(ShardingTest, ShardGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
   std::vector<int64_t> devices(num_devices);
@@ -112,13 +112,20 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    OutermostShard,
+    ,
     ShardingTest,
-    testing::Combine(testing::Bool(), testing::Values(0)));
-
-INSTANTIATE_TEST_SUITE_P(
-    InnermostShard,
-    ShardingTest,
-    testing::Combine(testing::Bool(), testing::Values(1)));
+    testing::Combine(testing::Bool(), testing::Values(0, 1)),
+    [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
+        -> std::string {
+      // Not sure why the following doesn't work:
+      //   auto [creates_concrete_tensor, sharded_dim] = info.param;
+      bool creates_concrete_tensor;
+      int sharded_dim;
+      std::tie(creates_concrete_tensor, sharded_dim) = info.param;
+      std::ostringstream os;
+      os << (creates_concrete_tensor ? "concrete" : "symbolic")
+         << "_sharded_along_dim_" << sharded_dim;
+      return os.str();
+    });
 
 } // namespace nvfuser
