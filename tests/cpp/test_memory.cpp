@@ -548,7 +548,7 @@ std::string testNameTMASimpleLdstTest(
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    TMASimpleLdstTest,
+    ,
     TMASimpleLdstTest,
     testing::Combine(
         kAllSmemSwizzleModes,
@@ -1552,7 +1552,7 @@ TEST_P(LdMatrixTest, Transpose) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    CopyUsingLdMatrix,
+    ,
     LdMatrixTest,
     testing::Values(
         std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::A),
