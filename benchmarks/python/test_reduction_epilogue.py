@@ -5,8 +5,12 @@ from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
+# test the influence of epilogue on the performance of reduction.
+# current reduction scheduler only allows epilogue to be fused with outer reduction without post reduction broadcast.
+# So, in this test, only outer reduction is tested. Can be extended to inner reduction if needed.
 
-def reduction_fusion(
+
+def reduction_epilogue_fusion(
     fd: FusionDefinition,
     dtype: DataType,
     reduction_axis: int,
@@ -14,9 +18,7 @@ def reduction_fusion(
     T0 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
-    T1 = fd.define_tensor(
-        shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False
-    )
+    T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
@@ -27,14 +29,16 @@ def reduction_fusion(
     fd.add_output(T3)
 
 
-def reduction_fwd_fn(inputs: list):  # in_tensor, epilogue_tensor, reduction_axis
+def reduction_epilogue_fwd_fn(
+    inputs: list,
+):  # in_tensor, epilogue_tensor, reduction_axis
     return torch.sum(inputs[0], dim=inputs[2]) + inputs[1]
 
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_reduction_nvf_benchmark(
+@pytest.mark.parametrize("reduction_axis", [0])
+def test_reduction_epilogue_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -43,26 +47,28 @@ def test_reduction_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-
-    input = torch.randn(*size, device="cuda", dtype=dtype)
-    epilogue = torch.randn(size[-1], device="cuda", dtype=dtype)
-    inputs = [input, epilogue, reduction_axis]
+    x = torch.randn(*size, device="cuda", dtype=dtype)
+    epilogue = torch.randn(size[reduction_axis - 1], device="cuda", dtype=dtype)
     with FusionDefinition() as fd:
-        reduction_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
+        reduction_epilogue_fusion(
+            fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis
+        )
 
     if not disable_validation:
-        eager_output = reduction_fwd_fn(inputs)
-        fd.validate(inputs, [eager_output.to(dtype)])
+        eager_output = reduction_epilogue_fwd_fn(
+            [x.to(torch.double), epilogue.to(torch.double), reduction_axis]
+        )
+        fd.validate([x, epilogue], [eager_output.to(dtype)])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, inputs)
+        run_benchmark(benchmark, fd.execute, [x, epilogue])
 
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_reduction_baseline_benchmark(
+@pytest.mark.parametrize("reduction_axis", [0])
+def test_reduction_epilogue_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -71,11 +77,13 @@ def test_reduction_baseline_benchmark(
 ):
     clear_cuda_cache()
 
-    input = torch.randn(*size, device="cuda", dtype=dtype)
-    epilogue = torch.randn(size[-1], device="cuda", dtype=dtype)
+    x = torch.randn(*size, device="cuda", dtype=dtype)
+    epilogue = torch.randn([reduction_axis - 1], device="cuda", dtype=dtype)
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(reduction_fwd_fn) if compile else reduction_fwd_fn,
-        [input, epilogue, reduction_axis],
+        torch.compile(reduction_epilogue_fwd_fn)
+        if compile
+        else reduction_epilogue_fwd_fn,
+        [x, epilogue, reduction_axis],
     )
