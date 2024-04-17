@@ -509,6 +509,7 @@ class Index {
   static Val* getProducerStridedIndices2(
       TensorView* producer,
       const TensorView* consumer,
+      const std::vector<kir::ForLoop*>& loops,
       TensorIndexer* tensor_indexer);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
@@ -524,6 +525,7 @@ class Index {
 
   static Val* getConsumerStridedIndices2(
       TensorView* consumer,
+      const std::vector<kir::ForLoop*>& loops,
       TensorIndexer* tensor_indexer);
 
   //! Returns the logical index linearized from a multi-dimension address into a

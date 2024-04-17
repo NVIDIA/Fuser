@@ -2452,6 +2452,7 @@ Val* Index::getProducerStridedIndices(
 Val* Index::getProducerStridedIndices2(
     TensorView* producer,
     const TensorView* consumer,
+    const std::vector<kir::ForLoop*>& loops,
     TensorIndexer* tensor_indexer) {
   Expr* expr = consumer->definition();
   NVF_ERROR(
@@ -2467,7 +2468,7 @@ Val* Index::getProducerStridedIndices2(
       ", producer: ",
       producer->toString());
 
-  return tensor_indexer->getIndex(producer, expr);
+  return tensor_indexer->getIndex(producer, expr, loops);
 }
 
 // Producer is the inputs of an expression
@@ -2488,7 +2489,8 @@ kir::TensorIndex* Index::getProducerIndex(
       hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
     std::cerr << "Using the new indexer for producer: " << producer->toString()
               << std::endl;
-    index = getProducerStridedIndices2(producer, consumer, tensor_indexer);
+    index =
+        getProducerStridedIndices2(producer, consumer, loops, tensor_indexer);
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
@@ -2586,6 +2588,7 @@ Val* Index::getConsumerStridedIndices(
 
 Val* Index::getConsumerStridedIndices2(
     TensorView* consumer,
+    const std::vector<kir::ForLoop*>& loops,
     TensorIndexer* tensor_indexer) {
   Expr* expr = consumer->definition();
   NVF_ERROR(
@@ -2595,7 +2598,7 @@ Val* Index::getConsumerStridedIndices2(
 
   NVF_ERROR(tensor_indexer != nullptr);
 
-  return tensor_indexer->getIndex(consumer, expr);
+  return tensor_indexer->getIndex(consumer, expr, loops);
 }
 
 // Consumer is the output of an expression
@@ -2615,7 +2618,7 @@ kir::TensorIndex* Index::getConsumerIndex(
       hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
     std::cerr << "Using the new indexer for consumer: " << consumer->toString()
               << std::endl;
-    index = getConsumerStridedIndices2(consumer, tensor_indexer);
+    index = getConsumerStridedIndices2(consumer, loops, tensor_indexer);
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {

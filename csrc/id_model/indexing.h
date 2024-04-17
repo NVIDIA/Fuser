@@ -20,12 +20,33 @@ class TensorIndexer {
  public:
   TensorIndexer(const IdModel& id_model);
 
-  Val* getIndex(TensorView* tv, Expr* expr);
+  // The actual ForLoop's are required to support double buffering as
+  // that affects indexing. If the loops parameter is empty, it's
+  // simply ignored. That may be useful if (preliminary) indeices are
+  // needed before the double buffering pass
+  Val* getIndex(
+      TensorView* tv,
+      Expr* expr,
+      const std::optional<std::vector<kir::ForLoop*>>& loops);
 
   static bool isSupported(Fusion* fusion);
 
  private:
   void buildLoopIndexMap();
+
+  Val* adjustProducerLoopIndexForDoubleBuffering(
+      TensorView* tv,
+      Expr* expr,
+      kir::ForLoop* for_loop,
+      Val* loop_index) const;
+
+  Val* adjustIndexToSwitchBuffer(
+      TensorView* tv,
+      bool as_consumer,
+      const std::vector<kir::ForLoop*>& for_loops,
+      Val* idx) const;
+
+  Val* getLoopIndex(IterDomain* id) const;
 
  private:
   const IdModel& id_model_;

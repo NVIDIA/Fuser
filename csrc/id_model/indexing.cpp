@@ -27,7 +27,8 @@ class IndexingTraversal : public ValGraphBFS {
       std::vector<GroupType> from_groups,
       std::vector<GroupType> to_groups,
       const std::unordered_set<Resize*>& resize_paths)
-      : ValGraphBFS(graph, from_groups, to_groups), resize_paths_(resize_paths) {}
+      : ValGraphBFS(graph, from_groups, to_groups),
+        resize_paths_(resize_paths) {}
 
   virtual ~IndexingTraversal() = default;
 
@@ -61,7 +62,7 @@ class IndexingTraversal : public ValGraphBFS {
     return false;
   }
 
-  const std::unordered_set<Resize*>& resize_paths_;  
+  const std::unordered_set<Resize*>& resize_paths_;
 };
 
 IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
@@ -128,7 +129,9 @@ Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
 namespace {
 
 std::optional<std::vector<IterDomain*>>
-getAllocationDomainOfTransposedSmemTensor(TensorView* tv, const ValGraph& exact_graph) {
+getAllocationDomainOfTransposedSmemTensor(
+    TensorView* tv,
+    const ValGraph& exact_graph) {
   if (tv->getMemoryType() != MemoryType::Shared) {
     return std::nullopt;
   }
@@ -182,7 +185,8 @@ getAllocationDomainOfTransposedSmemTensor(TensorView* tv, const ValGraph& exact_
     return std::nullopt;
   }
 
-  Merge* producer_common_merge = getOriginatingMerge(non_inlined_domains.front());
+  Merge* producer_common_merge =
+      getOriginatingMerge(non_inlined_domains.front());
   if (producer_common_merge == nullptr) {
     return std::nullopt;
   }
@@ -198,8 +202,9 @@ getAllocationDomainOfTransposedSmemTensor(TensorView* tv, const ValGraph& exact_
   std::cerr << "Common merge op: " << producer_common_merge->toString();
 
   std::vector<IterDomain*> consumer_non_inlined_domains{
-    consumer->getLeafDomain().begin() + (consumer->nDims() - non_inlined_domains.size()),
-    consumer->getLeafDomain().end()};
+      consumer->getLeafDomain().begin() +
+          (consumer->nDims() - non_inlined_domains.size()),
+      consumer->getLeafDomain().end()};
 
   Merge* consumer_common_merge =
       getOriginatingMerge(consumer_non_inlined_domains.front());
@@ -241,12 +246,21 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
   std::vector<IterDomain*> index_domains;
   std::vector<std::optional<bool>> contiguity;
 
+  auto inlining_pos = tv->getComputeAtPosition();
+  if (tv->isDoubleBuffered()) {
+    std::cerr << "TV" << tv->name()
+              << ": DB pos: " << getDoubleBufferAxisPosition(tv) << std::endl;
+    std::cerr << "inlining_pos: " << inlining_pos << std::endl;
+    inlining_pos = getDoubleBufferAxisPosition(tv) + 1;
+  }
+
   // Ignore allocation of non-global tensors for now
   if (tv->hasAllocation() && tv->getMemoryType() == MemoryType::Global) {
     VERBOSE() << "Tv has allocation of " << tv->toString() << ", "
               << toDelimitedString(tv->getAllocationDomain()) << std::endl;
     index_domains = tv->getAllocationDomain();
     contiguity = tv->domain()->contiguity();
+    NVF_ERROR(!tv->isDoubleBuffered());
   } else {
     // If allocation domain is not set, assume that:
     // Local/Shared: leaf domains to the right of the CA position
@@ -257,6 +271,7 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
                 << std::endl;
       index_domains = tv->getMaybeRFactorDomain();
       contiguity = tv->domain()->contiguity();
+      NVF_ERROR(!tv->isDoubleBuffered());
     } else if (tv->getMemoryType() == MemoryType::Shared) {
       for (const auto i : c10::irange(tv->nDims())) {
         auto leaf_id = tv->axis(i);
@@ -266,7 +281,7 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
         if (isParallelTypeDeviceDim(pt) || isParallelTypeBlockDim(pt)) {
           continue;
         }
-        if (i < tv->getComputeAtPosition() && !isParallelTypeThreadDim(pt)) {
+        if (i < inlining_pos && !isParallelTypeThreadDim(pt)) {
           continue;
         }
         index_domains.push_back(leaf_id);
@@ -274,7 +289,7 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
       contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
     } else {
       index_domains = {
-          tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
+          tv->getLeafDomain().begin() + inlining_pos,
           tv->getLeafDomain().end()};
       contiguity = std::vector<std::optional<bool>>(index_domains.size(), true);
     }
@@ -352,10 +367,12 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
   }
 
   // WAR for transpose
-  auto transposed_smem_alloc_dom =
-      getAllocationDomainOfTransposedSmemTensor(tv, id_model.idGraph(IdMappingMode::EXACT));
+  auto transposed_smem_alloc_dom = getAllocationDomainOfTransposedSmemTensor(
+      tv, id_model.idGraph(IdMappingMode::EXACT));
   if (transposed_smem_alloc_dom.has_value()) {
-    std::cerr << "Using consumer domain as the allocation domain of the shared memory producer: " << tv->toString() << std::endl;
+    std::cerr
+        << "Using consumer domain as the allocation domain of the shared memory producer: "
+        << tv->toString() << std::endl;
     index_domains = transposed_smem_alloc_dom.value();
   }
 
@@ -436,7 +453,8 @@ ExprGroups getExprsBetween(
       exact_graph,
       {loop_domain_groups.vector().begin(), loop_domain_groups.vector().end()},
       {index_domain_groups.vector().begin(),
-       index_domain_groups.vector().end()}, resize_paths);
+       index_domain_groups.vector().end()},
+      resize_paths);
 
   traversal.traverse();
 
@@ -504,7 +522,8 @@ Val* IndexCompute::getIndex(IterDomain* id) const {
 }
 
 void IndexCompute::setIndex(IterDomain* id, Val* idx) {
-  std::cerr << "setIndex: " << id->name() << " -> " << idx->toInlineString() << std::endl;
+  std::cerr << "setIndex: " << id->name() << " -> " << idx->toInlineString()
+            << std::endl;
   const ValGroup& id_group = exact_graph_.toGroup(id);
   NVF_ERROR(
       index_map_.emplace(id_group, idx).second,
@@ -546,8 +565,7 @@ void IndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
 
   VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): "
-            << split->toString();
+            << "): " << split->toString();
 
   if (is_forward) {
     auto in_idx = getIndex(split->in());
@@ -570,8 +588,7 @@ void IndexCompute::handle(Merge* merge) {
   const bool is_forward = isForward(merge);
 
   VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): "
-            << merge->toString();
+            << "): " << merge->toString();
 
   // TODO: use getMaybeExpandedExtent?
   auto inner_ext = merge->inner()->extent();
@@ -600,7 +617,7 @@ void IndexCompute::handle(Resize* resize) {
   auto left_expand = resize->leftExpand();
 
   auto in_id = is_forward ? resize->in() : resize->out();
-  auto out_id = is_forward ? resize->out() : resize->in();  
+  auto out_id = is_forward ? resize->out() : resize->in();
 
   if (left_expand->isZeroInt()) {
     // Just forward as is
@@ -610,7 +627,7 @@ void IndexCompute::handle(Resize* resize) {
 
   auto in_idx = getIndex(in_id);
   Val* out_idx = nullptr;
-  
+
   if (is_forward) {
     out_idx = SimplifyingIrBuilder::addExpr(in_idx, left_expand);
   } else {
@@ -791,14 +808,30 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 }
 
+Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
+  const auto& loop_group =
+      id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+  auto loop_index_map_it = loop_index_map_.find(loop_group);
+  NVF_ERROR(
+      loop_index_map_it != loop_index_map_.end(),
+      "No loop index found for ",
+      loop_id->toString());
+
+  Val* loop_index = loop_index_map_it->second;
+  return loop_index;
+}
+
 // 1. Find the loop domains
 // 2. Find the index domains
 // 3. Find the path from the loop domains to the allocation domains
 // 4. Set the initial index vals
 // 5. Propagate the initial indices of the loop domains to the index
 // domains
-Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
-  //const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+Val* TensorIndexer::getIndex(
+    TensorView* tv,
+    Expr* expr,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+  // const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   const ValGraph& almost_exact_graph =
       id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
 
@@ -809,9 +842,8 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
       expr->outputs().end();
 
   VERBOSE() << "getIndex of " << tv->toString() << " as "
-            << (as_consumer ? "consumer" : "producer")
-            << " in " << expr->toString()
-            << std::endl;
+            << (as_consumer ? "consumer" : "producer") << " in "
+            << expr->toString() << std::endl;
 
   auto loop_domains = getLoopDomains(expr, id_model_);
 
@@ -834,20 +866,19 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   std::unordered_set<Resize*> resize_paths;
   if (consumer_tv->hasRFactor()) {
     auto root_to_rf_exprs = StmtSort::getExprsBetween(
-        {consumer_tv->getRootDomain().begin(), consumer_tv->getRootDomain().end()},
-        {consumer_tv->getRFactorDomain().begin(), consumer_tv->getRFactorDomain().end()});
-    for (Expr* root_to_rf_expr: root_to_rf_exprs) {
+        {consumer_tv->getRootDomain().begin(),
+         consumer_tv->getRootDomain().end()},
+        {consumer_tv->getRFactorDomain().begin(),
+         consumer_tv->getRFactorDomain().end()});
+    for (Expr* root_to_rf_expr : root_to_rf_exprs) {
       if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
         resize_paths.insert(resize);
       }
     }
   }
 
-  auto indexing_path = getExprsBetween(
-      loop_domains,
-      index_domains,
-      index_graph,
-      resize_paths);
+  auto indexing_path =
+      getExprsBetween(loop_domains, index_domains, index_graph, resize_paths);
 
   VERBOSE() << "Indexing path:\n";
   for (const auto& expr_group : indexing_path) {
@@ -862,25 +893,62 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   // loop_index_map_ is a map on the loop graph. For index
   // propagation, need a map for the exact graph
 
+  auto getForLoop = [&](IterDomain* id) -> kir::ForLoop* {
+    if (!for_loops.has_value()) {
+      return nullptr;
+    }
+
+    auto it = std::find_if(
+        for_loops->begin(), for_loops->end(), [&](kir::ForLoop* fl) -> bool {
+          return id_model_.idGraph(IdMappingMode::LOOP)
+              .disjointValSets()
+              .strictAreMapped(fl->iter_domain(), id);
+        });
+    if (it != for_loops->end()) {
+      return *it;
+    } else {
+      return nullptr;
+    }
+  };
+
   for (IterDomain* loop_id : loop_domains) {
-    const auto& loop_group =
-        id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
-    auto loop_index_map_it = loop_index_map_.find(loop_group);
-    NVF_ERROR(loop_index_map_it != loop_index_map_.end());
-    Val* loop_initial_index = loop_index_map_it->second;
+    Val* loop_index = getLoopIndex(loop_id);
     const auto& exact_group = index_graph.toGroup(loop_id);
     VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
               << nvfuser::toString(exact_group) << ", "
-              << loop_index_map_it->second->toInlineString() << std::endl;
+              << loop_index->toInlineString() << std::endl;
+
+    kir::ForLoop* for_loop = getForLoop(loop_id);
+
+    // Even when the iter-domain is not size-1, the actual for-loop
+    // can be (e.g., for double buffering)
+    if (for_loop != nullptr) {
+      std::cerr << "For loop stop: " << for_loop->stop()->toInlineString()
+                << ", ID: " << for_loop->iter_domain()->toString() << std::endl;
+    }
+    if (for_loop != nullptr && for_loop->isTrivial()) {
+      std::cerr << "Replacing a loop index with a loop start val: "
+                << for_loop->start()->toInlineString()
+                << ". Prev: " << loop_index->toInlineString() << std::endl;
+      loop_index = for_loop->start();
+    }
+
+    // If the for-loop is double-buffered and not prologue, the loop
+    // index should be advanced by one except for the double-buffered
+    // tensor itself
+    if (for_loops.has_value() && GpuLower::hasCurrent() && !as_consumer) {
+      loop_index = adjustProducerLoopIndexForDoubleBuffering(
+          tv, expr, for_loop, loop_index);
+    }
 
     if (initial_index_map.find(exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as exact_group is
       // actually an almost-exact group. It should be just size-1
       // domain.
       NVF_ERROR(
-          loop_initial_index->isZeroInt(),
+          loop_index->isZeroInt(),
           "Unexpected initial index: ",
-          loop_initial_index->toInlineString());
+          loop_index->toInlineString());
       auto existing_index = initial_index_map.at(exact_group);
       NVF_ERROR(
           existing_index->isZeroInt(),
@@ -890,17 +958,16 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
     }
 
     NVF_ERROR(
-        initial_index_map.emplace(exact_group, loop_index_map_it->second)
-            .second,
+        initial_index_map.emplace(exact_group, loop_index).second,
         "Initial index already set for ",
         nvfuser::toString(exact_group),
         ". Existing: ",
         initial_index_map.at(exact_group)->toInlineString(),
-        ". New: ", loop_index_map_it->second->toInlineString());
+        ". New: ",
+        loop_index->toInlineString());
   }
 
-  IndexCompute index_compute(
-      index_graph, initial_index_map);
+  IndexCompute index_compute(index_graph, initial_index_map);
 
   for (const auto& expr_group : indexing_path) {
     index_compute.propagate(expr_group);
@@ -918,9 +985,133 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
         index, SimplifyingIrBuilder::mulExpr(idx, strides.at(i)));
   }
 
+  // Process double buffering when for-loops are given
+  if (tv->isDoubleBuffered() && for_loops.has_value() &&
+      GpuLower::hasCurrent()) {
+    auto adjusted_index =
+        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops.value(), index);
+    std::cerr << "Adjustment done for switching buffer of " << tv->toString()
+              << ": " << adjusted_index->toInlineString()
+              << ", before: " << index->toInlineString() << std::endl;
+    index = adjusted_index;
+  }
+
   VERBOSE() << "Index: " << index->toInlineString() << std::endl;
 
   return index;
+}
+
+Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
+    TensorView* tv,
+    Expr* expr,
+    kir::ForLoop* for_loop,
+    Val* loop_index) const {
+  // Double-buffered tensor itself does not need this adjustment
+  if (tv->isDoubleBuffered() &&
+      id_model_.idGraph(IdMappingMode::LOOP)
+          .disjointValSets()
+          .strictAreMapped(getDoubleBufferAxis(tv), for_loop->iter_domain())) {
+    return loop_index;
+  }
+
+  if (for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Main &&
+      for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Epilog) {
+    return loop_index;
+  }
+
+  auto consumer_tv = ir_utils::getTvOutput(expr);
+
+  if (!consumer_tv->isDoubleBuffered()) {
+    return loop_index;
+  }
+
+  const auto gpu_lower = GpuLower::current();
+  NVF_ERROR(
+      gpu_lower != nullptr,
+      "Double buffering info of GpuLower is required but GpuLower is missing");
+
+  auto stage_depth =
+      (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          for_loop->iter_domain());
+
+  auto adjusted_loop_index = SimplifyingIrBuilder::addExpr(
+      loop_index,
+      SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+
+  std::cerr << "Adjusted loop index: " << adjusted_loop_index->toInlineString()
+            << ", Prev: " << loop_index->toInlineString() << std::endl;
+
+  return adjusted_loop_index;
+}
+
+Val* TensorIndexer::adjustIndexToSwitchBuffer(
+    TensorView* tv,
+    bool as_consumer,
+    const std::vector<kir::ForLoop*>& for_loops,
+    Val* idx) const {
+  if (!tv->isDoubleBuffered()) {
+    return idx;
+  }
+
+  const auto gpu_lower = GpuLower::current();
+  NVF_ERROR(
+      gpu_lower != nullptr,
+      "Double buffering info of GpuLower is required but GpuLower is missing");
+
+  auto db_loop =
+      gpu_lower->doubleBufferInfo().getDoubleBufferLoop(tv, for_loops);
+
+  NVF_ERROR(db_loop != nullptr);
+
+  std::cerr << "DB loop of " << tv->toString() << ": "
+            << db_loop->iter_domain()->toString() << std::endl;
+
+  // Mostly just copied from getNonGlobalConsumerStridedIndices
+  auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+      db_loop->iter_domain());
+  bool is_circular_buffer_loop = stage_depth > 2;
+  bool is_prolog =
+      db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
+
+  NVF_ERROR(!is_circular_buffer_loop, "Circular buffering not supported yet");
+
+  // Prologue doesn't need anything here
+  if (is_prolog) {
+    return idx;
+  }
+
+  if (db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Epilog) {
+    std::cerr << "Epilog loop:\n"
+              << db_loop->toString() << db_loop->start()->toInlineString()
+              << " -> " << db_loop->stop()->toInlineString()
+              << ", current index: " << idx->toInlineString() << std::endl;
+  }
+
+  auto loop_index = getLoopIndex(db_loop->iter_domain());
+  if (db_loop->isTrivial()) {
+    loop_index = db_loop->start();
+  }
+
+  auto db_index_offset = loop_index;
+  if (as_consumer) {
+    // Read-ahead offset for consumer indexing
+    db_index_offset = SimplifyingIrBuilder::addExpr(
+        db_index_offset,
+        SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
+  }
+
+  db_index_offset = SimplifyingIrBuilder::modExpr(
+      db_index_offset,
+      SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+
+  auto original_alloc_size =
+      gpu_lower->doubleBufferInfo().getOriginalAllocSize(tv);
+
+  auto db_strided_index =
+      SimplifyingIrBuilder::mulExpr(db_index_offset, original_alloc_size);
+
+  auto updated_idx = SimplifyingIrBuilder::addExpr(idx, db_strided_index);
+  return updated_idx;
 }
 
 namespace {
@@ -928,8 +1119,8 @@ namespace {
 std::string getDisableReason(TensorView* tv) {
   std::stringstream reason;
 
-  if (tv->isDoubleBuffered() || tv->isCircularBuffered()) {
-    reason << "Double/circular buffering is used: " << tv->toString();
+  if (tv->isCircularBuffered()) {
+    reason << "Circular buffering is used: " << tv->toString();
     return reason.str();
   }
 
