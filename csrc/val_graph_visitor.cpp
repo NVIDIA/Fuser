@@ -212,6 +212,11 @@ void ValGraphBFS::traverse() {
     return b;
   };
 
+  // TODO: Make sure from_groups_ has no resize eg that are not in the
+  // resize_paths_
+  // TODO: Make sure adding new neighbor only considers those in the
+  // resize_paths_
+
   for (const auto& g : from_groups_) {
     setVisited(g);
     addNewNeighbors(g);
@@ -235,8 +240,7 @@ void ValGraphBFS::traverse() {
 
 #if 1
       if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
-        std::cerr << "Visiting EG: "
-                  << nvfuser::toString(*eg)
+        std::cerr << "Visiting EG: " << nvfuser::toString(*eg)
                   << (*eg)->front()->toString();
       } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
         std::cerr << "Visiting VG: " << nvfuser::toString(*vg) << std::endl;
@@ -355,19 +359,29 @@ void ValGraphBFS::setVisited(const GroupType& g) {
 }
 
 void ValGraphBFS::addNewNeighbors(const GroupType& g) {
+  auto add_to_visit_list = [&](const GroupType& g) -> void {
+    if (excludeFromTraversal(g)) {
+      // std::cerr << "Not traversing " << toString(g) << std::endl;
+      return;
+    }
+    to_visit_.emplace_back(g);
+  };
+
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
     for (const auto& vg : graph_.inputGroups(*eg)) {
       if (!isVisited(vg)) {
         // std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
         // std::endl;
-        to_visit_.emplace_back(vg);
+        // to_visit_.emplace_back(vg);
+        add_to_visit_list(vg);
       }
     }
     for (const auto& vg : graph_.outputGroups(*eg)) {
       if (!isVisited(vg)) {
         // std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
         // std::endl;
-        to_visit_.emplace_back(vg);
+        // to_visit_.emplace_back(vg);
+        add_to_visit_list(vg);
       }
     }
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
@@ -375,14 +389,16 @@ void ValGraphBFS::addNewNeighbors(const GroupType& g) {
       if (!isVisited(eg)) {
         // std::cerr << "Adding neighbor: " << nvfuser::toString(eg) <<
         // std::endl;
-        to_visit_.emplace_back(eg);
+        // to_visit_.emplace_back(eg);
+        add_to_visit_list(eg);
       }
     }
     for (const auto& eg : graph_.getDefinitions(*vg)) {
       if (!isVisited(eg)) {
         // std::cerr << "Adding neighbor: " << nvfuser::toString(eg) <<
         // std::endl;
-        to_visit_.emplace_back(eg);
+        // to_visit_.emplace_back(eg);
+        add_to_visit_list(eg);
       }
     }
   } else {

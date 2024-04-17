@@ -1174,7 +1174,7 @@ void IdModel::propagateLoopPTypes() const {
 }
 
 void IdModel::buildAllGraphs() {
-  VERBOSE() << "*** Building all graphs ***";
+  VERBOSE() << "*** Building all graphs ***\n";
 
   if (tvs_.empty()) {
     return;
@@ -1482,7 +1482,6 @@ void IdModel::propagatePromotionsInIELGraph(
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
 
-
       if (war) {
         // This is a copy of the loop_promote_inputs block below. When
         // war is true, this block should be prioritized.
@@ -1492,7 +1491,8 @@ void IdModel::propagatePromotionsInIELGraph(
         if (loop_promote_inputs) {
           const ValGroup& loop_copy_group =
               loop_graph.toGroup(iel_inp_group->front());
-          auto inp_loop_promo_it = loop_graph_promotion_map.find(loop_copy_group);
+          auto inp_loop_promo_it =
+              loop_graph_promotion_map.find(loop_copy_group);
           if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
             maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
             an_input_was_promoted = true;

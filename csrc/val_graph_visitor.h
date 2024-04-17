@@ -155,6 +155,10 @@ class ValGraphBFS {
 
   virtual void setPrevGroup(const GroupType& group);
 
+  virtual bool excludeFromTraversal(const GroupType& group) const {
+    return false;
+  }
+
   // Extend this to support Val paths as well
   virtual ExprGroups getShortestExprPath() const;
 

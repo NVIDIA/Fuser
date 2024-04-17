@@ -507,7 +507,7 @@ std::string ValGraph::toString() const {
   ss << " } IdGraph\n" << std::endl;
   return ss.str();
 }
-
+#if 0
 bool ValGraph::transformAtributesMatch(Expr* first, Expr* second) {
   if (first == nullptr || second == nullptr) {
     return false;
@@ -555,6 +555,7 @@ bool ValGraph::transformAtributesMatch(Expr* first, Expr* second) {
 
   return true;
 }
+#endif
 
 void ValGraph::initializeVal(
     Val* val,
@@ -624,6 +625,11 @@ void ValGraph::registerExpr(Expr* expr) {
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   NVF_ERROR(first);
   NVF_ERROR(second);
+
+  if (first->isA<Resize>() && second->isA<Resize>()) {
+    std::cerr << "exprsMap: " << first->toString() << second->toString();
+    std::cerr << "sameOp?: " << first->sameOp(second) << std::endl;
+  }
 
   if (!first->sameOp(second)) {
     return false;

@@ -25,8 +25,9 @@ class IndexingTraversal : public ValGraphBFS {
   IndexingTraversal(
       const ValGraph& graph,
       std::vector<GroupType> from_groups,
-      std::vector<GroupType> to_groups)
-      : ValGraphBFS(graph, from_groups, to_groups) {}
+      std::vector<GroupType> to_groups,
+      const std::unordered_set<Resize*>& resize_paths)
+      : ValGraphBFS(graph, from_groups, to_groups), resize_paths_(resize_paths) {}
 
   virtual ~IndexingTraversal() = default;
 
@@ -40,6 +41,27 @@ class IndexingTraversal : public ValGraphBFS {
     }
     return ValGraphBFS::isVisited(group);
   }
+
+  bool excludeFromTraversal(const GroupType& group) const override {
+    if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
+      if ((*eg)->empty()) {
+        return false;
+      }
+      auto resize = dynamic_cast<Resize*>((*eg)->front());
+      if (resize == nullptr) {
+        return false;
+      }
+      if (std::none_of((*eg)->begin(), (*eg)->end(), [&](Expr* expr) -> bool {
+            return resize_paths_.find(expr->as<Resize>()) !=
+                resize_paths_.end();
+          })) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const std::unordered_set<Resize*>& resize_paths_;  
 };
 
 IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
@@ -402,7 +424,8 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
 ExprGroups getExprsBetween(
     const std::vector<IterDomain*>& loop_domains,
     const std::vector<IterDomain*>& index_domains,
-    const ValGraph& exact_graph) {
+    const ValGraph& exact_graph,
+    const std::unordered_set<Resize*>& resize_paths) {
   const ValGroups loop_domain_groups = exact_graph.toGroups(loop_domains);
   const ValGroups index_domain_groups = exact_graph.toGroups(index_domains);
 
@@ -413,7 +436,7 @@ ExprGroups getExprsBetween(
       exact_graph,
       {loop_domain_groups.vector().begin(), loop_domain_groups.vector().end()},
       {index_domain_groups.vector().begin(),
-       index_domain_groups.vector().end()});
+       index_domain_groups.vector().end()}, resize_paths);
 
   traversal.traverse();
 
@@ -439,6 +462,8 @@ class IndexCompute : public OptOutDispatch {
   void handle(Split* split) override;
 
   void handle(Merge* merge) override;
+
+  void handle(Resize* resize) override;
 
   bool isForward(Expr* expr) const;
 
@@ -518,9 +543,11 @@ bool IndexCompute::isForward(Expr* expr) const {
 }
 
 void IndexCompute::handle(Split* split) {
-  VERBOSE() << "IndexCompute handle: " << split->toString();
-
   const bool is_forward = isForward(split);
+
+  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+            << "): "
+            << split->toString();
 
   if (is_forward) {
     auto in_idx = getIndex(split->in());
@@ -540,9 +567,11 @@ void IndexCompute::handle(Split* split) {
 }
 
 void IndexCompute::handle(Merge* merge) {
-  VERBOSE() << "IndexCompute handle: " << merge->toString();
-
   const bool is_forward = isForward(merge);
+
+  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+            << "): "
+            << merge->toString();
 
   // TODO: use getMaybeExpandedExtent?
   auto inner_ext = merge->inner()->extent();
@@ -560,6 +589,35 @@ void IndexCompute::handle(Merge* merge) {
     auto inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
     setIndex(merge->inner(), inner_idx);
   }
+}
+
+void IndexCompute::handle(Resize* resize) {
+  const bool is_forward = isForward(resize);
+
+  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+            << "): " << resize->toString();
+
+  auto left_expand = resize->leftExpand();
+
+  auto in_id = is_forward ? resize->in() : resize->out();
+  auto out_id = is_forward ? resize->out() : resize->in();  
+
+  if (left_expand->isZeroInt()) {
+    // Just forward as is
+    setIndex(out_id, getIndex(in_id));
+    return;
+  }
+
+  auto in_idx = getIndex(in_id);
+  Val* out_idx = nullptr;
+  
+  if (is_forward) {
+    out_idx = SimplifyingIrBuilder::addExpr(in_idx, left_expand);
+  } else {
+    out_idx = SimplifyingIrBuilder::subExpr(in_idx, left_expand);
+  }
+
+  setIndex(out_id, out_idx);
 }
 
 ParallelType getParallelType(const ValGroup& loop_group) {
@@ -751,7 +809,9 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
       expr->outputs().end();
 
   VERBOSE() << "getIndex of " << tv->toString() << " as "
-            << (as_consumer ? "consumer" : "producer") << std::endl;
+            << (as_consumer ? "consumer" : "producer")
+            << " in " << expr->toString()
+            << std::endl;
 
   auto loop_domains = getLoopDomains(expr, id_model_);
 
@@ -769,8 +829,25 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
   ss << std::endl;
   VERBOSE() << ss.str();
 
-  auto indexing_path =
-      getExprsBetween(loop_domains, index_domains, index_graph);
+  // TODO: For resize, specific paths need to be taken
+  auto consumer_tv = ir_utils::getTvOutput(expr);
+  std::unordered_set<Resize*> resize_paths;
+  if (consumer_tv->hasRFactor()) {
+    auto root_to_rf_exprs = StmtSort::getExprsBetween(
+        {consumer_tv->getRootDomain().begin(), consumer_tv->getRootDomain().end()},
+        {consumer_tv->getRFactorDomain().begin(), consumer_tv->getRFactorDomain().end()});
+    for (Expr* root_to_rf_expr: root_to_rf_exprs) {
+      if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
+        resize_paths.insert(resize);
+      }
+    }
+  }
+
+  auto indexing_path = getExprsBetween(
+      loop_domains,
+      index_domains,
+      index_graph,
+      resize_paths);
 
   VERBOSE() << "Indexing path:\n";
   for (const auto& expr_group : indexing_path) {
@@ -794,7 +871,7 @@ Val* TensorIndexer::getIndex(TensorView* tv, Expr* expr) {
     const auto& exact_group = index_graph.toGroup(loop_id);
     VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
               << nvfuser::toString(exact_group) << ", "
-              << loop_index_map_it->second->toString() << std::endl;
+              << loop_index_map_it->second->toInlineString() << std::endl;
 
     if (initial_index_map.find(exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as exact_group is
@@ -861,8 +938,8 @@ std::string getDisableReason(TensorView* tv) {
       reason << "MialignedVectorize is used: " << id->toString();
       return reason.str();
     } else if (auto resize = dynamic_cast<Resize*>(id->definition())) {
-      reason << "Resize not supported: " << resize->toString();
-      return reason.str();
+      //reason << "Resize not supported: " << resize->toString();
+      //return reason.str();
     } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
       reason << "Swizzle not supported: " << swizzle->toString();
       return reason.str();
