@@ -1,13 +1,13 @@
 import pytest
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
-from .normalization import norm_bwd_benchmark
+from .normalization import norm_bwd_nvf_benchmark, norm_bwd_baseline_benchmark
 
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
-def test_instancenorm_bwd_benchmark(
+def test_instancenorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -16,7 +16,7 @@ def test_instancenorm_bwd_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    norm_bwd_benchmark(
+    norm_bwd_nvf_benchmark(
         benchmark,
         size,
         dtype,
@@ -24,4 +24,16 @@ def test_instancenorm_bwd_benchmark(
         channels_last,
         disable_validation,
         disable_benchmarking,
+    )
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("channels_last", [True, False])
+def test_instancenorm_bwd_baseline_benchmark(
+    benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, compile: bool
+):
+    norm_bwd_baseline_benchmark(
+        benchmark, size, dtype, channels_last, compile, "instance_norm"
     )
