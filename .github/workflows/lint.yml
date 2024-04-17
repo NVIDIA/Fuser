@@ -23,14 +23,10 @@ jobs:
       - name: Look for missing license headers
         working-directory: ${{ env.working_directory }}
         run: |
-          FILES=$(find . -regextype posix-extended -regex '.*\.(cpp|h|py)' \
+          find . -regextype posix-extended -regex '.*\.(cpp|h|py)' \
             | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' \
-            | xargs grep -L SPDX-FileCopyrightText)
-
-          echo "$FILES"
-          # $FILES should be empty
-          test -z $(echo -n "$FILES" | wc -l)
-
+            | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
+          test -z $(wc -l missing-header-files.txt)
 
   clang-tidy:
     runs-on: ubuntu-latest
