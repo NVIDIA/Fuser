@@ -67,24 +67,6 @@ inline std::optional<MmaMacro> getMmaOp(
   return std::nullopt;
 }
 
-bool isCpAsyncOperandLoadSupported(
-    const MatmulParams* params,
-    int64_t dtype_size_a,
-    int64_t dtype_size_b) {
-  if (!isAmpere(params->mma_macro)) {
-    return false;
-  }
-  // Use cp.async for loading operands if vec size is compatible
-  const auto& validCpAsyncVecSize = [](int64_t dtype_size,
-                                       int64_t vec_size) -> bool {
-    int64_t cp_bytes = dtype_size * vec_size;
-    return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
-  };
-  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
-      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
-      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
-}
-
 //! A wrapper for core heuristics initialization.
 //! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
@@ -429,6 +411,24 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   }
 
   return "";
+}
+
+bool isCpAsyncOperandLoadSupported(
+    const MatmulParams* params,
+    int64_t dtype_size_a,
+    int64_t dtype_size_b) {
+  if (!isAmpere(params->mma_macro)) {
+    return false;
+  }
+  // Use cp.async for loading operands if vec size is compatible
+  const auto& validCpAsyncVecSize = [](int64_t dtype_size,
+                                       int64_t vec_size) -> bool {
+    int64_t cp_bytes = dtype_size * vec_size;
+    return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
+  };
+  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
+      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
+      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
 }
 
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
