@@ -59,6 +59,13 @@ struct KernelConfig {
     //!  Z = complex<double>
     //! Note that some of these are not currently supported by nvFuser.
     const char* precision = "SSS";
+
+    //! Supported vectorization of operands and epilogue inputs (bias)
+    struct SupportedVectorization {
+      uint8_t a = 1;
+      uint8_t b = 1;
+      uint8_t epilogue = 1;
+    } supported_vec_size;
   } problem;
 
   using Tile = std::array<uint16_t, 3>;

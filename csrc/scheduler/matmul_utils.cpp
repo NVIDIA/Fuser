@@ -300,11 +300,12 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   auto getMinVectorization = [&roles_map,
                               &runtime_info](MatmulRole role) -> int {
     int vec_size = 16; // max vectorization size
-    const it = roles_map.find(role);
-    NVF_ERROR(
-        it != roles_map.end(), "Could not find role ", role, " in RolesMap");
+    const auto it = roles_map.find(role);
+    if (it == roles_map.end()) {
+      return 16;
+    }
     for (TensorView* tv : it->second) {
-      int v = (int)getVectorizationFactor(
+      int v = (int)vectorize_helper::getVectorizationFactor(
           runtime_info, tv, /*data_cache=*/nullptr, /*break_point=*/0);
       if (v < vec_size) {
         vec_size = v;
@@ -319,7 +320,16 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   MatmulParams::SupportedVectorization supported_vec_size;
   supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
   supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_A);
+  // If there is no C tensor, then we will use full vectorization of the
+  // outputs. So find the max vectorization of the output tensors, then
+  // possibly reduce it if it is not supported by a input C tensor.
   supported_vec_size.epilogue = getMinVectorization(MatmulRole::INPUT_C);
+  auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
+  // TODO: do we also need to look at OUTPUT_AUX?
+  for (TensorView* d : d_it->second) {
+    supported_vec_size.epilogue = std::min(
+        16 / (int)dataTypeSize(d->dtype()), supported_vec_size.epilogue);
+  }
   return supported_vec_size;
 }
 
@@ -421,7 +431,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 
-  params->supported_vec_sizes = getSupportedVectorization(roles_map);
+  params->supported_vec_size =
+      getSupportedVectorization(roles_map, runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
