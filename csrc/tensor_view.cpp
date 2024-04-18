@@ -156,7 +156,7 @@ void TensorView::inlineAt(
     calc = calc_owner.get();
   }
 
-  pos = wrapDim(pos);
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
   int64_t max_inline_pos = (int64_t)calc->getMaxPosAll(this, best_effort);
 
