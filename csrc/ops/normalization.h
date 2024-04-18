@@ -128,29 +128,29 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim);
+TensorView* mean(TensorView* x, const std::vector<int64_t>& dims, bool keepdim);
 
 NVF_API TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim);
 
 NVF_API TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim);
 
 NVF_API VarMeanResult variance_mean(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim);
 
 NVF_API TensorView* standard_deviation(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim);
 

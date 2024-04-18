@@ -249,11 +249,11 @@ namespace {
 //
 // Returns a pair consisting of a flag indicating if it's a fusion input (else
 // is output) and an integer position within in the input or output tensor list.
-std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
+std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
     TensorView* producer_tv,
     TensorView* consumer_tv,
     Fusion* fusion) {
-  std::vector<std::pair<bool, int>> input_output;
+  std::vector<std::pair<bool, int64_t>> input_output;
 
   // When the producer is a fusion input, only return the producer
   // (vectorization validation assumes consumer of input is vectorizable).
@@ -271,7 +271,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
     input_output.push_back(
-        std::make_pair<bool, int>(true, static_cast<int>(pos)));
+        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -284,7 +284,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
     input_output.push_back(
-        std::make_pair<bool, int>(false, static_cast<int>(pos)));
+        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
   }
 
   return input_output;

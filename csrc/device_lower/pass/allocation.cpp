@@ -47,7 +47,7 @@ class AllocationInserter : public kir::ExprMutator {
     Expr* alloc_place_before = nullptr;
 
     // The allocation position relative to buffer
-    size_t alloc_pos = 0;
+    int64_t alloc_pos = 0;
 
     // The buffer this allocation is for
     TensorView* buffer = nullptr;

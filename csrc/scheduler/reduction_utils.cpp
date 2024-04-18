@@ -282,9 +282,9 @@ TensorView* scheduleReductionTV(
   // domain placed at the innermost position.
   // TODO: Why isn't this the case by default?
   if (is_outer_grid_persistence) {
-    int vec_id_cur_pos = -1;
-    std::unordered_map<int, int> vec_reorder_map;
-    for (const auto i : c10::irange((int)reduction_rf_tv->nDims())) {
+    int64_t vec_id_cur_pos = -1;
+    std::unordered_map<int64_t, int64_t> vec_reorder_map;
+    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -305,14 +305,14 @@ TensorView* scheduleReductionTV(
 //        axis rS2 and rS3, then your `non_broadcast_axes` should be {1, 2}.
 // Output: the raw positions (counting broadcasts). In the above example, the
 //         output should be {2, 3}.
-std::vector<int> addBackBroadcasts(
+std::vector<int64_t> addBackBroadcasts(
     TensorView* tv,
-    const std::unordered_set<int>& non_broadcast_axes) {
+    const std::unordered_set<int64_t>& non_broadcast_axes) {
   // convert non-broadcast positions to raw positions
-  std::vector<int> axes;
-  int non_broadcast_pos = 0;
+  std::vector<int64_t> axes;
+  int64_t non_broadcast_pos = 0;
   for (const auto i : c10::irange(tv->nDims())) {
-    if (tv->axis((int)i)->isBroadcast()) {
+    if (tv->axis(i)->isBroadcast()) {
       continue;
     }
     if (non_broadcast_axes.count(non_broadcast_pos)) {
@@ -417,14 +417,14 @@ void propagateRFactor(
   // pattern equivalence but have different number of broadcasts, so the
   // position in the reference tensor is not necessary the same as the
   // position in other reduction TVs.
-  std::unordered_set<int> non_broadcast_rfactor_axes_ir;
-  int non_broadcast_pos_ir = 0;
+  std::unordered_set<int64_t> non_broadcast_rfactor_axes_ir;
+  int64_t non_broadcast_pos_ir = 0;
   for (const auto i : c10::irange(reference_tv->nDims())) {
-    if (reference_tv->axis((int)i)->isBroadcast()) {
+    if (reference_tv->axis(i)->isBroadcast()) {
       continue;
     }
-    if (reference_tv->axis((int)i)->isReduction() &&
-        reference_tv->axis((int)i)->isRFactorProduct()) {
+    if (reference_tv->axis(i)->isReduction() &&
+        reference_tv->axis(i)->isRFactorProduct()) {
       non_broadcast_rfactor_axes_ir.insert(non_broadcast_pos_ir);
     }
     non_broadcast_pos_ir++;
@@ -436,7 +436,7 @@ void propagateRFactor(
       // This should come in already rfactored
       continue;
     } else {
-      ir_utils::rfactorHelper(
+      ir_utils::rFactorHelper(
           reduction_tv_,
           reduction_scheduler_utils::addBackBroadcasts(
               reduction_tv_, non_broadcast_rfactor_axes_ir));
@@ -670,12 +670,12 @@ struct id_lt {
 TensorView* sortAndRFactor(TensorView* reference_tv) {
   auto domain = reference_tv->getLeafDomain();
   std::sort(domain.begin(), domain.end(), id_lt());
-  std::unordered_map<int, int> reorder_map;
-  std::unordered_map<IterDomain*, int> domain_pos;
-  for (int axis_i = 0; axis_i < (int)domain.size(); axis_i++) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  std::unordered_map<IterDomain*, int64_t> domain_pos;
+  for (int64_t axis_i = 0; axis_i < (int64_t)domain.size(); axis_i++) {
     domain_pos[domain[axis_i]] = axis_i;
   }
-  for (int old_i = 0; old_i < (int)reference_tv->nDims(); old_i++) {
+  for (int64_t old_i = 0; old_i < reference_tv->nDims(); old_i++) {
     auto new_i_it = domain_pos.find(reference_tv->axis(old_i));
     NVF_ERROR(
         new_i_it != domain_pos.end(),
@@ -685,10 +685,10 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   reference_tv->reorder(reorder_map);
 
-  std::vector<int> rfactor_axes;
-  std::vector<int> rfactor_axes_no_unswitch;
+  std::vector<int64_t> rfactor_axes;
+  std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
-  for (int axis_i = 0; axis_i < (int)reference_tv->nDims(); axis_i++) {
+  for (int64_t axis_i = 0; axis_i < reference_tv->nDims(); axis_i++) {
     auto id = reference_tv->axis(axis_i);
     if (!id->isReduction()) {
       continue;
@@ -710,10 +710,10 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
 
   if (reduction_dims == rfactor_axes.size()) {
-    return ir_utils::rfactorHelper(reference_tv, rfactor_axes_no_unswitch);
+    return ir_utils::rFactorHelper(reference_tv, rfactor_axes_no_unswitch);
   }
 
-  return ir_utils::rfactorHelper(reference_tv, rfactor_axes);
+  return ir_utils::rFactorHelper(reference_tv, rfactor_axes);
 }
 
 namespace {

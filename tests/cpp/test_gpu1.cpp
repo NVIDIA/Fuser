@@ -684,13 +684,13 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::unordered_map<int, int> shift_right{{-1, 0}};
+  std::unordered_map<int64_t, int64_t> shift_right{{-1, 0}};
 
-  std::unordered_map<int, int> shift_left{{0, -1}};
+  std::unordered_map<int64_t, int64_t> shift_left{{0, -1}};
 
-  std::unordered_map<int, int> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
+  std::unordered_map<int64_t, int64_t> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
 
-  std::unordered_map<int, int> swap{{0, 2}, {2, 0}};
+  std::unordered_map<int64_t, int64_t> swap{{0, 2}, {2, 0}};
 
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;

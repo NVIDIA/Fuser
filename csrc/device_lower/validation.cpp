@@ -1004,7 +1004,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      byte_size = static_cast<int>(id->extent()->evaluate());
+      byte_size = id->extent()->evaluate().as<int64_t>();
       break;
     }
   }

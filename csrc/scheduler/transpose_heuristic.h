@@ -21,34 +21,34 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
-  static constexpr size_t getMaxThreadsPerBlock() {
+  static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }
 
-  static constexpr size_t getDefaultTileSize() {
+  static constexpr int64_t getDefaultTileSize() {
     return 32;
   }
 
   // See note [Supporting small transpose dimensions], all dims are positions in
   // reference1
-  std::vector<std::pair<size_t, size_t>> split_before_tiling = {};
-  std::vector<size_t> dims_merged_with_1 = {};
-  std::vector<size_t> dims_merged_with_2 = {};
+  std::vector<std::pair<int64_t, int64_t>> split_before_tiling = {};
+  std::vector<int64_t> dims_merged_with_1 = {};
+  std::vector<int64_t> dims_merged_with_2 = {};
 
   // Vectorization factor for tensors in the first group
-  size_t vectorize_factor1 = 1;
+  int64_t vectorize_factor1 = 1;
 
   // Vectorization factor for tensors in the second group
-  size_t vectorize_factor2 = 1;
+  int64_t vectorize_factor2 = 1;
 
   // TODO: support symbolic tile size
   // https://github.com/csarofeen/pytorch/pull/1854#discussion_r928143729
 
   // Tile size for the inner most dim of tensors in the first group
-  size_t tile_size1 = getDefaultTileSize();
+  int64_t tile_size1 = getDefaultTileSize();
 
   // Tile size for the inner most dim of tensors in the second group
-  size_t tile_size2 = getDefaultTileSize();
+  int64_t tile_size2 = getDefaultTileSize();
 
   using HeuristicParams::HeuristicParams;
 
@@ -154,10 +154,10 @@ class TransposeParams : public HeuristicParams {
     return std::make_shared<TransposeParams>(*this);
   }
 
-  int getThreadsPerBlock() const {
-    size_t tile_vectors1 = ceilDiv(tile_size1 * tile_size2, vectorize_factor1);
-    size_t tile_vectors2 = ceilDiv(tile_size1 * tile_size2, vectorize_factor2);
-    size_t tile_vectors = std::min(tile_vectors1, tile_vectors2);
+  int64_t getThreadsPerBlock() const {
+    int64_t tile_vectors1 = ceilDiv(tile_size1 * tile_size2, vectorize_factor1);
+    int64_t tile_vectors2 = ceilDiv(tile_size1 * tile_size2, vectorize_factor2);
+    int64_t tile_vectors = std::min(tile_vectors1, tile_vectors2);
     return std::min(getMaxThreadsPerBlock(), tile_vectors);
   }
 };

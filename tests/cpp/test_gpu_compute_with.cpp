@@ -420,7 +420,7 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
 
   // [I/BIDX, BIDX, TIDX, BIDY, TIY, PB/US, US, VEC]
 
-  auto tv3_rf = ir_utils::rfactorHelper(tv3, {-3, -2});
+  auto tv3_rf = ir_utils::rFactorHelper(tv3, {-3, -2});
 
   TransformPropagator propagator(tv3_rf);
   MaxRootDomainInfoSpanningTree(tv3_rf).traverse(&propagator);

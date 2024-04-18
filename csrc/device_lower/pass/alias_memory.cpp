@@ -389,9 +389,9 @@ class BufferLiveInterval {
   }
 
  private:
-  int first_write_pos_ = -1;
-  int last_read_pos_ = -1;
-  std::vector<int> all_read_pos_;
+  int64_t first_write_pos_ = -1;
+  int64_t last_read_pos_ = -1;
+  std::vector<int64_t> all_read_pos_;
 };
 
 using BufferLiveIntervalPtrList = std::vector<BufferLiveInterval*>;
@@ -399,8 +399,8 @@ using BufferLiveIntervalPtrList = std::vector<BufferLiveInterval*>;
 //! Thin struct to keep track of loops. The actual loop body is
 //!  considered live in [start_pos, end_pos)
 struct ScopeInfo {
-  int start_pos = -1;
-  int end_pos = -1;
+  int64_t start_pos = -1;
+  int64_t end_pos = -1;
 
   // nullptr means it's global scope
   kir::ForLoop* loop = nullptr;
@@ -413,12 +413,12 @@ class ScopeMap;
 class ExprPosMap {
  public:
   //! Get the position of an expr
-  int get(const Expr* expr) const {
+  int64_t get(const Expr* expr) const {
     return expr_pos_map_.at(expr);
   }
 
   //! Get the current position
-  int getCurrentPos() const {
+  int64_t getCurrentPos() const {
     return current_pos_;
   }
 
@@ -442,10 +442,10 @@ class ExprPosMap {
 
  private:
   //! Position counter. The first expression is assigned position 1
-  int current_pos_ = 0;
+  int64_t current_pos_ = 0;
 
   //! Keep track of the positions of expressions
-  std::unordered_map<const Expr*, int> expr_pos_map_;
+  std::unordered_map<const Expr*, int64_t> expr_pos_map_;
 };
 
 // Create ScopeInfo for each loop
@@ -1692,7 +1692,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  int lastAliasedRead(AllocationInfo* alloc_info) {
+  int64_t lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
     NVF_CHECK(
         it != last_aliased_read_.end(),
@@ -1839,7 +1839,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
   // This holds all positions which are the last read positions for some
   // allocation. These are points at which we can try to reclaim memory.
-  std::unordered_set<int> last_read_positions_;
+  std::unordered_set<int64_t> last_read_positions_;
 
   // Stack of allocations "below" the current eligible address. At any given
   // time, all memory above the last allocation in this vector is guaranteed to
@@ -1881,7 +1881,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       }
       auto last_read = alloc_info->getAliasedOuterLastRead();
 
-      std::optional<int> nearest_first_write = std::nullopt;
+      std::optional<int64_t> nearest_first_write = std::nullopt;
 
       for (const auto& other : allocation_info_map.allAllocationInfos()) {
         if (other->alias_to || other->mem_type != MemoryType::Shared) {
@@ -2026,11 +2026,11 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   // This holds intervals in which we need to ensure a sync exists. All
   // threads in a block should arrive at the start of each interval before any
   // thread proceeds past the end of the interval.
-  std::unordered_multimap<int, int> sync_intervals_;
+  std::unordered_multimap<int64_t, int64_t> sync_intervals_;
 
   // These are the upper endpoints of needed sync intervals for which we've
   // already passed over the lower endpoint.
-  std::unordered_set<int> upcoming_first_writes_;
+  std::unordered_set<int64_t> upcoming_first_writes_;
 
   // Holds all new syncs we have inserted
   std::unordered_set<Expr*> inserted_syncs_;

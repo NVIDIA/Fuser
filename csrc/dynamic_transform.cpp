@@ -415,7 +415,7 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     NVF_ERROR(out_root.size() == inp_rfactor.size());
     std::vector<bool> expand_axes;
     expand_axes.reserve(out_root.size());
-    for (size_t i : c10::irange(out_root.size())) {
+    for (int64_t i : c10::irange((int64_t)out_root.size())) {
       const IterDomain* inp_id = inp_rfactor[i];
       const IterDomain* out_id = out_root[i];
       if (out_id->isIteration()) {
@@ -455,8 +455,8 @@ void DynamicTransformConcretizationInfo::analyzeFactoryOutputs(
   for (const auto tv_index : c10::irange(factory_tvs.size())) {
     const TensorView* tv = factory_tvs.at(tv_index);
     const std::vector<IterDomain*>& rf = tv->getMaybeRFactorDomain();
-    std::vector<std::pair<size_t, IterType>> conc_iter_types;
-    for (size_t pos : c10::irange(rf.size())) {
+    std::vector<std::pair<int64_t, IterType>> conc_iter_types;
+    for (int64_t pos : c10::irange(rf.size())) {
       const IterDomain* id = rf[pos];
       if (!id->isSymbolic()) {
         continue;
@@ -580,7 +580,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   NVF_ERROR(
       factory_output_itertypes_.size() ==
       initial_info_->getDynamicFactoryOutputs().size());
-  for (size_t i : c10::irange(factory_output_itertypes_.size())) {
+  for (int64_t i : c10::irange(factory_output_itertypes_.size())) {
     TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
     ss << indent << indent << tv->toString() << std::endl;
     for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
@@ -844,7 +844,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
     std::vector<IterDomain*> out_rfactor =
         TensorDomain::noReductions(symbolic_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(axis_is_expanded.size() == out_rfactor.size());
-    for (size_t i : c10::irange(out_rfactor.size())) {
+    for (int64_t i : c10::irange(out_rfactor.size())) {
       if (!axis_is_expanded[i]) {
         // Propagate as usual for non-expanded IterDomains
         continue;
@@ -870,9 +870,9 @@ void DynamicTransformConcretizer::concretizeFactoryOutputs() {
       info_->initialInfo()->getDynamicFactoryOutputs();
   const auto& pair_vecs = info_->getFactoryOutputIterTypes();
   NVF_ERROR(factory_tvs.size() == pair_vecs.size());
-  for (const size_t i : c10::irange(factory_tvs.size())) {
+  for (const int64_t i : c10::irange(factory_tvs.size())) {
     TensorView* tv = factory_tvs[i];
-    const std::vector<std::pair<size_t, IterType>>& pair_vec = pair_vecs[i];
+    const std::vector<std::pair<int64_t, IterType>>& pair_vec = pair_vecs[i];
     for (auto& [pos, iter_type] : pair_vec) {
       auto* old_id =
           maybeMutated(tv->getMaybeRFactorDomain().at(pos))->as<IterDomain>();
@@ -1108,13 +1108,13 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 static bool hasTrivialReduction(
     TensorView* in,
     TensorView* out,
-    std::vector<int>& reduction_axes) {
+    std::vector<int64_t>& reduction_axes) {
   bool has_trivial_reduction = false;
   PairwiseRootDomainMap p2c_map(in, out);
   // We need to map broadcasts in order to detect reductions of broadcasts
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
-  int pos = -1;
+  int64_t pos = -1;
   for (IterDomain* in_id :
        TensorDomain::noReductions(in->getMaybeRFactorDomain())) {
     ++pos;
@@ -1139,7 +1139,7 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
   if (ReductionOp* rop = dynamic_cast<ReductionOp*>(expr); rop) {
     auto* in = rop->in()->as<TensorView>();
     auto* orig_out = rop->out()->as<TensorView>();
-    std::vector<int> reduction_axes;
+    std::vector<int64_t> reduction_axes;
     if (hasTrivialReduction(in, orig_out, reduction_axes)) {
       // There is at least one trivial reduction that should be squeezed. Use
       // binaryOp to ensure this is done exactly as it is in a non-dynamic
@@ -1160,7 +1160,7 @@ void DynamicTransformConcretizer::mutate(Expr* expr) {
     auto in = wop->in()->as<TensorView>();
     auto orig_avg = wop->outAvg()->as<TensorView>();
 
-    std::vector<int> reduction_axes;
+    std::vector<int64_t> reduction_axes;
     if (hasTrivialReduction(in, orig_avg, reduction_axes)) {
       // Use Welford to ensure this is done exactly as it is in a non-dynamic
       // fusion

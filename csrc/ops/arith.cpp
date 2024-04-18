@@ -1168,7 +1168,7 @@ TensorView* reductionOpZeroDimTensor(TensorView* inp) {
 
 TensorView* reductionOpRaw(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* tv,
     bool keep_dim /*=false*/,
@@ -1270,7 +1270,7 @@ TensorView* maybeFullInsteadOfReduction(
 
 TensorView* reductionOp(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* tv,
     bool keep_dim /*=false*/,
@@ -1325,7 +1325,7 @@ TensorView* reductionOp(
   // require special consideration are Add and Mul. Currently Xor is not
   // supported for expanded reduction. We treat all others as trivial (i.e.
   // squeeze).
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> is_squeeze(ndims, false);
   bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
       reduction_op_type != BinaryOpType::Mul &&
@@ -1392,7 +1392,7 @@ TensorView* reductionOp(
 
 TensorView* sum(
     TensorView* v1,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   if (dtype == DataType::Null) {
@@ -1413,7 +1413,7 @@ TensorView* sum(
 
 TensorView* prod(
     TensorView* v1,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   if (dtype == DataType::Null) {
@@ -1434,7 +1434,7 @@ TensorView* prod(
 
 TensorView* max(
     TensorView* v1,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   NVF_CHECK(
@@ -1447,7 +1447,7 @@ TensorView* max(
 
 TensorView* min(
     TensorView* v1,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   NVF_CHECK(
@@ -1696,40 +1696,18 @@ std::vector<Val*> shape(TensorView* inp) {
 
 Val* size(TensorView* inp, int64_t dim) {
   auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  auto idx = dim;
-  if (idx < 0) {
-    idx = static_cast<int64_t>(iter_domains.size()) + idx;
-  }
-  NVF_CHECK(
-      (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
-      __FUNCTION__,
-      ": The dimension requested is beyond the bounds of the shape of the indexed tensor!",
-      " Tensor Dims: ",
-      iter_domains.size(),
-      " Dim: ",
-      dim);
-  return iter_domains.at(idx)->getMaybeExpandedExtent();
+  int64_t ndims = static_cast<int64_t>(iter_domains.size());
+  return iter_domains.at(wrapDim(dim, ndims))->getMaybeExpandedExtent();
 }
 
 Val* at(const std::vector<Val*>& inp, int64_t index) {
-  auto idx = index;
-  if (idx < 0) {
-    idx = static_cast<int64_t>(inp.size()) + idx;
-  }
-  NVF_CHECK(
-      (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
-      __FUNCTION__,
-      ": The index requested is beyond the bounds of the indexed vector!",
-      " Vector Size: ",
-      inp.size(),
-      " Index: ",
-      index);
-  return inp.at(idx);
+  int64_t size = static_cast<int64_t>(inp.size());
+  return inp.at(wrapDim(index, size));
 }
 
 WelfordResult WelfordRaw(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg,
     TensorView* init_var,
     Val* init_N) {
@@ -1795,7 +1773,7 @@ WelfordResult WelfordRaw(
 
 WelfordResult Welford(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg,
     TensorView* init_var,
     Val* init_N) {
@@ -1817,7 +1795,7 @@ WelfordResult Welford(
   std::sort(uint_axes.begin(), uint_axes.end());
 
   // Squeeze before reduction
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> is_trivial_reduction(ndims, false);
   int offset = 0;
   for (auto axis : uint_axes) {
@@ -2154,10 +2132,11 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   // If no reduction is needed sum_to returns the input tv
   TensorView* out = in;
 
-  const auto leading_dims = root.size() - sum_to_size.size();
+  const int64_t leading_dims =
+      (int64_t)root.size() - (int64_t)sum_to_size.size();
 
   // Generate reduction axes for leading dims
-  std::vector<int> reduce_dims(leading_dims);
+  std::vector<int64_t> reduce_dims(leading_dims);
   std::iota(reduce_dims.begin(), reduce_dims.end(), 0);
 
   // Generate reduction axes for dims within sum_to_size
@@ -2165,11 +2144,11 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, root.size())) {
+  for (const auto i : c10::irange(leading_dims, (int64_t)root.size())) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
         !root[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
-      reduce_dims.push_back((int)i);
+      reduce_dims.push_back(i);
       reduction_within_shape = true;
     }
   }
@@ -2200,21 +2179,22 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   // If no reduction is needed sum_to returns the input tv
   TensorView* out = in;
 
-  const auto leading_dims = root.size() - sum_to_size.size();
+  const int64_t leading_dims =
+      (int64_t)root.size() - (int64_t)sum_to_size.size();
 
   // Generate reduction axes for leading dims
-  std::vector<int> reduce_dims(leading_dims);
+  std::vector<int64_t> reduce_dims(leading_dims);
   std::iota(reduce_dims.begin(), reduce_dims.end(), 0);
 
   // Generate reduction axes for dims within sum_to_size
-  std::vector<bool> inner_red_dims(sum_to_size.size(), false);
+  std::vector<bool> inner_red_dims((int64_t)sum_to_size.size(), false);
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
   for (const auto i : c10::irange(leading_dims, root.size())) {
     if (sum_to_size[i - leading_dims] == 1 && !root[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
-      reduce_dims.push_back((int)i);
+      reduce_dims.push_back(i);
       reduction_within_shape = true;
     }
   }
@@ -2623,7 +2603,7 @@ static TensorView* newForMma(
 TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init) {
   // TODO:
   //  Validate axis relationships between a and b

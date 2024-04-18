@@ -139,10 +139,10 @@ void moveReductionsOut(TensorView* tv, int n) {
     return;
   }
 
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
 
-  int target = 0;
-  for (int i = 0; i < n; i++) {
+  int64_t target = 0;
+  for (int64_t i = 0; i < n; i++) {
     if (tv->axis(-1 - i)->isReduction()) {
       old2new[-1 - i] = target++;
     }
@@ -916,12 +916,12 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   constexpr int64_t kSixteen = 16; // clang tidy
 
   int64_t max_io_dtype_size = 1;
-  size_t n_io_tensors = 0;
+  int64_t n_io_tensors = 0;
   auto scan_max_dtype_size = [&](const auto& vals) {
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
           max_io_dtype_size,
-          (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+          dataTypeSize(inp->getDataType().value(), index_type));
       n_io_tensors++;
     }
   };
@@ -930,7 +930,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_io_dtype_size,
+      kSixteen / max_io_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
       // as it could start consuming a lot of registers.
       std::max(
@@ -1091,7 +1091,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   }
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  size_t max_dims = 0;
+  int64_t max_dims = 0;
   for (auto inp : input_tvs) {
     max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
   }

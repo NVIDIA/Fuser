@@ -1050,8 +1050,7 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
 
     // If any compute at positions of producers directly map to the last produce
     // at position it can't be lowered.
-    for (int producer_pos_i =
-             static_cast<int>(producer_tv->getComputePosition(consumer_tv));
+    for (int64_t producer_pos_i = producer_tv->getComputePosition(consumer_tv);
          producer_pos_i > 0;
          producer_pos_i--) {
       if (areMapped(producer_tv->axis(producer_pos_i - 1), group_pa_last_id)) {

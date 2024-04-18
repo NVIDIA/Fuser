@@ -765,7 +765,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   // tv3->reorder({{1, -2}});
 
-  auto rfactor = ir_utils::rfactorHelper(tv3, {1, 4});
+  auto rfactor = ir_utils::rFactorHelper(tv3, {1, 4});
 
   scheduler_utils::parallelizeAllLike(rfactor);
 
@@ -2158,7 +2158,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
 
   TransformPropagatorWithCheck propagator(reduction_tv);
   MaxRootDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
-  auto rfactor_tv = ir_utils::rfactorHelper(reduction_tv, {4});
+  auto rfactor_tv = ir_utils::rFactorHelper(reduction_tv, {4});
   scheduler_utils::parallelizeAllLike(rfactor_tv);
 
   tv0->computeAt(tv_avg, 2);
@@ -2885,7 +2885,7 @@ TEST_F(NVFuserTest, FusionTransformPropagateSibling_CUDA) {
   tvs.n->split(1, 2);
   tvs.n->split(1, 3);
 
-  auto var_sum_rf = ir_utils::rfactorHelper(tvs.var_sum, {1, 4});
+  auto var_sum_rf = ir_utils::rFactorHelper(tvs.var_sum, {1, 4});
 
   TransformPropagatorWithCheck propagator(var_sum_rf);
   MaxRootDomainInfoSpanningTree(var_sum_rf).traverse(&propagator);
@@ -2923,7 +2923,7 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
   tvs.n->split(1, 2);
   tvs.n->split(1, 3);
 
-  auto var_sum_rf = ir_utils::rfactorHelper(tvs.var_sum, {1, 4});
+  auto var_sum_rf = ir_utils::rFactorHelper(tvs.var_sum, {1, 4});
 
   struct DisableTv0 : public MaxInfoSpanningTree::Selector {
     TensorView* tv0;

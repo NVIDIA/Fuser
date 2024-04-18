@@ -357,7 +357,7 @@ class InputsIdLookup : public NonCopyable {
   //! structure of the concretized Fusion might depend on not only the extents
   //! of input tensors, but on input scalars. For example,
   //!
-  //!    auto s = IrBuilder::create<int>();
+  //!    auto s = IrBuilder::create<Val>();
   //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!

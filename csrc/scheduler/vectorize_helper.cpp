@@ -779,7 +779,7 @@ namespace {
 // Note that the reference `ref` will be reordered per `rfactor_reorder_map`
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
-    const std::unordered_map<int, int>& rfactor_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
   if (!rfactor_reorder_map.empty()) {
@@ -800,7 +800,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point,
-    const std::unordered_map<int, int>& rfactor_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {

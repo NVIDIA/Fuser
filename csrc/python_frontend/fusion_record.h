@@ -1460,9 +1460,9 @@ struct ReductionOpRecord : RecordFunctor {
       std::string _name,
       serde::RecordType record_type,
       std::function<
-          TensorView*(TensorView*, const std::vector<int>&, bool, DataType)>
+          TensorView*(TensorView*, const std::vector<int64_t>&, bool, DataType)>
           fusion_op,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       bool keep_dim,
       PrimDataType dtype)
       : RecordFunctor(
@@ -1514,13 +1514,13 @@ struct ReductionOpRecord : RecordFunctor {
             (*fusion_op_.template target<
 
                  TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
+                                 const std::vector<int64_t>&,
                                  bool,
                                  DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
                  TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
+                                 const std::vector<int64_t>&,
                                  bool,
                                  DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
@@ -1528,14 +1528,14 @@ struct ReductionOpRecord : RecordFunctor {
                   << (size_t)*fusion_op_.template target<
 
                          TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
+                                         const std::vector<int64_t>&,
                                          bool,
                                          DataType)>()
                   << "] [other: 0x" << std::hex
                   << (size_t)*child_ptr->fusion_op_.template target<
 
                          TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
+                                         const std::vector<int64_t>&,
                                          bool,
                                          DataType)>()
                   << "]\n";
@@ -1597,10 +1597,10 @@ struct ReductionOpRecord : RecordFunctor {
  private:
   //! nvFuser arith function signature for a given reduction operation
   std::function<
-      TensorView*(TensorView*, const std::vector<int>&, bool, DataType)>
+      TensorView*(TensorView*, const std::vector<int64_t>&, bool, DataType)>
       fusion_op_;
   //! The tensor dimensions to reduce
-  std::vector<int> axes_;
+  std::vector<int64_t> axes_;
   //! Indicates whether to keep the reduced dimension(s).
   bool keep_dim_;
   //! The output data type.
@@ -2039,7 +2039,7 @@ struct NormOpRecord : RecordFunctor {
       std::vector<State> outputs,
       std::string name,
       serde::RecordType type,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : RecordFunctor(std::move(args), std::move(outputs), name, type),
@@ -2120,7 +2120,7 @@ struct NormOpRecord : RecordFunctor {
 
  protected:
   //! Dimensions of tensor to reduce for variance calculation
-  std::vector<int> axes_;
+  std::vector<int64_t> axes_;
   //! Bessel's correction value
   int64_t correction_;
   //! Indicates whether to keep the reduced dimension(s).
@@ -2131,7 +2131,7 @@ struct VarianceOpRecord : NormOpRecord {
   VarianceOpRecord(
       std::vector<State> args,
       std::vector<State> outputs,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : NormOpRecord(
@@ -2160,7 +2160,7 @@ struct VarianceMeanOpRecord : NormOpRecord {
   VarianceMeanOpRecord(
       std::vector<State> args,
       std::vector<State> outputs,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : NormOpRecord(

@@ -266,15 +266,15 @@ class ReplayRFactor : public ReplayTransformations {
 
 std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     TensorDomain* original_td,
-    std::vector<int> axes) {
+    std::vector<int64_t> axes) {
   FUSER_PERF_SCOPE("TransformRFactor::runReplay");
 
   NVF_CHECK(!axes.empty(), "No axes provided to rfactor replay.");
 
-  int ndims = (int)original_td->nDims();
+  int64_t ndims = original_td->nDims();
 
   // Adjust and check provided axes
-  std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int i) {
+  std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int64_t i) {
     NVF_CHECK(
         i >= -ndims && i < ndims,
         "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
@@ -285,13 +285,15 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   });
 
   // remove duplicates, and put into a set for searching
-  std::unordered_set<int> axes_set(axes.begin(), axes.end());
+  std::unordered_set<int64_t> axes_set(axes.begin(), axes.end());
 
   NVF_ERROR(
       std::all_of(
           axes_set.begin(),
           axes_set.end(),
-          [original_td](int i) { return original_td->axis(i)->isReduction(); }),
+          [original_td](int64_t i) {
+            return original_td->axis(i)->isReduction();
+          }),
       "Cannot rfactor axes that are not reduction axes.");
 
   // RFactor requires at least one reduction axis to be marked as factored out,

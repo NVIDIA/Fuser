@@ -2509,7 +2509,7 @@ TEST_F(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   fusion.addOutput(tv_N);
 
   tv_avg->split(1, 4);
-  ir_utils::rfactorHelper(tvs.avg, {2});
+  ir_utils::rFactorHelper(tvs.avg, {2});
   tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

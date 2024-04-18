@@ -198,7 +198,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
   // Map for replay, should be pretty simple.
   id_map axis_map;
   {
-    size_t i = 0;
+    int64_t i = 0;
     for (auto id : self->root()) {
       NVF_ERROR(
           new_self_root->root()[i]->isReduction() == id->isReduction() &&
@@ -220,7 +220,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {
-    size_t i = 0;
+    int64_t i = 0;
     for (auto id : self->leaf()) {
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
@@ -232,7 +232,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
     if (self->hasRFactor()) {
       std::vector<IterDomain*> new_rfactor_domain(
           self->maybeRFactor().size(), nullptr);
-      size_t i = 0;
+      int64_t i = 0;
       for (auto id : self->maybeRFactor()) {
         auto it = replay.getReplay().find(id);
         NVF_ERROR(
@@ -297,7 +297,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 // really want to do is validate if we replayed these axes to the ones they
 // mapped to in the consumer the operations would all be the same. then we want
 // to start the replay of the producer from the rfactor root axes, not the root.
-std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
+std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t consumer_pos,
@@ -312,7 +312,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   }
 
   NVF_ERROR(
-      consumer_pos >= 0 && (size_t)consumer_pos <= consumer->nDims(),
+      consumer_pos >= 0 && consumer_pos <= consumer->nDims(),
       "Invalid axis in transform replayPasC.");
 
   // consumer ids we need to match in producer
@@ -483,7 +483,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     used_IDs.emplace(it->second);
   }
 
-  size_t producer_pos = new_IDs.size();
+  int64_t producer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (2)
   for (auto c_id : consumer->getLeafDomain()) {
@@ -535,7 +535,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   return {replayed, producer_pos};
 }
 
-std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
+std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t producer_pos,
@@ -550,11 +550,11 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   }
 
   if (producer_pos < 0) {
-    producer_pos += (int64_t)producer->nDims() + 1;
+    producer_pos += producer->nDims() + 1;
   }
 
   NVF_ERROR(
-      producer_pos >= 0 && (size_t)producer_pos <= producer->nDims(),
+      producer_pos >= 0 && producer_pos <= producer->nDims(),
       "Invalid axis in transform replayCasP. Consumer: ",
       consumer->toString(),
       " Producer: ",
@@ -743,7 +743,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     }
   }
 
-  size_t consumer_pos = new_IDs.size();
+  int64_t consumer_pos = new_IDs.size();
 
   // Add axes in (3)
   for (auto id : consumer->getLeafDomain()) {
@@ -818,7 +818,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 }
 
 // replay Producer as Consumer
-std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
+std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t compute_at_axis,
@@ -830,7 +830,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   return replayPasC(producer, consumer, compute_at_axis, root_map, opt);
 }
 
-std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
+std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t compute_at_axis,
@@ -1331,7 +1331,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
 
     std::vector<IterDomain*> new_out_root;
     new_out_root.reserve(old_domain->root().size());
-    size_t i = 0;
+    int64_t i = 0;
     for (IterDomain* in_rfactor_id :
          TensorDomain::noReductions(new_in_tv->getMaybeRFactorDomain())) {
       // Copy the `rf` flag from `old_domain` and everything else from
