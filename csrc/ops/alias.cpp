@@ -335,7 +335,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   }
 
   auto normalized_new2old =
-      ir_utils::normalizeNew2Old(new2old, inp_domain.size());
+      ir_utils::normalizeNew2Old(new2old, (int64_t)inp_domain.size());
 
   std::vector<IterDomain*> out_root;
   out_root.reserve(inp_domain.size());
