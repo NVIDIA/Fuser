@@ -155,9 +155,10 @@ def compute_total_iobytes(tensor_props: dict):
     iobytes = 0
     for _, tensor_prop in tensor_props.items():
         size, dtype = tensor_prop[0], tensor_prop[1]
-        if not isinstance(size, tuple):
-            size = (size)
-        iobytes += np.prod(size) * dtype.itemsize
+        if isinstance(size, tuple):
+            iobytes += np.prod(size) * dtype.itemsize
+        else:
+            iobytes += size * dtype.itemsize
     return int(iobytes)
 
 
