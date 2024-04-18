@@ -1326,7 +1326,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
   NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
-  int major = 0, minor = 0;
+  int64_t major = 0, minor = 0;
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
