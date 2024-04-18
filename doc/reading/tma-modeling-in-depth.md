@@ -449,10 +449,10 @@ there are three levels:
 
 And our strategies for different correctness model is in the Table 1 below:
 
-|                    | Level 1                                            | Level 2                                                                                                         | Level 3                                                                                                     |
-|--------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
-| Weak correctness   | Automatically achieved. Don't need to do anything. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on holes. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save some memory traffic. |
-| Strong correctness | Automatically achieved, Don't need to do anything. | Can be achieved by checking TMA-unprotected IterDomains and send violators to out of boundary regions.          | Unachievable. Raise an error.                                                                               |
+|                    | Level 1                                            | Level 2                                                                                                         | Level 3                                                                                                              |
+|--------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| Weak correctness   | Automatically achieved. Don't need to do anything. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on holes. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on some holes. |
+| Strong correctness | Automatically achieved. Don't need to do anything. | Can be achieved by checking TMA-unprotected IterDomains and send violators to out of boundary regions.          | Unachievable. Raise an error.                                                                                        |
 
 If only weak correctness is required, we can generate code like below:
 
