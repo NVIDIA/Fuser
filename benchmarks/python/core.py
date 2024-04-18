@@ -286,12 +286,15 @@ class NVFBenchmark:
         )
 
 
+# These variables can be overwritten through CLI commands
+# --rounds=rounds --warmup-rounds=warmup_rounds
+BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1}
+
+
 def run_benchmark(
     benchmark: pytest_benchmark.fixture.BenchmarkFixture,
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
-    rounds: int = 10,
-    warmup_rounds: int = 1,
     iobytes: int = None,
 ) -> Union[torch.Tensor, List]:
     """
@@ -306,13 +309,18 @@ def run_benchmark(
         outputs: Output of the target function
     """
 
+    # These variables are updated based on CLI options
+
     def setup():
         clear_l2_cache()
         return [inputs], {}
 
     nvf_benchmark = NVFBenchmark(benchmark)
     outputs = nvf_benchmark.pedantic(
-        benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
+        benchmark_fn,
+        setup=setup,
+        rounds=BENCHMARK_CONFIG["rounds"],
+        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
     )
     nvf_benchmark.set_metrics(inputs, outputs, iobytes)
     nvf_benchmark.cleanup()

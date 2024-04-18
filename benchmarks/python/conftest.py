@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import DEVICE_PROPERTIES
+from .core import DEVICE_PROPERTIES, BENCHMARK_CONFIG
 
 
 def pytest_addoption(parser):
@@ -28,6 +28,20 @@ def pytest_addoption(parser):
         help="Benchmarks torch.compile mode.",
     )
 
+    parser.addoption(
+        "--rounds",
+        action="store",
+        default=10,
+        help="Number of rounds for each benchmark.",
+    )
+
+    parser.addoption(
+        "--warmup-rounds",
+        action="store",
+        default=1,
+        help="Number of warmup rounds for each benchmark.",
+    )
+
 
 @pytest.fixture
 def disable_validation(request):
@@ -39,12 +53,19 @@ def disable_benchmarking(request):
     return request.config.getoption("--disable-benchmarking")
 
 
-def pytest_make_parametrize_id(val):
-    return repr(val)
+def pytest_make_parametrize_id(val, argname):
+    if isinstance(val, tuple):
+        return f'{argname}=[{"_".join(str(v) for v in val)}]'
+    return f"{argname}={repr(val)}"
 
 
 def pytest_benchmark_update_machine_info(config, machine_info):
     machine_info.update(DEVICE_PROPERTIES)
+
+
+def pytest_configure(config):
+    BENCHMARK_CONFIG["rounds"] = int(config.getoption("--rounds"))
+    BENCHMARK_CONFIG["warmup_rounds"] = int(config.getoption("--warmup-rounds"))
 
 
 def pytest_collection_modifyitems(session, config, items):
