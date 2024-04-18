@@ -16,13 +16,13 @@
 namespace nvfuser {
 
 // params: concrete vs symbolic input, sharded axis
-class ShardingTest : public MultiDeviceTest,
-                     public testing::WithParamInterface<std::tuple<bool, int>> {
-};
+class MultideviceShardingTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<bool, int>> {};
 
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
-TEST_P(ShardingTest, UnshardedGlobalInput) {
+TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -74,7 +74,7 @@ TEST_P(ShardingTest, UnshardedGlobalInput) {
 
 // Test memory allocation of multidevice fusion with sharded input
 // and replicated intermediates and output.
-TEST_P(ShardingTest, ShardGlobalInput) {
+TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -113,12 +113,12 @@ TEST_P(ShardingTest, ShardGlobalInput) {
 
 INSTANTIATE_TEST_SUITE_P(
     OutermostShard,
-    ShardingTest,
+    MultideviceShardingTest,
     testing::Combine(testing::Bool(), testing::Values(0)));
 
 INSTANTIATE_TEST_SUITE_P(
     InnermostShard,
-    ShardingTest,
+    MultideviceShardingTest,
     testing::Combine(testing::Bool(), testing::Values(1)));
 
 } // namespace nvfuser
