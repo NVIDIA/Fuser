@@ -387,7 +387,7 @@ void FusionExecutor::compileFusion(
 
   // TODO: this replicates the target GPU version computation from
   // executor_utils.
-  std::pair<int, int> target_arch;
+  std::pair<int64_t, int64_t> target_arch;
   bool compile_to_sass = false;
   executor_utils::queryTargetGPUVersion(
       properties,

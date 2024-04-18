@@ -466,10 +466,10 @@ class VectorizeValidator : public OptInDispatch {
         v_id->extent()->isConstInt(),
         "Vectorizing a domain requires a constant integer size.");
 
-    auto vector_word_size = v_id->extent()->evaluate();
+    auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
     auto vector_size =
-        ((int64_t)dataTypeSize(
-            tv->getDataType().value(), GpuLower::current()->indexType())) *
+        dataTypeSize(
+            tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
     // Allow half2, float2, float4 and same sized vtypes.
@@ -496,10 +496,9 @@ class VectorizeValidator : public OptInDispatch {
     if (consumer_word_size_it !=
         GpuLower::current()->vectorizedAccesses().end()) {
       consumer_word_size_it->second =
-          std::max((int)vector_word_size, consumer_word_size_it->second);
+          std::max(vector_word_size, consumer_word_size_it->second);
     } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          tv, (int)vector_word_size);
+      GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
     auto tv_def = tv->definition();
@@ -513,10 +512,10 @@ class VectorizeValidator : public OptInDispatch {
     if (producer_word_size_it !=
         GpuLower::current()->vectorizedAccesses().end()) {
       producer_word_size_it->second =
-          std::max((int)vector_word_size, producer_word_size_it->second);
+          std::max(vector_word_size, producer_word_size_it->second);
     } else {
       GpuLower::current()->vectorizedAccesses().emplace(
-          producer_tv, (int)vector_word_size);
+          producer_tv, vector_word_size);
     }
 
     VectorizedSetInfo vectorized_set_info;
@@ -525,7 +524,7 @@ class VectorizeValidator : public OptInDispatch {
     // Note that VectorizedSetInfo is about each instance of
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
-    vectorized_set_info.word_size = (int)vector_word_size;
+    vectorized_set_info.word_size = vector_word_size;
     vectorized_set_info.vectorized_leaf_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 

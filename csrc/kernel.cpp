@@ -443,7 +443,7 @@ void KernelPerformanceProfile::registerExpr(const Expr* expr) {
   expr_entry_map_.emplace(expr, slot);
 }
 
-int KernelPerformanceProfile::getNewIndex() {
+int64_t KernelPerformanceProfile::getNewIndex() {
   return num_profile_entries_++;
 }
 
@@ -451,21 +451,22 @@ bool KernelPerformanceProfile::isProfiled(const Expr* expr) const {
   return expr_entry_map_.find(expr) != expr_entry_map_.end();
 }
 
-std::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
+std::optional<int64_t> KernelPerformanceProfile::getIndex(
+    const Expr* expr) const {
   auto it = expr_entry_map_.find(expr);
   if (it == expr_entry_map_.end()) {
-    return std::optional<int>();
+    return std::optional<int64_t>();
   } else {
     return it->second;
   }
 }
 
-std::array<int, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
+std::array<int64_t, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
     const Expr* expr) const {
   NVF_ERROR(isProfiled(expr), "Not a profiled expression: ", expr->toString());
 
-  int cycle_index = getIndex(expr).value() * 2;
-  int count_index = cycle_index + 1;
+  int64_t cycle_index = getIndex(expr).value() * 2;
+  int64_t count_index = cycle_index + 1;
 
   return {cycle_index, count_index};
 }
