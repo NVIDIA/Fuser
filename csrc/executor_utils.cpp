@@ -113,8 +113,8 @@ std::string kernelPreamble() {
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
-    int& major,
-    int& minor,
+    int64_t& major,
+    int64_t& minor,
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
@@ -1179,7 +1179,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
-  int major = 0, minor = 0;
+  int64_t major = 0, minor = 0;
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
