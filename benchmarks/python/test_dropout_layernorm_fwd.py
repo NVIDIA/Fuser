@@ -68,7 +68,7 @@ def dropout_layernorm_fwd_fusion(
     fd.add_output(T10)
 
 
-def dropout_layernorm_fwd_fn(inputs: list):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
+def dropout_layernorm_fwd(inputs: list):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
     return torch.nn.functional.layer_norm(
         inputs[1] + torch.nn.functional.dropout(inputs[0], p = inputs[-1]),
         normalized_shape=inputs[0].shape[1:],
@@ -112,11 +112,11 @@ def test_dropout_layernorm_fwd_nvf_benchmark(
         torch.ones(size[1], device="cuda", dtype=dtype),
         torch.zeros(size[1], device="cuda", dtype=dtype),
     ]
-    # dropout_p = 0.0 in fwd benchmark for validating the dropout mask
-    dropout_p = 0.0
-    dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
+
+    dropout_p = 0.2
     with FusionDefinition() as fd:
         dropout_layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
+
     if not disable_validation:
         # For validating use a fusion definition with dropout_p=0.0
         with FusionDefinition() as val_fd:
@@ -125,6 +125,7 @@ def test_dropout_layernorm_fwd_nvf_benchmark(
             )
 
         dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
+        
         # dropout + add
         x = inputs[2] + torch.nn.functional.dropout(inputs[1], p=0.0)
         # layernorm
@@ -134,6 +135,7 @@ def test_dropout_layernorm_fwd_nvf_benchmark(
             weight=inputs[2].to(torch.float),
             bias=inputs[3].to(torch.float),
         )
+
         # mean and invstd are computed for the output of dropout + add
         mean = x.to(torch.double).mean(dim=-1)
         variance = x.to(torch.double).var(dim=-1, unbiased=False)
@@ -155,8 +157,8 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
-    # dropout_p = 0.0 in nvf fwd benchmark for validating the dropout mask
-    dropout_p = 0.0
+
+    dropout_p = 0.2
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype),
         torch.randn(size, device="cuda", dtype=dtype),
@@ -168,7 +170,7 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(dropout_layernorm_fwd_fn) if compile else dropout_layernorm_fwd_fn,
+        torch.compile(dropout_layernorm_fwd) if compile else dropout_layernorm_fwd,
         inputs,
         iobytes=dropout_layernorm_fwd_iobytes(size, dtype)
     )
