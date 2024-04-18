@@ -2382,7 +2382,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         inputs_nt = [
-            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, k]),
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
             inputs_tt[1].clone(),
         ]
 

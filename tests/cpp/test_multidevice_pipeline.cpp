@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -456,18 +455,21 @@ enum class SchedulingMode {
 std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
   switch (mode) {
     case SchedulingMode::InterDeviceOnly:
-      return out << "SchedulingMode::InterDeviceOnly";
+      out << "InterDeviceOnly";
+      break;
     case SchedulingMode::Manual:
-      return out << "SchedulingMode::Manual";
+      out << "Manual";
+      break;
     case SchedulingMode::ReductionOnly:
-      return out << "SchedulingMode::ReductionOnly";
+      out << "ReductionOnly";
+      break;
     case SchedulingMode::Automatic:
-      return out << "SchedulingMode::Automatic";
-    default:
-      NVF_ERROR(false);
+      out << "Automatic";
+      break;
   }
   return out;
 }
+
 class PipelineTestStagedReduction
     : public PipelineTest,
       public ::testing::WithParamInterface<SchedulingMode> {};
@@ -569,13 +571,13 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    SchedulingModes,
+    ,
     PipelineTestStagedReduction,
     testing::Values(
         SchedulingMode::InterDeviceOnly,
         SchedulingMode::Manual,
         SchedulingMode::ReductionOnly,
-        SchedulingMode::Automatic));
-} // namespace nvfuser
+        SchedulingMode::Automatic),
+    testing::PrintToStringParamName());
 
-#endif
+} // namespace nvfuser
