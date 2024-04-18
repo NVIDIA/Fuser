@@ -93,7 +93,10 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
   NVF_CHECK(
       a->nDims() == b->nDims(),
       "The number of dimension of A and B do not match");
-  NVF_CHECK(a->nDims() == 2, "Only 2-D A/B Tensors are supported in Linear!");
+  // TODO: Support 1+ dimensional A.
+  NVF_CHECK(
+      a->nDims() == 2,
+      "Only 2-D Inputs and Weights are currently supported in Linear!");
 
   std::vector<bool> bcast_dims(a->nDims() + 1, false);
   // A: [M, Bcast, K]
@@ -110,7 +113,11 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
 
   auto* output = fusedMultiplySum(tv0b, tv1b, {-1});
   if (bias) {
-    NVF_CHECK(bias->nDims() == 1, "Only 1-D Bias are supported in Linear!");
+    NVF_CHECK(
+        (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");
+    NVF_CHECK(
+        a->getDataType().value() == bias->getDataType().value(),
+        "bias doesn't match input/weight");
     auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
     auto* bcast_bias = broadcast(bias_with_cast, {true, false});
     auto* bias_output = add(output, bcast_bias);
