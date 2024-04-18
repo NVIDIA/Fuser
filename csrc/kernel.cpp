@@ -38,12 +38,12 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
-  inline int getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
-    int num_grouped_iterations = 1;
+  inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
+    int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
     for (auto axis : out_tv->getLeafDomain()) {
       if (axis->getParallelType() == ParallelType::Group) {
-        num_grouped_iterations *= (int)axis->extent()->value();
+        num_grouped_iterations *= axis->extent()->value().as<int64_t>();
       }
     }
     NVF_ERROR(
@@ -137,7 +137,7 @@ class KernelIrScanner : private IrVisitor {
     }
     // process iteration grouped reduction
     summary_.has_iter_grouped_reductions = true;
-    int num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
+    int64_t num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
   }
