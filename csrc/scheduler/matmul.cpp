@@ -535,7 +535,10 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
 //!
 //! 1. Swizzled the shared mem data layout.
 //! 2. Coalesce and vectorize the read write schedule.
-void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
+void scheduleProlog(
+    TensorView* shared_mem_tv,
+    int vec_size,
+    const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
   // The following line allows us to reclaim the memory allocated to
@@ -558,7 +561,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   //    current effort tries to focus on generating swizzles.
   shared_mem_tv->merge(-2);
   mma_utils::scheduleContiguousVectorLoad(
-      shared_mem_tv, params.tile_sizes, 8, true);
+      shared_mem_tv, params.tile_sizes, vec_size, /*vectorize=*/true);
 
   // Propagate prolog tensors
   //  propagate up the DAG, and propagate parallel type.
@@ -1015,8 +1018,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduleProlog(acw_smem, params);
-  scheduleProlog(bcw_smem, params);
+  scheduleProlog(acw_smem, params.supported_vec_size.a, params);
+  scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();

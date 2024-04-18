@@ -64,6 +64,38 @@ class MatmulParams : public HeuristicParams {
     }
   };
 
+  //! This is the maximum vectorization supported by the inputs.
+  struct SupportedVectorization {
+    // operands
+    int a = 1;
+    int b = 1;
+    // This is the minimum vectorization factor between all epilogue tensor
+    // inputs and output tensors. These are treated jointly since we inline the
+    // epilogue with the output store and vectorize the inputs and outputs in
+    // the same way.
+    int epilogue = 1;
+
+    bool operator==(const SupportedVectorization& other) const {
+      return other.a == a && other.b == b && other.epilogue == epilogue;
+    }
+
+    std::string toString() const {
+      std::stringstream ss;
+      ss << "SupportedVectorization:\n"
+         << "  a: " << a << "\n"
+         << "  b: " << b << "\n"
+         << "  epilogue: " << epilogue;
+      return ss.str();
+    }
+
+    size_t hash() const {
+      return std::hash<size_t>{}(
+                 (static_cast<size_t>(a) << 8) |
+                 (static_cast<size_t>(b)) << 4) |
+          (static_cast<size_t>(epilogue));
+    }
+  } supported_vec_size;
+
   //! Whether to rotate the ldmatrix out of the main loop
   bool rotate_ldmatrix_out_of_main_loop = true;
 
@@ -115,6 +147,7 @@ class MatmulParams : public HeuristicParams {
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
        << double_buffer_options.toString() << "\n"
+       << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
        << (rotate_ldmatrix_out_of_main_loop ? "true" : "false") << "\n"

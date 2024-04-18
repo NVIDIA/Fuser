@@ -294,6 +294,35 @@ std::string isMatmulFusionDefinitionSupported(
   return "";
 }
 
+MatmulParams::SupportedVectorization getSupportedVectorization(
+    const mma_utils::RolesMap& roles_map,
+    SchedulerRuntimeInfo& runtime_info) {
+  auto getMinVectorization = [&roles_map,
+                              &runtime_info](MatmulRole role) -> int {
+    int vec_size = 16; // max vectorization size
+    const it = roles_map.find(role);
+    NVF_ERROR(
+        it != roles_map.end(), "Could not find role ", role, " in RolesMap");
+    for (TensorView* tv : it->second) {
+      int v = (int)getVectorizationFactor(
+          runtime_info, tv, /*data_cache=*/nullptr, /*break_point=*/0);
+      if (v < vec_size) {
+        vec_size = v;
+      }
+      if (v == 1) {
+        // No need to continue analyzing if we know we cannot vectorize
+        break;
+      }
+    }
+    return vec_size;
+  };
+  MatmulParams::SupportedVectorization supported_vec_size;
+  supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
+  supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_A);
+  supported_vec_size.epilogue = getMinVectorization(MatmulRole::INPUT_C);
+  return supported_vec_size;
+}
+
 } // anonymous namespace
 
 std::string getMatmulRunTimeRejectReason(
@@ -391,6 +420,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
+
+  params->supported_vec_sizes = getSupportedVectorization(roles_map);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
