@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <transform_view.h>
 
 namespace nvfuser {
@@ -90,12 +91,9 @@ TensorView* matmul(TensorView* a, TensorView* b) {
 }
 
 TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
-  NVF_CHECK(
-      a->nDims() == b->nDims(),
-      "The number of dimension of A and B do not match");
   // TODO: Support 1+ dimensional A.
   NVF_CHECK(
-      a->nDims() == 2,
+      (a->nDims() == 2 && b->nDims() == 2),
       "Only 2-D Inputs and Weights are currently supported in Linear!");
 
   std::vector<bool> bcast_dims(a->nDims() + 1, false);
@@ -119,7 +117,7 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
         a->getDataType().value() == bias->getDataType().value(),
         "bias doesn't match input/weight");
     auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
-    auto* bcast_bias = broadcast(bias_with_cast, {true, false});
+    auto* bcast_bias = ops::maybeBroadcast({output, bias_with_cast})[1];
     auto* bias_output = add(output, bcast_bias);
     return maybeCastOp(a->getDataType().value(), bias_output);
   }
