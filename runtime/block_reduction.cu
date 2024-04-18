@@ -93,7 +93,6 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-
     typename Func>
 __device__ void blockReduce(
     T& out,
