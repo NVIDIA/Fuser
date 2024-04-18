@@ -10,6 +10,7 @@ from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
 import numpy as np
 
+
 def get_device_properties() -> Tuple[int, float]:
     """
     Computes device properties using ctypes and cuda.
@@ -147,10 +148,10 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
 
 
 def compute_total_iobytes(tensor_props: dict):
-    '''
+    """
     Compute IObytes for baselines from given description:
     Tensor_props has entries of the form: {'tensor_id': (size: tuple, dtype: torch.dtype)}
-    '''
+    """
     iobytes = 0
     for _, tensor_prop in tensor_props.items():
         size, dtype = tensor_prop[0], tensor_prop[1]

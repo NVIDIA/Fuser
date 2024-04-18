@@ -4,7 +4,12 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch, compute_total_iobytes
+from .core import (
+    run_benchmark,
+    clear_cuda_cache,
+    unary_bwd_torch,
+    compute_total_iobytes,
+)
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -100,22 +105,24 @@ def dropout_rmsnorm_bwd_fusion(
     fd.add_output(T70)
     fd.add_output(T32)
 
+
 def dropout_rmsnorm_bwd_iobytes(size, dtype):
     # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output, grad_out).
     nvf_inp_out = {
         # Inputs
-        'input1': (size, dtype),
-        'input2': (size, dtype),
-        'weights': (size[1], dtype),
-        'rms': (size[0], torch.float),
-        'grad_out': (size, dtype),
-        'dropout_mask': (size, torch.bool),
+        "input1": (size, dtype),
+        "input2": (size, dtype),
+        "weights": (size[1], dtype),
+        "rms": (size[0], torch.float),
+        "grad_out": (size, dtype),
+        "dropout_mask": (size, torch.bool),
         # Outputs
-        'grad_in1': (size, dtype),
-        'grad_in2': (size, dtype),
-        'grad_weights': (size[1], dtype),
+        "grad_in1": (size, dtype),
+        "grad_in2": (size, dtype),
+        "grad_weights": (size[1], dtype),
     }
     return compute_total_iobytes(nvf_inp_out)
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -151,12 +158,15 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
         )
         eager_output.backward(grads.to(torch.double))
         fd.validate(
-            [input1, input2, dropout_mask, rms_eps, grads, weights], [input1.grad, input2.grad, weights.grad]
+            [input1, input2, dropout_mask, rms_eps, grads, weights],
+            [input1.grad, input2.grad, weights.grad],
         )
 
     if not disable_benchmarking:
         run_benchmark(
-            benchmark, fd.execute, [input1, input2, dropout_mask, rms_eps, grads, weights]
+            benchmark,
+            fd.execute,
+            [input1, input2, dropout_mask, rms_eps, grads, weights],
         )
 
 
@@ -183,5 +193,5 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
         [output, grads],
-        iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype)
+        iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype),
     )

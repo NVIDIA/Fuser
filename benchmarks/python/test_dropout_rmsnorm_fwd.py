@@ -8,6 +8,7 @@ from .core import run_benchmark, clear_cuda_cache, compute_total_iobytes
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
+
 def dropout_rmsnorm_fwd_fusion(
     fd: FusionDefinition,
     dtype: DataType,
@@ -80,19 +81,21 @@ def dropout_rmsnorm_fwd(inputs: list):
     x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
     return weights * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
 
+
 def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output).
     nvf_inp_out = {
-        #Inputs
-        'input1': (size, dtype),
-        'input2': (size, dtype),
-        'weights': (size[1], dtype),
+        # Inputs
+        "input1": (size, dtype),
+        "input2": (size, dtype),
+        "weights": (size[1], dtype),
         # Outputs
-        'rms': (size[0], torch.float),
-        'output': (size, dtype),
-        'dropout_mask': (size, torch.bool),
+        "rms": (size[0], torch.float),
+        "output": (size, dtype),
+        "dropout_mask": (size, torch.bool),
     }
     return compute_total_iobytes(nvf_inp_out)
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -112,7 +115,6 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
 
     dropout_p = 0.2
 
-
     with FusionDefinition() as fd:
         dropout_rmsnorm_fwd_fusion(
             fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p, eps
@@ -127,13 +129,19 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
 
         dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
 
-        x = input2.to(torch.double) + torch.nn.functional.dropout(input1.to(torch.double), p=dropout_p)
+        x = input2.to(torch.double) + torch.nn.functional.dropout(
+            input1.to(torch.double), p=dropout_p
+        )
         rms_eps = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps)
         eager_output = weights.to(torch.double) * (x / rms_eps)
-        val_fd.validate([input1, input2, weights], [eager_output.to(dtype), dropout_mask, rms_eps.to(torch.float)])
+        val_fd.validate(
+            [input1, input2, weights],
+            [eager_output.to(dtype), dropout_mask, rms_eps.to(torch.float)],
+        )
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [input1, input2, weights])
+
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
@@ -146,12 +154,12 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
 ):
     clear_cuda_cache()
     dropout_p = 0.2
-    
+
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype),
         torch.randn(size, device="cuda", dtype=dtype),
         torch.ones(size[1], device="cuda", dtype=dtype),
-        dropout_p
+        dropout_p,
     ]
 
     # Manually compute IOBytes: See PR #1725
@@ -159,5 +167,5 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
         benchmark,
         torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd,
         inputs,
-        iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype)
+        iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype),
     )

@@ -4,9 +4,15 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch, compute_total_iobytes
+from .core import (
+    run_benchmark,
+    clear_cuda_cache,
+    unary_bwd_torch,
+    compute_total_iobytes,
+)
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+
 
 def dropout_layernorm_bwd_fusion(
     fd: FusionDefinition, dtype: DataType, dropout_p: float
@@ -111,24 +117,26 @@ def dropout_layernorm_bwd_fusion(
     fd.add_output(T39)
     fd.add_output(T35)
 
+
 def dropout_layernorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output, grad_out).
     nvf_inp_out = {
-        #Inputs
-        'input1': (size, dtype),
-        'input2': (size, dtype),
-        'weights': (size[1], dtype),
-        'mean': (size[0], torch.float),
-        'invstd': (size[0], torch.float),
-        'grad_out': (size, dtype),
-        'dropout_mask': (size, torch.bool),
+        # Inputs
+        "input1": (size, dtype),
+        "input2": (size, dtype),
+        "weights": (size[1], dtype),
+        "mean": (size[0], torch.float),
+        "invstd": (size[0], torch.float),
+        "grad_out": (size, dtype),
+        "dropout_mask": (size, torch.bool),
         # Outputs
-        'grad_in1': (size, dtype),
-        'grad_in2': (size, dtype),
-        'grad_weights': (size[1], dtype),
-        'grad_bias': (size[1], dtype),
+        "grad_in1": (size, dtype),
+        "grad_in2": (size, dtype),
+        "grad_weights": (size[1], dtype),
+        "grad_bias": (size[1], dtype),
     }
     return compute_total_iobytes(nvf_inp_out)
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -147,7 +155,7 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
-    
+
     dropout_p = 0.2
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
     # Manually compute dropout for validation
@@ -176,7 +184,9 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
         )
     if not disable_benchmarking:
         run_benchmark(
-            benchmark, fd.execute, [dropout_mask, mean, invstd, grads, weights, input1, input2]
+            benchmark,
+            fd.execute,
+            [dropout_mask, mean, invstd, grads, weights, input1, input2],
         )
 
 
@@ -198,7 +208,7 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     output = torch.nn.functional.layer_norm(
-        input2 + torch.nn.functional.dropout(input1, p = dropout_p),
+        input2 + torch.nn.functional.dropout(input1, p=dropout_p),
         normalized_shape=input1.shape[1:],
         weight=weights,
         bias=bias,
@@ -208,5 +218,5 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
         benchmark,
         torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
         [output, grads],
-        iobytes=dropout_layernorm_bwd_iobytes(size, dtype)
+        iobytes=dropout_layernorm_bwd_iobytes(size, dtype),
     )
