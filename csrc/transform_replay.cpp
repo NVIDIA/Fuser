@@ -307,13 +307,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   if (producer == consumer) {
     return {producer->domain(), producer->nDims()};
   }
-  if (consumer_pos < 0) {
-    consumer_pos += (int64_t)consumer->nDims() + 1;
-  }
-
-  NVF_ERROR(
-      consumer_pos >= 0 && consumer_pos <= consumer->nDims(),
-      "Invalid axis in transform replayPasC.");
+  consumer_pos = wrapDim(consumer_pos, consumer->nDims() + 1);
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> target_consumer_ids(
@@ -333,7 +327,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   auto forward_replay = BestEffortReplay::replayPasC(
       producer,
       consumer,
-      (int)consumer_pos,
+      consumer_pos,
       root_map,
       opt.skip_target_swizzle,
       !opt.replay_swizzle,
@@ -548,17 +542,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   if (consumer == producer) {
     return {consumer->domain(), consumer->nDims()};
   }
-
-  if (producer_pos < 0) {
-    producer_pos += producer->nDims() + 1;
-  }
-
-  NVF_ERROR(
-      producer_pos >= 0 && producer_pos <= producer->nDims(),
-      "Invalid axis in transform replayCasP. Consumer: ",
-      consumer->toString(),
-      " Producer: ",
-      producer->toString());
+  producer_pos = wrapDim(producer_pos, producer->nDims() + 1);
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> target_producer_ids(
@@ -1145,13 +1129,7 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
 }
 
 TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
-  if (pos < 0) {
-    pos += (int64_t)from->nDims() + 1;
-  }
-  NVF_CHECK(
-      pos >= 0 && pos <= (int64_t)from->nDims(),
-      "TransformPropagator called on an pos outside valid range.");
-  replayed_pos_[from] = pos;
+  replayed_pos_[from] = wrapDim(pos, from->nDims() + 1);
 }
 
 void MostInlinedTransformPropagator::propagateC2P(

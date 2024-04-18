@@ -315,7 +315,7 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
       "There must be at least one consumer of this tensor to use computeWith: ",
       toString());
 
-  pos = wrapDim(pos);
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
   const int64_t max_inline_pos =
       (int64_t)MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
