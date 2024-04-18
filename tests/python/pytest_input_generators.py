@@ -797,8 +797,8 @@ def index_select_error_generator(
     a = make_arg(input_shape)
 
     # dim, exception type, exception string
-    positive_axis = (2, RuntimeError, "index_select on invalid axis")
-    negative_axis = (-3, RuntimeError, "index_select on invalid axis")
+    positive_axis = (2, RuntimeError, "Tried to access out of boundary index 2. total index: 2")
+    negative_axis = (-3, RuntimeError, "Tried to access out of boundary index -1. total index: 2")
 
     error_cases = [
         positive_axis,
@@ -1423,7 +1423,7 @@ def tensor_size_error_generator(
             "dim": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1431,7 +1431,7 @@ def tensor_size_error_generator(
             "dim": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
@@ -1458,7 +1458,7 @@ def vector_at_error_generator(
             "index": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1466,7 +1466,7 @@ def vector_at_error_generator(
             "index": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
