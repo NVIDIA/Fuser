@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch, compute_total_iobytes
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -16,14 +16,17 @@ def dropout_rmsnorm_bwd_fusion(
 ) -> None:
     """
     Backward pass fusion definition for computing:
-        output = rmsnorm (input + dropout (input, p=dropout_p))
+        output = rmsnorm (input2 + dropout (input1, p=dropout_p))
 
     Fusion inputs: input, dropout_mask, rms, grad_output, weights
     Fusion outputs: grad_input, grad_weights
     """
     T5 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
-    )  # inputs
+    )  # input1
+    T4 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
+    )  # input2
     T6 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=DataType.Bool, is_cpu=False
     )  # dropout_mask
@@ -38,6 +41,7 @@ def dropout_rmsnorm_bwd_fusion(
     )  # weights
 
     if dtype in PROMOTE_DTYPES:
+        T4 = fd.ops.cast(T4, dtype=DataType.Float)
         T5 = fd.ops.cast(T5, dtype=DataType.Float)
         T6 = fd.ops.cast(T6, dtype=DataType.Float)
         T8 = fd.ops.cast(T8, dtype=DataType.Float)
@@ -46,7 +50,7 @@ def dropout_rmsnorm_bwd_fusion(
     T12 = fd.ops.mul(T5, T6)
     S13 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T14 = fd.ops.mul(T12, S13)
-    T15 = fd.ops.add(T5, T14)
+    T15 = fd.ops.add(T4, T14)
 
     V19 = T5.shape()
     T20 = fd.ops.broadcast_in_dim(T7, shape=V19, broadcast_dims=[0, 1])
@@ -86,19 +90,36 @@ def dropout_rmsnorm_bwd_fusion(
 
     T73 = fd.ops.mul(T70, S13)
     T74 = fd.ops.mul(T73, T6)
-    T75 = fd.ops.add(T70, T74)
 
     if dtype in PROMOTE_DTYPES:
-        T75 = fd.ops.cast(T75, dtype=dtype)
+        T70 = fd.ops.cast(T70, dtype=dtype)
+        T74 = fd.ops.cast(T74, dtype=dtype)
         T32 = fd.ops.cast(T32, dtype=dtype)
 
-    fd.add_output(T75)
+    fd.add_output(T74)
+    fd.add_output(T70)
     fd.add_output(T32)
 
+def dropout_rmsnorm_bwd_iobytes(size, dtype):
+    # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output, grad_out).
+    nvf_inp_out = {
+        # Inputs
+        'input1': (size, dtype),
+        'input2': (size, dtype),
+        'weights': (size[1], dtype),
+        'rms': (size[0], torch.float),
+        'grad_out': (size, dtype),
+        'dropout_mask': (size, torch.bool),
+        # Outputs
+        'grad_in1': (size, dtype),
+        'grad_in2': (size, dtype),
+        'grad_weights': (size[1], dtype),
+    }
+    return compute_total_iobytes(nvf_inp_out)
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_rmsnorm_bwd_benchmark(
+def test_dropout_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -108,14 +129,16 @@ def test_rmsnorm_bwd_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
-    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    dropout_p = 0.1
+    dropout_p = 0.2
     dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
 
-    x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
+    # Manually compute dropout for validation
+    x = input2 + 1 / (1 - dropout_p) * dropout_mask * input1
     squared_mean = (x.to(torch.float) ** 2).mean(1, keepdim=True)
     rms_eps = torch.sqrt(squared_mean + eps)
 
@@ -128,10 +151,37 @@ def test_rmsnorm_bwd_benchmark(
         )
         eager_output.backward(grads.to(torch.double))
         fd.validate(
-            [inputs, dropout_mask, rms_eps, grads, weights], [inputs.grad, weights.grad]
+            [input1, input2, dropout_mask, rms_eps, grads, weights], [input1.grad, input2.grad, weights.grad]
         )
 
     if not disable_benchmarking:
         run_benchmark(
-            benchmark, fd.execute, [inputs, dropout_mask, rms_eps, grads, weights]
+            benchmark, fd.execute, [input1, input2, dropout_mask, rms_eps, grads, weights]
         )
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_dropout_rmsnorm_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+    dropout_p = 0.2
+    input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+
+    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
+    output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [output, grads],
+        iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype)
+    )

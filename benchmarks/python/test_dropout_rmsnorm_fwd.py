@@ -4,10 +4,9 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, compute_total_iobytes
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-
 
 def dropout_rmsnorm_fwd_fusion(
     fd: FusionDefinition,
@@ -17,12 +16,15 @@ def dropout_rmsnorm_fwd_fusion(
 ) -> None:
     """
     Forward pass fusion definition for computing:
-        output = rmsnorm (input + dropout (input, p=dropout_p))
+        output = rmsnorm (input2 + dropout (input1, p=dropout_p))
 
     Fusion inputs: input, weights
     Fusion outputs: output, dropout_mask, rms
     """
     T0 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
+    )
+    T2 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
     T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
@@ -39,11 +41,12 @@ def dropout_rmsnorm_fwd_fusion(
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
+        T2 = fd.ops.cast(T2, dtype=DataType.Float)
 
     T12 = fd.ops.mul(T0, T10)
     S13 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T14 = fd.ops.mul(T12, S13)
-    T15 = fd.ops.add(T0, T14)
+    T15 = fd.ops.add(T2, T14)
     S16 = fd.define_scalar(2.00000, dtype=DataType.Double)
     T17 = fd.ops.pow(T15, S16)
     T18 = fd.ops.sum(T17, dims=[1], keepdim=False, dtype=DataType.Null)
@@ -72,27 +75,28 @@ def dropout_rmsnorm_fwd_fusion(
     fd.add_output(T28)
 
 
-def dropout_rmsnorm_fwd_fn(inputs: list):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
-    return torch.nn.functional.layer_norm(
-        inputs[1] + torch.nn.functional.dropout(inputs[0], p = inputs[-1]),
-        normalized_shape=inputs[0].shape[1:],
-        weight=inputs[2],
-        bias=inputs[3],
-    )
-
+def dropout_rmsnorm_fwd(inputs: list):
+    input1, input2, weights, dropout_p = inputs
+    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
+    return weights * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
 
 def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
-    # Total IO bytes:
-    # Inputs: in_tensor1 (size, dtype) + in_tensor2 (size, dtype), weights (size[1], dtype) + bias (size[1], dtype)
-    # Outputs: mean (size[0], float) + invstd (size[0], float) + outputs (size, dtype) + dropout_mask (size, bool)
-    return int(
-        dtype.itemsize  * (3 * np.prod(size) + 2 * size[1])
-        + torch.float.itemsize * 2 * size[0] + torch.bool.itemsize * np.prod(size)
-    )
+    # Manual IOByte computation is required since nvFuser input/outputs differ from baseline outputs (output).
+    nvf_inp_out = {
+        #Inputs
+        'input1': (size, dtype),
+        'input2': (size, dtype),
+        'weights': (size[1], dtype),
+        # Outputs
+        'rms': (size[0], torch.float),
+        'output': (size, dtype),
+        'dropout_mask': (size, torch.bool),
+    }
+    return compute_total_iobytes(nvf_inp_out)
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_rmsnorm_fwd_nvf_benchmark(
+def test_dropout_rmsnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -102,12 +106,12 @@ def test_rmsnorm_fwd_nvf_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = torch.randn(*size, device="cuda", dtype=dtype)
+    input1 = torch.randn(size, device="cuda", dtype=dtype)
+    input2 = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype)
 
-    # dropout_p = 0.0 in fwd benchmark for validating the dropout mask
-    dropout_p = 0.0
-    dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
+    dropout_p = 0.2
+
 
     with FusionDefinition() as fd:
         dropout_rmsnorm_fwd_fusion(
@@ -115,11 +119,45 @@ def test_rmsnorm_fwd_nvf_benchmark(
         )
 
     if not disable_validation:
-        x = inputs + 1 / (1 - dropout_p) * dropout_mask * inputs
-        squared_mean = (x.to(torch.float) ** 2).mean(1, keepdim=True)
-        rms_eps = torch.sqrt(squared_mean + eps)
-        eager_output = weights * (x / rms_eps)
-        fd.validate([inputs, weights], [eager_output.to(dtype), dropout_mask, rms_eps])
+        # For validating use a fusion definition with dropout_p=0.0
+        with FusionDefinition() as val_fd:
+            dropout_rmsnorm_fwd_fusion(
+                val_fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p=0.0, eps=eps
+            )
+
+        dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
+
+        x = input2.to(torch.double) + torch.nn.functional.dropout(input1.to(torch.double), p=dropout_p)
+        rms_eps = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+        eager_output = weights.to(torch.double) * (x / rms_eps)
+        val_fd.validate([input1, input2, weights], [eager_output.to(dtype), dropout_mask, rms_eps.to(torch.float)])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [inputs, weights])
+        run_benchmark(benchmark, fd.execute, [input1, input2, weights])
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_dropout_rmsnorm_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+    dropout_p = 0.2
+    
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.ones(size[1], device="cuda", dtype=dtype),
+        dropout_p
+    ]
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd,
+        inputs,
+        iobytes=dropout_rmsnorm_fwd_iobytes(size, dtype)
+    )
