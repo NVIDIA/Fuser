@@ -24,7 +24,7 @@ std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     int64_t ndims) {
   NVF_CHECK(
-      new2old_in.size() == ndims,
+      (int64_t)new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
