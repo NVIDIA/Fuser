@@ -77,14 +77,14 @@ TEST_F(NVFuserTest, FusionSplitDims_CUDA) {
   auto p = prime_number;
   auto tv = makeConcreteTensor(
       {p(0) * p(1) * p(2), p(3), p(4), p(5) * p(6), p(7), p(8), p(9) * p(10)});
-  std::vector<size_t> dims{0, 1, 2, 3, 4, 5, 6};
+  std::vector<int64_t> dims{0, 1, 2, 3, 4, 5, 6};
   scheduler_utils::splitDims(
       tv, {{0, p(2)}, {0, p(1)}, {3, p(6)}, {6, p(10)}}, dims);
   EXPECT_EQ(tv->nDims(), 11);
   for (auto i : c10::irange(11)) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), p(i));
   }
-  std::vector<size_t> expect{0, 3, 4, 5, 7, 8, 9};
+  std::vector<int64_t> expect{0, 3, 4, 5, 7, 8, 9};
   EXPECT_EQ(dims, expect);
 }
 

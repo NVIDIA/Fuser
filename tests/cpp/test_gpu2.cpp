@@ -2677,7 +2677,7 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
 
   std::vector<int> red_axis = {1, 0};
   std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
+  std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
@@ -6532,7 +6532,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
   fusion.addInput(bcast_bias);
 
   std::vector<int64_t> at_sum_axes;
-  std::vector<int> outer_reduction_axes;
+  std::vector<int64_t> outer_reduction_axes;
   std::vector<bool> outer_broadcast_mask(numDims, false);
   Val* N = IrBuilder::create<Val>(1.0);
   for (const auto axis : c10::irange(numDims)) {

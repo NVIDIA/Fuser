@@ -1958,7 +1958,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             {dim},                                                            \
@@ -1990,7 +1990,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             dims,                                                             \

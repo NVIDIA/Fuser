@@ -142,7 +142,9 @@ class DomainMap : public pointwise_utils::DomainMap {
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
     NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || (int64_t)tv->getMaybeRFactorDomain().size() > num_axes);
+    return (
+        num_axes == 0 ||
+        (int64_t)tv->getMaybeRFactorDomain().size() > num_axes);
   }
 };
 

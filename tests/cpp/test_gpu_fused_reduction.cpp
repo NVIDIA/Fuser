@@ -867,8 +867,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -916,8 +916,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 
   groupReductions({tv1, tv2});
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -959,7 +959,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  const size_t bdimx = 128;
+  const int64_t bdimx = 128;
 
   tv2->split(1, bdimx);
   auto tv2_rf = tv2->rFactor({1});
@@ -1299,11 +1299,11 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const bool kTraining = true;
   const bool channels_last = false;
 
-  const size_t kNumberOfDims =
+  const int64_t kNumberOfDims =
       TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
-  size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -1560,7 +1560,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);
@@ -1684,7 +1684,7 @@ TEST_F(
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);

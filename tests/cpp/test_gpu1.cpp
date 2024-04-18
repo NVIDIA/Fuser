@@ -427,21 +427,11 @@ TEST_F(NVFuserTest, FusionComplexAbsTypes_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto tensor_cf = at::randn({4, 4, 4}, options.dtype(at::kComplexFloat));
-  auto tensor_cd = at::randn({4, 4, 4}, options.dtype(at::kComplexDouble));
+  auto tv_cf = makeContigTensor(3, DataType::ComplexFloat);
+  auto tv_cd = makeContigTensor(3, DataType::ComplexDouble);
 
-  auto type_cf = at::TensorType::create(tensor_cf);
-  auto tv_cf = IrBuilder::create<TensorView>(type_cf);
-  auto type_cd = at::TensorType::create(tensor_cd);
-  auto tv_cd = IrBuilder::create<TensorView>(type_cd);
-
-  NVF_CHECK(
-      tensor_cf.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cf)->getDataType().value()));
-  NVF_CHECK(
-      tensor_cd.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cd)->getDataType().value()));
+  EXPECT_EQ(DataType::Float, abs(tv_cf)->getDataType());
+  EXPECT_EQ(DataType::Double, abs(tv_cd)->getDataType());
 }
 
 TEST_F(NVFuserTest, FusionRegister_CUDA) {
@@ -2397,7 +2387,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
     }
     std::for_each(ops.begin(), ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2415,7 +2406,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Int, DataType::Int32};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "bitwise_not",
         /*Aten Func   */
@@ -2431,7 +2423,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Bool};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "logical_not",
         /*Aten Func   */
@@ -2510,7 +2503,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     std::for_each(logic_ops.begin(), logic_ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2555,7 +2549,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             return;
           }
           test_op(
-              /*blocks*/ 640,
+              /*blocks*/
+              640,
               /*threads*/ 64,
               /*name*/ std::get<2>(op),
               /*Aten Func   */
@@ -2574,7 +2569,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
         });
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "add_alpha",
         /*Aten Func   */
@@ -2591,7 +2587,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             std::make_pair(ValType::Others, dtype)));
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "sub_alpha",
         /*Aten Func   */
@@ -2620,7 +2617,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
     // clamp and threshold are not supported for complex on eager mode
     if (dtype != DataType::ComplexFloat && dtype != DataType::ComplexDouble) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "clamp",
           /*Aten Func   */
@@ -2645,7 +2643,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           /*Inputs Tuple*/
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "threshold",
           /*Aten Func   */
@@ -2671,7 +2670,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
     }
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "where",
         /*Aten Func   */
@@ -2698,7 +2698,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
 
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "lerp",
         /*Aten Func   */
@@ -2714,7 +2715,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype)));
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "addcmul",
         /*Aten Func   */
@@ -5276,7 +5278,7 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     fusion.addInput(tv0);
 
     for (auto rdims : reduction_dims) {
-      std::vector<int> rdims_(rdims.begin(), rdims.end());
+      std::vector<int64_t> rdims_(rdims.begin(), rdims.end());
       auto tv = sum(tv0, rdims_);
       fusion.addOutput(tv);
     }
@@ -5362,7 +5364,7 @@ TEST_F(NVFuserTest, FusionSymbolicReduction_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
-  const std::vector<int> red_dims = {0, 2};
+  const std::vector<int64_t> red_dims = {0, 2};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {0, 2};
@@ -5408,7 +5410,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
-  const std::vector<int> red_dims = {1, 3};
+  const std::vector<int64_t> red_dims = {1, 3};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {1, 3};
@@ -5464,7 +5466,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
   }
 #endif
 
-  std::vector<int> red_dims;
+  std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
@@ -5549,7 +5551,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
 
   std::vector<int> red_axis = {1, 0};
   std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
+  std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
