@@ -576,7 +576,8 @@ void scheduleProlog(
 void scheduleOutputTensor(
     TensorView* mma_result,
     TensorView* c,
-    const MatMulTileOptions& gemm_tile) {
+    const MatMulTileOptions& gemm_tile,
+    int64_t vectorization_factor) {
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
   checkConcreteStaticDim(c->axis(-2));
   checkConcreteStaticDim(c->axis(-1));
@@ -595,9 +596,7 @@ void scheduleOutputTensor(
       ", actual: ",
       tile_size_n);
   const int64_t tot_elements = tile_size_m * tile_size_n;
-  const int64_t data_type_size = (int64_t)dataTypeSize(*c->getDataType());
   constexpr int64_t warp_size = 32l;
-  const int64_t vectorization_factor = 16l / data_type_size;
   const int64_t tidx = warp_size;
   const int64_t tidy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
   const int64_t tidz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
@@ -1183,7 +1182,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     for (auto [dc, d] : cached_outputs) {
       // Schedule output tensor differently for better global memory access
       // pattern.
-      scheduleOutputTensor(mma_result, d, gemm_tile);
+      scheduleOutputTensor(
+          mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
       d->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Propagate output tensor transformations back to smem_epilogue
