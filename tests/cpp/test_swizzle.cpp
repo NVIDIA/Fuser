@@ -425,7 +425,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
 
     // 32-way bank confliction
     auto bank_conflict_info = fusion.bankConflictInfo();
-    ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
+    ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{32});
 
     // no bank confliction after swizzle
     tv1->swizzle(swizzle_type, 0, 1);
@@ -463,12 +463,12 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle2) {
 
   // 32-way bank confliction
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{32});
 
   // 16-way bank confliction
   tv1->swizzle(Swizzle2DType::ZShape, 0, 1);
   bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{16});
 }
 
 TEST_F(SwizzleTest, DataSwizzleGlobal) {

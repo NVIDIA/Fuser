@@ -456,7 +456,7 @@ bool reductionInterferingView(
       fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int>> disjoint_groups;
+  std::vector<std::vector<int64_t>> disjoint_groups;
 
   for (const auto& group : groups) {
     std::vector<int64_t> disjoint_id_sets;
