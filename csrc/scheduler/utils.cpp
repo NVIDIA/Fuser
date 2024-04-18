@@ -132,24 +132,24 @@ size_t merge_3d(TensorView* tv) {
 
 void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split, // (dim, size)
-    std::vector<size_t>& to_update) {
+    std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
+    std::vector<int64_t>& to_update) {
   std::stable_sort(
       to_split.begin(),
       to_split.end(),
-      [](const std::pair<size_t, size_t>& p1,
-         const std::pair<size_t, size_t>& p2) { return p1.first < p2.first; });
-  size_t dim_offset = 0;
-  size_t pending_dim_offset = 0;
-  size_t prev_dim = 0;
+      [](const std::pair<int64_t, int64_t>& p1,
+         const std::pair<int64_t, int64_t>& p2) { return p1.first < p2.first; });
+  int64_t dim_offset = 0;
+  int64_t pending_dim_offset = 0;
+  int64_t prev_dim = 0;
   for (auto entry : to_split) {
-    size_t dim = entry.first;
-    size_t size = entry.second;
+    int64_t dim = entry.first;
+    int64_t size = entry.second;
     if (dim != prev_dim) {
       dim_offset += pending_dim_offset;
       pending_dim_offset = 0;
     }
-    size_t actual_dim = dim_offset + dim;
+    int64_t actual_dim = dim_offset + dim;
     tv->split((int)actual_dim, size);
     pending_dim_offset++;
     for (auto& i : to_update) {

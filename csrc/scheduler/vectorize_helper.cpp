@@ -873,8 +873,8 @@ int64_t getVectorizationFactor(
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
-    size_t inner_most_dim,
-    const std::vector<size_t>& dims_to_merge,
+    int64_t inner_most_dim,
+    const std::vector<int64_t>& dims_to_merge,
     const std::vector<TensorView*>& vec_tv,
     int64_t max_vectorization) {
   max_vectorization = scheduler_utils::maxVectorizationWidth(max_vectorization);
