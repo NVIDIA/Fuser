@@ -2327,6 +2327,9 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         // TODO: add bias input
         // TODO: based on alignments,
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+        if (downcast_output) {
+          tref = tref.to(at::kHalf);
+        }
 
         auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
