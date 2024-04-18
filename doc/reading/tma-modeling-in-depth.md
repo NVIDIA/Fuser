@@ -454,7 +454,8 @@ And our strategies for different correctness model is in the Table 1 below:
 | Weak correctness   | Automatically achieved. Don't need to do anything. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on holes. | Don't have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on some holes. |
 | Strong correctness | Automatically achieved. Don't need to do anything. | Can be achieved by checking TMA-unprotected IterDomains and send violators to out of boundary regions.          | Unachievable. Raise an error.                                                                                        |
 
-If only weak correctness is required, we can generate code like below:
+If only weak correctness is required, we can generate unpredicated TMA instructions.
+Or, we can also generate code like below:
 
 ```C++
 if (predicates_for_TMA_unprotected_IterDomains) {
@@ -463,8 +464,7 @@ if (predicates_for_TMA_unprotected_IterDomains) {
 }
 ```
 
-The predicate here is not required, but it can save some memory traffic.
-If we know it is a hole, why bother transfering the garbage data it at all?
+The predicate above is not required, but it can save memory traffic on some holes.
 
 If strong correctness is required, we need to assert that the condition of FTTC is false,
 because otherwise the generated code would preduce wrong results.
