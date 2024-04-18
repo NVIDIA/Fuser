@@ -222,7 +222,8 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(ref, tvs);
+    scheduler_utils::parallelizeAllLike(
+        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
   }
 }
 } // namespace

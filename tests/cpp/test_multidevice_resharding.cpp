@@ -64,9 +64,9 @@ TEST_F(MultiDeviceUtilsTest, TestPropagateSharding) {
   fusion.addInput(a);
   fusion.addInput(b);
   fusion.addOutput(c);
+
   // Expected behavior: a's shardings propagate to c.
   propagateShardings(&fusion);
-
   checkSameShardings(a, c);
 }
 
@@ -305,10 +305,24 @@ TEST_F(MultiDeviceUtilsTest, InsertShardedAxisReordering) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   insertReshardings(&fusion);
-  insertShardedAxisReordering(&fusion);
-
+  std::cout << "Fusion now contains " << fusion.exprs().size() << std::endl;
+  // int num_inner_reshardings = std::count_if(
+  //     fusion.exprs().begin(), fusion.exprs().end(), [](Expr* expr) {
+  //       return (isResharding(expr) && isInnerResharding(expr));
+  //     });
+  int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
-    std::cout << expr->toString() << std::endl;
+    if (isResharding(expr) && isInnerResharding(expr)) {
+      num_inner_reshardings++;
+    }
+  }
+  EXPECT_TRUE(num_inner_reshardings > 0);
+
+  insertShardedAxisReordering(&fusion);
+  for (auto expr : fusion.exprs()) {
+    if (isResharding(expr)) {
+      EXPECT_TRUE(!isInnerResharding(expr));
+    }
   }
 }
 
