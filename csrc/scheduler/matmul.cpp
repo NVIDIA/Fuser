@@ -688,7 +688,7 @@ void scheduleFusionInputsForEpilogue(
 
 void scheduleSplitKSum(
     TensorView* splitk_sum,
-    const int num_batch_dims, // TODO: this should not be needed
+    const int64_t num_batch_dims, // TODO: this should not be needed
     bool use_smem_epilogue) {
   if (splitk_sum == nullptr) {
     // This indicates no split-K was used

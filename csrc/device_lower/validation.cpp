@@ -1254,7 +1254,7 @@ void validateGroupedReductions(Fusion* fusion) {
     if (auto grouped_reduction_op = dynamic_cast<GroupedReductionOp*>(expr)) {
       const auto num_exprs =
           grouped_reduction_op->numHorizontallyGroupedExprs();
-      int num_grouped_iterations = 1;
+      int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
       for (auto axis : out_tv->getLeafDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {

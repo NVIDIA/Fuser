@@ -711,7 +711,7 @@ int64_t BestEffortReplay::findFirstMismatchedID(
 
   BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
   for (const auto i :
-       c10::irange(std::max(td1->leaf().size(), td2->leaf().size()))) {
+       c10::irange((int64_t)std::max(td1->leaf().size(), td2->leaf().size()))) {
     if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
       return i;
     }

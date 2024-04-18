@@ -1144,7 +1144,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
 
   for (auto tv : ir_utils::allTvs(fusion_)) {
     std::unordered_set<IterDomain*> dependencies;
-    for (size_t tv_id_i = std::max(
+    for (int64_t tv_id_i = std::max(
              tv->getMaxProducerPosition(),
              tv->hasResolvedComputeWith() ? tv->getComputeWithPosition()
                                           : tv->getComputeAtPosition());

@@ -362,7 +362,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange(ref_root.size())) {
+      for (const auto break_point_i : c10::irange((int64_t)ref_root.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, break_point_i)) {

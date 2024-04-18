@@ -151,7 +151,7 @@ TensorView* softmax(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const int64_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -194,7 +194,7 @@ TensorView* log_softmax(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const int64_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -235,7 +235,7 @@ ForwardNormResult layer_norm(
     TensorView* weight,
     TensorView* bias,
     Val* eps) {
-  return layer_norm(x, norm_shape.size(), weight, bias, eps);
+  return layer_norm(x, (int64_t)norm_shape.size(), weight, bias, eps);
 }
 
 auto norm_properties_from_num_dims(
@@ -328,7 +328,7 @@ ForwardRMSNormResult rms_norm(
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     Val* eps) {
-  return rms_norm(x, norm_shape.size(), weight, eps);
+  return rms_norm(x, (int64_t)norm_shape.size(), weight, eps);
 }
 
 ForwardRMSNormResult rms_norm(
@@ -376,7 +376,7 @@ BackwardNormResult layer_norm_backward(
   NVF_ERROR(mean != nullptr, "Mean is invalid.");
   NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
-  auto r = norm_properties_from_num_dims(x, norm_shape.size());
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
 
   auto x_hat = mul(sub(x, mean), invstd);
 
@@ -429,7 +429,7 @@ BackwardRMSNormResult rms_norm_backward(
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
-  auto r = norm_properties_from_num_dims(x, norm_shape.size());
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
 
   auto x_hat = mul(x, invstd);
 
