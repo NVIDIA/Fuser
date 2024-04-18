@@ -2306,8 +2306,19 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
       for (const auto& [M, N, K, alignA, alignB, alignBias] :
            std::vector<std::tuple<int, int, int, int, int, int>>{
-               {504, 136, 248, 16, 16, 16},
-               {505, 131, 249, 16, 16, 16},
+               {504, 136, 248, 16, 16, 16}, // all fully vectorizable in all
+                                            // layouts
+               {504, 136, 249, 16, 16, 16}, // odd K, operands not vectorizable
+                                            // in TN. output fully vectorizable
+               {504, 137, 248, 16, 16, 16}, // A fully vectorizable, B fully
+                                            // vectorizable unless transposed,
+                                            // output not vectorizable
+               {505, 136, 248, 16, 16, 16}, // B fully vectorizable, A
+                                            // vectorizable unless transposed,
+                                            // output fully vectorizable
+               {505, 137, 248, 16, 16, 16}, // none vectorizable
+               // TODO: add cases with vec sizes other than 1 and 8
+               // TODO: add different alignments of each input pointer
            }) {
         auto t0 =
             matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
