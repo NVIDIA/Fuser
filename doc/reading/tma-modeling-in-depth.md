@@ -455,11 +455,10 @@ And our strategies for different correctness model is in the Table 1 below:
 | Strong correctness | Automatically achieved. Don't need to do anything. | Can be achieved by checking TMA-unprotected IterDomains and send violators to out of boundary regions.          | Unachievable. Raise an error.                                                                                        |
 
 If only weak correctness is required, we can generate unpredicated TMA instructions.
-Or, we can also generate code like below:
+Or, we can instead generate code like below:
 
 ```C++
 if (predicates_for_TMA_unprotected_IterDomains) {
-  // Do TMA normally
   tma(...);
 }
 ```
@@ -467,7 +466,7 @@ if (predicates_for_TMA_unprotected_IterDomains) {
 The predicate above is not required, but it can save memory traffic on some holes.
 
 If strong correctness is required, we need to assert that the condition of FTTC is false,
-because otherwise the generated code would preduce wrong results.
+because otherwise the generated code would produce wrong results.
 If the condition of FTTC is indeed false,
 then we can achieve strong correctness by generate the following code:
 
@@ -476,20 +475,20 @@ if (predicates_for_TMA_unprotected_IterDomains) {
   // Do TMA normally
   tma(...);
 } else {
-  // Manually create out of bound access to ensure strong correctness
+  // Manually put the box out of boundary to force zero filling
   tma(x = -bs, ...);
 }
 ```
 
-where in the else clause, the `tma(x = -bs, ...);` hardcode the coordinate to `-bs`, so that the entire box is outside the region of tensor and TMA will fill all zero to it.
+where in the else clause, the `tma(x = -bs, ...);` hardcode the coordinate to `-bs`, so that the entire box is outside the region of tensor and TMA will fill zeros to it.
 
 For example, for the case of the Figure 2 above,
 `I5` is the only TMA-unprotected IterDomain that can contain hole.
 Suppose that the index of `I5` is $i_5$, then its predicate is $0\le i_5 < 2$.
 The element stride is implicitly one, so the condition of FTTC is false.
 
-If we only want to achieve weak correctness, then we can generate a code without any predicate,
-or if we want to save the memory traffic of the red items, we can generate a code like this:
+If we only want to achieve weak correctness, then we can generate unpredicated TMA instructions,
+or if we want to save the memory traffic of the red items, we can generate code like below:
 
 ```C++
 if (i5 >= 0 && i5 < 2) {
@@ -497,7 +496,7 @@ if (i5 >= 0 && i5 < 2) {
 }
 ```
 
-If we need to achieve strong correctness, we should generate code like below:
+If we do need to achieve strong correctness, then we should generate code like below:
 
 ```C++
 if (i5 >= 0 && i5 < 2) {
