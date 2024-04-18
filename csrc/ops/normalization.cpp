@@ -174,7 +174,7 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int64_t dim) {
   NVF_ERROR(y != nullptr, "Output is invalid.");
 
   const int64_t kNumberOfDims =
-      TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
