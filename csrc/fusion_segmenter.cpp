@@ -3463,13 +3463,13 @@ class CombineReductions {
 
       for (const auto i : c10::irange(root_domain_size_)) {
         if (root_domain[i]->isReduction()) {
-          reduction_axes_.push_back((int)i);
+          reduction_axes_.push_back(i);
         }
       }
     }
 
    private:
-    size_t root_domain_size_ = 0;
+    int64_t root_domain_size_ = 0;
     std::vector<int64_t> reduction_axes_;
     bool has_reduction_ = false;
   };
