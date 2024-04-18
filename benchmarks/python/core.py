@@ -309,8 +309,6 @@ def run_benchmark(
         outputs: Output of the target function
     """
 
-    # These variables are updated based on CLI options
-
     def setup():
         clear_l2_cache()
         return [inputs], {}
