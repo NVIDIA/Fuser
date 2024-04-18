@@ -2007,7 +2007,15 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
 }
 
 bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
-  pos = wrapDim(pos, (int64_t)group_ids.size());
+  if (pos < 0) {
+    pos += (int64_t)group_ids.size();
+  }
+  NVF_ERROR(
+      pos >= 0 && pos <= (int64_t)group_ids.size(),
+      "Invalid position, size of vec is ",
+      group_ids.size(),
+      " but position is ",
+      pos);
 
   if (pos == 0 || pos == (int)group_ids.size()) {
     return true;

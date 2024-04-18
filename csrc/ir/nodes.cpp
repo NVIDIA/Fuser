@@ -2301,8 +2301,9 @@ std::string GatherOp::toInlineString(int indent_size) const {
 }
 
 int64_t GatherOp::gatherAxis(int64_t axis) const {
-  return (int64_t)windowShape().size() +
-      wrapDim(axis, out()->as<TensorView>()->nDims());
+  axis = wrapDim(axis, out()->as<TensorView>()->nDims());
+  NVF_ERROR(axis < (int64_t)windowShape().size(), "Invalid axis: ", axis);
+  return (int64_t)windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
