@@ -291,11 +291,12 @@ void IrGraphGenerator::generateScheduleGraph() {
           IrBuilder::create<TensorDomain>(tv->getRootDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
-      if (tv->domain()->hasRFactor())
+      if (tv->domain()->hasRFactor()) {
         addArc(
             tv,
             IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
             "[style=dashed, color=green, arrowhead=none]");
+      }
     }
   }
 

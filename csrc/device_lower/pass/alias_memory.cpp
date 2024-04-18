@@ -206,7 +206,7 @@ class BufferReuseDebugPrinter {
   enum class DebugLineType { EXPR, START_BLOCK, END_BLOCK };
 
   struct ExprInfo {
-    int lineno = 0;
+    int64_t lineno = 0;
     DebugLineType line_type = DebugLineType::EXPR;
   };
 
@@ -239,7 +239,7 @@ class BufferReuseDebugPrinter {
     return os_.str();
   }
 
-  void pushBack(int lineno, Expr* expr) {
+  void pushBack(int64_t lineno, Expr* expr) {
     makeExprEntry(lineno, expr);
   }
 
@@ -252,7 +252,7 @@ class BufferReuseDebugPrinter {
   }
 
  private:
-  void makeExprEntry(int lineno, Expr* expr) {
+  void makeExprEntry(int64_t lineno, Expr* expr) {
     auto debug_entry_ptr = std::make_unique<DebugEntry>();
     debug_entry_ptr->first.lineno = lineno;
     debug_entry_ptr->second = expr;
@@ -568,7 +568,7 @@ struct AllocationInfo {
   std::string size_expr;
   ScopeInfo* loop_info = nullptr;
   bool can_use_inner_alias = true;
-  int alloc_pos = -1;
+  int64_t alloc_pos = -1;
   std::unique_ptr<std::vector<AllocationInfo*>> inner_alias_list_ = nullptr;
   std::unique_ptr<BufferLiveInterval> inner_live_interval = nullptr;
   std::unique_ptr<BufferLiveIntervalPtrList> inner_subscribed_intevals =
@@ -1216,8 +1216,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
               if (!reuse_tv_vectorized) {
                 return false;
               }
-              int this_tv_alignment = va.at(this_tv);
-              int reuse_tv_alignment = va.at(reuse_tv);
+              int64_t this_tv_alignment = va.at(this_tv);
+              int64_t reuse_tv_alignment = va.at(reuse_tv);
               if (this_tv_alignment > reuse_tv_alignment) {
                 return false;
               }
@@ -1964,7 +1964,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   //! need to insert a sync just before this position. In that case, we register
   //! a new sync for insertion. This function returns a bool indicating whether
   //! a new sync was inserted.
-  bool processFirstWrites(Expr* expr, int position) {
+  bool processFirstWrites(Expr* expr, int64_t position) {
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.

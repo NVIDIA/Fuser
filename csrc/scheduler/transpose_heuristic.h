@@ -73,7 +73,7 @@ class TransposeParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Transpose Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << " Transpose Characteristics:\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << " Transpose Characteristics:\n"
        << " BlckX: " << lparams.bdimx() << "\n";
     ss << " input tile size: " << tile_size1 << "\n";
     ss << " output tile size: " << tile_size2 << "\n";

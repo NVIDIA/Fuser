@@ -471,7 +471,7 @@ getTensorOffsets(
 
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
-    int word_size,
+    int64_t word_size,
     TensorView* tv,
     ExpressionEvaluator& eval) {
   eval.bind(tv, aten_tensor);
@@ -949,8 +949,8 @@ void fillCompileOptions(
     NvrtcCompileDriver& nvrtc_compile_driver,
     CuModuleLoadDataDriver& module_load_driver,
     bool compile_to_sass,
-    int major,
-    int minor,
+    int64_t major,
+    int64_t minor,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");

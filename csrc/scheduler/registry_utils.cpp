@@ -459,7 +459,7 @@ bool reductionInterferingView(
   std::vector<std::vector<int>> disjoint_groups;
 
   for (const auto& group : groups) {
-    std::vector<int> disjoint_id_sets;
+    std::vector<int64_t> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
           reduction_reference->getMaybeRFactorDomain().begin(),

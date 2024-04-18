@@ -1257,7 +1257,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     // in outer reduction, may group iteration domain, e.g. when vectorized.
-    const int grouped_iter_factor = kernel_summary.num_grouped_iterations;
+    const int64_t grouped_iter_factor = kernel_summary.num_grouped_iterations;
 
     NVF_CHECK(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
