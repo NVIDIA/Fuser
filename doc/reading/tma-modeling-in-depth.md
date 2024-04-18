@@ -437,25 +437,42 @@ However, by lowering smartly, we can add a check for the range of `I6` (i.e. $i_
 Theorem 6 is so powerful that it deserve a fancier name "**The fundamental theorem of TMA correctness**",
 or **FTTC** in short.
 It is powerful because the condition in it is both necessary and sufficient,
-and it directly tells us the correct lowering strategy:
+so we have a clear idea on when we can achieve strong correctness,
+and when we have no choice but to raise an error.
 
-We should check the condition of FTTC.
-If the condition is true, then it is impossible to achieve strong correctness.
-So raise an error if strong correctness is required.
-If strong correctness is not required, generate code like below:
+Summarizing the previous two sections, regarding the achievability of strong correctness,
+there are three levels:
+
+1. **Level 1:** The input IterDomains of all hole-creating IterDomain expressions (indivisible split, resize) are all TMA-protected.
+2. **Level 2:** Some hole-creating IterDomain expressions' input IterDomains are not TMA-protected, but the condition of FTTC is not satisfied.
+3. **Level 3:** The condition of FTTC is satisfied.
+
+And our strategies for different correctness model is in the Table 1 below:
+
+|                    | Level 1                                               | Level 2                                                                                                           | Level 3                                                                                                               |
+|--------------------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| Weak correctness   | Automatically achieved.<br>Don't need to do anything. | Don't have to do anything.<br>But can still predicate TMA-unprotected IterDomains<br>to save some memory traffic. | Don't have to do anything. <br> But can still predicate TMA-unprotected IterDomains <br> to save some memory traffic. |
+| Strong correctness | Automatically achieved,<br>Don't need to do anything. | Can be achieved by<br>checking TMA-unprotected IterDomains and<br>send violators to out of boundary regions.      | Unachievable. Raise an error.                                                                                         |
+
+If only weak correctness is required, we can generate code like below:
 
 ```C++
-if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains) {
+if (predicates_for_TMA_unprotected_IterDomains) {
   // Do TMA normally
   tma(...);
 }
 ```
 
-If the condition of FTTC is false, then we always achieve strong correctness by generate the following code:
+The predicate here is not required, but it can save some memory traffic.
+If we know it is a hole, why bother transfering the garbage data it at all?
+
+If strong correctness is required, we need to assert that the condition of FTTC is false,
+because otherwise the generated code would preduce wrong results.
+If the condition of FTTC is indeed false,
+then we can achieve strong correctness by generate the following code:
 
 ```C++
-if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains
-    && maybe_special_predicate_for_stride_IterDomains) {
+if (predicates_for_TMA_unprotected_IterDomains) {
   // Do TMA normally
   tma(...);
 } else {
@@ -464,10 +481,63 @@ if (predicates_for_all_non_TMA_protected_IterDomains_except_box_IterDomains
 }
 ```
 
-The special predicate `maybe_special_predicate_for_stride_IterDomain` has the form `index < box_size`,
-and is needed only when the striding split is indivisible and element stride is larger than box size.
-For the case where element stride is not larger than box size,
-functionally there is no harm to keep it as well because it is always true.
+where in the else clause, the `tma(x = -bs, ...);` hardcode the coordinate to `-bs`, so that the entire box is outside the region of tensor and TMA will fill all zero to it.
+
+For example, for the case of the Figure 2 above,
+`I5` is the only TMA-unprotected IterDomain that can contain hole.
+Suppose that the index of `I5` is $i_5$, then its predicate is $0\le i_5 < 2$.
+The element stride is implicitly one, so the condition of FTTC is false.
+
+If we only want to achieve weak correctness, then we can generate a code without any predicate,
+or if we want to save the memory traffic of the red items, we can generate a code like this:
+
+```C++
+if (i5 >= 0 && i5 < 2) {
+  tma(...);
+}
+```
+
+If we need to achieve strong correctness, we should generate code like below:
+
+```C++
+if (i5 >= 0 && i5 < 2) {
+  tma(...);
+} else {
+  tma(x = -2, ...);
+}
+```
+
+As another example, let's take a look at the Figure 5 above.
+The condition of FTTC is true, so we can not achieve strong correctness.
+`I4` is the only TMA-unprotected IterDomain that can contain hole.
+However, we can not predicate it, because it is the box IterDomain,
+and the index of its tile IterDomain (`I5`) is hardware parallelized and the programmer has no access to it.
+So if weak correctness is required, we can just generated an unpredicated TMA.
+But if strong correctness is required, we have to raise an error.
+
+If the element stride is 5 instead of 3 as in Figure 5 (that is, the extent of `I6` is `5`),
+then the condition of FTTC is false.
+Still, `I4` is the only TMA-unprotected IterDomain that can contain hole.
+But this time, its tile IterDomain (`I5`) has extent `1`, so the its index is always $i_5 = 0$.
+For this case, the index of `I4` is just the index of `I6`, that is, $i_4 = i_6$.
+
+So for weak correctness, we can generated an unpredicated TMA, or generate code like:
+
+```C++
+if (i6 >= 0 && i6 < 4) {
+  tma(...);
+}
+```
+
+to save memory traffic on holes. And for strong correctness, we should generate:
+
+```C++
+if (i6 >= 0 && i6 < 4) {
+  tma(...);
+} else {
+  tma(x=(-1, -2), ...);
+}
+```
 
 > [!WARNING]
 > TODO: This strategy is not implemented yet
