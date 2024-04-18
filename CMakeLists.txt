@@ -511,6 +511,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
@@ -575,7 +576,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_resharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
