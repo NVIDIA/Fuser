@@ -161,10 +161,10 @@ void splitDims(
   }
 }
 
-std::optional<size_t> mergeDims(
+std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge,
-    std::vector<size_t>& to_update) {
+    std::vector<int64_t> to_merge,
+    std::vector<int64_t>& to_update) {
   if (to_merge.empty()) {
     return std::nullopt;
   }
@@ -181,7 +181,7 @@ std::optional<size_t> mergeDims(
   // Otherwise this could results in misaligned memory access due to indexing.
   // This is because we compute vectorization width before applying scheduling
   // transformations.
-  for (size_t i = 1; i < to_merge.size(); i++) {
+  for (int64_t i = 1; i < (int64_t)to_merge.size(); i++) {
     auto outer = to_merge[i];
     // If outer > inner, the merge order conflicts with their order in leaf
     // domain
@@ -204,7 +204,7 @@ std::optional<size_t> mergeDims(
     tv->merge(static_cast<int>(outer), static_cast<int>(inner));
 
     // compensate future indices for the diminishing inner.
-    for (size_t j = i + 1; j < to_merge.size(); j++) {
+    for (int64_t j = i + 1; j < (int64_t)to_merge.size(); j++) {
       if (to_merge[j] > inner) {
         to_merge[j]--;
       }
@@ -221,9 +221,9 @@ std::optional<size_t> mergeDims(
   return inner;
 }
 
-size_t mergeReduction(TensorView* tv) {
+int64_t mergeReduction(TensorView* tv) {
   int prev_i = -1;
-  size_t num_merged = 0;
+  int64_t num_merged = 0;
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (!tv->axis(i)->isReduction()) {
       continue;
@@ -243,10 +243,10 @@ size_t mergeReduction(TensorView* tv) {
   return prev_i == -1 ? 0 : num_merged + 1;
 }
 
-size_t mergeNonReduction(TensorView* tv) {
+int64_t mergeNonReduction(TensorView* tv) {
   bool has_device_dim = false;
   int prev_i = -1;
-  size_t num_merged = 0;
+  int64_t num_merged = 0;
   if (tv->nDims() == 0) {
     return 0;
   }
@@ -1886,7 +1886,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
 
 void BoundedDirectionalTransformPropagator::propagate(
     TensorView* from_tv,
-    int pos,
+    int64_t pos,
     std::unordered_set<TensorView*> included_tvs,
     Options options) {
   // Run transform propagation using the custom selector.
@@ -1906,7 +1906,7 @@ void BoundedDirectionalTransformPropagator::propagate(
 
 void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> to,
     std::optional<Options> options) {
   if (!options.has_value()) {
@@ -1926,7 +1926,7 @@ void BoundedDirectionalTransformPropagator::backward(
 
 void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> to,
     std::optional<Options> options) {
   if (!options.has_value()) {
@@ -1947,7 +1947,7 @@ void BoundedDirectionalTransformPropagator::forward(
 
 void BoundedDirectionalTransformPropagator::bothWays(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
     std::optional<Options> options) {

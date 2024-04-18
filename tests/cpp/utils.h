@@ -681,6 +681,6 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 
 // Get the number of SMs on the current device
-int getNumSMs();
+int64_t getNumSMs();
 
 } // namespace nvfuser

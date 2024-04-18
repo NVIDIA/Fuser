@@ -112,25 +112,25 @@ NVF_API inline void splitDims(
 // merge.
 // NOTE: merged is done as the entries in the order of `to_merge`, assuming an
 // order from inner to outer
-NVF_API std::optional<size_t> mergeDims(
+NVF_API std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge,
-    std::vector<size_t>& to_update);
+    std::vector<int64_t> to_merge,
+    std::vector<int64_t>& to_update);
 
-inline std::optional<size_t> mergeDims(
+inline std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge) {
-  std::vector<size_t> unused;
+    std::vector<int64_t> to_merge) {
+  std::vector<int64_t> unused;
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
 // Merge all reduction to the right side and returns total number of
 // reduction axes.
-size_t mergeReduction(TensorView* tv);
+int64_t mergeReduction(TensorView* tv);
 
 // merge all non-reduction axes to the left side and returns total number of
 // iteration axes.
-size_t mergeNonReduction(TensorView* tv);
+int64_t mergeNonReduction(TensorView* tv);
 
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
@@ -496,7 +496,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  of boundary tensorviews in `to` and producers of `from`.
   NVF_API static void backward(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> to,
       std::optional<Options> options = std::nullopt);
 

@@ -1173,25 +1173,25 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
 
   // prepare all dimensions in merge order for group1
-  std::vector<size_t> dims_group1 = params.dims_merged_with_1;
+  std::vector<int64_t> dims_group1 = params.dims_merged_with_1;
   auto inner_leaf_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
   NVF_ERROR(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
-  size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
+  int64_t inner_most_pos1_in_ref1 = inner_leaf_index1;
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
   // prepare all dimensions in merge order for group2
-  std::vector<size_t> dims_group2 = params.dims_merged_with_2;
+  std::vector<int64_t> dims_group2 = params.dims_merged_with_2;
   auto inner_leaf_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
-  size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
+  int64_t inner_most_pos2_in_ref1 = inner_leaf_index2;
   NVF_ERROR(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2
   auto merged1 =
       scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
-  std::vector<size_t> merged1_vec;
+  std::vector<int64_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
@@ -1213,15 +1213,15 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // make tile
   // [..., I1, .., I2, ...]
-  reference1->split((int)inner_most_pos1_in_ref1, params.tile_size1);
+  reference1->split(inner_most_pos1_in_ref1, params.tile_size1);
   reference1->reorder({{inner_most_pos1_in_ref1 + 1, -1}});
-  reference1->split((int)inner_most_pos2_in_ref1, params.tile_size2);
+  reference1->split(inner_most_pos2_in_ref1, params.tile_size2);
   reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
   // [..., I1/tile1, .., I2/tile2, ..., tile1, tile2]
 
   // Merge remaining dimensions
-  int lhs_i = -1;
-  for (int i = (int)reference1->nDims() - 2; i > 0; i--) {
+  int64_t lhs_i = -1;
+  for (int64_t i = reference1->nDims() - 2; i > 0; i--) {
     auto axis_i = i - 1;
     if (lhs_i == -1) {
       lhs_i = axis_i;
@@ -1258,7 +1258,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // transform tile for vectorization/unroll
   // See note [vectorization and unroll of input and output]
 
-  int pos = (int)reference2->nDims() - 2;
+  int64_t pos = reference2->nDims() - 2;
   // [..., tile1, tile2]
   moveReductionsOut(reference2, 2);
   reference2->merge(pos);

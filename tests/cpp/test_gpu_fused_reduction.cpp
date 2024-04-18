@@ -2278,7 +2278,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     FusionGuard fg(&fusion);
 
     std::vector<bool> bcast_pattern{true, true, true, false};
-    std::vector<int> reduction_dims{2, 1, 0};
+    std::vector<int64_t> reduction_dims{2, 1, 0};
 
     auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);

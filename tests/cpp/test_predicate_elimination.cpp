@@ -345,7 +345,7 @@ TEST_F(PredicateEliminationTest, 8) {
   fusion.addInput(tv3);
   fusion.addInput(tv4);
 
-  std::vector<int> reduction_axes = {0, 2, 3};
+  std::vector<int64_t> reduction_axes = {0, 2, 3};
 
   Val* num_features = IrBuilder::create<Val>(tv1->container(), 1.0);
   for (const auto dim : reduction_axes) {

@@ -356,7 +356,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 // Testing inlining with a fusion with an outer persistent grid welford
 TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
