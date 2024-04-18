@@ -67,11 +67,30 @@ inline std::optional<MmaMacro> getMmaOp(
   return std::nullopt;
 }
 
+bool isCpAsyncOperandLoadSupported(
+    const MatmulParams* params,
+    int64_t dtype_size_a,
+    int64_t dtype_size_b) {
+  if (!isAmpere(params->mma_macro)) {
+    return false;
+  }
+  // Use cp.async for loading operands if vec size is compatible
+  const auto& validCpAsyncVecSize = [](int64_t dtype_size,
+                                       int64_t vec_size) -> bool {
+    int64_t cp_bytes = dtype_size * vec_size;
+    return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
+  };
+  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
+      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
+      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
+}
+
 //! A wrapper for core heuristics initialization.
 //! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const ProblemShape& problem_shape) {
+    const ProblemShape& problem_shape,
+    const mma_utils::RolesMap& roles_map) {
   const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -126,13 +145,33 @@ inline bool initCoreHeuristics(
     if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
-      params->async_gmem_load_operands = true;
       params->double_buffer_options.double_buffer_smem_write = true;
       params->double_buffer_options.double_buffer_smem_read = true;
       params->double_buffer_options.smem_double_buffer_stage = stages;
     }
   }
 
+  const auto& roleMinDtypeSize = [&roles_map](MatmulRole role) -> int64_t {
+    const auto op_it = roles_map.find(role);
+    NVF_ERROR(op_it != roles_map.end());
+    int64_t min_size_bytes = 128LL;
+    for (const TensorView* operand : op_it->second) {
+      min_size_bytes = std::min(min_size_bytes, dataTypeSize(operand->dtype()));
+    }
+    return min_size_bytes;
+  };
+  params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
+      params.get(),
+      roleMinDtypeSize(MatmulRole::INPUT_A),
+      roleMinDtypeSize(MatmulRole::INPUT_B));
+
+  if (!params->async_gmem_load_operands) {
+    // Circular buffering requires async load. If we cannot use async load due
+    // to unsupported vectorization width, then we can only double buffer at
+    // most.
+    params->double_buffer_options.smem_double_buffer_stage =
+        std::min(2, params->double_buffer_options.smem_double_buffer_stage);
+  }
   return true;
 }
 
@@ -455,7 +494,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status = initCoreHeuristics(params, problem_shape);
+    auto status = initCoreHeuristics(params, problem_shape, roles_map);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
