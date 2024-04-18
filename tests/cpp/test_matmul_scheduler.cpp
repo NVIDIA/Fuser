@@ -2248,6 +2248,88 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
+// Test matmul with sizes that are not divisible by 8 and with misaligned inputs
+TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool downcast_output : {false, true}) {
+      auto fusion = std::make_unique<Fusion>();
+      FusionGuard fg(fusion.get());
+
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
+      fusion->addInput(tv0);
+      fusion->addInput(tv1);
+
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+      if (downcast_output) {
+        tv2 = castOp(DataType::Half, tv2);
+      }
+
+      fusion->addOutput(tv2);
+
+      NVF_CHECK(
+          1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+          "matmul fusion must have at least one MmaOp");
+      NVF_CHECK(
+          ir_utils::getOpsOfType<MmaOp>(fusion.get())
+              .front()
+              ->layout()
+              .has_value(),
+          "input layout has not be set for MmaOp");
+      NVF_CHECK(
+          MmaLayout::TN ==
+              ir_utils::getOpsOfType<MmaOp>(fusion.get())
+                  .front()
+                  ->layout()
+                  .value(),
+          "the MmaOp layout of Ampere MMA must be always TN");
+
+      const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+      NVF_CHECK(
+          fusion_layout.isValid(),
+          "failed to get decide matmul layout through fusion definition");
+      NVF_CHECK(
+          fusion_layout.getData() == layout,
+          "mismatch between test layout (",
+          toString(layout),
+          ") and layout inferred from fusion definition (",
+          toString(fusion_layout.getData()),
+          ")");
+
+      FusionExecutorCache executor_cache(std::move(fusion));
+
+      for (const auto& [M, N, K, alignA, alignB, alignBias] :
+           std::vector<std::tuple<int, int, int, int, int, int>>{
+               {504, 136, 248, 16, 16, 16},
+               {505, 131, 249, 16, 16, 16},
+           }) {
+        auto t0 =
+            matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+        auto t1 =
+            matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+        auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+        auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+        NVF_CHECK(
+            !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+            "fusion got segmented, expected to match whole fusion with single segment");
+
+        NVF_CHECK(
+            isSchedulerInUse(
+                executor_cache.getMostRecentKernelRuntime(),
+                ScheduleHeuristic::Matmul),
+            "matmul scheduler was not used to handle prepared fusion");
+
+        NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+      }
+    }
+  }
+}
+
 class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
   void configure() override {
     // Set load_stages to 0, which is an allowed value (with a warning), but not
