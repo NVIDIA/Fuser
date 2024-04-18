@@ -138,7 +138,9 @@ void splitDims(
       to_split.begin(),
       to_split.end(),
       [](const std::pair<int64_t, int64_t>& p1,
-         const std::pair<int64_t, int64_t>& p2) { return p1.first < p2.first; });
+         const std::pair<int64_t, int64_t>& p2) {
+        return p1.first < p2.first;
+      });
   int64_t dim_offset = 0;
   int64_t pending_dim_offset = 0;
   int64_t prev_dim = 0;
