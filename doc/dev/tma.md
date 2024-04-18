@@ -140,7 +140,7 @@ The second dimension is `I3`, it is the only dimension that defines box by parti
 `I3` is the partitioned IterDomain, `I11` is the box IterDomain, and `I10` is the coordinate IterDomain.
 The third dimension is `I4`, it has no box IterDomain, therefore, the box size is implicitly one.
 The fourth dimension is `[I5, I6]`, it has no coordinate IterDomain, therefore this dimension only has one box,
-whose size is the produce of the extents of `I5` and `I6`.
+whose size is the product of the extents of `I5` and `I6`.
 The fifth dimension is `[I7, I8, I9]`, where `I8` and `I9` are box IterDomain, and `I7` is coordinate IterDomain.
 The imaginary TMA domain has five IterDomains, they are `merge(I1, I2)`, `I3`, `I4`, `merge(I5, I6)`, and `merge(I7, I8, I9)`.
 
@@ -149,7 +149,7 @@ The imaginary TMA domain has five IterDomains, they are `merge(I1, I2)`, `I3`, `
 TMA's tile can be dense or strided.
 Most commonly, we use dense tile.
 For dense tile, we define the *tile IterDomain* as the box IterDomain,
-and use the word *tile* and *box* interchangably.
+and use the word *tile* and *box* interchangeably.
 
 For strided tile, we do an inner-split on the box IterDomain by the *element stride*.
 We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
