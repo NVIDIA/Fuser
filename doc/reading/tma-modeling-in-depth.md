@@ -534,7 +534,7 @@ to save memory traffic on holes. And for strong correctness, we should generate:
 if (i6 >= 0 && i6 < 4) {
   tma(...);
 } else {
-  tma(x=(-1, -2), ...);
+  tma(x=(-2, -4), ...);
 }
 ```
 
