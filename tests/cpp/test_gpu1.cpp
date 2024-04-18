@@ -5485,13 +5485,13 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
   }
 #endif
 
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
+  std::vector<int64_t> red_axis = {1, 0};
+  std::vector<int64_t> output_dims = {160, 320};
   std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
+  for (int64_t i = 1; i <= 1024 * 1024; i <<= 2) {
     red_dims.push_back(i);
   }
 
