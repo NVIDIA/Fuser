@@ -797,8 +797,16 @@ def index_select_error_generator(
     a = make_arg(input_shape)
 
     # dim, exception type, exception string
-    positive_axis = (2, RuntimeError, "Tried to access out of boundary index 2. total index: 2")
-    negative_axis = (-3, RuntimeError, "Tried to access out of boundary index -1. total index: 2")
+    positive_axis = (
+        2,
+        RuntimeError,
+        "Tried to access out of boundary index 2. total index: 2",
+    )
+    negative_axis = (
+        -3,
+        RuntimeError,
+        "Tried to access out of boundary index -1. total index: 2",
+    )
 
     error_cases = [
         positive_axis,
