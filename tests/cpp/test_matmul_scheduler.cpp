@@ -2250,8 +2250,11 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 
 // Test matmul with sizes that are not divisible by 8 and with misaligned inputs
 TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
+  // TODO: parametrized test instead of nested loops (still use a loop over
+  // sizes and re-use FusionExecutorCache)
   for (auto layout : kAllSupportedMmaLayout) {
     for (bool downcast_output : {false, true}) {
+      // TODO: maybe use bias
       auto fusion = std::make_unique<Fusion>();
       FusionGuard fg(fusion.get());
 
@@ -2310,6 +2313,8 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
             matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
         auto t1 =
             matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+        // TODO: add bias input
+        // TODO: based on alignments,
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
         auto outputs = executor_cache.runFusionWithInputs({t0, t1});
