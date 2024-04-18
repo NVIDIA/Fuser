@@ -352,11 +352,17 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
     // output will be contiguous, so we will set the max vectorization that
     // divides evenly into N, unless already set to something lower due to
     // INPUT_C.
-    const int64_t N = runtime_info.expressionEvaluator()
-                          .evaluate(d->axis(-1)->extent())
-                          .as<int64_t>();
-    supported_vec_size.epilogue = std::min(
-        supported_vec_size.epilogue, scheduler_utils::maxVectorizationWidth(N));
+    const int64_t N =
+        runtime_info.expressionEvaluator()
+            .evaluate(TensorDomain::noReductions(d->getMaybeRFactorDomain())
+                          .back()
+                          ->extent())
+            .as<int64_t>();
+    const int64_t d_max_vec = std::min(
+        (int64_t)16LL / dataTypeSize(d->dtype()),
+        scheduler_utils::maxVectorizationWidth(N));
+    supported_vec_size.epilogue =
+        std::min(supported_vec_size.epilogue, d_max_vec);
   }
   return supported_vec_size;
 }
