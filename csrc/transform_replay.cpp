@@ -743,7 +743,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     }
   }
 
-  int64_t consumer_pos = new_IDs.size();
+  int64_t consumer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (3)
   for (auto id : consumer->getLeafDomain()) {

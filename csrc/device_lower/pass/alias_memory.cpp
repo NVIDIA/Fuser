@@ -349,13 +349,13 @@ class BufferLiveInterval {
     }
   }
 
-  void markWrite(int pos) {
+  void markWrite(int64_t pos) {
     if (first_write_pos_ == -1) {
       first_write_pos_ = pos;
     }
   }
 
-  void markRead(int pos) {
+  void markRead(int64_t pos) {
     last_read_pos_ = pos;
     NVF_ERROR(
         first_write_pos_ > 0,
@@ -525,7 +525,7 @@ class ScopeMap : private kir::IrVisitor {
     return it->second;
   }
 
-  int getExprPos(const Expr* expr) const {
+  int64_t getExprPos(const Expr* expr) const {
     return expr_pos_map_.get(expr);
   }
 
@@ -581,7 +581,7 @@ struct AllocationInfo {
 
   //! Get the last outer read position of either this allocation, or any
   //! allocation that is aliased to this allocation.
-  int getAliasedOuterLastRead() const {
+  int64_t getAliasedOuterLastRead() const {
     auto last_outer_read = outer_live_interval->lastRead();
     for (auto aliasing : outer_aliased_by) {
       last_outer_read =
@@ -1826,16 +1826,17 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   const AllocationInfoMap& allocation_info_map_;
 
-  int position_ = -1;
+  int64_t position_ = -1;
 
   // This records the actual last read position of an AllocationInfo, computed
   // as the maximum last outer read position of all Allocations that alias it.
-  std::unordered_map<AllocationInfo*, int> last_aliased_read_;
+  std::unordered_map<AllocationInfo*, int64_t> last_aliased_read_;
 
   // This holds all positions which are the first write positions for some
   // allocation. At these positions we should queue up allocations for assigning
   // addresses.
-  std::unordered_map<int, std::vector<AllocationInfo*>> first_write_positions_;
+  std::unordered_map<int64_t, std::vector<AllocationInfo*>>
+      first_write_positions_;
 
   // This holds all positions which are the last read positions for some
   // allocation. These are points at which we can try to reclaim memory.
@@ -1934,7 +1935,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   //! a sync exists. This function finds any sync intervals having "position" as
   //! the last read, and adds the other end of the interval to
   //! upcoming_first_writes_.
-  void processLastReads(int position) {
+  void processLastReads(int64_t position) {
     NVF_ERROR(
         position == ++last_processed_position_,
         "Expr position skipped visited out of order. Previous position was ",

@@ -1195,7 +1195,7 @@ TensorView* reductionOpRaw(
   }
 
   std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, tv->domain()->noReductions().size());
+      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
 
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
@@ -1290,7 +1290,7 @@ TensorView* reductionOp(
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   auto tv_root = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  const auto ndims = tv_root.size();
+  const auto ndims = (int64_t)tv_root.size();
 
   // PyTorch allows reduction of 0-dim tensors
   if (ndims == 0) {
@@ -1752,7 +1752,7 @@ WelfordResult WelfordRaw(
 
   // Check and collect reduction axes
   std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, tv->domain()->noReductions().size());
+      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
@@ -1790,7 +1790,7 @@ WelfordResult Welford(
 
   // Check and collect reduction axes
   auto tv_root = tv->domain()->noReductions();
-  const auto ndims = tv_root.size();
+  const auto ndims = (int64_t)tv_root.size();
   std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
@@ -2191,7 +2191,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, root.size())) {
+  for (const auto i : c10::irange(leading_dims, (int64_t)root.size())) {
     if (sum_to_size[i - leading_dims] == 1 && !root[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
       reduce_dims.push_back(i);
@@ -2625,8 +2625,8 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
+  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
+      axes, (int64_t)tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
 

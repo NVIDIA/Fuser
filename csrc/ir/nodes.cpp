@@ -3682,7 +3682,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 
-  auto new2old = ir_utils::normalizeOld2New(old2new_, dom.size());
+  auto new2old = ir_utils::normalizeOld2New(old2new_, (int64_t)dom.size());
 
   std::vector<IterDomain*> reordered_domain;
   std::transform(

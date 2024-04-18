@@ -77,21 +77,21 @@ class TransposeParams : public HeuristicParams {
        << " BlckX: " << lparams.bdimx() << "\n";
     ss << " input tile size: " << tile_size1 << "\n";
     ss << " output tile size: " << tile_size2 << "\n";
-    int elements_per_tile = tile_size1 * tile_size2;
+    int64_t elements_per_tile = tile_size1 * tile_size2;
     ss << " elements per tile: " << elements_per_tile << "\n";
-    int elements_per_thread = elements_per_tile / lparams.bdimx();
+    int64_t elements_per_thread = elements_per_tile / lparams.bdimx();
     ss << " elements per thread: " << elements_per_thread << "\n";
     if (vectorize_factor1 > 1) {
       ss << "Vectorize group 1, Factor: " << vectorize_factor1 << "\n";
     }
-    int unroll_factor1 = elements_per_thread / vectorize_factor1;
+    int64_t unroll_factor1 = elements_per_thread / vectorize_factor1;
     if (unroll_factor1 > 1) {
       ss << "Unroll group 1, Factor: " << unroll_factor1 << "\n";
     }
     if (vectorize_factor2 > 1) {
       ss << "Vectorize group 2, Factor: " << vectorize_factor2 << "\n";
     }
-    int unroll_factor2 = elements_per_thread / vectorize_factor2;
+    int64_t unroll_factor2 = elements_per_thread / vectorize_factor2;
     if (unroll_factor2 > 1) {
       ss << "Unroll group 2, Factor: " << unroll_factor2 << "\n";
     }

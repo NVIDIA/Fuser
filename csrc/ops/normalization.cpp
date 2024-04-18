@@ -18,7 +18,7 @@ Val* numFeatures(
     int64_t ndims) {
   Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
   for (const auto dim : dims) {
-    const int axis = wrapDim(dim, ndims);
+    const int64_t axis = wrapDim(dim, ndims);
     num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
   }
   return num_features;
@@ -63,8 +63,8 @@ TensorView* variance(
   auto x_mean_sub_sq = mul(x_mean_sub, x_mean_sub);
   auto sum_x_mean_sub_sq = sum(x_mean_sub_sq, dims, keepdim);
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
 
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than
@@ -110,8 +110,8 @@ VarMeanResult variance_mean(
         add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
 
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than

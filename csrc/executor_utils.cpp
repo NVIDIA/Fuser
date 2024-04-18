@@ -346,7 +346,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 
     for (const auto& inp_or_out : inp_or_out_info) {
       const bool is_input = inp_or_out.first;
-      const int pos = inp_or_out.second;
+      const int64_t pos = inp_or_out.second;
 
       if (is_aligned) {
         auto& pos_list = is_input

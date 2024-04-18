@@ -1217,7 +1217,6 @@ struct TensorRecord : RecordFunctor {
     }
 
     auto tv = TensorViewBuilder()
-                  .ndims(shape_.size())
                   .contiguity(contiguity_)
                   .shape(shape_)
                   .dtype(dtype_)

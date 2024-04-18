@@ -234,7 +234,7 @@ class BankConflictInfo : public kir::IrVisitor {
 
     if (expr->isA<LoadStoreOp>()) {
       auto ldst = expr->as<LoadStoreOp>();
-      std::pair<int, int> conflict_ways{0, 0};
+      std::pair<int64_t, int64_t> conflict_ways{0, 0};
       if (isSmemTensorIndex(ldst->in())) {
         conflict_ways.first = getConflictWays(
             evaluateAddressesOnFirstPhase(for_loops_, expr_eval_, ldst, true));

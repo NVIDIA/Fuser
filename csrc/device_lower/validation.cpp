@@ -1000,7 +1000,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
     return;
   }
 
-  int byte_size = 1;
+  int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
@@ -1008,8 +1008,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(
-      *output->getDataType(), GpuLower::current()->indexType());
+  byte_size *=
+      dataTypeSize(*output->getDataType(), GpuLower::current()->indexType());
 
   switch (ldst->cacheOp()) {
     case CacheOp::Global:

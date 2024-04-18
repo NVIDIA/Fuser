@@ -121,7 +121,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   // The pointwise scheduler heuristics requires a minimum number of axes.
   // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensorView(size_t minimum_num_axes = 0) const {
+  TensorView* findReferenceTensorView(int64_t minimum_num_axes = 0) const {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
     for (auto output_tv :
@@ -585,8 +585,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       "Could not find a fully broadcasted output to reference schedule on.");
 
   // Positions of rhs and lhs after merging all dimensions.
-  int rhs_i = -1;
-  int lhs_i = -1;
+  int64_t rhs_i = -1;
+  int64_t lhs_i = -1;
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
