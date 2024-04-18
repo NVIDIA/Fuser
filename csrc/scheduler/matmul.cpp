@@ -856,20 +856,38 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Use cp.async as requested in scheduler params.
   LoadStoreOpType load_op = LoadStoreOpType::Set;
-  CacheOp cache_op = CacheOp::Unspecified;
+  CacheOp cache_op_a = CacheOp::Unspecified;
+  CacheOp cache_op_b = CacheOp::Unspecified;
   if (params.async_gmem_load_operands) {
     load_op = LoadStoreOpType::CpAsync;
-    cache_op = CacheOp::Global;
+    auto getCacheOp = [](int64_t vec_size, TensorView* operand) -> CacheOp {
+      int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+      NVF_CHECK(
+          vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+          "Unsupported async vectorization size ",
+          vec_size,
+          " = ",
+          vec_bytes,
+          " bytes for operand ",
+          operand->toString(),
+          " which has data type ",
+          operand->dtype(),
+          ". Size must be 4, 8, or 16 bytes. ",
+          "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+      return vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+    };
+    cache_op_a = getCacheOp(params.supported_vec_size.a, a);
+    cache_op_b = getCacheOp(params.supported_vec_size.b, b);
   }
 
   NVF_ERROR(a->uses().size() == 1);
   NVF_ERROR(b->uses().size() == 1);
   acw_smem = ir_utils::consumerTvsOf(a).at(0);
   acw_smem->definition()->as<LoadStoreOp>()->setOpType(load_op);
-  acw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+  acw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_a);
   bcw_smem = ir_utils::consumerTvsOf(b).at(0);
   bcw_smem->definition()->as<LoadStoreOp>()->setOpType(load_op);
-  bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+  bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
   if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
