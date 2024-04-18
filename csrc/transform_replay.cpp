@@ -563,7 +563,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   BestEffortReplay forward_replay = BestEffortReplay::replayCasP(
       consumer,
       producer,
-      (int)producer_pos,
+      producer_pos,
       root_map,
       opt.skip_target_swizzle,
       !opt.replay_swizzle,
@@ -1020,8 +1020,8 @@ namespace {
 bool validateDomain(TensorView* tv, TensorDomain* new_td) {
   auto first_mismatch =
       BestEffortReplay::findFirstMismatchedID(tv->domain(), new_td);
-  return first_mismatch >= (int)tv->getMaybeMaxProducerPosition() &&
-      first_mismatch >= (int)tv->getMaxComputePosition();
+  return first_mismatch >= tv->getMaybeMaxProducerPosition() &&
+      first_mismatch >= tv->getMaxComputePosition();
 }
 
 } // namespace
@@ -1058,7 +1058,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = (int)replay.second;
+    new_pos = replay.second;
     if (debug_print) {
       debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
@@ -1090,7 +1090,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = (int)replay.second;
+    new_pos = replay.second;
     if (debug_print) {
       debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }

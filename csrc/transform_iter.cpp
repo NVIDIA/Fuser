@@ -688,7 +688,7 @@ BestEffortReplay::BestEffortReplay(
 // Find the first position i where td1[i] is not the same as td2[i].
 // "Same" means the DAG to generate td1[i] and td2[i] are the
 // equivelent.
-int BestEffortReplay::findFirstMismatchedID(
+int64_t BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
@@ -712,16 +712,16 @@ int BestEffortReplay::findFirstMismatchedID(
   BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
   for (const auto i :
        c10::irange(std::max(td1->leaf().size(), td2->leaf().size()))) {
-    if (ber.getReplay().find(td1->axis((int)i)) == ber.getReplay().end()) {
-      return (int)i;
+    if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
+      return i;
     }
     // Order is important.
-    auto td2_axis = ber.getReplay().at(td1->axis((int)i));
-    if (td2->axis((int)i) != td2_axis) {
-      return (int)i;
+    auto td2_axis = ber.getReplay().at(td1->axis(i));
+    if (td2->axis(i) != td2_axis) {
+      return i;
     }
   }
-  return (int)std::min(td1->nDims(), td2->nDims());
+  return std::min(td1->nDims(), td2->nDims());
 }
 
 ForwardingInfo::ForwardingInfo(
@@ -957,18 +957,18 @@ void BestEffortReplay::addComplimentLeafIDs(
 BestEffortReplay BestEffortReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
-    int producer_compute_at_axis,
+    int64_t producer_compute_at_axis,
     const RootDomainMap& root_map,
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
   if (producer_compute_at_axis < 0) {
-    producer_compute_at_axis += (int)producer->nDims() + 1;
+    producer_compute_at_axis += producer->nDims() + 1;
   }
 
   NVF_ERROR(
       producer_compute_at_axis >= 0 &&
-          (unsigned int)producer_compute_at_axis <= producer->nDims(),
+          producer_compute_at_axis <= producer->nDims(),
       "Invalid axis provided to BestEffortReplay::replayCasP.");
 
   // producer ids we need to match in consumer
@@ -1024,17 +1024,17 @@ BestEffortReplay BestEffortReplay::replayCasP(
 BestEffortReplay BestEffortReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
-    int consumer_compute_at_axis,
+    int64_t consumer_compute_at_axis,
     const RootDomainMap& root_map,
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {
   if (consumer_compute_at_axis < 0) {
-    consumer_compute_at_axis += (int)consumer->nDims() + 1;
+    consumer_compute_at_axis += consumer->nDims() + 1;
   }
   NVF_ERROR(
       consumer_compute_at_axis >= 0 &&
-          (unsigned int)consumer_compute_at_axis <= consumer->nDims(),
+          consumer_compute_at_axis <= consumer->nDims(),
       "Invalid axis provided to BestEffortReplay::replayPasC.");
 
   // consumer ids we need to match in producer

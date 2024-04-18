@@ -1345,7 +1345,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // schedule group 1
   reference1->reorder({{-2, -1}});
   // [..., tile2, tile1]
-  pos = (int)reference1->nDims() - 2;
+  pos = reference1->nDims() - 2;
   moveReductionsOut(reference1, 2);
   reference1->merge(pos);
   reference1->split(pos, params.vectorize_factor1);

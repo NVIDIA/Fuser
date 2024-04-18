@@ -391,7 +391,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis((int)i);
+      auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
           replayed_id_it != original_to_producer_id_map.end(),
@@ -468,7 +468,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   {
     // Construct the new consumer domain
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis((int)i);
+      auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {
         auto replayed_id = replayed_id_it->second;

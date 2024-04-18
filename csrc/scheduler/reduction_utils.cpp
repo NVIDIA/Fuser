@@ -48,7 +48,7 @@ TensorView* scheduleReductionTV(
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
 
   NVF_ERROR(
-      (int)reduction_tv->nDims() >
+      reduction_tv->nDims() >
           std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
       "Issue in scheduling reduction tv, expecting >",
       std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
@@ -71,43 +71,43 @@ TensorView* scheduleReductionTV(
       !(rparams.unroll_factor_iter_dom > 1 && !has_iter_axis),
       "Unrolling on iter domain requires an iter domain.");
 
-  auto vectorize = [&reduction_tv](int axis, int64_t factor) {
+  auto vectorize = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
   };
 
-  auto inner_parallel = [&reduction_tv](int axis, ParallelType ptype) {
+  auto inner_parallel = [&reduction_tv](int64_t axis, ParallelType ptype) {
     reduction_tv->split(axis, NamedScalar::getParallelDim(ptype));
     reduction_tv->axis(axis + 1)->parallelize(ptype);
   };
 
   auto inner_parallel_static =
-      [&reduction_tv](int axis, ParallelType ptype, int64_t factor) {
+      [&reduction_tv](int64_t axis, ParallelType ptype, int64_t factor) {
         reduction_tv->split(axis, factor);
         reduction_tv->axis(axis + 1)->parallelize(ptype);
       };
 
-  auto inner_unswitch = [&reduction_tv](int axis) {
+  auto inner_unswitch = [&reduction_tv](int64_t axis) {
     reduction_tv->split(axis, 1);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
   };
 
-  auto inner_unroll = [&reduction_tv](int axis, int64_t factor) {
+  auto inner_unroll = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
   };
 
-  auto outer_parallel = [&reduction_tv](int axis, ParallelType ptype) {
+  auto outer_parallel = [&reduction_tv](int64_t axis, ParallelType ptype) {
     reduction_tv->split(axis, NamedScalar::getParallelDim(ptype), false);
     reduction_tv->axis(axis)->parallelize(ptype);
   };
 
-  auto outer_unswitch = [&reduction_tv](int axis) {
+  auto outer_unswitch = [&reduction_tv](int64_t axis) {
     reduction_tv->split(axis, 1, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unswitch);
   };
 
-  auto outer_unroll = [&reduction_tv](int axis, int64_t factor) {
+  auto outer_unroll = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
@@ -118,7 +118,7 @@ TensorView* scheduleReductionTV(
     inner_parallel_static(
         reduction_axis,
         rparams.block_dim_inner_reduction,
-        (int)rparams.lparams.bdimy());
+        rparams.lparams.bdimy());
     reduction_tv->split(
         reduction_axis, rparams.batches_per_block_inner_reduction);
     reduction_tv->axis(reduction_axis)
@@ -157,7 +157,7 @@ TensorView* scheduleReductionTV(
 
     if (!rparams.vectorize_inner_reduction &&
         rparams.unroll_factor_inner_reduction > 1) {
-      outer_unroll(outer_i++, (int)rparams.unroll_factor_inner_reduction);
+      outer_unroll(outer_i++, rparams.unroll_factor_inner_reduction);
     }
 
     if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
@@ -527,22 +527,22 @@ void propagateParallelization(
     for (auto tv : rfactor_and_reduction_tvs) {
       if (are_unrolled.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
-          auto id = tv->axis((int)i);
+          auto id = tv->axis(i);
           if (use_grouped_reduction &&
               std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
                   reduction_tvs.end() &&
               id->getParallelType() == ParallelType::Vectorize) {
-            tv->axis((int)i)->parallelize(ParallelType::Group);
+            tv->axis(i)->parallelize(ParallelType::Group);
             for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-              sibling->axis((int)i)->parallelize(ParallelType::Group);
+              sibling->axis(i)->parallelize(ParallelType::Group);
             }
           } else if (
               id->getParallelType() == ParallelType::Unroll ||
               id->getParallelType() == ParallelType::Vectorize ||
               id->getParallelType() == ParallelType::MisalignedVectorize) {
-            tv->axis((int)i)->parallelize(ParallelType::Serial);
+            tv->axis(i)->parallelize(ParallelType::Serial);
             for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-              sibling->axis((int)i)->parallelize(ParallelType::Serial);
+              sibling->axis(i)->parallelize(ParallelType::Serial);
             }
           }
         }

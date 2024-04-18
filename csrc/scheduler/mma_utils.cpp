@@ -350,7 +350,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
     // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split((int)(idx - tile_dimension_size), (int)tile_sizes.at(idx));
+    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
   }
 
   // The transformation happened should look like:

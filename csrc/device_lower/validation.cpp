@@ -69,7 +69,7 @@ class ValidateSiblings : public IterVisitor {
           sibling->toString());
 
       for (const auto i : c10::irange(ref_ndims)) {
-        validateParallelTypes(ref_output->axis((int)i), sibling->axis((int)i));
+        validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
@@ -573,7 +573,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     bool has_misaligned_vectorize_dim = false;
 
     for (const auto i : c10::irange(tv->nDims())) {
-      IterDomain* id = tv->axis((int)i);
+      IterDomain* id = tv->axis(i);
       IterDomain* concrete_id =
           GpuLower::current()->caMap()->getConcreteMappedID(
               id, IdMappingMode::LOOP);
@@ -1124,7 +1124,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
-      const auto id = tv->axis((int)id_idx);
+      const auto id = tv->axis(id_idx);
       auto ptype = GpuLower::current()
                        ->caMap()
                        ->getConcreteMappedID(id, IdMappingMode::LOOP)
@@ -1258,7 +1258,7 @@ void validateGroupedReductions(Fusion* fusion) {
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
       for (auto axis : out_tv->getLeafDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
-          num_grouped_iterations *= (int)axis->extent()->value();
+          num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
       }
       NVF_CHECK(

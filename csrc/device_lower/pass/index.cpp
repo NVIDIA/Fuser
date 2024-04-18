@@ -1252,14 +1252,14 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
     return false;
   }
 
-  int num_grouped_iterations = 1;
+  int64_t num_grouped_iterations = 1;
   for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       NVF_ERROR(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluate();
+      num_grouped_iterations *= axis->extent()->evaluate().as<int64_t>();
     }
   }
 

@@ -903,7 +903,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_result->nDims() == 3 || mma_result->nDims() == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
-  const int num_batch_dims = (int)mma_result->nDims() - 3;
+  const int64_t num_batch_dims = mma_result->nDims() - 3;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());

@@ -1330,14 +1330,14 @@ TensorView* reductionOp(
   bool expand_reductions_are_trivial = reduction_op_type != BinaryOpType::Add &&
       reduction_op_type != BinaryOpType::Mul &&
       reduction_op_type != BinaryOpType::BitwiseXor;
-  int offset = 0;
+  int64_t offset = 0;
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
     if (id->isBroadcast()) {
       is_squeeze[axis] = true;
       offset--;
     } else {
-      reduction_axes.push_back((int)axis + offset);
+      reduction_axes.push_back((int64_t)axis + offset);
     }
   }
 

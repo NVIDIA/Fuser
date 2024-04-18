@@ -472,7 +472,8 @@ bool reductionInterferingView(
       auto rfactor_pos = std::distance(
           reduction_reference->getMaybeRFactorDomain().begin(), find_it);
       NVF_ERROR(
-          rfactor_pos < (int)disjoint_set_information.disjoint_set_ids.size(),
+          rfactor_pos <
+              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
           "Error computing disjoint group on the rfactor domain of ",
           reduction_reference->toString());
       disjoint_id_sets.push_back(

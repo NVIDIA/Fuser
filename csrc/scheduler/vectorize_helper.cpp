@@ -469,10 +469,10 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
   std::unordered_set<IterDomain*> consumer_ids_to_clear;
-  size_t clear_pos = 0;
+  int64_t clear_pos = 0;
   if (to->hasBroadcast()) {
     // Find the last broadcast dimension resolved in consumers through from_ids
-    for (int i = (int)from_ids.size() - 1; i >= 0; i--) {
+    for (int64_t i = (int64_t)from_ids.size() - 1; i >= 0; i--) {
       auto c_id = from_ids[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
@@ -480,14 +480,14 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       }
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
-        clear_pos = (size_t)i + 1;
+        clear_pos = i + 1;
         break;
       }
     }
   }
 
   std::vector<IterDomain*> producer_rfactor_ids;
-  for (auto i : c10::irange(clear_pos, from_ids.size())) {
+  for (auto i : c10::irange(clear_pos, (int64_t)from_ids.size())) {
     auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
@@ -539,10 +539,10 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   std::unordered_set<IterDomain*> producer_ids_to_clear;
   if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the rfactor domain.
-    int clear_pos = -1;
-    for (auto i : c10::irange(from->getMaybeRFactorDomain().size())) {
+    int64_t clear_pos = -1;
+    for (auto i : c10::irange((int64_t)from->getMaybeRFactorDomain().size())) {
       if (from->getMaybeRFactorDomain()[i]->isReduction()) {
-        clear_pos = (int)i;
+        clear_pos = i;
       }
     }
     // Clear everything to the left of the inner most reduction dimension.

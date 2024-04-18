@@ -72,7 +72,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<int64_t> shape;
   for (auto i : c10::irange(inputs.size() - 1)) {
-    shape.push_back((int)inputs.at(i));
+    shape.push_back(inputs.at(i).as<int64_t>());
   }
   DataType dtype = getFillValue()->getDataType().value();
   const auto options =

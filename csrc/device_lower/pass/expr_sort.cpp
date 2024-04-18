@@ -673,7 +673,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
                out_tv->hasResolvedComputeWith()
                    ? out_tv->getComputeWithPosition()
                    : out_tv->getComputeAtPosition())) {
-        auto concrete_id = getConcreteID(out_tv->axis((int)tv_i));
+        auto concrete_id = getConcreteID(out_tv->axis(tv_i));
         group->payload()->ca_domains.push_back(concrete_id);
       }
     }
@@ -685,7 +685,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
       group->payload()->pa_domains.push_back(kernelScopeDomain());
     }
     for (const auto tv_i : c10::irange(out_tv->getMaxProducerPosition())) {
-      auto concrete_id = getConcreteID(out_tv->axis((int)tv_i));
+      auto concrete_id = getConcreteID(out_tv->axis(tv_i));
       group->payload()->pa_domains.push_back(concrete_id);
     }
   }
@@ -938,8 +938,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       for (const auto tv_i :
            c10::irange(producer_of_consumer_edge->getComputePosition(
                consumer_of_consumer_edge))) {
-        ca_ids.emplace(
-            getConcreteID(producer_of_consumer_edge->axis((int)tv_i)));
+        ca_ids.emplace(getConcreteID(producer_of_consumer_edge->axis(tv_i)));
       }
     }
   }
@@ -959,7 +958,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       }
       auto tv = consumer_of_producer_edge->as<TensorView>();
       for (const auto tv_i : c10::irange(tv->getMaxProducerPosition())) {
-        pa_ids.emplace(getConcreteID(tv->axis((int)tv_i)));
+        pa_ids.emplace(getConcreteID(tv->axis(tv_i)));
       }
     }
   }
@@ -1038,7 +1037,7 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
     // it can't decide if it can be reduced
     bool has_matching_pa = false;
     for (const auto i : c10::irange(consumer_tv->getMaxProducerPosition())) {
-      if (areMapped(consumer_tv->axis((int)i), group_pa_last_id)) {
+      if (areMapped(consumer_tv->axis(i), group_pa_last_id)) {
         has_matching_pa = true;
         break;
       }
@@ -1151,7 +1150,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
                                           : tv->getComputeAtPosition());
          tv_id_i > 0;
          tv_id_i--) {
-      auto tv_id = tv->axis((int)(tv_id_i - 1));
+      auto tv_id = tv->axis(tv_id_i - 1);
       auto concrete_id = getConcreteID(tv_id);
 
       if (concrete_id_dependencies_.find(concrete_id) ==
@@ -1417,7 +1416,7 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
       // When the CA position is 0, it means these two groups should
       // just share the kernel scope domain
       auto compute_at_dim = compute_at_pos > 0
-          ? producer_tv->axis((int)compute_at_pos - 1)
+          ? producer_tv->axis(compute_at_pos - 1)
           : kernelScopeDomain();
 
       if (!areMapped(compute_at_dim, producer_ca_domain.back())) {

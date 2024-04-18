@@ -154,19 +154,19 @@ NVF_API TensorView* standard_deviation(
     bool unbiased,
     bool keepdim);
 
-NVF_API TensorView* softmax(TensorView* x, int dim);
+NVF_API TensorView* softmax(TensorView* x, int64_t dim);
 
 NVF_API TensorView* softmax_backward(
     TensorView* dy,
     TensorView* y,
-    const int dim);
+    const int64_t dim);
 
-NVF_API TensorView* log_softmax(TensorView* x, int dim);
+NVF_API TensorView* log_softmax(TensorView* x, int64_t dim);
 
 NVF_API TensorView* log_softmax_backward(
     TensorView* dy,
     TensorView* y,
-    const int dim);
+    const int64_t dim);
 
 NVF_API ForwardNormResult layer_norm(
     TensorView* x,
@@ -177,7 +177,7 @@ NVF_API ForwardNormResult layer_norm(
 
 NVF_API ForwardNormResult layer_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     TensorView* bias,
     Val* eps);
@@ -190,7 +190,7 @@ NVF_API ForwardRMSNormResult rms_norm(
 
 NVF_API ForwardRMSNormResult rms_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     Val* eps);
 

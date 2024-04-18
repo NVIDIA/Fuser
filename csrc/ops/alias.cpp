@@ -210,7 +210,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
   const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
-      (int)dims.size() <= ndims,
+      (int64_t)dims.size() <= ndims,
       "The dims to squeeze must be <= the number of dims of the input tensor. ",
       "Squeeze dims: ",
       dims.size(),

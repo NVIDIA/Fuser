@@ -365,7 +365,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
       for (const auto break_point_i : c10::irange(ref_root.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
-                view_disjoint_sets, (int)break_point_i)) {
+                view_disjoint_sets, break_point_i)) {
           continue;
         }
 
@@ -637,14 +637,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     for (auto i : c10::irange(ndims)) {
       // Merge from right to left
       auto pos = ndims - 1 - i;
-      auto id = reference_tv->axis((int)pos);
+      auto id = reference_tv->axis(pos);
       if (lhs_all_vals_set.count(id) > 0) {
         if (lhs_id == nullptr) {
           lhs_id = id;
-          lhs_i = (int)pos;
+          lhs_i = pos;
         } else {
-          reference_tv->merge((int)pos, lhs_i);
-          lhs_i = (int)pos;
+          reference_tv->merge(pos, lhs_i);
+          lhs_i = pos;
           if (rhs_i > lhs_i) {
             rhs_i--;
           }
@@ -652,10 +652,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       } else if (rhs_all_vals_set.count(id) > 0) {
         if (rhs_id == nullptr) {
           rhs_id = id;
-          rhs_i = (int)pos;
+          rhs_i = pos;
         } else {
-          reference_tv->merge((int)pos, rhs_i);
-          rhs_i = (int)pos;
+          reference_tv->merge(pos, rhs_i);
+          rhs_i = pos;
           if (lhs_i > rhs_i) {
             lhs_i--;
           }
@@ -689,7 +689,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge left side of break point
-    for (int i = (int)params.break_point; i > 0; i--) {
+    for (int64_t i = params.break_point; i > 0; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;

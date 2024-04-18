@@ -152,7 +152,7 @@ void splitDims(
       pending_dim_offset = 0;
     }
     int64_t actual_dim = dim_offset + dim;
-    tv->split((int)actual_dim, size);
+    tv->split(actual_dim, size);
     pending_dim_offset++;
     for (auto& i : to_update) {
       if (i > actual_dim) {
@@ -314,19 +314,19 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i : c10::irange(tv->getLeafDomain().size())) {
+    for (const auto i : c10::irange((int64_t)tv->getLeafDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
-          tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
+          tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
         if (selected_parallel_types.empty() ||
             selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis((int)i)->parallelize(reference_parallel_type);
+          tv->axis(i)->parallelize(reference_parallel_type);
         }
         if (propagate_padding) {
           if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis((int)i)->padToMultipleOfWarp(
+            tv->axis(i)->padToMultipleOfWarp(
                 reference_id->getMaybeSizeAfterPadding());
           }
         }
@@ -511,8 +511,8 @@ TensorView* getBufferProjectableBroadcastsTv(
       // reduction.
       bool is_broadcast_after_reduction = true;
       for (auto i : c10::irange(reduction_tv->nDims())) {
-        if (reduction_tv->axis((int)i)->isReduction() &&
-            !tv->axis((int)i)->isBroadcast()) {
+        if (reduction_tv->axis(i)->isReduction() &&
+            !tv->axis(i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
           break;
         }
@@ -2017,7 +2017,7 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
       " but position is ",
       pos);
 
-  if (pos == 0 || pos == (int)group_ids.size()) {
+  if (pos == 0 || pos == (int64_t)group_ids.size()) {
     return true;
   }
 
@@ -2206,7 +2206,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             " for view propagation.");
         int64_t old_pos = std::distance(tv->getLeafDomain().begin(), find_it);
 
-        old2new[old_pos] = (int)old2new.size();
+        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2419,7 +2419,7 @@ void promoteProducerMemoryTypes(
     for (const auto i :
          c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
-          producer->axis((int)(i + producer->getComputeAtPosition()));
+          producer->axis((i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
       if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
         continue;

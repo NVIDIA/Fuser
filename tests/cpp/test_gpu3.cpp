@@ -772,8 +772,8 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
   for (auto tv : ir_utils::allTvs(&fusion)) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
-        if (isParallelTypeVectorize(tv->axis((int)i)->getParallelType())) {
-          tv->axis((int)i)->parallelize(ParallelType::Serial);
+        if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
+          tv->axis(i)->parallelize(ParallelType::Serial);
         }
       }
     }

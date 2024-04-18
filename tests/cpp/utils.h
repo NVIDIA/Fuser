@@ -325,7 +325,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayPasC(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateP2C(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateP2C(from, to);
@@ -333,7 +333,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateSibling(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateSibling(from, to);
