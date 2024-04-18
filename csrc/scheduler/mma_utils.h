@@ -31,7 +31,7 @@ namespace mma_utils {
 NVF_API void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
-    int vector_word,
+    int64_t vector_word,
     bool vectorize = true);
 
 //! Schedule utility for mma output in matmul main loop:
