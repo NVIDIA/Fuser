@@ -920,6 +920,16 @@ Val* TensorIndexer::getIndex(
 
     kir::ForLoop* for_loop = getForLoop(loop_id);
 
+    if (for_loops.has_value() && for_loop == nullptr &&
+        loop_domains.size() == for_loops->size()) {
+      // Why this happen?
+      std::cerr << "ForLoop not found for " << loop_id->toString() << std::endl;
+      for (const auto fl : *for_loops) {
+        std::cerr << "FL: " << fl->iter_domain()->toString() << std::endl;
+      }
+      NVF_ERROR(false);
+    }
+
     // Even when the iter-domain is not size-1, the actual for-loop
     // can be (e.g., for double buffering)
     if (for_loop != nullptr) {
