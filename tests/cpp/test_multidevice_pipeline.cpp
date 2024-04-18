@@ -46,7 +46,7 @@ using namespace at::indexing;
 // the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
 // default with NVFUSER_DISTRIBUTED defined.  Then simply run the tests on
 // several processes. For example, run `mpirun -np 6 build/test_multidevice
-// --gtest_filter=PipelineTwoStages*` on a node having at least GPUs.
+// --gtest_filter=PipelineTwoStages*` on a node having at least 6 GPUs.
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
