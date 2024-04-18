@@ -348,8 +348,15 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
   // TODO: do we also need to look at OUTPUT_AUX?
   for (TensorView* d : d_it->second) {
+    // Get inner dim of this output (the N dimension of the matmul problem). The
+    // output will be contiguous, so we will set the max vectorization that
+    // divides evenly into N, unless already set to something lower due to
+    // INPUT_C.
+    const int64_t N = runtime_info.expressionEvaluator()
+                          .evaluate(d->axis(-1)->extent())
+                          .as<int64_t>();
     supported_vec_size.epilogue = std::min(
-        16 / (int)dataTypeSize(d->dtype()), supported_vec_size.epilogue);
+        supported_vec_size.epilogue, scheduler_utils::maxVectorizationWidth(N));
   }
   return supported_vec_size;
 }
