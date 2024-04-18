@@ -62,8 +62,11 @@ TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
 // out = A * B_Transpose + bias. The output dtype matches the dtype
 // ofthe inputs which should match.
 TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
-// This is an implemenation details to reflect when linear is called
-// without a bias. This calls the above function.
+// This is an implementation detail to reflect when linear is called
+// without a bias. This calls the above function. We use this function
+// since it simplifies creating a Python API which takes optional arguments.
+// Other options include using lambdas or creating a new RecordFunctor for
+// Linear.
 TensorView* linear(TensorView* a, TensorView* b);
 
 NVF_API TensorView* sign(TensorView* x);
