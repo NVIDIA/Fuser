@@ -514,7 +514,7 @@ and the index of its tile IterDomain (`I5`) is hardware parallelized and the pro
 So if weak correctness is required, we can just generated an unpredicated TMA.
 But if strong correctness is required, we have to raise an error.
 
-If the element stride is 5 instead of 3 as in Figure 5 (that is, the extent of `I6` is `5`),
+If the element stride of the example in Figure 5 is 5 instead of 3 (that is, the extent of `I6` is `5`),
 then the condition of FTTC is false.
 Still, `I4` is the only TMA-unprotected IterDomain that can contain hole.
 But this time, its tile IterDomain (`I5`) has extent `1`, so the its index is always $i_5 = 0$.
