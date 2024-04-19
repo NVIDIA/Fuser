@@ -2253,97 +2253,116 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
   // TODO: parametrized test instead of nested loops (still use a loop over
   // sizes and re-use FusionExecutorCache)
   for (auto layout : kAllSupportedMmaLayout) {
-    for (bool downcast_output : {false, true}) {
-      // TODO: maybe use bias
-      auto fusion = std::make_unique<Fusion>();
-      FusionGuard fg(fusion.get());
+    for (bool add_2d_bias : {false, true}) {
+      for (bool downcast_output : {false, true}) {
+        // TODO: maybe use bias
+        auto fusion = std::make_unique<Fusion>();
+        FusionGuard fg(fusion.get());
 
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
-      fusion->addInput(tv0);
-      fusion->addInput(tv1);
+        auto tv0 = makeContigTensor(2, DataType::Half);
+        auto tv1 = makeContigTensor(2, DataType::Half);
+        fusion->addInput(tv0);
+        fusion->addInput(tv1);
 
-      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
-      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
-      auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+        tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+        tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+        auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
-      if (downcast_output) {
-        tv2 = castOp(DataType::Half, tv2);
-      }
-
-      fusion->addOutput(tv2);
-
-      NVF_CHECK(
-          1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
-          "matmul fusion must have at least one MmaOp");
-      NVF_CHECK(
-          ir_utils::getOpsOfType<MmaOp>(fusion.get())
-              .front()
-              ->layout()
-              .has_value(),
-          "input layout has not be set for MmaOp");
-      NVF_CHECK(
-          MmaLayout::TN ==
-              ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                  .front()
-                  ->layout()
-                  .value(),
-          "the MmaOp layout of Ampere MMA must be always TN");
-
-      const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
-      NVF_CHECK(
-          fusion_layout.isValid(),
-          "failed to get decide matmul layout through fusion definition");
-      NVF_CHECK(
-          fusion_layout.getData() == layout,
-          "mismatch between test layout (",
-          toString(layout),
-          ") and layout inferred from fusion definition (",
-          toString(fusion_layout.getData()),
-          ")");
-
-      FusionExecutorCache executor_cache(std::move(fusion));
-
-      for (const auto& [M, N, K, alignA, alignB, alignBias] :
-           std::vector<std::tuple<int, int, int, int, int, int>>{
-               {504, 136, 248, 16, 16, 16}, // all fully vectorizable in all
-                                            // layouts
-               {504, 136, 249, 16, 16, 16}, // odd K, operands not vectorizable
-                                            // in TN. output fully vectorizable
-               {504, 137, 248, 16, 16, 16}, // A fully vectorizable, B fully
-                                            // vectorizable unless transposed,
-                                            // output not vectorizable
-               {505, 136, 248, 16, 16, 16}, // B fully vectorizable, A
-                                            // vectorizable unless transposed,
-                                            // output fully vectorizable
-               {505, 137, 248, 16, 16, 16}, // none vectorizable
-               // TODO: add cases with vec sizes other than 1 and 8
-               // TODO: add different alignments of each input pointer
-           }) {
-        auto t0 =
-            matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
-        auto t1 =
-            matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
-        // TODO: add bias input
-        // TODO: based on alignments,
-        auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-        if (downcast_output) {
-          tref = tref.to(at::kHalf);
+        if (add_2d_bias) {
+          auto bias = makeContigTensor(2, DataType::Half);
+          fusion->addInput(bias);
+          tv2 = add(tv2, bias);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+        if (downcast_output) {
+          tv2 = castOp(DataType::Half, tv2);
+        }
 
+        fusion->addOutput(tv2);
+
+        const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
         NVF_CHECK(
-            !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-            "fusion got segmented, expected to match whole fusion with single segment");
-
+            fusion_layout.isValid(),
+            "failed to get decide matmul layout through fusion definition");
         NVF_CHECK(
-            isSchedulerInUse(
-                executor_cache.getMostRecentKernelRuntime(),
-                ScheduleHeuristic::Matmul),
-            "matmul scheduler was not used to handle prepared fusion");
+            fusion_layout.getData() == layout,
+            "mismatch between test layout (",
+            toString(layout),
+            ") and layout inferred from fusion definition (",
+            toString(fusion_layout.getData()),
+            ")");
 
-        NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+        FusionExecutorCache executor_cache(std::move(fusion));
+
+        for (const auto& [M, N, K, alignA, alignB, alignBias] :
+             std::vector<std::tuple<int, int, int, int, int, int>>{
+                 {504, 136, 248, 8, 8, 8}, // all fully vectorizable in all
+                                           // layouts
+                 {504, 136, 249, 8, 8, 8}, // odd K, operands not vectorizable
+                                           // in TN. output fully vectorizable
+                 {504, 137, 248, 8, 8, 8}, // A fully vectorizable, B fully
+                                           // vectorizable unless transposed,
+                                           // output not vectorizable
+                 {505, 136, 248, 8, 8, 8}, // B fully vectorizable, A
+                                           // vectorizable unless transposed,
+                                           // output fully vectorizable
+                 {505, 137, 248, 8, 8, 8}, // none vectorizable
+
+                 // The following cases are failing due to
+                 // https://github.com/NVIDIA/Fuser/issues/2118
+                 // Cases with vectorizable strides but misaligned base pointers
+                 //{504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
+                 //{504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
+                 //{504, 136, 248, 8, 8, 2}, // epilogue not vectorizable due to
+                 // offset
+             }) {
+          const auto maybeUnalign = [](const at::Tensor& t, int offset) {
+            if (offset == 16 / t.element_size()) {
+              // Already fully aligned
+              return t;
+            }
+            return at::pad(t.ravel(), {{0, offset}})
+                .index({at::indexing::Slice(offset, t.numel() + offset, 1)})
+                .view({t.size(0), t.size(1)});
+          };
+
+          auto t0 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
+              alignA);
+          auto t1 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
+              alignB);
+
+          // TODO: add bias input
+          // TODO: based on alignments,
+          auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+          std::vector<c10::IValue> inputs = {t0, t1};
+
+          if (add_2d_bias) {
+            const auto options =
+                at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+            auto bias = maybeUnalign(at::randn({M, N}, options), alignBias);
+            tref = tref + bias;
+            inputs.push_back(bias);
+          }
+
+          if (downcast_output) {
+            tref = tref.to(at::kHalf);
+          }
+
+          auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+          // expected to match whole fusion with single segment
+          EXPECT_FALSE(
+              executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+          EXPECT_TRUE(isSchedulerInUse(
+              executor_cache.getMostRecentKernelRuntime(),
+              ScheduleHeuristic::Matmul));
+
+          EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        }
       }
     }
   }
