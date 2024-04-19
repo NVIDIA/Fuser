@@ -165,7 +165,7 @@
 
 namespace nvfuser {
 
-unsigned int getDoubleBufferAxisPosition(const TensorView* tv);
+int64_t getDoubleBufferAxisPosition(const TensorView* tv);
 
 IterDomain* getDoubleBufferAxis(const TensorView* tv);
 

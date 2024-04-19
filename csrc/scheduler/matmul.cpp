@@ -64,10 +64,10 @@ void MatmulScheduler::computeHeuristics(
   NVF_ERROR(params_ != nullptr);
 }
 
-void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
-  NVF_ERROR(int(tv->nDims()) >= number_of_inner_pos);
-  std::vector<int> broadcast_pos;
-  std::vector<int> nonbroadcast_pos;
+void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
+  NVF_ERROR(tv->nDims() >= number_of_inner_pos);
+  std::vector<int64_t> broadcast_pos;
+  std::vector<int64_t> nonbroadcast_pos;
 
   for (auto i : c10::irange(number_of_inner_pos)) {
     auto axis_idx = i - number_of_inner_pos;
@@ -83,7 +83,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos) {
   combined_pos_vec.insert(
       combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
-  std::unordered_map<int, int> order_map;
+  std::unordered_map<int64_t, int64_t> order_map;
   for (auto i : c10::irange(number_of_inner_pos)) {
     order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
@@ -124,8 +124,8 @@ inline void checkConcreteStaticDim(IterDomain* id) {
 void swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Set skip to skip all consecutive reduction domains starting from the
   //  innermost dimension.
-  int skip = 0;
-  for (int i = (int)shared_mem_tv->nDims() - 1; i >= 0; --i) {
+  int64_t skip = 0;
+  for (int64_t i = shared_mem_tv->nDims() - 1; i >= 0; --i) {
     if (shared_mem_tv->axis(i)->isReduction()) {
       skip++;
     } else {
@@ -136,7 +136,7 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
-      shared_mem_tv->nDims() >= (size_t)(2 + skip),
+      shared_mem_tv->nDims() >= 2 + skip,
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
   checkConcreteStaticDim(shared_mem_tv->axis(-2 - skip));
@@ -151,8 +151,7 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size =
-      (int64_t)dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -689,7 +688,7 @@ void scheduleFusionInputsForEpilogue(
 
 void scheduleSplitKSum(
     TensorView* splitk_sum,
-    const int num_batch_dims, // TODO: this should not be needed
+    const int64_t num_batch_dims, // TODO: this should not be needed
     bool use_smem_epilogue) {
   if (splitk_sum == nullptr) {
     // This indicates no split-K was used
@@ -904,7 +903,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_result->nDims() == 3 || mma_result->nDims() == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
-  const int num_batch_dims = (int)mma_result->nDims() - 3;
+  const int64_t num_batch_dims = mma_result->nDims() - 3;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());

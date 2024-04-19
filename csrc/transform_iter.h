@@ -488,7 +488,7 @@ class BestEffortReplay {
   NVF_API static BestEffortReplay replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
-      int producer_compute_at_axis,
+      int64_t producer_compute_at_axis,
       const RootDomainMap& root_map,
       bool skip_consumer_swizzle = true,
       bool skip_producer_swizzle = true,
@@ -501,7 +501,7 @@ class BestEffortReplay {
   NVF_API static BestEffortReplay replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
-      int consumer_compute_at_axis,
+      int64_t consumer_compute_at_axis,
       const RootDomainMap& root_map,
       bool skip_producer_swizzle = true,
       bool skip_consumer_swizzle = true,
@@ -511,7 +511,7 @@ class BestEffortReplay {
   // means the DAG and input IDs to generate td1[i] and td2[i] are the same.
   // td1 and td2 are assumed to have some matching iter domains, as this is a
   // strict same-ness check.
-  static int findFirstMismatchedID(
+  static int64_t findFirstMismatchedID(
       const TensorDomain* td1,
       const TensorDomain* td2);
 };

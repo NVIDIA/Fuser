@@ -1688,7 +1688,7 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
   for (auto pos = compute_with_tv->getComputeAtPosition();
        pos < compute_with_tv->getComputeWithPosition();
        ++pos) {
-    auto id = compute_with_tv->axis((int)pos);
+    auto id = compute_with_tv->axis(pos);
 
     // Find the matching consumer ID using the permissive map
     auto it = std::find_if(

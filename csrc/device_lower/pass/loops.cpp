@@ -241,7 +241,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     }
 
     auto last_id_concrete = ca_map->getConcreteMappedID(
-        tv->axis((int)(tv->nDims() - 1)), IdMappingMode::LOOP);
+        tv->axis(tv->nDims() - 1), IdMappingMode::LOOP);
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
     NVF_ERROR(
         all_loops_it != concrete_id_dependencies.end(),

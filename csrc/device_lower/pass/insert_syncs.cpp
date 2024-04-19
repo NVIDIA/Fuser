@@ -501,7 +501,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
 
       auto local_id =
-          write_out_tv->axis((int)write_out_tv->getComputeAtPosition() - 1);
+          write_out_tv->axis(write_out_tv->getComputeAtPosition() - 1);
 
       auto loops_it = std::find_if(
           for_loops_.begin(), for_loops_.end(), [&local_id](const auto& loop) {
