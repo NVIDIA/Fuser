@@ -15,35 +15,6 @@
 
 namespace nvfuser {
 
-class MultiDeviceEnvironment : public testing::Environment {
- public:
-  void SetUp() override;
-  void TearDown() override;
-
-  Communicator* communicator() const {
-    NVF_ERROR(communicator_ != nullptr);
-    return communicator_.get();
-  }
-
-  bool debugPrint() const {
-    return debug_print_;
-  }
-
-  bool doBarrierAtTest() const {
-    return do_barrier_at_test_;
-  }
-
-  bool disableSkip() const {
-    return disable_skip_;
-  }
-
- private:
-  std::unique_ptr<Communicator> communicator_ = nullptr;
-  bool debug_print_ = false;
-  bool do_barrier_at_test_ = false;
-  bool disable_skip_ = false;
-};
-
 class MultiDeviceTest : public NVFuserTest {
  public:
   // Given an aten tensor, TensorView the tensor is bound to, and deviceId
@@ -71,6 +42,12 @@ class MultiDeviceTest : public NVFuserTest {
  protected:
   void SetUp() override;
   void TearDown() override;
+
+  Communicator* getOrCreateCommunicator() {
+    static Communicator* communicator = new Communicator();
+    return communicator;
+  }
+
   Communicator* communicator;
   c10::TensorOptions tensor_options;
   bool debug_print;

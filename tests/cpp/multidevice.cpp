@@ -16,36 +16,20 @@
 
 namespace nvfuser {
 
-auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
-    testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
-
-void MultiDeviceEnvironment::SetUp() {
-  communicator_ = std::make_unique<Communicator>();
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
-    do_barrier_at_test_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip_ = true;
-  }
-}
-
-void MultiDeviceEnvironment::TearDown() {
-  if (communicator_->is_available()) {
-    communicator_->barrier();
-  }
-  communicator_.reset();
-}
-
 void MultiDeviceTest::SetUp() {
   NVFuserTest::SetUp();
-  communicator = multidevice_env->communicator();
-  debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test =
-      multidevice_env->doBarrierAtTest() && communicator->is_available();
-  disable_skip = multidevice_env->disableSkip();
+
+  communicator = getOrCreateCommunicator();
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
+    debug_print = true;
+  }
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") &&
+      communicator->is_available()) {
+    do_barrier_at_test = true;
+  }
+  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
+    disable_skip = true;
+  }
   if (!disable_skip && !communicator->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
