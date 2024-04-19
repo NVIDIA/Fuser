@@ -1669,17 +1669,6 @@ int64_t FusionExecutor::getStaticSmemSize() {
 }
 
 void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
-  NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
-      "The total shared memory allocation is larger than available memory.",
-      " Dynamic size: ",
-      dynamic_smem_size,
-      ". Static size: ",
-      getStaticSmemSize(),
-      ". Required total size: ",
-      getStaticSmemSize() + dynamic_smem_size,
-      ". Device limit size: ",
-      device_smem_limit_);
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
   int64_t expected_dynamic_smem_size = fusion_->expectedDynamicSmemBytes();
@@ -1691,6 +1680,17 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         " does not match expected size ",
         expected_dynamic_smem_size);
   }
+  NVF_ERROR(
+      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      "The total shared memory allocation is larger than available memory.",
+      " Dynamic size: ",
+      dynamic_smem_size,
+      ". Static size: ",
+      getStaticSmemSize(),
+      ". Required total size: ",
+      getStaticSmemSize() + dynamic_smem_size,
+      ". Device limit size: ",
+      device_smem_limit_);
 }
 
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
