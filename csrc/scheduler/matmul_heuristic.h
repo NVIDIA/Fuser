@@ -202,6 +202,7 @@ class MatmulParams : public HeuristicParams {
         rotate_ldmatrix_out_of_main_loop &&
         other_casted->tile_sizes == tile_sizes &&
         other_casted->double_buffer_options == double_buffer_options &&
+        other_casted->supported_vec_size == supported_vec_size &&
         other_casted->cta_order == cta_order &&
         other_casted->grid_swizzle_factor == grid_swizzle_factor &&
         other_casted->use_smem_epilogue == use_smem_epilogue &&
