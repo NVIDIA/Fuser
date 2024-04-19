@@ -3642,7 +3642,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       tma_id_to_stride_id.count(std::get<0>(tma_domain.back())) == 0,
       "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
       "(this is always the case for nvFuser now)",
-      ", the first element of elementStrides must be one");
+      ", the first element of elementStrides must be one.");
 
   // Validate that tma_domain is a superset of tma_ids, otherwise there is
   // something wrong in the schedule.

@@ -1379,7 +1379,7 @@ TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit1) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The TMA domain must be equivalent to the allocation domain, but")));
+          "Can not infer TMA domain from the schedule. The IterDomains")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
@@ -1416,7 +1416,7 @@ TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Box IterDomain is not defined as the inner output of the boxing split.")));
+          "Can not infer TMA domain from the schedule. The IterDomains")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
@@ -1567,7 +1567,7 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "A tile IterDomain must be the output of a split, but")));
+          "Unsupported expression between the allocation domain and the partitioned IterDomains:")));
 }
 
 // End TMA tests
