@@ -19,7 +19,9 @@ class CommunicationTest
     : public MultiDeviceTest,
       public ::testing::WithParamInterface<CommunicatorBackend> {
  protected:
+  CommunicationTest();
   void SetUp() override;
+
   void validate(at::Tensor obtained, at::Tensor expected);
   void resetDstBuffers();
 
@@ -32,13 +34,15 @@ class CommunicationTest
   std::vector<DeviceIdxType> all_ranks;
 };
 
+CommunicationTest::CommunicationTest() {
+  all_ranks = std::vector<DeviceIdxType>(communicator->size());
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+}
+
 void CommunicationTest::SetUp() {
-  MultiDeviceTest::SetUp();
   if (!communicator->isBackendAvailable(GetParam())) {
     GTEST_SKIP() << "Backend not available";
   }
-  all_ranks = std::vector<DeviceIdxType>(communicator->size());
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {

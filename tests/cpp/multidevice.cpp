@@ -16,9 +16,7 @@
 
 namespace nvfuser {
 
-void MultiDeviceTest::SetUp() {
-  NVFuserTest::SetUp();
-
+MultiDeviceTest::MultiDeviceTest() {
   communicator = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
@@ -37,11 +35,38 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-void MultiDeviceTest::TearDown() {
+MultiDeviceTest::~MultiDeviceTest() {
   if (do_barrier_at_test && communicator->is_available()) {
     communicator->barrier();
   }
-  NVFuserTest::TearDown();
+}
+
+void MultiDeviceTest::SetUp() {
+  if (!disable_skip && !communicator->is_available()) {
+    GTEST_SKIP() << "This test needs an available communicator.";
+  }
+}
+
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    TensorView* tv,
+    DeviceIdxType deviceId) {
+  if (!isSharded(tv)) {
+    return tensor;
+  }
+  auto sharded_dim = getShardedAxis(tv);
+  int i = 0;
+  const auto& devices = tv->getDeviceMesh().vector();
+  auto it = std::find(devices.begin(), devices.end(), deviceId);
+  if (it != devices.end()) {
+    i = std::distance(devices.begin(), it);
+  }
+  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+}
+
+/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
+  static Communicator* communicator = new Communicator();
+  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -134,8 +159,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-void PipelineTest::SetUp() {
-  MultiDeviceTest::SetUp();
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }
