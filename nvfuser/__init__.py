@@ -360,17 +360,11 @@ class FusionDefinition(_C._FusionDefinition):
             if torch.is_floating_point(fusion_output) or torch.is_complex(
                 fusion_output
             ):
-                try:
-                    assert torch.allclose(
-                    fusion_output, reference_output, atol=atol, rtol=rtol
-                ), f"Max error nvFuser output[{inx}]: {torch.abs(torch.max(fusion_output - reference_output))}, \
-                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
-                except:
-                    # Attempt validation with relaxed tolerances
-                    assert torch.allclose(
-                    fusion_output, reference_output, atol=1.1*atol, rtol=1.1*rtol
-                ), f"Max error for nvFuser output[{inx}]: {torch.abs(torch.max(fusion_output - reference_output))}, \
-                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+                # Attempt validation with relaxed tolerances
+                assert torch.allclose(
+                fusion_output, reference_output, atol=1.1*atol, rtol=1.1*rtol
+            ), f"Max error for nvFuser output[{inx}]: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                Absolute tolerance: {atol}, Relative tolerance: {rtol}"
 
             else:
                 assert torch.equal(
