@@ -1334,7 +1334,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while compiling fusion segments in parallel. ",
-        "Error messages from all threads: ",
+        "Error messages from all threads are printed below.\n",
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
