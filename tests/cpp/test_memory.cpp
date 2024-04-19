@@ -749,7 +749,7 @@ TEST_F(TMAIndexingTest, Advanced) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, AutoBulkOne) {
+TEST_F(TMAIndexingTest, DefineBoxByCompositing1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -794,13 +794,14 @@ TEST_F(TMAIndexingTest, AutoBulkOne) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 4);
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, BulkEntireDim) {
+TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -851,6 +852,7 @@ TEST_F(TMAIndexingTest, BulkEntireDim) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 5);
   EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
