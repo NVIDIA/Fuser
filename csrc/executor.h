@@ -200,7 +200,6 @@ class FusionExecutor : public NonCopyable {
 		// This is just the data() pointers to the above `args`; cuLaunchKernel
 		// requires an array of this form.
     std::vector<void*> arg_ptrs;
-    bool args_init = false;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -466,8 +465,6 @@ class FusionExecutor : public NonCopyable {
   // of any tensor changes (as these are compiled-in to the generated kernel
   // and therefore would require us to do a larger recompilation).
   void recomputeArgs(ExecutorEntry&, ExpressionEvaluator&,
-                     const KernelArgumentHolder&, const kir::Kernel*) const;
-  void recomputeArgs2(ExecutorEntry&, ExpressionEvaluator&,
                      const KernelArgumentHolder&, const kir::Kernel*) const;
 
   //! Serialize CompiledKernel using flatbuffers
