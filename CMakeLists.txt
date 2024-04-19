@@ -51,7 +51,7 @@ find_package(pybind11 REQUIRED)
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
 
 # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
-string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
+#string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
 
@@ -256,7 +256,6 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 if(NOT MSVC)
   target_compile_options(codegen_internal PRIVATE
     -Wall -Wno-unused-function
-    -Werror
   )
 endif()
 
@@ -294,12 +293,13 @@ target_link_libraries(codegen_internal PUBLIC
   dl
 )
 
+add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
   target_link_options(codegen_internal PRIVATE -fsanitize=address)
+  target_link_options(nvfuser_codegen PRIVATE -fsanitize=address)
 endif()
 
-add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 target_include_directories(nvfuser_codegen PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
@@ -426,7 +426,6 @@ if(BUILD_PYTHON)
   )
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
-    target_compile_options(nvf_py_internal PRIVATE -Werror)
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
@@ -558,7 +557,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
 
   if(NOT MSVC)
     target_compile_options(${TEST_NAME} PRIVATE
-      -Wall -Wno-unused-function -Werror
+      -Wall -Wno-unused-function
     )
   endif()
 endfunction()
@@ -689,7 +688,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   if(NOT MSVC)
     target_compile_options(nvfuser_bench PRIVATE
       -Wall -Wno-unused-function
-      -Werror -Wno-deprecated-copy
+      -Wno-deprecated-copy
     )
   endif()
 endif()

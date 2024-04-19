@@ -1,3 +1,8 @@
+#define COMPILE_ARGS 1
+#define DEBUG_ARGS 1
+#include <cassert>
+#include <iostream>
+#include <typeinfo>
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -36,6 +41,7 @@
 #include <c10/util/irange.h>
 
 #include <cmath>
+#include <cstring>
 #include <fstream>
 
 namespace nvfuser {
@@ -965,7 +971,7 @@ at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
-    ExpressionEvaluator& ee) {
+    const ExpressionEvaluator& ee) {
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
@@ -1604,6 +1610,670 @@ void FusionExecutor::initializeExecutorEntry(
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
+	executor_entry.args_init = false;
+}
+
+static std::string
+mdinfo(const Val* v) {
+  const TensorView* tv = dynamic_cast<const TensorView*>(v);
+  if(tv == nullptr) {
+    return "unknown-val";
+  } else if(tv && tv->isCpuScalar()) {
+    return "TV(CPU_scalar)";
+  } else if(tv) {
+    return "TV(GPU)";
+  }
+  return "Unknown-val";
+}
+
+static std::string
+mdinfo(const PolymorphicValue& md) {
+  if(md.is<StructHandle>()) {
+    const StructHandle& sh = md.as<StructHandle>();
+    if(sh.is<TensorMetaData>()) {
+      return "structHdl_TensorMetaData";
+    } else if(sh.is<at::Tensor>()) {
+      return "structHdl_at::Tensor";
+    } else if(sh.is<at::Tensor>()) {
+      return "structHdl_at::Tensor";
+    } else if(sh.is<Pointer>()) {
+      return "structHdl_Pointer";
+    } else if(sh.is<Opaque>()) {
+      return "structHdl_Opaque";
+    } else if(sh.is<std::complex<double>>()) {
+      return "structHdl_complex<double>";
+    } else if(sh.is<Accessor>()) {
+      return "structHdl_Accessor";
+    } else if(sh.is<StructType>()) {
+      const StructType& st = sh.type();
+      return "structHdl_StructType(" + st.name + ")";
+    } else {
+      return "structHdl_unknown";
+    }
+  } else if(md.is<Pointer>()) {
+    return "Pointer";
+  } else if(md.is<Opaque>()) {
+		return "Opaque";
+  } else if(md.is<at::Tensor>()) {
+		return "aten::Tensor";
+  } else if(md.is<std::complex<double>>()) {
+		return "std::complex<double>";
+  } else if(md.is<double>()) {
+    return "double";
+  } else if(md.is<int64_t>()) {
+    return "i64";
+  } else if(md.is<bool>()) {
+    return "bool";
+  } else if(md.is<std::vector>()) {
+    return "std::vector";
+  } else if(md.is<std::monostate>()) {
+    return "monostate";
+  }
+  return "unknown??";
+}
+
+// Reset the arguments that we'll pass to cuLaunchKernel.
+void
+FusionExecutor::computeArgs(ExecutorEntry& entry,
+                            ExpressionEvaluator& expr_eval,
+                            const KernelArgumentHolder& args,
+                            const kir::Kernel* kernel) const {
+  FUSER_PERF_SCOPE("Initial GetArgsBuffers");
+
+#if DEBUG_ARGS
+  std::cout << args.size() << " args, ksize=" << kernel->parameters().size()
+            << std::endl;
+#endif
+  const std::vector<Val*>& params = kernel->parameters();
+  entry.args.resize(params.size());
+  entry.arg_ptrs.resize(params.size());
+  const PrimDataType idx_type = kernel->indexType();
+  std::ostringstream arginfo;
+  arginfo << "[";
+  for(size_t p=0; p < params.size(); ++p) {
+    PolymorphicValue pv = expr_eval.evaluate(params[p]);
+    if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
+      if(tv->isCpuScalar()) {
+        entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
+        arginfo << mdinfo(params[p]) << " ";
+      } else {
+        const Val* metadata_val = IrBuilder::metadataExpr(tv);
+        const PolymorphicValue& metadata = expr_eval.evaluate(metadata_val);
+        assert(metadata.is<StructHandle>() && "Type is not correct");
+        entry.args[p] =
+          polymorphicValueToBytes(metadata, metadata_val->dtype(),
+                                  idx_type);
+        arginfo << "St_" << mdinfo(metadata) << " ";
+      }
+    } else {
+      entry.args[p] = polymorphicValueToBytes(pv, params[p]->dtype(),
+                                              idx_type);
+      arginfo << "Gen_" << mdinfo(pv) << " ";
+    }
+    entry.arg_ptrs[p] = entry.args[p].data();
+  }
+  arginfo << "]";
+  std::cout << "computeArgs(" << params.size() << "): " << arginfo.str() << "\n";
+	entry.args_init = true;
+}
+
+// Reset the arguments that we'll pass to cuLaunchKernel.
+void
+FusionExecutor::recomputeArgs(ExecutorEntry& entry,
+                              ExpressionEvaluator& expr_eval,
+                              const KernelArgumentHolder& args,
+                              const kir::Kernel* kernel) const {
+  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+	assert(entry.init && "entry was never initialized");
+	assert(entry.args_init && "initialized but not args initialized?!");
+
+  const std::vector<Val*>& params = kernel->parameters();
+  const PrimDataType idx_type = kernel->indexType();
+  std::cout << "recomputeArgs(" << params.size() << "), args.size()="
+            << args.size() << "; kernel=0x" << (const void*)kernel
+            << "; entry=0x" << (void*)&entry << "; "
+            << "ent.args.size=" << entry.args.size() << "; "
+            << "ent.argptrs.size=" << entry.arg_ptrs.size() << "; "
+            << "params.size=" << params.size() << "; "
+            << "args.size=" << args.size() << "; "
+            << "\n\tfunc(";
+  for(size_t p=0; p < params.size(); ++p) {
+    std::cout << mdinfo(params[p]) << ", ";
+  }
+  std::cout << ")\n";
+	assert(entry.args.size() == params.size());
+	assert(entry.arg_ptrs.size() == params.size());
+	assert(params.size() == args.size());
+  for(size_t p=0; p < params.size(); ++p) {
+    PolymorphicValue pv = expr_eval.evaluate(params[p]);
+    if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
+			if(tv->isCpuScalar()) {
+				entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
+				entry.arg_ptrs[p] = entry.args[p].data();
+				continue;
+			}
+
+      if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cpu()) {
+				assert(false);
+        const auto& tensor = pv.as<at::Tensor>();
+				assert(tensor.is_cpu());
+        // For CPU tensors, we can just steal the pointer directly.
+        entry.arg_ptrs[p] = tensor.data_ptr();
+        continue; // we're not using entry.args[p] at all in this case.
+			}
+
+      if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
+        // GPU tensors are similar, but we don't pass them directly; instead
+        // we pass a Tensor<type, rank, rank> struct. The pointer and
+        // dimensions are dynamic, but the types and ranks are actually static
+        // (changing the rank or the types would need to be done via a new
+        // FusionDefinition). As such, we created the struct during
+        // ::computeArgs, and here we just update the address of the tensor and
+        // the dimensions.
+        TensorView* tv = dynamic_cast<TensorView*>(params[p]);
+				const Val* mdexpr = IrBuilder::metadataExpr(tv);
+				const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
+				assert(tmd.is<StructHandle>() && "generate type is not correct");
+        std::cout << "param[" << p << "]=" << mdinfo(params[p]) << "; ";
+        std::cout.flush();
+        std::cout << "generated md[" << p << "]=" << mdinfo(tmd) << "; ";
+        void* data = tmd->*&TensorMetaData::data;
+
+        // g++ can't seem to type infer that these are c10::IntArrayRefs, but
+        // creating an `auto` alias first and assigning through that
+        // suffices.
+        const auto& logical_size_tmp =
+          tmd->*&TensorMetaData::logical_size;
+        const c10::IntArrayRef& logical_size = logical_size_tmp;
+        const auto& alloc_stride_tmp =
+          tmd->*&TensorMetaData::alloc_stride;
+        const c10::IntArrayRef& alloc_stride = alloc_stride_tmp;
+        assert(tmd.is<StructHandle>() && "type2 is not correct");
+
+        if(tmd.as<StructHandle>().is<TensorMetaData>() &&
+           PrimDataType::Int == idx_type) {
+          // these iterators detail where in the args[i] buffer to copy the
+          // data, shape, and strides elements; each appears directly after the
+          // other in the struct.
+          // Note that this is relying on the Tensor<> struct being tightly
+          // packed. TODO(tfogal) annotate the struct to guarantee the
+          // requirement
+          const std::vector<std::byte>::iterator offsets[] = {
+            entry.args[p].begin(),
+            entry.args[p].begin() + sizeof(void*),
+            entry.args[p].begin() + sizeof(void*) +
+              logical_size.size()*sizeof(int64_t)
+          };
+          assert(entry.args[p].size() == sizeof(void*) +
+                 sizeof(int64_t)*logical_size.size() +
+                 sizeof(int64_t)*alloc_stride.size());
+#if DEBUG_ARGS
+          std::ostringstream shapes;
+          std::ostringstream strides;
+          shapes << "Rank " << logical_size.size() << " ("
+                 << alloc_stride.size() << ") ";
+          shapes << "i64 shapes=["; strides << "strides=[";
+          for(size_t i=0; i < logical_size.size(); ++i) {
+            shapes << logical_size[i] << ",";
+          }
+          for(size_t i=0; i < alloc_stride.size(); ++i) {
+            strides << alloc_stride[i] << ",";
+          }
+          shapes << "] " << strides.str() << "]";
+          printf("%s\n", shapes.str().c_str());
+#endif
+          std::copy((std::byte*)&data, (std::byte*)(&data) + sizeof(void*),
+                    offsets[0]);
+          assert(tmd.is<StructHandle>() && "type3 is not correct");
+          std::copy((std::byte*)logical_size.data(),
+                    (std::byte*)logical_size.data() + logical_size.size() * sizeof(int64_t),
+                    offsets[1]);
+          assert(tmd.is<StructHandle>() && "type4 is not correct");
+          std::copy((std::byte*)alloc_stride.data(),
+                    (std::byte*)alloc_stride.data() + alloc_stride.size() * sizeof(int64_t),
+                    offsets[2]);
+          assert(tmd.is<StructHandle>() && "type5 is not correct");
+        } else if(tmd.as<StructHandle>().is<TensorMetaData>()) {
+          // This case happens when the kernel uses 32bit indices. Since we
+          // (specifically TensorMetaData) store indices in 64bit, we can't
+          // directly copy our buffer into the staging buffer. We thus have to
+          // manually downcast each element to fit in the smaller buffer.
+          std::byte* offsets[] = {
+            entry.args[p].data(), // data ptr base address
+            entry.args[p].data() + sizeof(void*), // size array base addr
+            entry.args[p].data() + sizeof(void*) +
+              logical_size.size()*sizeof(int32_t) // stride array base addr
+          };
+          assert(entry.args[p].size() == sizeof(void*) +
+                 sizeof(int32_t)*logical_size.size() +
+                 sizeof(int32_t)*alloc_stride.size());
+          memcpy(offsets[0], &data, sizeof(void*));
+          assert(tmd.is<StructHandle>() && "type6 is not correct");
+          assert(offsets[0] < offsets[1] && offsets[1] <= offsets[2]);
+#if DEBUG_ARGS
+          std::ostringstream shapes;
+          std::ostringstream strides;
+          shapes << "rank " << logical_size.size()  << " ("
+                 << alloc_stride.size() << ") ";
+          shapes << "i32 shapes=["; strides << "strides=[";
+#endif
+          for(size_t i=0; i < logical_size.size(); ++i) {
+            const int32_t shp = static_cast<int32_t>(logical_size[i]);
+#if DEBUG_ARGS
+            shapes << shp << ",";
+#endif
+            memcpy(offsets[1] + i*sizeof(int32_t), &shp, sizeof(int32_t));
+            assert(tmd.is<StructHandle>() && "type7 is not correct");
+          }
+          for(size_t i=0; i < alloc_stride.size(); ++i) {
+            const int32_t strd = static_cast<int32_t>(alloc_stride[i]);
+#if DEBUG_ARGS
+            strides << strd << ",";
+#endif
+            memcpy(offsets[2] + i*sizeof(int32_t), &strd, sizeof(int32_t));
+            assert(tmd.is<StructHandle>() && "type8 is not correct");
+          }
+#if DEBUG_ARGS
+          shapes << "] " << strides.str() << "]";
+          printf("%s\n", shapes.str().c_str());
+#endif
+        } else {
+          throw std::logic_error("iterate through the fields path");
+        }
+      }
+    } else {
+#if 1
+      entry.args[p] =
+        getKernelArgument(expr_eval, params[p], idx_type);
+      // TODO(tjf): could we call polymorphicValueToBytes directly?
+#else
+      throw std::logic_error("is this path ever used?");
+#endif
+    }
+    entry.arg_ptrs[p] = entry.args[p].data();
+  }
+}
+
+/// Copies the data, logical_size, and alloc_stride parameters to the
+/// appropriate parts of entry.args[idx].
+/// @param entry the entry we have previously setup for this fusion
+/// @param idx the index into entry.args and related parallel arrays in the
+///            entry.
+/// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
+///                      computing how large the arrays to copy are.
+static void
+fill_gpu_ptr(
+	FusionExecutor::ExecutorEntry& entry,
+	size_t idx,
+	size_t idx_type_size
+) {
+#if 0
+	assert(idx < entry.metadata.size());
+	assert(idx_type_size == sizeof(int32_t) || idx_type_size == sizeof(int64_t));
+	const PolymorphicValue& md = *entry.metadata[idx];
+	assert(md.is<StructHandle>() && "metadata not a struct");
+
+
+	void* data = md->*&TensorMetaData::data;
+	// g++ has trouble inferring the types of more complicated fields through our
+	// *& operators. Creating an `auto` alias as a temporary resolves this
+	// problem.
+#define TMD_ARRAY_REF(pv, field) ({ \
+		const auto& fld_tmp_ = pv->*&field; \
+		const c10::IntArrayRef& fld_aref_ = fld_tmp_; \
+		fld_aref_; \
+	})
+	const c10::IntArrayRef& shape =
+		TMD_ARRAY_REF(md, TensorMetaData::logical_size);
+	const c10::IntArrayRef& stride =
+		TMD_ARRAY_REF(md, TensorMetaData::alloc_stride);
+
+	// These are the three offsets we need to copy into.
+	const std::byte* offsets[3] = {
+		entry.args[idx].data(), // data ptr
+		entry.args[idx].data() + sizeof(void*), // shape array
+		entry.args[idx].data() + sizeof(void*) + shape.size()*idx_type_size,
+	};
+
+
+
+
+
+
+      if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
+        // GPU tensors are similar, but we don't pass them directly; instead
+        // we pass a Tensor<type, rank, rank> struct. The pointer and
+        // dimensions are dynamic, but the types and ranks are actually static
+        // (changing the rank or the types would need to be done via a new
+        // FusionDefinition). As such, we created the struct during
+        // ::computeArgs, and here we just update the address of the tensor and
+        // the dimensions.
+        const PolymorphicValue& md = *entry.metadata[p];
+        const Val* blah = IrBuilder::metadataExpr(tv);
+        const PolymorphicValue& pv3 = expr_eval.evaluate(blah);
+        assert(pv3.is<StructHandle>() && "generated type not correct");
+        std::cout << "param[" << p << "]=" << mdinfo(params[p]) << "; ";
+        std::cout.flush();
+        std::cout << "ent.md[" << p << "]=" << mdinfo(*entry.metadata[p]) << "; ";
+        if(!md.is<StructHandle>()) {
+          std::cout << "incorrect type. ";
+          TensorView* tv = dynamic_cast<TensorView*>(params[p]);
+          if(tv) {
+            const Val* metadata_val = IrBuilder::metadataExpr(tv);
+            const PolymorphicValue& metadata = expr_eval.evaluate(metadata_val);
+            std::cout << " generated md: " << mdinfo(metadata);
+          }
+        }
+        std::cout << "\n"; std::cout.flush();
+        assert(md.is<StructHandle>() && "type is not correct");
+        void* data = md->*&TensorMetaData::data;
+        assert(md.is<StructHandle>() && "type1 is not correct");
+
+        // g++ can't seem to type infer that these are c10::IntArrayRefs, but
+        // creating an `auto` alias first and assigning through that
+        // suffices.
+        const auto& logical_size_tmp =
+          (*entry.metadata[p])->*&TensorMetaData::logical_size;
+        const c10::IntArrayRef& logical_size = logical_size_tmp;
+        const auto& alloc_stride_tmp =
+          (*entry.metadata[p])->*&TensorMetaData::alloc_stride;
+        const c10::IntArrayRef& alloc_stride = alloc_stride_tmp;
+        assert(md.is<StructHandle>() && "type2 is not correct");
+
+        if(entry.metadata[p]->as<StructHandle>().is<TensorMetaData>() &&
+           PrimDataType::Int == idx_type) {
+          // these iterators detail where in the args[i] buffer to copy the
+          // data, shape, and strides elements; each appears directly after the
+          // other in the struct.
+          // Note that this is relying on the Tensor<> struct being tightly
+          // packed. TODO(tfogal) annotate the struct to guarantee the
+          // requirement
+          const std::vector<std::byte>::iterator offsets[] = {
+            entry.args[p].begin(),
+            entry.args[p].begin() + sizeof(void*),
+            entry.args[p].begin() + sizeof(void*) +
+              logical_size.size()*sizeof(int64_t)
+          };
+          assert(entry.args[p].size() == sizeof(void*) +
+                 sizeof(int64_t)*logical_size.size() +
+                 sizeof(int64_t)*alloc_stride.size());
+#if DEBUG_ARGS
+          std::ostringstream shapes;
+          std::ostringstream strides;
+          shapes << "Rank " << logical_size.size() << " ("
+                 << alloc_stride.size() << ") ";
+          shapes << "i64 shapes=["; strides << "strides=[";
+          for(size_t i=0; i < logical_size.size(); ++i) {
+            shapes << logical_size[i] << ",";
+          }
+          for(size_t i=0; i < alloc_stride.size(); ++i) {
+            strides << alloc_stride[i] << ",";
+          }
+          shapes << "] " << strides.str() << "]";
+          printf("%s\n", shapes.str().c_str());
+#endif
+          std::copy((std::byte*)&data, (std::byte*)(&data) + sizeof(void*),
+                    offsets[0]);
+          assert(md.is<StructHandle>() && "type3 is not correct");
+          std::copy((std::byte*)logical_size.data(),
+                    (std::byte*)logical_size.data() + logical_size.size() * sizeof(int64_t),
+                    offsets[1]);
+          assert(md.is<StructHandle>() && "type4 is not correct");
+          std::copy((std::byte*)alloc_stride.data(),
+                    (std::byte*)alloc_stride.data() + alloc_stride.size() * sizeof(int64_t),
+                    offsets[2]);
+          assert(md.is<StructHandle>() && "type5 is not correct");
+        } else if(entry.metadata[p]->as<StructHandle>().is<TensorMetaData>()) {
+          // This case happens when the kernel uses 32bit indices. Since we
+          // (specifically TensorMetaData) store indices in 64bit, we can't
+          // directly copy our buffer into the staging buffer. We thus have to
+          // manually downcast each element to fit in the smaller buffer.
+          std::byte* offsets[] = {
+            entry.args[p].data(), // data ptr base address
+            entry.args[p].data() + sizeof(void*), // size array base addr
+            entry.args[p].data() + sizeof(void*) +
+              logical_size.size()*sizeof(int32_t) // stride array base addr
+          };
+          assert(entry.args[p].size() == sizeof(void*) +
+                 sizeof(int32_t)*logical_size.size() +
+                 sizeof(int32_t)*alloc_stride.size());
+          memcpy(offsets[0], &data, sizeof(void*));
+          assert(md.is<StructHandle>() && "type6 is not correct");
+          assert(offsets[0] < offsets[1] && offsets[1] <= offsets[2]);
+#if DEBUG_ARGS
+          std::ostringstream shapes;
+          std::ostringstream strides;
+          shapes << "rank " << logical_size.size()  << " ("
+                 << alloc_stride.size() << ") ";
+          shapes << "i32 shapes=["; strides << "strides=[";
+#endif
+          for(size_t i=0; i < logical_size.size(); ++i) {
+            const int32_t shp = static_cast<int32_t>(logical_size[i]);
+#if DEBUG_ARGS
+            shapes << shp << ",";
+#endif
+            memcpy(offsets[1] + i*sizeof(int32_t), &shp, sizeof(int32_t));
+            assert(md.is<StructHandle>() && "type7 is not correct");
+          }
+          for(size_t i=0; i < alloc_stride.size(); ++i) {
+            const int32_t strd = static_cast<int32_t>(alloc_stride[i]);
+#if DEBUG_ARGS
+            strides << strd << ",";
+#endif
+            memcpy(offsets[2] + i*sizeof(int32_t), &strd, sizeof(int32_t));
+            assert(md.is<StructHandle>() && "type8 is not correct");
+          }
+#if DEBUG_ARGS
+          shapes << "] " << strides.str() << "]";
+          printf("%s\n", shapes.str().c_str());
+#endif
+        } else {
+          throw std::logic_error("iterate through the fields path");
+        }
+      }
+#endif // if 0
+}
+
+static void*
+fill_args(PolymorphicValue& pv,
+					FusionExecutor::ExecutorEntry& entry,
+					size_t idx) {
+#if 0
+	assert(entry.init);
+	assert(entry.args_init);
+	assert(idx <= entry.args.size());
+
+	if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cpu()) {
+		assert(false);
+		const auto& tensor = pv.as<at::Tensor>();
+		assert(tensor.is_cpu());
+		// For CPU tensors, we can just steal the pointer directly.
+		entry.arg_ptrs[p] = tensor.data_ptr();
+		continue; // we're not using entry.args[p] at all in this case.
+	}
+
+	if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
+		// GPU tensors are similar, but we don't pass them directly; instead
+		// we pass a Tensor<type, rank, rank> struct. The pointer and
+		// dimensions are dynamic, but the types and ranks are actually static
+		// (changing the rank or the types would need to be done via a new
+		// FusionDefinition). As such, we created the struct during
+		// ::computeArgs, and here we just update the address of the tensor and
+		// the dimensions.
+		const Val* blah = IrBuilder::metadataExpr(tv);
+		const PolymorphicValue& pv3 = expr_eval.evaluate(blah);
+		assert(pv3.is<StructHandle>() && "generated type not correct");
+		std::cout << "param[" << p << "]=" << mdinfo(params[p]) << "; ";
+		std::cout.flush();
+		std::cout << "ent.md[" << p << "]=" << mdinfo(*entry.metadata[p]) << "; ";
+		if(!md.is<StructHandle>()) {
+			std::cout << "incorrect type. ";
+			TensorView* tv = dynamic_cast<TensorView*>(params[p]);
+			if(tv) {
+				const Val* metadata_val = IrBuilder::metadataExpr(tv);
+				const PolymorphicValue& metadata = expr_eval.evaluate(metadata_val);
+				std::cout << " generated md: " << mdinfo(metadata);
+			}
+		}
+		std::cout << "\n"; std::cout.flush();
+		assert(md.is<StructHandle>() && "type is not correct");
+		void* data = md->*&TensorMetaData::data;
+		assert(md.is<StructHandle>() && "type1 is not correct");
+
+		// g++ can't seem to type infer that these are c10::IntArrayRefs, but
+		// creating an `auto` alias first and assigning through that
+		// suffices.
+		const auto& logical_size_tmp =
+			(*entry.metadata[p])->*&TensorMetaData::logical_size;
+		const c10::IntArrayRef& logical_size = logical_size_tmp;
+		const auto& alloc_stride_tmp =
+			(*entry.metadata[p])->*&TensorMetaData::alloc_stride;
+		const c10::IntArrayRef& alloc_stride = alloc_stride_tmp;
+		assert(md.is<StructHandle>() && "type2 is not correct");
+
+		if(entry.metadata[p]->as<StructHandle>().is<TensorMetaData>() &&
+			 PrimDataType::Int == idx_type) {
+			// these iterators detail where in the args[i] buffer to copy the
+			// data, shape, and strides elements; each appears directly after the
+			// other in the struct.
+			// Note that this is relying on the Tensor<> struct being tightly
+			// packed. TODO(tfogal) annotate the struct to guarantee the
+			// requirement
+			const std::vector<std::byte>::iterator offsets[] = {
+				entry.args[p].begin(),
+				entry.args[p].begin() + sizeof(void*),
+				entry.args[p].begin() + sizeof(void*) +
+					logical_size.size()*sizeof(int64_t)
+			};
+			assert(entry.args[p].size() == sizeof(void*) +
+						 sizeof(int64_t)*logical_size.size() +
+						 sizeof(int64_t)*alloc_stride.size());
+			std::ostringstream shapes;
+			std::ostringstream strides;
+			shapes << "Rank " << logical_size.size() << " ("
+						 << alloc_stride.size() << ") ";
+			shapes << "i64 shapes=["; strides << "strides=[";
+			for(size_t i=0; i < logical_size.size(); ++i) {
+				shapes << logical_size[i] << ",";
+			}
+			for(size_t i=0; i < alloc_stride.size(); ++i) {
+				strides << alloc_stride[i] << ",";
+			}
+			shapes << "] " << strides.str() << "]";
+			printf("%s\n", shapes.str().c_str());
+			std::copy((std::byte*)&data, (std::byte*)(&data) + sizeof(void*),
+								offsets[0]);
+			assert(md.is<StructHandle>() && "type3 is not correct");
+			std::copy((std::byte*)logical_size.data(),
+								(std::byte*)logical_size.data() + logical_size.size() * sizeof(int64_t),
+								offsets[1]);
+			assert(md.is<StructHandle>() && "type4 is not correct");
+			std::copy((std::byte*)alloc_stride.data(),
+								(std::byte*)alloc_stride.data() + alloc_stride.size() * sizeof(int64_t),
+								offsets[2]);
+			assert(md.is<StructHandle>() && "type5 is not correct");
+		} else if(entry.metadata[p]->as<StructHandle>().is<TensorMetaData>()) {
+			// This case happens when the kernel uses 32bit indices. Since we
+			// (specifically TensorMetaData) store indices in 64bit, we can't
+			// directly copy our buffer into the staging buffer. We thus have to
+			// manually downcast each element to fit in the smaller buffer.
+			std::byte* offsets[] = {
+				entry.args[p].data(), // data ptr base address
+				entry.args[p].data() + sizeof(void*), // size array base addr
+				entry.args[p].data() + sizeof(void*) +
+					logical_size.size()*sizeof(int32_t) // stride array base addr
+			};
+			assert(entry.args[p].size() == sizeof(void*) +
+						 sizeof(int32_t)*logical_size.size() +
+						 sizeof(int32_t)*alloc_stride.size());
+			memcpy(offsets[0], &data, sizeof(void*));
+			assert(md.is<StructHandle>() && "type6 is not correct");
+			assert(offsets[0] < offsets[1] && offsets[1] <= offsets[2]);
+			std::ostringstream shapes;
+			std::ostringstream strides;
+			shapes << "rank " << logical_size.size()  << " ("
+						 << alloc_stride.size() << ") ";
+			shapes << "i32 shapes=["; strides << "strides=[";
+			for(size_t i=0; i < logical_size.size(); ++i) {
+				const int32_t shp = static_cast<int32_t>(logical_size[i]);
+				shapes << shp << ",";
+				memcpy(offsets[1] + i*sizeof(int32_t), &shp, sizeof(int32_t));
+				assert(md.is<StructHandle>() && "type7 is not correct");
+			}
+			for(size_t i=0; i < alloc_stride.size(); ++i) {
+				const int32_t strd = static_cast<int32_t>(alloc_stride[i]);
+				strides << strd << ",";
+				memcpy(offsets[2] + i*sizeof(int32_t), &strd, sizeof(int32_t));
+				assert(md.is<StructHandle>() && "type8 is not correct");
+			}
+			shapes << "] " << strides.str() << "]";
+			printf("%s\n", shapes.str().c_str());
+		} else {
+			throw std::logic_error("iterate through the fields path");
+		}
+	}
+} else {
+#if 1
+	entry.args[p] =
+		getKernelArgument(expr_eval, params[p], idx_type);
+	// TODO(tjf): could we call polymorphicValueToBytes directly?
+#else
+	throw std::logic_error("is this path ever used?");
+#endif
+}
+entry.arg_ptrs[p] = entry.args[p].data();
+#else
+	return nullptr;
+#endif
+}
+
+// Reset the arguments that we'll pass to cuLaunchKernel.
+void
+FusionExecutor::recomputeArgs2(ExecutorEntry& entry,
+                               ExpressionEvaluator& expr_eval,
+                               const KernelArgumentHolder& args,
+                               const kir::Kernel* kernel) const {
+#if 0
+  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+	assert(entry.init && "entry was never initialized");
+	assert(entry.args_init && "initialized but not args initialized?!");
+  assert(params.size() == entry.metadata.size() && "mismatch on arg #s");
+	assert(entry.args.size() == params.size());
+	assert(entry.arg_ptrs.size() == params.size());
+	assert(params.size() == args.size());
+
+  const std::vector<Val*>& params = kernel->parameters();
+  const PrimDataType idx_type = kernel->indexType();
+  std::cout << "recomputeArgs2(" << params.size() << "), args.size()="
+            << args.size() << "; kernel=0x" << (const void*)kernel
+            << "; entry=0x" << (void*)&entry << "; "
+            << "ent.md.size=" << entry.metadata.size() << "; "
+            << "ent.args.size=" << entry.args.size() << "; "
+            << "ent.argptrs.size=" << entry.arg_ptrs.size() << "; "
+            << "params.size=" << params.size() << "; "
+            << "args.size=" << args.size() << "; "
+            << "\n\tfunc(";
+  for(size_t p=0; p < params.size(); ++p) {
+    std::cout << mdinfo(params[p]) << ", ";
+  }
+  std::cout << ")\n";
+  for(size_t p=0; p < params.size(); ++p) {
+    if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
+			if(tv->isCpuScalar()) {
+				entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
+				entry.arg_ptrs[p] = entry.args[p].data();
+				continue;
+			}
+		}
+    PolymorphicValue pv = expr_eval.evaluate(params[p]);
+
+		entry.arg_ptrs[p] = fill_args(
+			pv,
+			entry,
+			i
+		);
+  }
+#endif
 }
 
 void FusionExecutor::recompileKernel(
@@ -1747,7 +2417,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
 
+  ExpressionEvaluator expr_eval;
+  const std::vector<Val*>& inputs = kernel()->inputs();
+  for (const auto i : c10::irange(inputs.size())) {
+    expr_eval.bind(inputs[i], *args[i]);
+  }
+
   // Initialize the executor entry if not initlized
+  bool initialized = false;
   if (!executor_entry->init) {
     initializeExecutorEntry(
         *executor_entry,
@@ -1756,6 +2433,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         compile_params,
         outputs,
         kernel()->indexType());
+    initialized = true;
   }
 
   recompileKernel(executor_entry->launch_params, compile_params);
@@ -1765,13 +2443,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-
-  ExpressionEvaluator expr_eval;
-  const auto& inputs = kernel()->inputs();
-
-  for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
-  }
 
   const bool measure_kernel_time = measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
@@ -1868,6 +2539,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
+#if !COMPILE_ARGS
   std::vector<std::vector<std::byte>> arg_buffers;
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
@@ -1877,6 +2549,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           getKernelArgument(expr_eval, v, kernel()->indexType()));
     }
   }
+#else
+  if(initialized) {
+    computeArgs(*executor_entry, expr_eval, args, kernel());
+  }
+#endif
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
@@ -1905,11 +2582,16 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
+#if COMPILE_ARGS
+    recomputeArgs(*executor_entry, expr_eval, args, kernel());
+    std::vector<void*> arg_buffer_ptrs = executor_entry->arg_ptrs;
+#else
     std::vector<void*> arg_buffer_ptrs;
     arg_buffer_ptrs.reserve(arg_buffers.size());
     for (auto& arg_buffer : arg_buffers) {
       arg_buffer_ptrs.push_back(arg_buffer.data());
     }
+#endif
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

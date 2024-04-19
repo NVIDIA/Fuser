@@ -23,7 +23,7 @@ if(BUILD_TEST)
             test/typing.cpp
             test/unary_ops.cpp
         )
-        target_include_directories(${target} PUBLIC src)
+        target_include_directories(${target} PRIVATE src)
         target_include_directories(${target} SYSTEM PRIVATE
             ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
             ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include

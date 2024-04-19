@@ -77,7 +77,7 @@ BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
 OVERWRITE_VERSION = False
 VERSION_TAG = None
-BUILD_TYPE = "Release"
+BUILD_TYPE = "Debug"
 WHEEL_NAME = "nvfuser"
 BUILD_DIR = ""
 INSTALL_REQUIRES = []
@@ -113,7 +113,7 @@ for i, arg in enumerate(sys.argv):
         BUILD_TYPE = "Debug"
         continue
     if arg == "--debinfo":
-        BUILD_TYPE = "RelwithDebInfo"
+        BUILD_TYPE = "RelWithDebInfo"
         continue
     if arg.startswith("--build-dir"):
         BUILD_DIR = arg.split("=")[1]
@@ -313,6 +313,9 @@ def cmake(install_prefix: str = "./nvfuser"):
         get_cmake_bin(),
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
+        "-DCMAKE_CUDA_FLAGS_RELWITHDEBINFO=-O0 -g",
+        "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O0 -g",
+        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",

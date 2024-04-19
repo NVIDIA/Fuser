@@ -1,3 +1,4 @@
+#define DEBUG_ARGS 1
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -5,6 +6,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
 #include <c10/util/irange.h>
 
 // Extract size and strides
@@ -14,6 +16,7 @@
 #include <instrumentation.h>
 #include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
+#include <polymorphic_value.h>
 
 namespace nvfuser {
 
@@ -357,23 +360,47 @@ std::vector<std::byte> polymorphicValueToBytes(
   }
 }
 
+inline std::ostream& operator<<(std::ostream& os, const StructHandle& arg) {
+  const StructType typ = arg.type();
+  os << "struct " << typ.name << "{";
+  for(const StructType::FieldInfo& fld : typ.fields) {
+    os << fld.name << ", ";
+  }
+  return os << "}";
+}
+
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
     Val* parameter,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("getKernelArgument");
   NVF_ERROR(parameter != nullptr);
+#if DEBUG_ARGS
+  std::cout << "getKA(" << PolymorphicValue_functions::toString(parameter->value()) << "): ";
+  std::cout.flush();
+#endif
   PolymorphicValue pv = ee.evaluate(parameter);
+#if DEBUG_ARGS
+  std::cout << "pv(" << PolymorphicValue_functions::toString(pv) << "): ";
+  std::cout.flush();
+#endif
   if (auto tv = dynamic_cast<TensorView*>(parameter)) {
     if (tv->isCpuScalar()) {
       return polymorphicValueToBytes(pv, tv->dtype(), index_type);
     } else {
-      auto metadata_val = IrBuilder::metadataExpr(tv);
-      auto metadata = ee.evaluate(metadata_val);
+      const Val* metadata_val = IrBuilder::metadataExpr(tv);
+      const PolymorphicValue& metadata = ee.evaluate(metadata_val);
+#if DEBUG_ARGS
+      //std::cout << "md " << PolymorphicValue_functions::toString(metadata) << "\n";
+      std::cout << "md route\n";
+#endif
       return polymorphicValueToBytes(
           metadata, metadata_val->dtype(), index_type);
     }
   }
+#if DEBUG_ARGS
+  std::cout << "[pv]\n";
+#endif
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
