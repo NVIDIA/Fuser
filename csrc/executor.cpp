@@ -1774,26 +1774,7 @@ FusionExecutor::computeArgs(ExecutorEntry& entry,
   entry.arg_ptrs.resize(params.size());
   const PrimDataType idx_type = kernel->indexType();
   for(size_t p=0; p < params.size(); ++p) {
-#if 0
-    PolymorphicValue pv = expr_eval.evaluate(params[p]);
-    if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
-      if(tv->isCpuScalar()) {
-        entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
-      } else {
-        const Val* metadata_val = IrBuilder::metadataExpr(tv);
-        const PolymorphicValue& metadata = expr_eval.evaluate(metadata_val);
-        assert(metadata.is<StructHandle>() && "Type is not correct");
-        entry.args[p] =
-          polymorphicValueToBytes(metadata, metadata_val->dtype(),
-                                  idx_type);
-      }
-    } else {
-      entry.args[p] = polymorphicValueToBytes(pv, params[p]->dtype(),
-                                              idx_type);
-    }
-#else
     entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
-#endif
     entry.arg_ptrs[p] = entry.args[p].data();
   }
 }
@@ -1828,21 +1809,6 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
   for(size_t p=0; p < params.size(); ++p) {
     PolymorphicValue pv = expr_eval.evaluate(params[p]);
     if(const TensorView* tv = dynamic_cast<TensorView*>(params[p])) {
-      if(tv->isCpuScalar()) {
-        entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
-        entry.arg_ptrs[p] = entry.args[p].data();
-        continue;
-      }
-
-      if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cpu()) {
-        assert(false);
-        const auto& tensor = pv.as<at::Tensor>();
-        assert(tensor.is_cpu());
-        // For CPU tensors, we can just steal the pointer directly.
-        entry.arg_ptrs[p] = tensor.data_ptr();
-        continue; // we're not using entry.args[p] at all in this case.
-      }
-
       if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
         // GPU tensors are similar, but we don't pass them directly; instead
         // we pass a Tensor<type, rank, rank> struct. The pointer and
