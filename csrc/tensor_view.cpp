@@ -805,7 +805,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   return producer;
 }
 
-TensorView* TensorView::multiOutputrFactorHelper(
+TensorView* TensorView::multiOutputRFactorHelper(
     TensorView* tv,
     const std::vector<int64_t>& axes) {
   NVF_ERROR(
@@ -903,13 +903,13 @@ std::vector<TensorView*> TensorView::rFactor(
   //  replayed correctly
   for (const auto i : c10::irange(tvs.size())) {
     if (this != tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputrFactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
   for (const auto i : c10::irange(tvs.size())) {
     if (this == tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputrFactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 

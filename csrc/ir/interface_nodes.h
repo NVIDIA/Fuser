@@ -552,7 +552,7 @@ class NVF_API TensorView : public Val {
 
   //! A helper function to maintain the consistency of schedules of
   //! multiple outputs wheen doing rfactor on multi-output reduction ops.
-  TensorView* multiOutputrFactorHelper(
+  TensorView* multiOutputRFactorHelper(
       TensorView* tv,
       const std::vector<int64_t>& axes);
 
