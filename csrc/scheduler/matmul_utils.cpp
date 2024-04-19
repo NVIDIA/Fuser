@@ -319,27 +319,37 @@ std::string isMatmulFusionDefinitionSupported(
 // that dimension, without merging with another dimension first. Then determine
 // the maximum vectorization that can be used.
 //
+// If the argument has no contiguous dimensions, then a vectorization width of 1
+// is returned.
+//
 // These rows can start at any multiple of the non-contiguous strides, so we
 // seek the largest power of 2 that divides all those other dimensions (capped
 // to 16) as well as the data pointer.
-int64_t maxRowVectorizationOfContigTensor(const at::Tensor& tens) {
-  auto strides = tens.strides().vec();
-  std::sort(strides.begin(), strides.end());
-  NVF_CHECK(
-      strides.front() == 1, "Matmul operand has discontiguous inner dimension");
-  int64_t vec_size = 16ll;
-  while ((size_t)(tens.data_ptr()) % (size_t)vec_size != 0) {
-    vec_size >>= 1;
+int64_t maxRowVectorization(const at::Tensor& tens) {
+  const int64_t data_ptr_int =
+      static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
+  int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
+  vec_size = std::min(vec_size, (int64_t)(16l));
+  vec_size /= (int64_t)tens.element_size();
+  vec_size = std::max(vec_size, 1l);
+  if (vec_size == 1l) {
+    return vec_size;
   }
 
-  for (auto i : c10::irange(1, strides.size())) {
-    if (vec_size == 1) {
+  std::vector<int64_t> strides = tens.strides().vec();
+  std::sort(strides.begin(), strides.end());
+  NVF_ERROR(!strides.empty());
+  if (strides.front() != 1l) {
+    // Tensor is discontiguous
+    return 1l;
+  }
+  strides.erase(strides.begin());
+  for (auto stride_i : strides) {
+    if (vec_size == 1l) {
       break;
     }
-    int64_t stride_i = strides.at(i);
-    while (stride_i % vec_size != 0) {
-      vec_size >>= 1;
-    }
+    vec_size =
+        std::min(vec_size, scheduler_utils::maxVectorizationWidth(stride_i));
   }
 
   return vec_size;
@@ -356,7 +366,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       return 16;
     }
     for (TensorView* tv : it->second) {
-      int64_t v = maxRowVectorizationOfContigTensor(
+      int64_t v = maxRowVectorization(
           runtime_info.expressionEvaluator().evaluate(tv).as<at::Tensor>());
       if (v < vec_size) {
         vec_size = v;
