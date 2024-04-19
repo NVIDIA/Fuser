@@ -182,7 +182,16 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const int smem_double_buffer_stage,
     const RolesMap& roles_map,
     const bool ignore_occupancy_drop) {
-  const auto data_types = getMmaDataTypes(roles_map);
+  auto data_types = getMmaDataTypes(roles_map);
+  // getMmaDataTypes provides the dtypes of INPUT_A, INPUT_B, and OUTPUT_D.
+  // These are the problem types that indicate the gmem IO. We use smem to load
+  // INPUT_A and INPUT_B, but instead of OUTPUT_D which is the result of the
+  // epilogue, we store mma_result which is the _input_ to the epilogue. In
+  // cases where the epilogue contains a cast back down to reduced precision, we
+  // will still use Float for the epilogue smem. If we support Double or
+  // Complex in the future then we might need a better way to determine this
+  // data type.
+  data_types[2] = DataType::Float;
 
   // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
   //   - they are marked for re-use using promoteReuse
