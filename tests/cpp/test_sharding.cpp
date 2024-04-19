@@ -99,6 +99,10 @@ TEST_P(ShardingTest, ComputeIndex) {
   testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(ShardedComputeTest, ShardingTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ShardingTest,
+    testing::Bool(),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
