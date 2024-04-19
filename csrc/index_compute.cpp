@@ -3411,7 +3411,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   std::unordered_set<Val*> allocation_domain_set(
       allocation_domain.begin(), allocation_domain.end());
 
-  // Step 1: Get all bulk IterDomains and originating bulk IterDomains
+  // Step 1: Get all bulk IterDomains and tile IterDomains.
+  // An IterDomain is considered "bulk" if it has parallel type "Bulk" or all
+  // its children are considered "bulk".
+  // A "tile" IterDomain is a bulk IterDomain whose parents are not bulk.
 
   // Get all bulk IterDomains
   std::unordered_set<IterDomain*> bulk_ids;
@@ -3483,52 +3486,60 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     }
   }
 
-  // Get originating bulk IterDomains. Use VectorOfUniqueEntries instead of
-  // std::unordered_set to make the algorithm deterministic. However, the
-  // order here has no meaning, especially, is is not the order specifying which
+  // Get tile IterDomains. Use VectorOfUniqueEntries instead of
+  // std::unordered_set to make the algorithm deterministic. However, the order
+  // here has no meaning, especially, is is not the order specifying which
   // IterDomain is inner and which is outer. The actual order must be determined
   // by propagating from the allocation domain.
-  VectorOfUniqueEntries<IterDomain*> originating_bulk_ids;
+  VectorOfUniqueEntries<IterDomain*> tile_ids;
   for (auto id : pending) {
     if (id == nullptr) {
       continue;
     }
-    originating_bulk_ids.pushBack(id);
+    tile_ids.pushBack(id);
   }
 
-  // Step 2: Get boxId and tmaGlobalId, and innerId for each originating bulk
-  // IterDomain. Similarily, the order of the `tma_global_ids` has no meaning.
-  // We are using a std::vector<Val*> just to make the algorithm deterministic,
-  // not because we care about its order.
+  // Step 2: Get the box, partitioned, and stride IterDomains from each tile
+  // IterDomain. Similarily, the order of the `partitioned_ids` has no meaning.
+  // So `partitioned_ids` contains the same set of IDs as the TMA domain, but
+  // can be in different order. We are using a std::vector<Val*> just to make
+  // the algorithm deterministic, not because we care about its order.
 
-  std::vector<Val*> tma_global_ids;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_box_id;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_orig_bulk_id;
-  std::unordered_map<IterDomain*, IterDomain*> tma_global_id_to_inner_id;
-  for (auto id : originating_bulk_ids) {
-    auto def = dynamic_cast<Split*>(id->definition());
+  std::vector<Val*> partitioned_ids;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_box_id;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_tile_id;
+  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_stride_id;
+  for (auto tile_id : tile_ids) {
+    auto def = dynamic_cast<Split*>(tile_id->definition());
+    Split* striding_split = nullptr;
+    if (def != nullptr && def->outer() == tile_id) {
+      striding_split = def;
+    }
     IterDomain* box_id =
-        (def != nullptr && def->outer() == id ? def->in() : id);
-    IterDomain* inner_id =
-        (def != nullptr && def->outer() == id ? def->inner() : nullptr);
-    auto bdef = dynamic_cast<Split*>(box_id->definition());
-    IterDomain* tma_global_id =
-        (bdef != nullptr && bdef->inner() == box_id ? bdef->in() : box_id);
+        (striding_split != nullptr ? striding_split->in() : tile_id);
+    IterDomain* stride_id =
+        (striding_split != nullptr ? striding_split->inner() : nullptr);
+    Split* boxing_split = dynamic_cast<Split*>(box_id->definition());
+    // TODO: this is not partitioned!
+    IterDomain* partitioned_id =
+        (boxing_split != nullptr && boxing_split->inner() == box_id
+             ? boxing_split->in()
+             : box_id);
 
-    tma_global_ids.push_back(tma_global_id);
-    tma_global_id_to_box_id[tma_global_id] = box_id;
-    tma_global_id_to_orig_bulk_id[tma_global_id] = id;
-    if (inner_id != nullptr) {
-      tma_global_id_to_inner_id[tma_global_id] = inner_id;
+    partitioned_ids.push_back(partitioned_id);
+    partitioned_id_to_box_id[partitioned_id] = box_id;
+    partitioned_id_to_tile_id[partitioned_id] = tile_id;
+    if (stride_id != nullptr) {
+      partitioned_id_to_stride_id[partitioned_id] = stride_id;
     }
   }
 
-  // Stpe 3: Propagate from the allocation domain to TMA-global IterDomains,
-  // compute the order, contiguity, and stride of TMA-global IterDomains. Note
-  // that this order is meaningful, and it is the order that defines which is
-  // inner and which is outer. The strides are also meaningful, and they are the
+  // Stpe 3: Propagate from the allocation domain to the TMA domain, compute the
+  // order, contiguity, and stride of partitioned IterDomains. Note that this
+  // order is meaningful, and it is the order that defines which is inner and
+  // which is outer. The strides are also meaningful, and they are the
   // `globalStrides` of the `cuTensorMapEncodeTiled`. After propagation,
-  // `frontier` will be the TMA domain.
+  // `frontier` will be the TMA domain
 
   std::list<std::tuple<IterDomain*, /*contiguity*/ bool, /*stride*/ Val*>>
       frontier;
@@ -3545,7 +3556,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   }
   // Propagate forward from the allocation domain to TMA-global IterDomains
   for (Expr* expr : DependencyCheck::getAllExprsBetween(
-           allocation_domain_set, tma_global_ids)) {
+           allocation_domain_set, partitioned_ids)) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       auto in = split->in();
       auto in_it =
@@ -3612,23 +3623,23 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       std::get<1>(frontier.back()),
       "The innermost IterDomain of the allocation domain must be contiguous");
 
-  // Validate that frontier is a superset of tma_global_ids, otherwise there is
+  // Validate that frontier is a superset of partitioned_ids, otherwise there is
   // something wrong in the schedule.
   std::unordered_set<IterDomain*> seen;
-  std::unordered_set<Val*> pending_tma_global_ids(
-      tma_global_ids.begin(), tma_global_ids.end());
+  std::unordered_set<Val*> pending_partitioned_ids(
+      partitioned_ids.begin(), partitioned_ids.end());
   for (auto tuple : frontier) {
     auto id = std::get<0>(tuple);
     NVF_ERROR(
         seen.insert(id).second,
         "Mistake in schedule. Duplicate IterDomain found: ",
         id->toString());
-    pending_tma_global_ids.erase(id);
+    pending_partitioned_ids.erase(id);
   }
   NVF_ERROR(
-      pending_tma_global_ids.empty(),
+      pending_partitioned_ids.empty(),
       "The set of all TMA-global IterDomains must a subset of the TMA domain, but ",
-      ir_utils::toString(pending_tma_global_ids),
+      ir_utils::toString(pending_partitioned_ids),
       " is not in the TMA domain.");
 
   // Step 4: Compute the tensor map descriptor and the index
@@ -3756,8 +3767,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
     auto id = std::get<0>(*it);
     bool contiguous = std::get<1>(*it);
-    auto box_id_it = tma_global_id_to_box_id.find(id);
-    if (box_id_it == tma_global_id_to_box_id.end()) {
+    auto box_id_it = partitioned_id_to_box_id.find(id);
+    if (box_id_it == partitioned_id_to_box_id.end()) {
       // non-TMA-global ID
       bool should_create_new_dim = !(state != START && contiguous);
       if (should_create_new_dim) {
@@ -3801,15 +3812,15 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         }
         box_sizes_inner_to_outer.push_back(box_id_it->second->extent());
 
-        auto inner_it = tma_global_id_to_inner_id.find(id);
+        auto inner_it = partitioned_id_to_stride_id.find(id);
         if (it == frontier.rbegin()) {
           NVF_ERROR(
-              inner_it == tma_global_id_to_inner_id.end(),
+              inner_it == partitioned_id_to_stride_id.end(),
               "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
               "(this is always the case for nvFuser now)",
               ", the first element of elementStrides must be one");
         }
-        if (inner_it != tma_global_id_to_inner_id.end()) {
+        if (inner_it != partitioned_id_to_stride_id.end()) {
           element_strides_inner_to_outer.push_back(inner_it->second->extent());
         } else {
           element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
@@ -3883,7 +3894,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   // Note that we need to use the extents of the originating bulk IterDomains
   // to compute the expected bytes, not the extents of the box IterDomains.
   // They are different when element strides are not 1.
-  for (auto id : originating_bulk_ids) {
+  for (auto id : tile_ids) {
     expected_bytes =
         SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
   }
