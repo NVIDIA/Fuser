@@ -129,7 +129,7 @@ def test_dropout_layernorm_fwd_nvf_benchmark(
         dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
 
         # dropout + add
-        x = inputs[2] + torch.nn.functional.dropout(inputs[1], p=0.0)
+        x = inputs[1] + torch.nn.functional.dropout(inputs[0], p=0.0)
         # layernorm
         eager_output = torch.nn.functional.layer_norm(
             x.to(torch.float),

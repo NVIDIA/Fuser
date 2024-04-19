@@ -130,7 +130,7 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
         dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
 
         x = input2.to(torch.double) + torch.nn.functional.dropout(
-            input1.to(torch.double), p=dropout_p
+            input1.to(torch.double), p=0.0
         )
         rms_eps = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps)
         eager_output = weights.to(torch.double) * (x / rms_eps)
