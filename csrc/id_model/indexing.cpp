@@ -100,7 +100,7 @@ IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-std::vector<IterDomain*> getLoopDomains(Expr* expr, const IdModel& id_model) {
+std::vector<IterDomain*> getLoopDomains(const Expr* expr, const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   // Assume consumer-based indexing. Needs to revisit for ops like
@@ -118,7 +118,7 @@ std::vector<IterDomain*> getLoopDomains(Expr* expr, const IdModel& id_model) {
   return loop_domains;
 }
 
-bool isAllocated(IterDomain* id, TensorView* tv) {
+bool isAllocated(IterDomain* id, const TensorView* tv) {
   // If the extent is 1, it's effectively the same as broadcast.
   return ir_utils::isShared(tv->getMemoryType(), id->getParallelType()) &&
       !id->isBroadcast() && !id->isReduction() && !id->extent()->isOneInt();
@@ -146,7 +146,7 @@ namespace {
 
 std::optional<std::vector<IterDomain*>>
 getAllocationDomainOfTransposedSmemTensor(
-    TensorView* tv,
+    const TensorView* tv,
     const ValGraph& exact_graph) {
   if (tv->getMemoryType() != MemoryType::Shared) {
     return std::nullopt;
@@ -255,7 +255,7 @@ getAllocationDomainOfTransposedSmemTensor(
 
 std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     TensorView* tv,
-    Expr* expr,
+    const Expr* expr,
     const IdModel& id_model) {
   // TODO: Contig merged indexing
 
@@ -485,9 +485,9 @@ ExprGroups getExprsBetween(
   return exprs;
 }
 
-class IndexCompute : public OptOutDispatch {
+class IdGraphIndexCompute : public OptOutDispatch {
  public:
-  IndexCompute(
+  IdGraphIndexCompute(
       const ValGraph& exact_graph,
       const std::unordered_map<ValGroup, Val*>& initial_index_map)
       : exact_graph_(exact_graph), index_map_(initial_index_map) {}
@@ -515,12 +515,12 @@ class IndexCompute : public OptOutDispatch {
   std::unordered_map<ValGroup, Val*> index_map_;
 };
 
-void IndexCompute::propagate(const ExprGroup& expr_group) {
+void IdGraphIndexCompute::propagate(const ExprGroup& expr_group) {
   NVF_ERROR(!expr_group->empty());
   dispatch(expr_group->front());
 }
 
-bool IndexCompute::hasIndex(IterDomain* id) const {
+bool IdGraphIndexCompute::hasIndex(IterDomain* id) const {
   // If it's a broadcast, its index is always zero.
   if (id->isBroadcast()) {
     return true;
@@ -529,7 +529,7 @@ bool IndexCompute::hasIndex(IterDomain* id) const {
   return index_map_.find(id_group) != index_map_.end();
 }
 
-Val* IndexCompute::getIndex(IterDomain* id) const {
+Val* IdGraphIndexCompute::getIndex(IterDomain* id) const {
   // If it's a broadcast, its index is always zero.
   if (id->isBroadcast()) {
     return id->fusion()->zeroVal();
@@ -540,7 +540,7 @@ Val* IndexCompute::getIndex(IterDomain* id) const {
   return it->second;
 }
 
-void IndexCompute::setIndex(IterDomain* id, Val* idx) {
+void IdGraphIndexCompute::setIndex(IterDomain* id, Val* idx) {
   std::cerr << "setIndex: " << id->name() << " -> " << idx->toInlineString()
             << std::endl;
   const ValGroup& id_group = exact_graph_.toGroup(id);
@@ -565,7 +565,7 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
 #endif
 }
 
-bool IndexCompute::isForward(Expr* expr) const {
+bool IdGraphIndexCompute::isForward(Expr* expr) const {
   bool ready = true;
   for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
     if (!hasIndex(inp)) {
@@ -586,10 +586,10 @@ bool IndexCompute::isForward(Expr* expr) const {
   return false;
 }
 
-void IndexCompute::handle(Split* split) {
+void IdGraphIndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
 
-  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
             << "): " << split->toString();
 
   if (is_forward) {
@@ -609,10 +609,10 @@ void IndexCompute::handle(Split* split) {
   }
 }
 
-void IndexCompute::handle(Merge* merge) {
+void IdGraphIndexCompute::handle(Merge* merge) {
   const bool is_forward = isForward(merge);
 
-  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
             << "): " << merge->toString();
 
   // TODO: use getMaybeExpandedExtent?
@@ -633,10 +633,10 @@ void IndexCompute::handle(Merge* merge) {
   }
 }
 
-void IndexCompute::handle(Resize* resize) {
+void IdGraphIndexCompute::handle(Resize* resize) {
   const bool is_forward = isForward(resize);
 
-  VERBOSE() << "IndexCompute handle (" << (is_forward ? "fwd" : "bwd")
+  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
             << "): " << resize->toString();
 
   auto left_expand = resize->leftExpand();
@@ -851,7 +851,7 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
 // domains
 Val* TensorIndexer::getIndex(
     TensorView* tv,
-    Expr* expr,
+    const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
   // const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   const ValGraph& almost_exact_graph =
@@ -999,7 +999,7 @@ Val* TensorIndexer::getIndex(
         loop_index->toInlineString());
   }
 
-  IndexCompute index_compute(index_graph, initial_index_map);
+  IdGraphIndexCompute index_compute(index_graph, initial_index_map);
 
   for (const auto& expr_group : indexing_path) {
     index_compute.propagate(expr_group);
@@ -1035,8 +1035,8 @@ Val* TensorIndexer::getIndex(
 
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     TensorView* tv,
-    Expr* expr,
-    kir::ForLoop* for_loop,
+    const Expr* expr,
+    const kir::ForLoop* for_loop,
     Val* loop_index) const {
   NVF_ERROR(for_loop != nullptr);
 
@@ -1195,6 +1195,13 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   }
 
   return true;
+}
+
+std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
+    TensorView* tv,
+    const Expr* expr,
+    const std::optional<std::vector<kir::ForLoop*>>& loops) {
+  return {};
 }
 
 } // namespace nvfuser

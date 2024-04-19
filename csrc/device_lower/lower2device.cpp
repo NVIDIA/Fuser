@@ -497,6 +497,14 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate")) {
+    if (TensorIndexer::isSupported(fusion_)) {
+      tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    }
+  }
 }
 
 kir::Kernel* GpuLower::kernel() const {

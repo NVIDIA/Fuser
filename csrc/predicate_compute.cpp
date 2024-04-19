@@ -381,12 +381,20 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+  std::vector<RootPredicateInfo> pred_info_vec;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate")) {
+    pred_info_vec = gpu_lower->tensorIndexer().getPredicates(
+        out_tv,
+        expr,
+        loops);
+  } else {
+    pred_info_vec = Index::getReferenceRootPredicates(
+        out_tv,
+        loops,
+        rotated_loops,
+        nullptr,
+        pred_type == PredicateType::Padding);
+  }
 
   std::vector<Val*> preds;
 
@@ -442,6 +450,8 @@ Val* PredicateCompute::getInlinePredicate(
   for (const auto i : c10::irange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
+
+  std::cerr << "Predicate: " << cond->toInlineString() << std::endl;
 
   RECORD_AND_RETURN(cond);
 }

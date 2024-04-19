@@ -30,8 +30,8 @@ TEST_F(IndexingTest, Test1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // int w = 3, x = 4, y = 7, z = 8;
-  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int w = 3, x = 4, y = 7, z = 8;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto tv0 = makeSymbolicTensor(3);
   auto tv1 = makeSymbolicTensor(4);
@@ -66,24 +66,6 @@ TEST_F(IndexingTest, Test1) {
   fusion.print();
   fusion.printKernel();
 
-  IdModel id_model(&fusion);
-  TensorIndexer indexing(id_model);
-
-  for (auto expr : fusion.exprs()) {
-    std::cerr << expr->toString();
-
-    for (auto tv_out : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      std::cerr << "Consumer indexing of " << tv_out->toString() << std::endl;
-      indexing.getIndex(tv_out, expr);
-    }
-    for (auto tv_inp : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      std::cerr << "Producer indexing of " << tv_inp->toString() << std::endl;
-      indexing.getIndex(tv_inp, expr);
-    }
-  }
-
-#if 0
-
   FusionExecutor fe;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
@@ -95,7 +77,6 @@ TEST_F(IndexingTest, Test1) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
-#endif
 }
 
 TEST_F(IndexingTest, TMP) {
@@ -1423,6 +1404,42 @@ TEST_F(IndexingTest, Reshape2) {
 
   IdModel id_model(&fusion, true, false, false);
 
+}
+
+TEST_F(IndexingTest, Simple1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv1);
+
+  fusion.printKernel();
+}
+
+TEST_F(IndexingTest, Simple2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  tv2->split(0, 4);
+  tv3->split(0, 8);
+
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
 }
 
 } // namespace nvfuser

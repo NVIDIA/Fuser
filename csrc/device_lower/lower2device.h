@@ -25,6 +25,7 @@
 #include <executor_params.h>
 #include <expr_simplifier.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -114,6 +115,11 @@ class GpuLower : public NonCopyable {
   const IdModel& idModel() const {
     NVF_ERROR(id_model_.get());
     return *id_model_;
+  }
+
+  TensorIndexer& tensorIndexer() const {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
   }
 
   std::shared_ptr<const HaloInfo> haloInfo() const {
@@ -336,6 +342,7 @@ class GpuLower : public NonCopyable {
   Fusion* fusion_ = nullptr;
 
   std::unique_ptr<IdModel> id_model_;
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
 };
 
 } // namespace nvfuser

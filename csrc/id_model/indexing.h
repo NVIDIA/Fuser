@@ -12,6 +12,9 @@
 #include <ir/interface_nodes.h>
 #include <type.h>
 
+// Just for RootPredicateInfo. Should be moved to its own header file
+#include <index_compute.h>
+
 #include <unordered_map>
 
 namespace nvfuser {
@@ -26,7 +29,12 @@ class TensorIndexer {
   // needed before the double buffering pass
   Val* getIndex(
       TensorView* tv,
-      Expr* expr,
+      const Expr* expr,
+      const std::optional<std::vector<kir::ForLoop*>>& loops);
+
+  std::vector<RootPredicateInfo> getPredicates(
+      TensorView* tv,
+      const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops);
 
   static bool isSupported(Fusion* fusion);
@@ -36,8 +44,8 @@ class TensorIndexer {
 
   Val* adjustProducerLoopIndexForDoubleBuffering(
       TensorView* tv,
-      Expr* expr,
-      kir::ForLoop* for_loop,
+      const Expr* expr,
+      const kir::ForLoop* for_loop,
       Val* loop_index) const;
 
   Val* adjustIndexToSwitchBuffer(
