@@ -50,6 +50,7 @@ class FusionExecutor : public NonCopyable {
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
     bool zero_init = false;
+    bool resets_to_zero = false;
     bool is_profile_buffer = false;
   };
 
@@ -74,7 +75,8 @@ class FusionExecutor : public NonCopyable {
   //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
-      const KernelArgumentHolder& args);
+      const KernelArgumentHolder& args,
+      PrecomputedValues* evaluator_precomputed_values = nullptr);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated

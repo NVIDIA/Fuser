@@ -49,7 +49,6 @@ find_package(pybind11 REQUIRED)
 
 # need this since the pytorch execution uses a different name
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 
 # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
@@ -79,57 +78,22 @@ endif()
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
-  ${NVFUSER_SRCS_DIR}/compute_at.cpp
-  ${NVFUSER_SRCS_DIR}/inlining.cpp
-  ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/compute_at.cpp
+  ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
-  ${NVFUSER_SRCS_DIR}/dispatch.cpp
-  ${NVFUSER_SRCS_DIR}/driver_api.cpp
-  ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
-  ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
-  ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
-  ${NVFUSER_SRCS_DIR}/exceptions.cpp
-  ${NVFUSER_SRCS_DIR}/executor.cpp
-  ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
-  ${NVFUSER_SRCS_DIR}/executor_params.cpp
-  ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
-  ${NVFUSER_SRCS_DIR}/executor_utils.cpp
-  ${NVFUSER_SRCS_DIR}/fusion.cpp
-  ${NVFUSER_SRCS_DIR}/global_allocator.cpp
-  ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
-  ${NVFUSER_SRCS_DIR}/index_compute.cpp
-  ${NVFUSER_SRCS_DIR}/instrumentation.cpp
-  ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
-  ${NVFUSER_SRCS_DIR}/ir/builder.cpp
-  ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
-  ${NVFUSER_SRCS_DIR}/ir/container.cpp
-  ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
-  ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
-  ${NVFUSER_SRCS_DIR}/ir/utils.cpp
-  ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
-  ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
-  ${NVFUSER_SRCS_DIR}/kernel.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/shift.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/allocation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
@@ -137,7 +101,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/inline_ptx.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
@@ -145,15 +109,52 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/inline_ptx.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/unroll.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/vectorize_welford.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/warp_reduce.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/utils.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
+  ${NVFUSER_SRCS_DIR}/dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/driver_api.cpp
+  ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
+  ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
+  ${NVFUSER_SRCS_DIR}/exceptions.cpp
+  ${NVFUSER_SRCS_DIR}/executor.cpp
+  ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
+  ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/fusion.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/global_allocator.cpp
+  ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
+  ${NVFUSER_SRCS_DIR}/index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/inlining.cpp
+  ${NVFUSER_SRCS_DIR}/instrumentation.cpp
+  ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/builder.cpp
+  ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
+  ${NVFUSER_SRCS_DIR}/ir/container.cpp
+  ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
+  ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
+  ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/utils.cpp
+  ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
+  ${NVFUSER_SRCS_DIR}/kernel.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
@@ -173,33 +174,41 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
   ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
-  ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
+  ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
-  ${NVFUSER_SRCS_DIR}/type_promotion.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
   ${NVFUSER_SRCS_DIR}/tma.cpp
@@ -208,17 +217,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/transform_rfactor.cpp
   ${NVFUSER_SRCS_DIR}/transform_view.cpp
   ${NVFUSER_SRCS_DIR}/type.cpp
+  ${NVFUSER_SRCS_DIR}/type_promotion.cpp
   ${NVFUSER_SRCS_DIR}/utils.cpp
-  ${NVFUSER_SRCS_DIR}/mma_type.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
 )
@@ -511,10 +511,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
@@ -571,10 +574,9 @@ if(BUILD_TEST)
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_resharding.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
@@ -584,12 +586,12 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_combine_mul_sum.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
@@ -606,8 +608,8 @@ if(BUILD_TEST)
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
     list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_definition.cpp
       ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_definition.cpp
       ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
@@ -634,27 +636,27 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmarks/cpp/batch_norm_channels_last_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/bert.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/broadcast.cpp
-    ${NVFUSER_ROOT}/benchmarks/cpp/gelu_backward_reduction.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/gelu_backward.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/gelu_backward_reduction.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/heuristic_cache.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/heuristic_lookup.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/indexselect.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/instance_norm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm_fused.cpp
-    ${NVFUSER_ROOT}/benchmarks/cpp/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/lstm_cell.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/main.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/matmul.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/reduction.cpp
-    ${NVFUSER_ROOT}/benchmarks/cpp/rms_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/rms_norm.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/rms_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/scale_bias_relu.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmarks/cpp/softmax.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/softmax_backward.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/softmax_dropout.cpp
-    ${NVFUSER_ROOT}/benchmarks/cpp/softmax.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/timm.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/transpose.cpp
     ${NVFUSER_ROOT}/benchmarks/cpp/utils.cpp
@@ -699,7 +701,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
-  ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/bit.cu
   ${NVFUSER_ROOT}/runtime/block_reduction.cu
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
@@ -708,6 +709,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
+  ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/fused_reduction.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
@@ -737,7 +739,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   get_filename_component(filename ${src} NAME_WE)
   set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
   add_custom_command(
-    COMMENT "Stringify NVFUSER runtime source file"
+    COMMENT "Stringify NVFUSER runtime source file ${src}"
     OUTPUT ${dst}
     DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
     COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
@@ -745,10 +747,13 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
   add_dependencies(codegen_internal nvfuser_rt_${filename})
 
-  # also generate the resource headers during the configuration step
-  # (so tools like clang-tidy can run w/o requiring a real build)
-  execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  # Do not overwrite resource header if it already exists. This avoids unnecessary rebuilds.
+  # If ${dst} doesn't exist, this `if` is also true, so header will be generated.
+  if (${src} IS_NEWER_THAN ${dst})
+    # also generate the resource headers during the configuration step
+    # (so tools like clang-tidy can run w/o requiring a real build)
+    execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+  endif()
 endforeach()
 
 target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include")

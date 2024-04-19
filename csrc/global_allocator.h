@@ -11,10 +11,10 @@
 
 namespace nvfuser {
 
-//! This returns a slice of a thread local at::Tensor that is zeroed. Uses of
-//! this memory should always "clean up" by resetting the memory to zero at the
-//! end of the kernel.
-at::Tensor contigZeroTensor(
+//! This returns a slice of a thread local at::Tensor that contains all zeroes.
+//! Uses of this memory should always "clean up" by resetting the memory to zero
+//! at the end of the kernel.
+at::Tensor contigZeroedTensor(
     const std::vector<int64_t>& sizes,
     const c10::ScalarType& aten_dtype,
     const c10::Device& device);

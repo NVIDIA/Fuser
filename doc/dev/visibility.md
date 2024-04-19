@@ -1,4 +1,10 @@
-# Symbol visibility
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
+# Symbol Visibility
 
 [Symbol visibility](https://gcc.gnu.org/wiki/Visibility) is a feature of
 compilers that allows fine-grained control over which symbols are exposed from

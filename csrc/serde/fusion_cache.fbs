@@ -212,6 +212,7 @@ table GlobalBufferInfo {
   strides : [long];
   dtype : long;
   zero_init : bool;
+  resets_to_zero : bool;
   is_profile_buffer : bool;
   is_fusion_output : bool;
 }

@@ -1824,7 +1824,7 @@ class TestNvFuserFrontend(TestCase):
             )
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
 
-            # Attemp to get strings for inputs that do not heuristically match
+            # Attempt to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.cuda_code_for(big_inputs)
@@ -2382,7 +2382,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         inputs_nt = [
-            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, k]),
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
             inputs_tt[1].clone(),
         ]
 
@@ -2394,8 +2394,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inps[0])
             t1 = fd.from_pytorch(inps[1])
             t2 = fd.ops.matmul(t0, t1)
-            t3 = fd.ops.cast(t2, dtype=DataType.Half)
-            fd.add_output(t3)
+            fd.add_output(t2)
 
         for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
             nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import ctypes
 import gc
 import pytest_benchmark
@@ -136,6 +139,11 @@ def clear_cuda_cache() -> None:
     ):
         gc.collect()
         torch.cuda.empty_cache()
+
+
+# Backward function for torch baseline benchmarks.
+def unary_bwd_torch(inputs: List):  # [output, grad_out]
+    inputs[0].backward(inputs[1], retain_graph=True)
 
 
 class NVFBenchmark:

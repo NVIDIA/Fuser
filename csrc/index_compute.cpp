@@ -3309,21 +3309,27 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 
 } // namespace
 
+// TODO: we do not support "define box by compositing" yet.
+// WIP PR: https://github.com/NVIDIA/Fuser/pull/1991
+//
+// See doc/dev/tma.md for definitions of terms. These terms include:
+// partitioned IterDomain, box IterDomain, coordinate IterDomain, tile
+// IterDomain, stride IterDomain, boxing split, striding split, element stride.
+//
 // Analyze the schedule of the gmem tensor (for TMA load, it needs to be
 // replayed as its consumer) and create IR nodes that compute the N-dimensional
 // coordinate and the tensor map descriptor. Also return the byte of transfer.
-// We first need to find the TMA domain based on the schedule, which is done by
-// finding originating bulk IterDomains first and analyze their definitions.
-// After finding all these IterDomains we are interested in, we can compute the
-// quantities easily: The N-dimensional coordinate is just the indices of the
-// TMA domain in the index map. To compute the tensor map descriptor, we need to
-// find the box dims, the element strides, global dims, and global strides. The
-// box dims are the extents of the box IterDomains. The element strides are
-// either 1 or the extents of the inner IterDomains if any. The global dims are
-// the extents of IterDomains in the TMA domain. The global strides are inferred
-// based on IterDomain expressions between the allocation domain and TMA domain.
-// The byte of transfer is the product of extents of originating bulk
-// IterDomains.
+// We first need to infer the TMA domain based on the schedule, which is done by
+// finding tile IterDomains first and analyze their definitions. After finding
+// all these IterDomains we are interested in, we can compute the quantities
+// easily: The N-dimensional coordinate is just the indices of the TMA domain in
+// the index map. To compute the tensor map descriptor, we need to find the box
+// dims, the element strides, global dims, and global strides. The box dims are
+// the extents of the box IterDomains. The element strides are either implicitly
+// one or the extents of the stride IterDomains if any. The global dims are the
+// extents of partitioned IterDomains. The global strides are inferred based on
+// IterDomain expressions between the allocation domain and TMA domain. The byte
+// of transfer is the product of extents of tile IterDomains.
 std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     TensorView* producer_tv,
     TensorView* consumer_tv,
@@ -3418,8 +3424,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // Get all bulk IterDomains
   std::unordered_set<IterDomain*> bulk_ids;
-  // Bulk IterDomains that we need to check its definition to see if it is an
-  // originating bulk IterDomain.
+  // Bulk IterDomains that we need to check its definition to see if it is a
+  // tile IterDomain.
   std::deque<IterDomain*> pending;
   pending.push_back(nullptr); // use nullptr as a checkpoint
   // Start from leaf domain, where all the bulk IterDomains in the leaf domain
@@ -3448,7 +3454,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       } else {
         // We have visited all IterDomains in pending for one round, but nothing
         // has changed. This means that all IterDomains in pending are
-        // originating bulk IterDomains, so we can no longer propagate further.
+        // tile IterDomains, so we can no longer propagate further.
         break;
       }
     }
@@ -3482,6 +3488,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         }
       }
     } else {
+      // Not all outputs of def are bulk IterDomains, this could be because:
+      // 1. id is a tile IterDomain
+      // 2. id is not a tile IterDomain, we just haven't visited def's other
+      //    outputs yet.
       pending.push_back(id);
     }
   }
@@ -3554,7 +3564,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     auto stride = IrBuilder::getItemExpr(alloc_strides, i);
     frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
   }
-  // Propagate forward from the allocation domain to TMA-global IterDomains
+  // Propagate forward from the allocation domain to partitioned IterDomains
   for (Expr* expr : DependencyCheck::getAllExprsBetween(
            allocation_domain_set, partitioned_ids)) {
     if (auto split = dynamic_cast<Split*>(expr)) {
@@ -3565,7 +3575,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           in_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           in->toString(),
           " is not on the path.");
       Val* is_divisible = SimplifyingIrBuilder::eqExpr(
@@ -3593,14 +3603,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
           });
       NVF_ERROR(
           outer_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           outer->toString(),
           " is not on the path.");
       auto inner = merge->inner();
       auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
-          "The set of all TMA-global IterDomains must be equivalent to the allocation domain, but ",
+          "The TMA domain must be equivalent to the allocation domain, but ",
           inner->toString(),
           " is not on the path.");
       NVF_ERROR(
@@ -3614,14 +3624,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     } else {
       NVF_ERROR(
           false,
-          "Unsupported expression between the allocation domain and the TMA-global IterDomains: ",
+          "Unsupported expression between the allocation domain and the partitioned IterDomains: ",
           expr->toString());
     }
   }
 
   NVF_ERROR(
       std::get<1>(frontier.back()),
-      "The innermost IterDomain of the allocation domain must be contiguous");
+      "The innermost IterDomain of the TMA domain must be contiguous");
 
   // Validate that frontier is a superset of partitioned_ids, otherwise there is
   // something wrong in the schedule.
@@ -3891,7 +3901,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   // Step 5: Compute the expected bytes for the complete_tx mechanism
 
   Val* expected_bytes = IrBuilder::create<Val>(itemsize, DataType::Index);
-  // Note that we need to use the extents of the originating bulk IterDomains
+  // Note that we need to use the extents of the tile IterDomains
   // to compute the expected bytes, not the extents of the box IterDomains.
   // They are different when element strides are not 1.
   for (auto id : tile_ids) {

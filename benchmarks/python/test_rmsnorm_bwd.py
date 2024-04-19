@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def rmsnorm_bwd_fusion(
@@ -66,9 +70,19 @@ def rmsnorm_bwd_fusion(
     fd.add_output(T25)
 
 
+def rmsnorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOBytes computation since nvfuser input/outputs (in_tensor, grad_out, rms, weigts, grad_in, grad_weights) differ from baselines (out, grad_out)
+    # Total IO bytes = in_tensor (size, dtype) + grad_out (size, dtype) + rms_eps(size[0], float) + weights (size[1], dtype) +
+    #       grad_in (size, dtype) + grad_weights (size[1], dtype)
+    return int(
+        dtype.itemsize * (3 * np.prod(size) + 2 * size[1])
+        + torch.float.itemsize * size[0]
+    )
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_rmsnorm_bwd_benchmark(
+def test_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -78,8 +92,8 @@ def test_rmsnorm_bwd_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
-    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     squared_mean = (inputs.to(torch.float) ** 2).mean(1, keepdim=True)
@@ -97,3 +111,31 @@ def test_rmsnorm_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, rms_eps, grads, weights])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_rmsnorm_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+
+    squared_mean = (inputs**2).mean(1, keepdim=True)
+    rms_eps = torch.sqrt(squared_mean + 1e-5)
+    output = weights * (inputs / rms_eps)
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [output, grads],
+        iobytes=rmsnorm_bwd_iobytes(size, dtype),
+    )

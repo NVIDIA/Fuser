@@ -203,6 +203,7 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<int64_t> start_offsets(out_domain.size(), 0);
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
+  std::vector<bool> extent_is_from_symbolic(out_domain.size(), true);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
   std::vector<std::optional<IterType>> iter_types(
       out_domain.size(), std::nullopt);
@@ -222,6 +223,13 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
               promoteSize(expanded_extent_vals[i], dom[i]->expandedExtent());
         }
         continue;
+      }
+      if (extent_is_from_symbolic[i] && !dom[i]->isSymbolic()) {
+        // We prefer to use extents from non-Symbolic inputs if there are any
+        // because they might indicate a broadcast axis that is resolved in this
+        // op.
+        extent_vals[i] = dom[i]->extent();
+        extent_is_from_symbolic[i] = false;
       }
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
       if (iter_types[i].has_value()) {
@@ -411,6 +419,29 @@ Val* getMaximumValue(DataType v) {
       NVF_CHECK(false, "Could not generate a max op for tensor with type: ", v);
   }
   return nullptr;
+}
+
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims) {
+  std::vector<unsigned int> uint_axes;
+  uint_axes.reserve(axes.size());
+  std::transform(
+      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
+        if (axis < 0) {
+          axis += (int)ndims;
+        }
+
+        NVF_CHECK(
+            axis >= 0 && axis < (int)ndims,
+            "Reduction on invalid axis, received: ",
+            axis,
+            " however tensor view only has ",
+            ndims,
+            " non-reduction dims.");
+        return axis;
+      });
+  return uint_axes;
 }
 
 } // namespace ops

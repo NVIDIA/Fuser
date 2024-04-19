@@ -658,6 +658,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     T1[0LL]
        = T4[(3LL * ((1LL + i8) % 5LL))];
   }
+  asm volatile("cp.async.wait_all;\n");
 }
 )";
   assertCUDAKernel(&fusion, expected_kernel);

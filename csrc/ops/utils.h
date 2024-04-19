@@ -53,5 +53,9 @@ Val* getMinimumValue(DataType v);
 //   true for bool.
 Val* getMaximumValue(DataType v);
 
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims);
+
 } // namespace ops
 } // namespace nvfuser

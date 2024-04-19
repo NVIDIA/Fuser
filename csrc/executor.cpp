@@ -1317,6 +1317,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
+    info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
     // as well as halo. Currently, allocation of tensors with halo is
     // only supported by inferShapeOfIntermediate, whereas expanded
@@ -1404,15 +1405,21 @@ void FusionExecutor::setUsedTVs() {
 
 KernelArgumentHolder FusionExecutor::inferOutputSizes(
     Fusion* fusion,
-    const KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args,
+    PrecomputedValues* evaluator_precomputed_values) {
   FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
-  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
-      std::make_unique<PrecomputedValues>(fusion);
-  evaluator_precomputed_values->bindInputs(args);
-  evaluator_precomputed_values->evaluate();
-
   ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
+  if (evaluator_precomputed_values == nullptr) {
+    evaluator_precomputed_values_up =
+        std::make_unique<PrecomputedValues>(fusion);
+    evaluator_precomputed_values_up->bindInputs(args);
+    evaluator_precomputed_values_up->evaluate();
+    evaluator_precomputed_values = evaluator_precomputed_values_up.get();
+  }
+  NVF_ERROR(evaluator_precomputed_values != nullptr);
+  expr_eval.precomputedValues() = evaluator_precomputed_values;
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
 
@@ -1535,8 +1542,10 @@ void dumpKernelArgs(
   for (const auto i : c10::irange(intermediates.size())) {
     const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
+    const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
-            << " is_zero_initialized: " << zero_init << std::endl;
+            << " is_zero_initialized: " << zero_init
+            << " resets_to_zero: " << resets_to_zero << std::endl;
   }
 }
 
@@ -1671,6 +1680,17 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
       getStaticSmemSize() + dynamic_smem_size,
       ". Device limit size: ",
       device_smem_limit_);
+  // If specified, check that dynamic smem size matches what the scheduler
+  // expects
+  int64_t expected_dynamic_smem_size = fusion_->expectedDynamicSmemBytes();
+  if (expected_dynamic_smem_size >= 0) {
+    NVF_ERROR(
+        dynamic_smem_size == expected_dynamic_smem_size,
+        "Actual dynamic smem allocation ",
+        dynamic_smem_size,
+        " does not match expected size ",
+        expected_dynamic_smem_size);
+  }
 }
 
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
@@ -1810,8 +1830,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
-        if (isOptionEnabled(EnableOption::ReuseZeroedMemory)) {
-          intermediate_buffer = contigZeroTensor(
+        if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
+            buf_info.resets_to_zero) {
+          // Allow access to reusable zeroed memory if buffer is guaranteed
+          // to reset to zero upon completion of the kernel, or if we have
+          // enabled the option (unsafe)
+          intermediate_buffer = contigZeroedTensor(
               unexpanded_sizes, buf_info.type, options_.device);
         } else {
           intermediate_buffer = at::zeros(
@@ -1967,9 +1991,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
-  if (isOptionEnabled(EnableOption::ReuseZeroedMemory)) {
-    releaseZeroedMemory();
-  }
+  releaseZeroedMemory();
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
@@ -2253,6 +2275,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       &data.strides,
       nvfuser::toUnderlying(data.type),
       data.zero_init,
+      data.resets_to_zero,
       data.is_profile_buffer,
       is_fusion_output);
 }
@@ -2387,6 +2410,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
 
   info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
+  info.resets_to_zero = buffer->resets_to_zero();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
 }
