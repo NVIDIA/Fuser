@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
@@ -38,7 +39,8 @@ class IndexingTraversal : public ValGraphBFS {
   bool isVisited(const GroupType& group) const override {
     if (const ValGroup* vg = std::get_if<ValGroup>(&group);
         vg != nullptr && (*vg)->front()->as<IterDomain>()->isBroadcast()) {
-      return true;
+      std::cerr << "Visited as it's broadcast" << std::endl;
+      //return true;
     }
     return ValGraphBFS::isVisited(group);
   }
@@ -525,6 +527,11 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
   std::cerr << "setIndex: " << id->name() << " -> " << idx->toInlineString()
             << std::endl;
   const ValGroup& id_group = exact_graph_.toGroup(id);
+  // Due to AlmostExact cycles, can't guarantee the same group is
+  // visited only once
+#if 1
+  index_map_.emplace(id_group, idx);
+#else
   NVF_ERROR(
       index_map_.emplace(id_group, idx).second,
       "Index already set: ",
@@ -538,6 +545,7 @@ void IndexCompute::setIndex(IterDomain* id, Val* idx) {
       ", (",
       idx->toInlineString(),
       ")");
+#endif
 }
 
 bool IndexCompute::isForward(Expr* expr) const {
@@ -737,10 +745,7 @@ void TensorIndexer::buildLoopIndexMap() {
     auto leaf_id =
         getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
     if (!leaf_id->maybePartial() &&
-        GpuLower::current()
-            ->commonScalarMap()
-            .hoistScalar(leaf_id->extent(), {})
-            ->isOneInt()) {
+        simplifyExpr(leaf_id->extent())->isOneInt()) {
       return true;
     }
 
@@ -1016,6 +1021,8 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     Expr* expr,
     kir::ForLoop* for_loop,
     Val* loop_index) const {
+  NVF_ERROR(for_loop != nullptr);
+
   // Double-buffered tensor itself does not need this adjustment
   if (tv->isDoubleBuffered() &&
       id_model_.idGraph(IdMappingMode::LOOP)

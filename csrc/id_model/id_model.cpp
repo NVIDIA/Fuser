@@ -517,10 +517,18 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
+    // Merge with broadcast should be always trivial. Repro1713 has a
+    // merge with a broadcast domain of extent 32. If not trivial, an
+    // index for the extent-32 broadcast domain is required, but
+    // there's no index for the broadcast domain. We may also want to
+    // consider making broadcast domains always having a size-1
+    // extent.
+    if (merge->inner()->extent()->isOneInt() ||
+        merge->inner()->isBroadcast()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt() ||
+        merge->outer()->isBroadcast()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
@@ -727,22 +735,23 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_root = producer_tv->getMaybeRFactorDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
-          ca_deps_filter.begin(), ca_deps_filter.end());
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+
+        // Grab all iteration domains in producer that its compute at iter domains
+        // depend on.
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_root.begin(), producer_root.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputePosition(consumer_tv)});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
         auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
 
@@ -812,6 +821,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       const VectorOfUniqueEntries<Val*>& sibling_ids = entry_it->second;
       for (Val* sibling_id : sibling_ids) {
         idGraph(IdMappingMode::LOOP).mapVals(id, sibling_id);
+        std::cerr << "LOOP map: " << id->name() << ", " << sibling_id->name() << std::endl;
       }
     }
   }
@@ -1266,7 +1276,7 @@ void IdModel::buildAllGraphs() {
           idGraph(IdMappingMode::ALMOSTEXACT));
     }
   }
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
+  //idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {

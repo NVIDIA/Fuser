@@ -523,6 +523,7 @@ class CommonScalarInserter : private kir::ExprMutator {
     int64_t alloc_point = -1;
     Expr* insert_ref = nullptr;
     for (auto value : common_scalar_map_.getHoistedScalars(loop)) {
+      std::cerr << "Value: " << value->toString() << std::endl;
       auto existing_alloc_info = findAllocPointFromDataDependency(exprs, value);
       // If this value has already been fully computed, then don't insert
       // duplicate allocation and computation.

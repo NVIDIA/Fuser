@@ -240,7 +240,7 @@ void ValGraphBFS::traverse() {
 
 #if 1
       if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
-        std::cerr << "Visiting EG: " << nvfuser::toString(*eg)
+        std::cerr << "Visiting EG: " << nvfuser::toString(*eg) << " "
                   << (*eg)->front()->toString();
       } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
         std::cerr << "Visiting VG: " << nvfuser::toString(*vg) << std::endl;
@@ -348,20 +348,26 @@ bool ValGraphBFS::isReady(const GroupType& group) const {
 }
 
 bool ValGraphBFS::isVisited(const GroupType& g) const {
-  // std::cerr << "Is visited: " << toString(g) << ": " << (visited_.find(g) !=
-  // visited_.end()) << std::endl;
+#if 0
+  std::cerr << "Is visited: " << toString(g) << ": "
+            << (visited_.find(g) != visited_.end()) << std::endl;
+  for (const auto& x : visited_) {
+    std::cerr << "Current visited group: " << toString(x) << std::endl;
+  }
+#endif
   return visited_.find(g) != visited_.end();
 }
 
 void ValGraphBFS::setVisited(const GroupType& g) {
   visited_.emplace(g);
-  // std::cerr << "Set visited: " << toString(g) << std::endl;
+  std::cerr << "Set visited: " << toString(g) << std::endl;
 }
 
 void ValGraphBFS::addNewNeighbors(const GroupType& g) {
+  std::cerr << "addNewNeighbors for " << toString(g) << std::endl;
   auto add_to_visit_list = [&](const GroupType& g) -> void {
     if (excludeFromTraversal(g)) {
-      // std::cerr << "Not traversing " << toString(g) << std::endl;
+      std::cerr << "Not traversing " << toString(g) << std::endl;
       return;
     }
     to_visit_.emplace_back(g);
@@ -369,9 +375,15 @@ void ValGraphBFS::addNewNeighbors(const GroupType& g) {
 
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
     for (const auto& vg : graph_.inputGroups(*eg)) {
+#if 0
+      std::cerr << "Maybe Adding neighbor: " << nvfuser::toString(vg) <<
+          std::endl;
+#endif
       if (!isVisited(vg)) {
-        // std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
-        // std::endl;
+#if 0
+        std::cerr << "Adding neighbor: " << nvfuser::toString(vg) <<
+            std::endl;
+#endif
         // to_visit_.emplace_back(vg);
         add_to_visit_list(vg);
       }
