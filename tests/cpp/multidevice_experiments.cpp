@@ -23,8 +23,10 @@ namespace nvfuser {
 class GlobalContext : public testing::Environment {
   public:
     void SetUp() override {
-        // call getStreamFromPool to trigger the lazy init
-        c10::cuda::getStreamFromPool(/* high priority */true);
+        if (getNvFuserEnv("OVERLAP_USE_STREAMS")) {
+            // call getStreamFromPool to trigger the lazy init
+            c10::cuda::getStreamFromPool(/* high priority */true);
+        }
     }
     void TearDown() override {}
 };
@@ -79,6 +81,10 @@ class OverlapTest : public MultiDeviceTest {
         NVF_ERROR(B % tile_size == 0);
         number_of_tiles = B / tile_size;
 
+
+        use_different_streams = getNvFuserEnv("OVERLAP_USE_STREAMS")?
+                                true
+                                : false;
         n_iterations = getNvFuserEnv("OVERLAP_N_ITERATIONS")?
                                 std::atoi(getNvFuserEnv("OVERLAP_N_ITERATIONS"))
                                 : 1;
@@ -120,6 +126,7 @@ class OverlapTest : public MultiDeviceTest {
     // optimization parameters
     int64_t tile_size;
     int64_t number_of_tiles;
+    bool use_different_streams;
 
     // compute params
     int n_iterations;
@@ -208,7 +215,9 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
-        setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
+        if (use_different_streams) {
+            setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
+        }
         // local compute
         compute(tv0_slices.at(j), tv1_slices.at(j));
 
@@ -254,9 +263,14 @@ TEST_F(OverlapTest, DummyExample) {
     }
 
     for (int i=0; i<16; i++) {
-        if (!getNvFuserEnv("OVERLAP_NO_COMPUTE")) {
+        if (use_different_streams) {
+            setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
+        }
+
+        if (!getNvFuserEnv("OVERLAP_NO_COMPUTE") && (i>0 || !getNvFuserEnv("OVERLAP_COMM_FIRST"))) {
             fe->runFusion(input, output);
         }
+
         if (!getNvFuserEnv("OVERLAP_NO_COMM")) {
             world_communicator->allgather(dst_buffers, output);
         }
