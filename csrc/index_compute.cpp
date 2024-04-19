@@ -3309,9 +3309,6 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 
 } // namespace
 
-// TODO: we do not support "define box by compositing" yet.
-// WIP PR: https://github.com/NVIDIA/Fuser/pull/1991
-//
 // See doc/dev/tma.md for definitions of terms. These terms include:
 // partitioned IterDomain, box IterDomain, coordinate IterDomain, tile
 // IterDomain, stride IterDomain, boxing split, striding split, element stride.
@@ -3653,9 +3650,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   }
   NVF_ERROR(
       pending_tma_ids.empty(),
-      "The set of all TMA-global IterDomains must a subset of the TMA domain, but ",
+      "Can not infer TMA domain from the schedule. The IterDomains ",
       ir_utils::toString(pending_tma_ids),
-      " is not in the TMA domain.");
+      " are expected to be in the TMA domain.");
 
   // Step 4: Compute the tensor map descriptor and the index
 
