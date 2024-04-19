@@ -3765,12 +3765,12 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
       }
       indices_inner_to_outer.push_back(index_it->second);
     } else {
-      tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
-          tensor_sizes_inner_to_outer.back(), id->extent());
       indices_inner_to_outer.back() = SimplifyingIrBuilder::addExpr(
           indices_inner_to_outer.back(),
           SimplifyingIrBuilder::mulExpr(
               tensor_sizes_inner_to_outer.back(), index_it->second));
+      tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
+          tensor_sizes_inner_to_outer.back(), id->extent());
       if (type == CB) {
         box_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
             box_sizes_inner_to_outer.back(), id->extent());
