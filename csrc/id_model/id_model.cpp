@@ -524,11 +524,11 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
     // consider making broadcast domains always having a size-1
     // extent.
     if (merge->inner()->extent()->isOneInt() ||
-        merge->inner()->isBroadcast()) {
+        (false && merge->inner()->isBroadcast())) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
     if (merge->outer()->extent()->isOneInt() ||
-        merge->outer()->isBroadcast()) {
+        (false && merge->outer()->isBroadcast())) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {

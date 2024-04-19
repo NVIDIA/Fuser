@@ -33,14 +33,13 @@ class IndexingTraversal : public ValGraphBFS {
 
   virtual ~IndexingTraversal() = default;
 
- protected:
   using ValGraphBFS::isVisited;
 
   bool isVisited(const GroupType& group) const override {
     if (const ValGroup* vg = std::get_if<ValGroup>(&group);
         vg != nullptr && (*vg)->front()->as<IterDomain>()->isBroadcast()) {
       std::cerr << "Visited as it's broadcast" << std::endl;
-      //return true;
+      // return true;
     }
     return ValGraphBFS::isVisited(group);
   }
@@ -64,6 +63,21 @@ class IndexingTraversal : public ValGraphBFS {
     return false;
   }
 
+  void traverse() override {
+    // Set all broadcast groups as visited before traversal as there's
+    // no need to actually visit them to get indices. Do not add their
+    // neighbors to the to-visit list, though. Traversal paths should
+    // still be discovered from the starting groups.
+    for (const ValGroup& id_group : graph_.disjointValSets().disjointSets()) {
+      if (id_group->at(0)->as<IterDomain>()->isBroadcast()) {
+        setVisited(id_group);
+      }
+    }
+
+    ValGraphBFS::traverse();
+  }
+
+ private:
   const std::unordered_set<Resize*>& resize_paths_;
 };
 
@@ -368,6 +382,8 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     }
   }
 
+  auto tv_for_promotion = tv;
+
   // WAR for transpose
   auto transposed_smem_alloc_dom = getAllocationDomainOfTransposedSmemTensor(
       tv, id_model.idGraph(IdMappingMode::EXACT));
@@ -376,6 +392,7 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
         << "Using consumer domain as the allocation domain of the shared memory producer: "
         << tv->toString() << std::endl;
     index_domains = transposed_smem_alloc_dom.value();
+    tv_for_promotion = tv->uses().at(0)->output(0)->as<TensorView>();
   }
 
   NVF_ERROR(index_domains.size() == contiguity.size());
@@ -415,8 +432,8 @@ std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     // If it's a leaf domain, the promoted domain is the true domain
     // for allocation and indexing.
     bool is_leaf = std::find(
-                       tv->getLeafDomain().begin(),
-                       tv->getLeafDomain().end(),
+                       tv_for_promotion->getLeafDomain().begin(),
+                       tv_for_promotion->getLeafDomain().end(),
                        index_domain) != tv->getLeafDomain().end();
     auto actual_id =
         is_leaf ? getLoopPromotion(index_domain, id_model) : index_domain;
