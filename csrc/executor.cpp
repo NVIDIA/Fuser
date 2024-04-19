@@ -1820,7 +1820,7 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
   assert(params.size() >= args.size() && "dunno why it's larger sometimes");
   for(size_t p=0; p < params.size(); ++p) {
     PolymorphicValue pv = expr_eval.evaluate(params[p]);
-    if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
+    if(const TensorView* tv = dynamic_cast<TensorView*>(params[p])) {
       if(tv->isCpuScalar()) {
         entry.args[p] = polymorphicValueToBytes(pv, tv->dtype(), idx_type);
         entry.arg_ptrs[p] = entry.args[p].data();
@@ -1844,124 +1844,17 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
         // FusionDefinition). As such, we created the struct during
         // ::computeArgs, and here we just update the address of the tensor and
         // the dimensions.
-        TensorView* tv = dynamic_cast<TensorView*>(params[p]);
-        const Val* mdexpr = IrBuilder::metadataExpr(tv);
+        TensorView* mtv = dynamic_cast<TensorView*>(params[p]);
+        const Val* mdexpr = IrBuilder::metadataExpr(mtv);
         const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
-#if 0
-        assert(tmd.is<StructHandle>() && "generate type is not correct");
-        std::cout << "param[" << p << "]=" << mdinfo(params[p]) << "; ";
-        std::cout.flush();
-        std::cout << "generated md[" << p << "]=" << mdinfo(tmd) << "; ";
-        assert(tmd.as<StructHandle>().is<TensorMetaData>() && "unexpected struct");
-        void* data = tmd->*&TensorMetaData::data;
-
-        // g++ can't seem to type infer that these are c10::IntArrayRefs, but
-        // creating an `auto` alias first and assigning through that
-        // suffices.
-        const auto& logical_size_tmp =
-          tmd->*&TensorMetaData::logical_size;
-        const c10::IntArrayRef& logical_size = logical_size_tmp;
-        const auto& alloc_stride_tmp =
-          tmd->*&TensorMetaData::alloc_stride;
-        const c10::IntArrayRef& alloc_stride = alloc_stride_tmp;
-        assert(tmd.is<StructHandle>() && "type2 is not correct");
-
-        if(tmd.as<StructHandle>().is<TensorMetaData>() &&
-           PrimDataType::Int == idx_type) {
-          // these iterators detail where in the args[i] buffer to copy the
-          // data, shape, and strides elements; each appears directly after the
-          // other in the struct.
-          // Note that this is relying on the Tensor<> struct being tightly
-          // packed. TODO(tfogal) annotate the struct to guarantee the
-          // requirement
-          const std::vector<std::byte>::iterator offsets[] = {
-            entry.args[p].begin(),
-            entry.args[p].begin() + sizeof(void*),
-            entry.args[p].begin() + sizeof(void*) +
-              logical_size.size()*sizeof(int64_t)
-          };
-          assert(entry.args[p].size() == sizeof(void*) +
-                 sizeof(int64_t)*logical_size.size() +
-                 sizeof(int64_t)*alloc_stride.size());
-#if DEBUG_ARGS
-          std::ostringstream shapes;
-          std::ostringstream strides;
-          shapes << "Rank " << logical_size.size() << " ("
-                 << alloc_stride.size() << ") ";
-          shapes << "i64 shapes=["; strides << "strides=[";
-          for(size_t i=0; i < logical_size.size(); ++i) {
-            shapes << logical_size[i] << ",";
-          }
-          for(size_t i=0; i < alloc_stride.size(); ++i) {
-            strides << alloc_stride[i] << ",";
-          }
-          shapes << "] " << strides.str() << "]";
-          printf("%s\n", shapes.str().c_str());
-#endif
-          std::copy((std::byte*)&data, (std::byte*)(&data) + sizeof(void*),
-                    offsets[0]);
-          assert(tmd.is<StructHandle>() && "type3 is not correct");
-          std::copy((std::byte*)logical_size.data(),
-                    (std::byte*)logical_size.data() + logical_size.size() * sizeof(int64_t),
-                    offsets[1]);
-          assert(tmd.is<StructHandle>() && "type4 is not correct");
-          std::copy((std::byte*)alloc_stride.data(),
-                    (std::byte*)alloc_stride.data() + alloc_stride.size() * sizeof(int64_t),
-                    offsets[2]);
-          assert(tmd.is<StructHandle>() && "type5 is not correct");
-        } else if(tmd.as<StructHandle>().is<TensorMetaData>()) {
-          // This case happens when the kernel uses 32bit indices. Since we
-          // (specifically TensorMetaData) store indices in 64bit, we can't
-          // directly copy our buffer into the staging buffer. We thus have to
-          // manually downcast each element to fit in the smaller buffer.
-          std::byte* offsets[] = {
-            entry.args[p].data(), // data ptr base address
-            entry.args[p].data() + sizeof(void*), // size array base addr
-            entry.args[p].data() + sizeof(void*) +
-              logical_size.size()*sizeof(int32_t) // stride array base addr
-          };
-          assert(entry.args[p].size() == sizeof(void*) +
-                 sizeof(int32_t)*logical_size.size() +
-                 sizeof(int32_t)*alloc_stride.size());
-          memcpy(offsets[0], &data, sizeof(void*));
-          assert(tmd.is<StructHandle>() && "type6 is not correct");
-          assert(offsets[0] < offsets[1] && offsets[1] <= offsets[2]);
-          std::ostringstream shapes;
-          std::ostringstream strides;
-          shapes << "rank " << logical_size.size()  << " ("
-                 << alloc_stride.size() << ") ";
-          shapes << "i32 shapes=["; strides << "strides=[";
-          for(size_t i=0; i < logical_size.size(); ++i) {
-            const int32_t shp = static_cast<int32_t>(logical_size[i]);
-            shapes << shp << ",";
-            memcpy(offsets[1] + i*sizeof(int32_t), &shp, sizeof(int32_t));
-            assert(tmd.is<StructHandle>() && "type7 is not correct");
-          }
-          for(size_t i=0; i < alloc_stride.size(); ++i) {
-            const int32_t strd = static_cast<int32_t>(alloc_stride[i]);
-            strides << strd << ",";
-            memcpy(offsets[2] + i*sizeof(int32_t), &strd, sizeof(int32_t));
-            assert(tmd.is<StructHandle>() && "type8 is not correct");
-          }
-          shapes << "] " << strides.str() << "]";
-          printf("%s\n", shapes.str().c_str());
-        } else {
-          throw std::logic_error("iterate through the fields path");
-        }
-#else
         const size_t idx_type_size =
           PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
         fill_gpu_ptr(entry, tmd, p, idx_type_size);
-#endif
       }
     } else {
-#if 1
       entry.args[p] =
         getKernelArgument(expr_eval, params[p], idx_type);
       // TODO(tjf): could we call polymorphicValueToBytes directly?
-#else
-      throw std::logic_error("is this path ever used?");
-#endif
     }
     entry.arg_ptrs[p] = entry.args[p].data();
   }
