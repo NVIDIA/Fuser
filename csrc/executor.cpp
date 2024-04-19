@@ -1808,8 +1808,7 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
   assert(params.size() >= args.size() && "dunno why it's larger sometimes");
   for(size_t p=0; p < params.size(); ++p) {
     PolymorphicValue pv = expr_eval.evaluate(params[p]);
-    if(const TensorView* tv = dynamic_cast<TensorView*>(params[p])) {
-      if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
+    if(pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
         // GPU tensors are similar, but we don't pass them directly; instead
         // we pass a Tensor<type, rank, rank> struct. The pointer and
         // dimensions are dynamic, but the types and ranks are actually static
@@ -1823,7 +1822,6 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
         const size_t idx_type_size =
           PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
         fill_gpu_ptr(entry, tmd, p, idx_type_size);
-      }
     } else {
       entry.args[p] =
         getKernelArgument(expr_eval, params[p], idx_type);
