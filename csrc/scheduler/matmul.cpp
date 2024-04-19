@@ -1035,8 +1035,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduleProlog(acw_smem, params.supported_vec_size.a, params);
-  scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
+  scheduleProlog(acw_smem, (int)params.supported_vec_size.a, params);
+  scheduleProlog(bcw_smem, (int)params.supported_vec_size.b, params);
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();
@@ -1226,7 +1226,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       if (d_extent > params.supported_vec_size.epilogue) {
         // Should always be a divisible split
         NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
-        d->split(-1, params.supported_vec_size.epilogue, /*inner=*/true);
+        d->split(-1, params.supported_vec_size.epilogue, /*inner_split=*/true);
         d->axis(-2)->parallelize(ParallelType::Unroll);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);

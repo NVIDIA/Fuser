@@ -332,7 +332,7 @@ int64_t maxRowVectorizationOfContigTensor(const at::Tensor& tens) {
     vec_size >>= 1;
   }
 
-  for (int64_t i : c10::irange(1, strides.size())) {
+  for (auto i : c10::irange(1, strides.size())) {
     if (vec_size == 1) {
       break;
     }
@@ -350,7 +350,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
     SchedulerRuntimeInfo& runtime_info) {
   auto getMinVectorization = [&roles_map,
                               &runtime_info](MatmulRole role) -> int {
-    int vec_size = 16; // max vectorization size
+    int64_t vec_size = 16; // max vectorization size
     const auto it = roles_map.find(role);
     if (it == roles_map.end()) {
       return 16;
