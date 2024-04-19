@@ -1825,7 +1825,6 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
     } else {
       entry.args[p] =
         getKernelArgument(expr_eval, params[p], idx_type);
-      // TODO(tjf): could we call polymorphicValueToBytes directly?
     }
     entry.arg_ptrs[p] = entry.args[p].data();
   }
