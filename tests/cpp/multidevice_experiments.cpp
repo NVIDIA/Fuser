@@ -64,7 +64,6 @@ class OverlapTest : public MultiDeviceTest {
         std::vector<int64_t> devices(num_devices);
         std::iota(devices.begin(), devices.end(), 0);
         CommunicatorBackend b = getNvFuserEnv("OVERLAP_USE_UCC")? CommunicatorBackend::ucc : CommunicatorBackend::nccl;
-        std::cout << "Used Backend: " << b <<std::endl;
         world_communicator = communicator->getBackendForTeam(
             devices, /* backend */b);
 
@@ -89,6 +88,16 @@ class OverlapTest : public MultiDeviceTest {
                                 std::atoi(getNvFuserEnv("OVERLAP_N_ITERATIONS"))
                                 : 1;
         compute_mode = getNvFuserEnv("OVERLAP_COMPUTE_PYTORCH")? ComputeMode::Pytorch : ComputeMode::nvFuserFusionExecutor;
+        std::cout << "Using Streams: "<<use_different_streams << "\n"
+                  << "n_iterations=" << n_iterations << "\n"
+                  << "compute_mode=" << compute_mode << "\n"
+                  << "Used Backend: " << b << "\n"
+                  << "B="<<B << "\n"
+                  << "C="<<C << "\n"
+                  << "Interleave: " << (getNvFuserEnv("OVERLAP_NOT_INTERLEAVE")? "0":"1") << "\n"
+                  << "tile_size=" <<tile_size << "\n"
+                  <<std::endl;
+
         if (compute_mode == ComputeMode::nvFuserFusionExecutor) {
             fusion = std::make_unique<Fusion>();
             FusionGuard fg(fusion.get());
