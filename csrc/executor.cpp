@@ -1774,6 +1774,7 @@ FusionExecutor::computeArgs(ExecutorEntry& entry,
   entry.arg_ptrs.resize(params.size());
   const PrimDataType idx_type = kernel->indexType();
   for(size_t p=0; p < params.size(); ++p) {
+#if 0
     PolymorphicValue pv = expr_eval.evaluate(params[p]);
     if(const auto tv = dynamic_cast<TensorView*>(params[p])) {
       if(tv->isCpuScalar()) {
@@ -1790,6 +1791,9 @@ FusionExecutor::computeArgs(ExecutorEntry& entry,
       entry.args[p] = polymorphicValueToBytes(pv, params[p]->dtype(),
                                               idx_type);
     }
+#else
+    entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
+#endif
     entry.arg_ptrs[p] = entry.args[p].data();
   }
 }
