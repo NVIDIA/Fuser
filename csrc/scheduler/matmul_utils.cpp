@@ -349,7 +349,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::RolesMap& roles_map,
     SchedulerRuntimeInfo& runtime_info) {
   auto getMinVectorization = [&roles_map,
-                              &runtime_info](MatmulRole role) -> int {
+                              &runtime_info](MatmulRole role) -> int64_t {
     int64_t vec_size = 16; // max vectorization size
     const auto it = roles_map.find(role);
     if (it == roles_map.end()) {
