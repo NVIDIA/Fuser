@@ -27,17 +27,16 @@ class HeuristicParams : public PolymorphicBase {
 
   virtual size_t hash() const = 0;
 
-  virtual ~HeuristicParams() = default;
-
   virtual bool sameAs(const std::shared_ptr<HeuristicParams>& other) const = 0;
 
   virtual std::shared_ptr<HeuristicParams> clone() const = 0;
 
   HeuristicParams() = default;
-  HeuristicParams(const std::string& tag, PrimDataType index_type)
-      : tag(tag), cparams({.index_type = index_type}){};
-  HeuristicParams(const std::string& tag, KernelIndexMode index_mode)
-      : tag(tag), cparams({.index_type = indexModeToDtype(index_mode)}){};
+  HeuristicParams(std::string tag, PrimDataType index_type)
+      : tag(std::move(tag)), cparams({.index_type = index_type}){};
+  HeuristicParams(std::string tag, KernelIndexMode index_mode)
+      : tag(std::move(tag)),
+        cparams({.index_type = indexModeToDtype(index_mode)}){};
 };
 
 } // namespace nvfuser

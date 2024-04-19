@@ -151,7 +151,7 @@ class DynamicTransformConcretizationInfo {
   //! Return a vector of integers each corresponding to the position in
   //! initialInfo()->getMaybeZeroExtents() of an extent Val which is guaranteed
   //! to be zero.
-  const std::vector<size_t>& getEmptyExtents() const {
+  const std::vector<int64_t>& getEmptyExtents() const {
     return empty_extents_;
   }
 
@@ -159,15 +159,15 @@ class DynamicTransformConcretizationInfo {
   //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
   //! along with an AnalyzeViewResult describing how that reshape operation
   //! should be decomposed into split, merge, squeeze, and broadcast transforms.
-  const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
-      const {
+  const std::vector<std::pair<int64_t, AnalyzeViewResult>>&
+  getReshapeTransforms() const {
     return reshape_transforms_;
   }
 
   //! Return a vector of pairs holding the index of each resized IterDomain in
   //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
   //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
+  const std::vector<std::pair<int64_t, IterType>>& getResizeIterTypes() const {
     return resize_itertypes_;
   }
 
@@ -175,7 +175,7 @@ class DynamicTransformConcretizationInfo {
   //! the vector returned by initialInfo()->getDynamicExpandedTensorViews(),
   //! along with a vector of bools describing whether each axis in the output
   //! root domain is expanded.
-  const std::vector<std::pair<size_t, std::vector<bool>>>& getExpandAxes()
+  const std::vector<std::pair<int64_t, std::vector<bool>>>& getExpandAxes()
       const {
     return expand_axes_;
   }
@@ -184,7 +184,7 @@ class DynamicTransformConcretizationInfo {
   //! TensorView returned by by initialInfo()->getDynamicFactoryOutputs(). The
   //! pairs contain an integer position of a Symbolic axis and the IterType that
   //! axis will be converted to.
-  const std::vector<std::vector<std::pair<size_t, IterType>>>&
+  const std::vector<std::vector<std::pair<int64_t, IterType>>>&
   getFactoryOutputIterTypes() const {
     return factory_output_itertypes_;
   }
@@ -245,25 +245,25 @@ class DynamicTransformConcretizationInfo {
   //! Holds the index of the output TensorView in the vector returned by
   //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
   //! result of analyzeView
-  std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
+  std::vector<std::pair<int64_t, AnalyzeViewResult>> reshape_transforms_;
 
   //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
   //! evaluate to 0
-  std::vector<size_t> empty_extents_;
+  std::vector<int64_t> empty_extents_;
 
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
-  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+  std::vector<std::pair<int64_t, IterType>> resize_itertypes_;
 
   //! Holds the index of the expanded TensorView in the vector returned by
   //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector
   //! of bools indicating whether each axis is in fact expanded.
-  std::vector<std::pair<size_t, std::vector<bool>>> expand_axes_;
+  std::vector<std::pair<int64_t, std::vector<bool>>> expand_axes_;
 
   //! Holds the axis and IterType corresponding to each TensorView returned by
   //! initial_info_->getDynamicFactoryOutputs().
-  std::vector<std::vector<std::pair<size_t, IterType>>>
+  std::vector<std::vector<std::pair<int64_t, IterType>>>
       factory_output_itertypes_;
 
   friend class DynamicTransformInfoBuilder;

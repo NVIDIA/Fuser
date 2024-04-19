@@ -194,12 +194,12 @@ class NVF_API TransformReplay {
   // should preserve producer's current allocation domain, and if that
   // allocation domain is inconsistent with the replay, an error will be raised.
   // This option is used in cacheBefore, cacheAfter, and cacheFork
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
@@ -210,12 +210,12 @@ class NVF_API TransformReplay {
   // consumer_compute_at_axis}.
   //
   // Unlike replayPasC, it always ignores resize.
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,

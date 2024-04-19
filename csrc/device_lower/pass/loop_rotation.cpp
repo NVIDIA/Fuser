@@ -106,8 +106,7 @@ class RotateLoop : kir::ExprMutator {
     // interacting with each other.
     for (auto item : params) {
       exprs = RotateLoop(
-                  std::get<0>(item)->axis((int)std::get<1>(item)),
-                  std::get<2>(item))
+                  std::get<0>(item)->axis(std::get<1>(item)), std::get<2>(item))
                   .traverseAndInsert(exprs);
     }
     return exprs;

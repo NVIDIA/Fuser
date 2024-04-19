@@ -55,7 +55,7 @@ python_frontend::RecordFunctor* deserializeOpRecord(
 python_frontend::RecordFunctor* deserializeReductionRecord(
     std::function<TensorView*(
         TensorView*,
-        const std::vector<int>&,
+        const std::vector<int64_t>&,
         bool,
         nvfuser::DataType)> fusion_op,
     RecordType record_type,

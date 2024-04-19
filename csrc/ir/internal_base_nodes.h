@@ -497,8 +497,8 @@ class TensorDomain : public Val {
     return !(*this == other);
   }
 
-  std::vector<IterDomain*>::size_type nDims() const {
-    return leaf_domain_.size();
+  int64_t nDims() const {
+    return (int64_t)leaf_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -560,7 +560,7 @@ class TensorDomain : public Val {
 
   NVF_API bool hasSymbolicAxis() const;
 
-  std::optional<unsigned int> getReductionAxis() const;
+  std::optional<int64_t> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {
     return no_reduction_domain_;
@@ -630,7 +630,7 @@ class TensorDomain : public Val {
 
   // i here is int, as we want to accept negative value and ::size_type can be a
   // uint.
-  IterDomain* axis(int i) const;
+  IterDomain* axis(int64_t i) const;
 
   int64_t posOf(IterDomain* id) const;
 
@@ -646,25 +646,25 @@ class TensorDomain : public Val {
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
   void split(
-      int axis_,
+      int64_t axis_,
       Val* factor,
       bool inner_split,
       bool trim_out_of_bounds = false);
 
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
-  void merge(int axis_o, int axis_i);
+  void merge(int64_t axis_o, int64_t axis_i);
 
   // Reorder axes according to map[old_pos] = new_pos
-  void reorder(const std::unordered_map<int, int>& old2new);
+  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
 
   //! Applies 2D swizzle on a rectangular tile defined by
   //!  a pair of iterdomains contained in this domain.
-  void swizzle(SwizzleType swizzle_type, int x, int y);
+  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
   void swizzle(
       Swizzle2DType swizzle_type,
-      int x,
-      int y,
+      int64_t x,
+      int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
   // Transform TensorView according to merge and split transformations
@@ -674,7 +674,7 @@ class TensorDomain : public Val {
 
   static std::vector<IterDomain*> orderedAs(
       const std::vector<IterDomain*>& td,
-      const std::unordered_map<int, int>& old2new);
+      const std::unordered_map<int64_t, int64_t>& old2new);
 
   NVF_API static std::vector<IterDomain*> noReductions(
       const std::vector<IterDomain*>&);
@@ -692,7 +692,13 @@ class TensorDomain : public Val {
       bool fill_value);
 
   // pair is in order where second is the consumer of first
-  std::pair<TensorDomain*, TensorDomain*> rFactor(const std::vector<int>& axes);
+  std::pair<TensorDomain*, TensorDomain*> rFactor(
+      const std::vector<int64_t>& axes);
+
+ private:
+  int64_t wrapDim(int64_t dim) const {
+    return nvfuser::wrapDim(dim, nDims());
+  }
 
  private:
   const std::vector<IterDomain*> root_domain_;

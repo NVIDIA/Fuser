@@ -1919,7 +1919,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = 0;                                                     \
-        std::vector<int> dims(arg.dims);                                      \
+        std::vector<int64_t> dims(arg.dims);                                  \
         std::iota(dims.begin(), dims.end(), 0);                               \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
@@ -1928,7 +1928,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             dims,                                                             \
@@ -1958,7 +1958,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             {dim},                                                            \
@@ -1975,7 +1975,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         const std::vector<int>& dims,                                        \
+         const std::vector<int64_t>& dims,                                    \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
@@ -1990,7 +1990,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             dims,                                                             \
@@ -2676,7 +2676,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& dims,
+         std::vector<int64_t>& dims,
          int64_t correction,
          bool keepdim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.var");
@@ -2702,7 +2702,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var_mean",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& dims,
+         std::vector<int64_t>& dims,
          int64_t correction,
          bool keepdim) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.var_mean");
@@ -2790,7 +2790,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"));
   auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
                                   Tensor arg,
-                                  const std::vector<int>& dims) -> Tensor {
+                                  const std::vector<int64_t>& dims) -> Tensor {
     FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
     NVF_CHECK(
         self.validUse(),
@@ -2816,7 +2816,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "reorder",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
-         const std::unordered_map<int, int>& old2new) {
+         const std::unordered_map<int64_t, int64_t>& old2new) {
         FUSER_PERF_SCOPE("SchedOperators.reorder");
         NVF_CHECK(
             self.validUse(),
@@ -2832,8 +2832,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "split",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
-         int dim,
-         unsigned int factor,
+         int64_t dim,
+         int64_t factor,
          bool inner_split,
          bool trim_out_of_bounds) {
         FUSER_PERF_SCOPE("SchedOperators.split");

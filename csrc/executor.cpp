@@ -387,7 +387,7 @@ void FusionExecutor::compileFusion(
 
   // TODO: this replicates the target GPU version computation from
   // executor_utils.
-  std::pair<int, int> target_arch;
+  std::pair<int64_t, int64_t> target_arch;
   bool compile_to_sass = false;
   executor_utils::queryTargetGPUVersion(
       properties,
@@ -1257,7 +1257,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     // in outer reduction, may group iteration domain, e.g. when vectorized.
-    const int grouped_iter_factor = kernel_summary.num_grouped_iterations;
+    const int64_t grouped_iter_factor = kernel_summary.num_grouped_iterations;
 
     NVF_CHECK(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
