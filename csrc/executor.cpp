@@ -1722,7 +1722,8 @@ fill_gpu_ptr(
     entry.args[idx].data() + sizeof(void*) + shape.size()*idx_type_size,
   };
   {
-  const size_t expected_size = sizeof(void*) + idx_type_size*2*shape.size();
+  const size_t expected_size = sizeof(void*) + idx_type_size*shape.size() +
+    idx_type_size*strides.size();
   assert(entry.args[idx].size() == expected_size &&
          "buffer not properly sized to hold tensor argument");
   }
@@ -1738,13 +1739,15 @@ fill_gpu_ptr(
       // we need to cast per-element, so need a loop.
       // This case happens when the kernel uses 32bit indices. Since we
       // (specifically TensorMetaData) store indices in 64bit, we can't
-      // directly copy our buffer into the staging buffer. We thus have to
+      // directly copy our buffer into the args buffer. We thus have to
       // manually downcast each element to fit in the smaller buffer.
-      assert(shape.size() == strides.size());
       for(size_t i=0; i < shape.size(); ++i) {
         const int32_t shp = static_cast<int32_t>(shape[i]);
-        const int32_t strd = static_cast<int32_t>(strides[i]);
         memcpy(offsets[1] + i*sizeof(int32_t), &shp, sizeof(int32_t));
+      }
+      // In rare cases we have fewer strides than shapes
+      for(size_t i=0; i < strides.size(); ++i) {
+        const int32_t strd = static_cast<int32_t>(strides[i]);
         memcpy(offsets[2] + i*sizeof(int32_t), &strd, sizeof(int32_t));
       }
     } break;
