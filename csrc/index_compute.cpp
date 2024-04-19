@@ -3632,15 +3632,23 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     }
   }
 
-  NVF_ERROR(
-      std::get<1>(frontier.back()),
-      "The innermost IterDomain of the TMA domain must be contiguous");
+  // Frontier is now the TMA domain
+  const auto& tma_domain = frontier;
 
-  // Validate that frontier is a superset of tma_ids, otherwise there is
+  NVF_ERROR(
+      std::get<1>(tma_domain.back()),
+      "The innermost IterDomain of the TMA domain must be contiguous");
+  NVF_ERROR(
+      tma_id_to_stride_id.count(std::get<0>(tma_domain.back())) == 0,
+      "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
+      "(this is always the case for nvFuser now)",
+      ", the first element of elementStrides must be one");
+
+  // Validate that tma_domain is a superset of tma_ids, otherwise there is
   // something wrong in the schedule.
   std::unordered_set<IterDomain*> seen;
   std::unordered_set<Val*> pending_tma_ids(tma_ids.begin(), tma_ids.end());
-  for (auto tuple : frontier) {
+  for (auto tuple : tma_domain) {
     auto id = std::get<0>(tuple);
     NVF_ERROR(
         seen.insert(id).second,
@@ -3667,191 +3675,109 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  // The frontier is now the TMA domain. If the TMA domain contains <= 5
-  // IterDomains, it is possible to treat each IterDomain as a dimension of TMA.
-  // However, in order to be able to still use TMA if the TMA domain contains
-  // more than 5 IterDomains, we decide to merge contiguous IterDomains together
-  // here to reduce the dimensionality when possible.
+  // So far, we have infered the TMA domain. The size of TMA domain is not
+  // necessarily the dimensionality of TMA because we support defining box
+  // by compositing. We use a state machine to infer the dimensions of TMA.
   //
-  // There can only be three types of IterDomains in the TMA domain:
-  // -  NG: non-TMA-global ID
-  // -  BG: bulk TMA-global ID
-  // - NBG: non-bulk TMA-global ID
+  // There can only be four types of IterDomains in the TMA domain:
+  // -  P: partitioned IterDomain
+  // -  C: coordinate IterDomain
+  // - SB: strided box IterDomain
+  // - CB: contiguous box IterDomain
   //
-  // An NG ID is an IterDomain that is not a TMA-global ID, in another word,
-  // none of its decendants are bulk. They are the IDs that are implicitly one
-  // tiled. In the Diagram 1 above, I0 is an NG ID. A BG ID is an IterDomain
-  // that is both TMA-global and bulk. It comes from the user marking a
-  // dimension of the TMA domain as bulk without creating a box. That is, this
-  // dimension is whole tiled. In the Diagram 1 above, I3 is such an IterDomain.
-  // An NBG ID is an IterDomain that is TMA-global but not bulk. It comes from
-  // the user creating a box with a split operation for this dimension. In the
-  // Diagram 1 above, I1 and I2 are NBG IDs. Depending on the contiguity and
-  // types of the IterDomains in the TMA domain, we may or may not be able to
-  // merge them together. Here are a few examples:
+  // For the example of the Figure 6 in doc/dev/tma.md, the TMA domain is
+  // [I1, I2, I3, I4, I5, I6, I7, I8, I9], and the types of these IDs are
+  // [ C,  B,  P,  C,  B,  B,  C,  B,  B]
   //
-  // Example 1: If my TMA domain is [I1, I2, I3], with contiguity [T, T, T],
-  // I1 and I2 are NG IDs, and I3 is an NBG ID, then we will choose to use 2D
-  // TMA: [(I1, I2), (I3)], where I1 and I2 are considered as "merged" together
-  // because: Assuming that we did an imaginary transformation:
-  //   Im = merge(I1, I2);
-  //   I12, Ib = split(Im, 1);
-  //   Ib->parallelize(ParallelType::Bulk);
-  //   I1', I2' = split(I12, I2->extent());
-  // then I1' and I2' would be completely equivalent to I1 and I2. If we pluged
-  // in the above imaginary transformation into the TensorDomain and used I1'
-  // and I2' to substitute I1 and I2, we would not change what we were
-  // computing, but after this change, we would have TMA domain [Im, I3] which
-  // has less dimension than the original TMA domain. The box size of the first
-  // dim, Im, was one.
+  // The algorithm works as follows: We run a 3-state machine. The state machine
+  // is initialized as START. After setting the initial state, we loop through
+  // the TMA domain from inner to outer. During the loop, for each IterDomain we
+  // see, we take an action and change the state of the machine. The action and
+  // target state depend on the current state of the machine, and the type and
+  // contiguity of the IterDomain we encounter. The actions and transition of
+  // states are shown in the following diagram:
   //
-  // Example 2: Similar to Example 1, except that the contiguity is [F, T, T].
-  // For this case, we will choose to use 3D TMA: [(I1), (I2), (I3)]. I1 and I2
-  // will not be considered as "merged" this time, because they are not
-  // contiguous. Merging discontiguous IterDomains in the allocation domain to
-  // get TMA domain is not allowed.
-  //
-  // Example 3: Similar to Example 1, except that I3 is a BG ID. This time, we
-  // will choose to use 1D TMA [(I1, I2, I3)], where the box size is the extent
-  // of I3. Because, if we did an imaginary transformation:
-  //   Im = merge(merge(I1, I2), I3);
-  //   I12, I3' = split(Im, I3->extent());
-  //   I3'->parallelize(ParallelType::Bulk);
-  //   I1', I2' = split(I12, I2->extent());
-  // then I1', I2', and I3' would be completely equivalent to I1, I2 and I3. If
-  // we pluged in the above imaginary transformation into the TensorDomain and
-  // used I1', I2' and I3' to substitute I1, I2 and I3, we would not change what
-  // we were computing, but after this change, we would have TMA domain [Im]
-  // which has less dimension than the original TMA domain. The box size of the
-  // only dim, Im, was I3->extent().
-  //
-  // Example 4: If my TMA domain is [I1, I2, I3, I4], with contiguity all true.
-  // I1 and I2 are NG IDs, I3 and I4 are BG IDs. Then similar to the above
-  // argument, we will choose to use 1D TMA: [(I1, I2, I3, I4)], with the box
-  // size I3->extent() * I4->extent().
-  //
-  // Example 5: Similar to Example 4, except that the contiguity is [T, F, T,
-  // T]. For this case, the algorithm will choose to use 2D TMA: [(I1, I2), (I3,
-  // I4)]. The box size of the first dim, (I1, I2), is one. The second dim,
-  // (I3, I4), has only one box, whose size is the tensor size at this
-  // dimension.
-  //
-  // The algorithm that does the above analysis is as follows: We run a 3-state
-  // machine. The state machine is initialized as START. After setting the
-  // initial state, we loop through the frontier from inner to outer. During the
-  // loop, for each IterDomain we see, we take an action and change the state of
-  // the machine. The action and target state depend on the current state of the
-  // machine, and the type and contiguity of the IterDomain we encounter. The
-  // actions and transition of states are shown in the following diagram:
-  //
-  //                                   NBG:
-  //                              create new dim
-  //                              .-------------.
-  //                              |             |
-  //                              '-- [START] <-'
-  //                        BG:     / ^ NBG: ^ \     NG:
-  //                      create   / / create \ \   create
-  //                       new    / /   new    \ \   new
-  //                       dim   / /    dim     \ \  dim
-  //                            v /              \ v
-  //                .-- [PENDING BULK] -----> [PENDING NON-BULK] <-.
-  //                |           ^ ^      NG:      | |              |
-  //                '-----------' |    create     | '--------------'
-  //               BG: create new |    new dim    | NG: create new
-  //         dim if discontiguous |      if       | dim if discontiguous
-  //              merge with prev | discontiguous | merge with prev
-  //                dim otherwise |               | dim otherwise
-  //                              '---------------'
-  //                              BG: create new dim
+  //                           P: create new dim
+  //                            .-------------.
+  //                            |             |
+  //                            '-- [START] <-'
+  //                      CB:     / ^  P:  ^ \     SB/C:
+  //                    create   / / create \ \   create
+  //                     new    / /  new dim \ \   new
+  //                     dim   / /            \ \  dim
+  //                          v /              \ v
+  //              .--- [PENDING BOX] -----> [PENDING COORD] <--.
+  //              |           ^ ^     SB/C:     | |            |
+  //              '-----------' |    create     | '------------'
+  //       CB: create new       |   new dim if  |       SB/C: create new
+  // dim if discontiguous       | discontiguous |       dim if discontiguous
+  // otherwise merge with       |     or SB     |       or SB, otherwise merge
+  //            prev dim        |               |       with prev dim
+  //                            '---------------'
+  //                           CB: create new dim
   //
   // There are three states in the machine. The meaning of these states are:
-  // - START: The machine is at the beginning of the loop, or the most recently
-  //   discovered dimension says that "please leave me alone and don't try to
-  //   merge me with anyone".
-  // - PENDING BULK: The most recently discovered dimension is whole tiled so
-  //   far. Please check if we can merge more BG IDs to grow the box size, or
-  //   check if we can merge an NG ID to make this box part of a dimension
-  //   instead of a whole dimension.
-  // - PENDING NON-BULK: The most recently discovered dimension is not whole
-  //   tiled so far. Please check if we can merge more NG IDs to grow the
-  //   whole dimension size.
-  enum { START, PENDING_BULK, PENDING_NON_BULK } state = START;
-  for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
-    auto id = std::get<0>(*it);
-    bool contiguous = std::get<1>(*it);
+  // - START: Everything clean, nothing pending merge.
+  // - PENDING BOX: Is there another contiguous box ID? I can merge it into the
+  //                current box.
+  // - PENDING COORD: Is there another coordinate ID? I can merge it into the
+  //                  current dimension.
+  enum { START, PENDING_BOX, PENDING_COORD } state = START;
+  for (auto it = tma_domain.rbegin(); it != tma_domain.rend(); it++) {
+    auto [id, contiguous, stride] = *it;
+    auto partitioned_id_it = tma_id_to_partitioned_id.find(id);
     auto box_id_it = tma_id_to_box_id.find(id);
-    if (box_id_it == tma_id_to_box_id.end()) {
-      // non-TMA-global ID
-      bool should_create_new_dim = !(state != START && contiguous);
-      if (should_create_new_dim) {
-        tensor_sizes_inner_to_outer.push_back(id->extent());
-        if (it != frontier.rbegin()) {
-          tensor_strides_inner_to_outer.push_back(
-              SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
-        }
-        box_sizes_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
-        element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+    auto stride_id_it = tma_id_to_stride_id.find(id);
+    enum IDType { P, C, SB, CB };
+    IDType type =
+        (partitioned_id_it != tma_id_to_partitioned_id.end()
+             ? P
+             : (box_id_it == tma_id_to_box_id.end()
+                    ? C
+                    : (stride_id_it != tma_id_to_stride_id.end() ? SB : CB)));
+    bool should_create_new_dim =
+        !(contiguous &&
+          ((state == PENDING_BOX && (type == CB || type == C)) ||
+           (state == PENDING_COORD && type == C)));
 
-        auto index_it = indexing->indexMap().find(id);
-        NVF_ERROR(
-            index_it != indexing->indexMap().end(),
-            "Can not find index for ",
-            id->toString());
-        indices_inner_to_outer.push_back(index_it->second);
-      } else {
-        auto index_it = indexing->indexMap().find(id);
-        NVF_ERROR(
-            index_it != indexing->indexMap().end(),
-            "Can not find index for ",
-            id->toString());
-        indices_inner_to_outer.back() = SimplifyingIrBuilder::addExpr(
-            indices_inner_to_outer.back(),
-            SimplifyingIrBuilder::mulExpr(
-                tensor_sizes_inner_to_outer.back(), index_it->second));
-        tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
-            tensor_sizes_inner_to_outer.back(), id->extent());
+    auto index_it = indexing->indexMap().find(id);
+    NVF_ERROR(
+        index_it != indexing->indexMap().end(),
+        "Can not find index for ",
+        id->toString());
+
+    if (should_create_new_dim) {
+      tensor_sizes_inner_to_outer.push_back(id->extent());
+      if (it != tma_domain.rbegin()) {
+        tensor_strides_inner_to_outer.push_back(
+            SimplifyingIrBuilder::mulExpr(stride, itemsize));
       }
-      state = PENDING_NON_BULK;
-    } else {
-      // TMA-global ID
-      bool should_create_new_dim =
-          !(state == PENDING_BULK && bulk_ids.count(id) > 0 && contiguous);
-      if (should_create_new_dim) {
-        tensor_sizes_inner_to_outer.push_back(id->extent());
-        if (it != frontier.rbegin()) {
-          tensor_strides_inner_to_outer.push_back(
-              SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
-        }
+      if (box_id_it != tma_id_to_box_id.end()) {
         box_sizes_inner_to_outer.push_back(box_id_it->second->extent());
-
-        auto inner_it = tma_id_to_stride_id.find(id);
-        if (it == frontier.rbegin()) {
-          NVF_ERROR(
-              inner_it == tma_id_to_stride_id.end(),
-              "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
-              "(this is always the case for nvFuser now)",
-              ", the first element of elementStrides must be one");
-        }
-        if (inner_it != tma_id_to_stride_id.end()) {
-          element_strides_inner_to_outer.push_back(inner_it->second->extent());
-        } else {
-          element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
-        }
-
-        auto index_it = indexing->indexMap().find(id);
-        NVF_ERROR(
-            index_it != indexing->indexMap().end(),
-            "Can not find index for ",
-            id->toString());
-        indices_inner_to_outer.push_back(index_it->second);
       } else {
-        tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
-            tensor_sizes_inner_to_outer.back(), id->extent());
+        box_sizes_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+      }
+      if (stride_id_it != tma_id_to_stride_id.end()) {
+        element_strides_inner_to_outer.push_back(
+            stride_id_it->second->extent());
+      } else {
+        element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+      }
+      indices_inner_to_outer.push_back(index_it->second);
+    } else {
+      tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
+          tensor_sizes_inner_to_outer.back(), id->extent());
+      indices_inner_to_outer.back() = SimplifyingIrBuilder::addExpr(
+          indices_inner_to_outer.back(),
+          SimplifyingIrBuilder::mulExpr(
+              tensor_sizes_inner_to_outer.back(), index_it->second));
+      if (type == CB) {
         box_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
             box_sizes_inner_to_outer.back(), id->extent());
       }
-      state = bulk_ids.count(id) > 0 ? PENDING_BULK : START;
     }
+
+    state = (type == P ? START : (type == CB ? PENDING_BOX : PENDING_COORD));
   }
 
   int64_t dim = (int64_t)tensor_sizes_inner_to_outer.size();
