@@ -156,7 +156,7 @@ We call this split "*striding split*", the inner output of this split "*stride I
 and the outer output of this split "*tile IterDomain*".
 For the example in Figure 1 on the right hand side, the schedule looks like the Figure 7 below:
 
-![Figure 7: Strided tile](./tma/strided-tile.svg)
+![Figure 7: Strided tile](tma/strided-tile.svg)
 
 Note that if the box is defined by compositing,
 the box IterDomain can be a list of IterDomains instead of a single IterDomain.
@@ -171,6 +171,244 @@ and the former is not equivalent to the latter as discussed in [Divisibility of 
 > This is called "**The fundamental theorem of TMA correctness**", or **FTTC** in short.
 > See [TMA Modeling In Depth](../reading/tma-modeling-in-depth.md#the-unachievability-of-strong-correctness-for-indivisible-element-stride) for more detail.
 
-### Step 4: Schedule tile
+### Step 4: schedule the shared memory tensor
 
-### Step 5: Schedule coordinates
+So far, we have been focusing on the schedule of the consumer because the consumer dictates the loop nest.
+Let's now move our attention to the shared memory tensor.
+For TMA load, the shared memory tensor is the consumer.
+For TMA store, the shared memory tensor is the producer.
+
+One important constraint we must realize is, for TMA,
+the minimum unit that the programmer has control of is a tile.
+We are free to specify where to place different tiles in shared memory,
+but each tile must span a contiguous space.
+If a schedule indicates the opposite, then this schedule is wrong.
+
+The Figure 8 below shows some invalid schedule on the shared memory tensor:
+
+![Figure 8: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
+
+These examples have the same reason for being invalid: The tile in shared memory is not contiguous.
+
+In the example (a), the allocated IterDomains are `[I3, I7, I8, I6]`
+(note that `I5` is parallelized on `blockIdx.x`, it is not allocated on shared memory).
+The tile IterDomains are `I7` and `I6`, there is an `I8` between them,
+makeing the tile not contiguous in memory.
+
+In the example (b), the allocated IterDomains are `[(partial) I1, I2]`,
+where `I2` contains not only `I6` but also `I5`,
+so `I4` and `I6` is not contiguous in memory.
+Similar argument applies to example (d).
+
+In the example (c), the allocated IterDomains are `[I3, I4, I5, I6]`.
+The `I5` between `I4` and `I6` is parallelized on `TIDx`, therefore allocated.
+So `I4` and `I6` is not contiguous in memory.
+Similar argument applies to example (e).
+
+The Figure 9 below shows some valid schedule on the shared memory tensor:
+
+![Figure 9: Some valid smem schedule](tma/valid-smem-contig.svg)
+
+Example (a) is valid because it flipped the order of `I8` and `I7` to make `I7` inner,
+and the `I5` between `I7` and `I6` is `blockIdx.x` parallelized therefore not allocated.
+
+Example (b) is valid because `I2` and `I6` are essentially equivalent because the split size is exactly `I2`'s extent.
+Similar argument applies to example (d).
+
+Example (c) is valid because, although `I4` is a tile IterDomain and there is an `I5` between `I4` and `I6`,
+the extent of `I4` is `1` so it is a trivial IterDomain that we do now care where it is.
+
+Example (e) is valid because, although there is an `I5` between `I4` and `I6` in the allocation domain,
+because the extent of `I5` is `1` so it is a trivial IterDomain that does not make `I4` and `I6` discontiguous.
+
+Besides the tile must be contiguous in the allocation domain,
+the allocation domain is also required to be a multiple of whole tiles,
+because tile is the minimum unit of a TMA operation.
+Except for the above mentioned constraints,
+we do not have further limitation on what the allocation domain should look like.
+Especially, as long as we are keeping each tile contiguous in memory, we can view it arbitrarily.
+
+The following Figure 10 shows some additional valid and invalid schedules:
+
+![Figure 10: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
+
+In the above figure, example (a) and (b) are valid because the allocation domains satisfy the constraint that they must be a multiple of whole tiles and each tile is contiguous in memory.
+
+Example (c) is invalid because within each tile, the split obtaining `I8` is indivisible,
+therefore it creates holes and makes each tile no longer contiguous.
+Example (d) is invalid because within each tile, the order of `I7` and `I8` is flipped,
+making each tile not contiguous.
+Example (e) is invalid because, although each tile is contiguous in memory,
+the overall allocation domain is not a multiple of whole tiles.
+
+For TMA store, the flexibility of being able to arbitrarily view the tile can be convenient,
+because the schedule of the shared memory tensor not only defines the memory layout,
+but also defines the loop structure and the parallelization strategy on how the shared memory tensor will be written.
+With this flexibility, we can often just make the leaf domain and the allocation domain the same.
+
+For TMA load, this is not the case.
+The schedule of the shared memory tensor defines how TMA will write shared memory.
+But TMA only cares about the boxing and striding split.
+However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
+We do still need the flexibility to freely choose how we want to read the shared memory,
+but this information is defined in the consumers of the shared memory tensor,
+not the shared memory tensor itself.
+With this in mind, we put a constraint in nvFuser that we disallow transforming tile and non-tile IterDomains together in the consumer of a TMA expression.
+For example, we can not merge or swizzle a tile IterDomain with a non-tile IterDomain.
+This constraint does help us to keep the system simple
+so that we do not need to explicitly store the TMA domain, but instead,
+the TMA domain can be completely inferred from the schedule.
+
+> [!WARNING]
+> Due to the limitation of our current indexing approach,
+> Not all valid schedules will be indexable.
+> During indexing, currently we need to replay producer as consumer,
+> so if the replay is not possible, we can not index it.
+
+> [!WARNING]
+> We do not have validation on shared memory schedule yet.
+> If you scheduled something invalid, likely you will see misaligned address error or silent wrong result.
+
+#### Data swizzle
+
+So far we have been ignoring the shared memory swizzle feature of TMA and
+assuming that the tile is stored in shared memory contiguously.
+TMA can store a tile in shared memory in a swizzled layout.
+There are four swizzling mode: no swizzle, 32 byte swizzle, 64 byte swizzle, and 128 byte swizzle.
+The no swizzle mode is the the mode that we have been assuming.
+
+The `N` byte swizzle mode can be considered as the Figure 11 below:
+
+![Figure 11: Swizzle](tma/swizzle.svg)
+
+TMA requires the size of the innermost dimension to be the swizzle size (`N` bytes).
+For example, if using 64 byte swizzle on `fp16` tensors,
+the innermost dimension must have size $64 / 2 = 32$.
+Although these swizzle modes work on all dimensionalities of TMA,
+we always view the tile as a 2D matrix `(-1, swizzle size)`,
+where the `-1` is the flatten of all dimensions except the innermost dimension.
+
+After viewing the tile as a 2D matrix, we further divide this matrix as blocks of unit matrices.
+We divide each row into unit of 16 bytes, so each row will have `N/16` units.
+For each column, we divide it into unit of `128/N` rows,
+so each unit row has `128/N * N bytes = 128 bytes`, which is exactly the width of all 32 banks.
+The unit matrix is the minumum unit of operation when applying swizzles.
+
+After viewing the tile as blocks of unit matrices, we can apply the xor-swizzle using the following steps:
+
+1. For every other unit row, swap each pair of two units.
+2. Consider $2\times 2$ unit matrices as new unit.
+3. Repeat 1 and 2 until there is only one unit column, so we have nothing to do further.
+
+The above procedure creates a periodic pattern with period `N/16` unit rows.
+Within each period, the above procedure can be achieved with a single xor operation:
+assuming `i` is the row index and `j` is the column index,
+we can just do `(i, j) -> (i, i ^ j)`.
+
+
+<details>
+
+**<summary>Why?</summary>**
+
+Xor has the mathematical property that, if a bit in `i` is `1`,
+then the result of the xor operation will be the flip of `j`'s corresponding bit;
+if a bit in `i` is `0`, then the result of the xor operation will be `j`'s corresponding bit unchanged.
+
+Considering the lowest bit of `i`, it has value `1` every other row.
+When this bit is xor-ed with `j`,
+the result `i ^ j`'s lowest bit will be the flip of the lowest bit of `j` every other row.
+Visually, this corresponding to swapping each pair of unit matrices every other row.
+
+When we treat $2\times 2$ unit matrices as new unit, we are effectively doing `i >> 1` and `j >> 1`.
+Repeat the step 1 will then use the lowest bit of `(i >> 1) ^ (j >> 1)` to control the swapping of the new units.
+This equivalent to use the second lowest bit of `i ^ j` to control the $2\times 2$ unit matrices.
+
+When we repeat this process until finished, we are using all bits of `i ^ j`,
+different bits control the flip of pairs of different granularity.
+
+$\square$
+
+</details>
+
+Storing data in swizzled memory format in shared memory is helpful because it makes both row-wise and column-wise memory access free of bank conflict.
+
+<details>
+
+**<summary>Why?</summary>**
+
+In the 3-step procedure above, we are only swapping items within each row of unit matrices.
+This procedure never interleave different rows, instead,
+it just reorder the unit matrices within each row itself.
+So each row of unit matrices still occupies the full width of 32 banks.
+Therefore, when a warp is simultenuously accessing a row of unit matrices
+(either by vectorization or by parallelization), it has no bank conflict.
+
+In the 3-step approach above, the first step swaps half of the items in the first column with half of the items with the second column.
+This operation interleave every pair of columns to make them containing each other evenly.
+If we consider every 2 columns as a unit column, then items between different unit columns still does not interleave.
+But when we consider $2\times 2$ unit matrices as new unit and do the swap again,
+we are interleaving every pair of unit columns making them containing each other evenly.
+If we repeat this process, each logical column will eventually be evenly distributed to every physical column.
+So when we want to access one logical column, we are actually accessing every physical columns.
+Therefore, when a warp is simultenuously accessing a logical column of unit matrices,
+this access will be distributed to all physical columns, therefore all banks.
+Therefore, this access has no bank conflict.
+
+$\square$
+
+</details>
+
+When we use the automatic swizzling feature of TMA,
+we must make sure that the allocation domain of our shared memory tensor is consistent with the memory format defined by TMA.
+
+Let `s` be swizzle size (`bytes of swizzle / 16 bytes`).
+The overall structure of the schedule of the allocation domain of the shared memory tensor looks like:
+
+```
+tile IterDomains => view as ([-1, s, 8/s, s, 16B]) => swizzle(1, 3) => arbitrary view
+```
+
+The Figure 12 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
+
+![Figure 12: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
+
+### Step 5: schedule consumer tensor
+
+In nvFuser, the consumer dictates the loop nests and parallelization of an expression,
+and the leaf domain of the consumer has the responsibility of specifying these information.
+
+Most generally, when we enter this step,
+we might see the leaf domain of the consumer tensor already scheduled partially,
+as shown in the Figure 13 below:
+
+![Figure 13: Consumer schedule](./tma/consumer-schedule.svg)
+
+It is important to note that, tile IterDomains and non-tile IterDomains must be transformed separately in the consumer of a TMA expression.
+Transforming tile IterDomain and non-tile IterDomain together,
+such as merging a tile IterDomain with a non-tile IterDomain, is an error in the schedule.
+
+We are not interested in further transforming the tile branch in this step,
+because TMA only cares about the boxing and striding split.
+However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
+So we just immediately parallelize all the IterDomains in the leaf domain from the tile branch as `ParallelType::Bulk` without doing any transformation.
+Oh, well, I may be wrong.
+Sometimes, merging all of these IterDomains first then parallelize the merged IterDomain as `ParallelType::Bulk` takes less keystrokes.
+So, maybe do the latter instead of the former.
+Anyway, we can just pick whatever the most convenient way to parallelize all these IterDomains as `ParallelType::Bulk`.
+
+> [!WARNING]
+> Due to the limitation of our current indexing approach,
+> the consumer must be transformed the same way as the producer.
+> So we need to repeat the schedule of the TMA store's shared memory tensor's allocation domain
+> in the consumer so that the indexing won't fail.
+
+The interesting thing to us is the non-tile branch,
+because the transformation and parallelization here defines which CTA get which tiles,
+and within each CTA, how do we want to tranfer these tiles
+(do we select a single thread and within this thread use a for loop to transfer all tiles,
+or do we use multiple threads each in charge of transfering one tile,
+or something else?).
+We do have the flexibility to arbitrarily transform and parallelize the non-tile branch,
+and scheduling this is very similar to how we schedule other fusions.
+
+### Examples
