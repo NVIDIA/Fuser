@@ -28,15 +28,17 @@ def pytest_addoption(parser):
         help="Benchmarks torch.compile mode.",
     )
 
+    # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
+    # The following two options are used to overwrite the default values through CLI.
     parser.addoption(
-        "--rounds",
+        "--benchmark-rounds",
         action="store",
         default=10,
         help="Number of rounds for each benchmark.",
     )
 
     parser.addoption(
-        "--warmup-rounds",
+        "--benchmark-warmup-rounds",
         action="store",
         default=1,
         help="Number of warmup rounds for each benchmark.",
@@ -64,8 +66,10 @@ def pytest_benchmark_update_machine_info(config, machine_info):
 
 
 def pytest_configure(config):
-    BENCHMARK_CONFIG["rounds"] = int(config.getoption("--rounds"))
-    BENCHMARK_CONFIG["warmup_rounds"] = int(config.getoption("--warmup-rounds"))
+    BENCHMARK_CONFIG["rounds"] = int(config.getoption("--benchmark-rounds"))
+    BENCHMARK_CONFIG["warmup_rounds"] = int(
+        config.getoption("--benchmark-warmup-rounds")
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):

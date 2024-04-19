@@ -287,7 +287,7 @@ class NVFBenchmark:
 
 
 # These variables can be overwritten through CLI commands
-# --rounds=rounds --warmup-rounds=warmup_rounds
+# --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1}
 
 
