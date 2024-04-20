@@ -3181,8 +3181,7 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
       }
     }
   }
-
-} // namespace nvfuser
+}
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
