@@ -3030,7 +3030,13 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
     for (bool add_2d_bias : {false, true}) {
       for (bool downcast_output : {false, true}) {
         for (const auto& [M, N, K, alignA, alignB, alignBias] :
-             std::vector<std::tuple<int, int, int, int, int, int>>{
+             std::vector<std::tuple<
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t>>{
                  {504, 136, 248, 8, 8, 8}, // all fully vectorizable in all
                                            // layouts
                  {504, 136, 249, 8, 8, 8}, // odd K, operands not vectorizable
@@ -3120,71 +3126,80 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
               toString(fusion_layout.getData()),
               ")");
 
-          MatMulTileOptions gemm_tile;
-          gemm_tile.cta_tile = GemmTile(160, 144, 16);
-          gemm_tile.warp_tile = GemmTile(80, 24, 16);
-          gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-          MatmulParams params;
-          params.mma_macro = MmaMacro::Ampere_16_8_16;
-          params.tile_sizes = gemm_tile;
-          params.async_gmem_load_operands = true;
-          params.double_buffer_options.double_buffer_smem_write = true;
-          params.double_buffer_options.double_buffer_smem_read = true;
-          params.double_buffer_options.smem_double_buffer_stage = 4;
-
           // determine supported vectorization of an ATen tensor that will be
           // loaded along its innermost dimension
           const auto atenSupportedVectorization =
               [](const at::Tensor& tens) -> int64_t {
+            auto data_ptr_int = static_cast<int64_t>(
+                reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
             int64_t vec_size =
-                scheduler_utils::maxVectorizationWidth(static_cast<int64_t>(
-                    std::reinterpret_cast<std::uintptr_t> tens.data_ptr()));
+                scheduler_utils::maxVectorizationWidth(data_ptr_int) /
+                tens.element_size();
+            std::cout << "data_ptr_int=" << data_ptr_int << std::endl;
+            std::cout << "vec_size=" << vec_size << std::endl;
             std::vector<int64_t> strides = tens.strides().vec();
-            std::sort(strides);
+            std::cout << "strides=" << strides << std::endl;
+            std::sort(strides.begin(), strides.end());
+            std::cout << "sorted strides=" << strides << std::endl;
             if (strides.front() > 1) {
               // Discontiguous input
+              std::cout << "discontiguous input" << std::endl;
               return 1;
             }
+            strides.erase(strides.begin());
             NVF_ERROR(!strides.empty());
             // Next smallest stride determines supported vectorization
+            std::cout << "stride-based vec_size="
+                      << scheduler_utils::maxVectorizationWidth(strides.front())
+                      << std::endl;
+            std::cout << "element_size=" << tens.element_size() << std::endl;
             vec_size = std::min(
                 vec_size,
                 scheduler_utils::maxVectorizationWidth(strides.front()));
             return std::min(vec_size, (int64_t)(16 / tens.element_size()));
           };
 
-          params.supported_vec_size = {.a = atenSupportedVectorization(t0);
-          .b = atenSupportedVectorization(t1);
-          .epilogue =
-              std::min(alignBias, scheduler_utils::maxVectorizationWidth(M));
-        };
+          MatmulParams params;
+          params.mma_macro = MmaMacro::Ampere_16_8_16;
+          params.supported_vec_size = {
+              .a = atenSupportedVectorization(t0),
+              .b = atenSupportedVectorization(t1),
+              .epilogue = std::min(
+                  alignBias,
+                  std::min(
+                      scheduler_utils::maxVectorizationWidth(N),
+                      (int64_t)(16 / (downcast_output ? 2 : 4))))};
+          // Supported vectorization determines whether we are able to do async
+          // gmem->smem loads.
+          params.async_gmem_load_operands = params.supported_vec_size.a >= 4 &&
+              params.supported_vec_size.b >= 4;
+          params.double_buffer_options.double_buffer_smem_write = true;
+          // If we cannot use cp.async, it means we cannot do circular buffering
+          params.double_buffer_options.smem_double_buffer_stage =
+              params.async_gmem_load_operands ? 4 : 2;
 
-        scheduleMatmul(&fusion, params);
+          std::cout << "layout=" << toString(layout) << " M=" << M << " N=" << N
+                    << " K=" << K << " add_2d_bias=" << add_2d_bias
+                    << " downcast_output=" << downcast_output << std::endl;
+          std::cout << params.toString() << std::endl;
 
-        FusionExecutor fe;
-        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-            8,
-            0,
-            fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
-        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-        auto cg_outputs = fe.runFusion(inputs);
+          scheduleMatmul(fusion.get(), params);
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+          FusionExecutor fe;
+          NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+              8,
+              0,
+              fe.compileFusion(
+                  fusion.get(), inputs, LaunchParams(), matmul_cparams));
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+          auto outputs = fe.runFusion(inputs);
 
-        // expected to match whole fusion with single segment
-        EXPECT_FALSE(
-            executor_cache.getMostRecentKernelRuntime()->isSegmented());
-
-        EXPECT_TRUE(isSchedulerInUse(
-            executor_cache.getMostRecentKernelRuntime(),
-            ScheduleHeuristic::Matmul));
-
-        EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+          EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        }
       }
     }
   }
-}
+
 } // namespace nvfuser
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
