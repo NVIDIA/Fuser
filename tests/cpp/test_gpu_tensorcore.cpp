@@ -3022,6 +3022,171 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// Test matmul with sizes that are not divisible by 8 and with misaligned inputs
+TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
+  // TODO: parametrized test instead of nested loops (still use a loop over
+  // sizes and re-use FusionExecutorCache)
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool add_2d_bias : {false, true}) {
+      for (bool downcast_output : {false, true}) {
+        for (const auto& [M, N, K, alignA, alignB, alignBias] :
+             std::vector<std::tuple<int, int, int, int, int, int>>{
+                 {504, 136, 248, 8, 8, 8}, // all fully vectorizable in all
+                                           // layouts
+                 {504, 136, 249, 8, 8, 8}, // odd K, operands not vectorizable
+                                           // in TN. output fully vectorizable
+                 {504, 137, 248, 8, 8, 8}, // A fully vectorizable, B fully
+                                           // vectorizable unless transposed,
+                                           // output not vectorizable
+                 {505, 136, 248, 8, 8, 8}, // B fully vectorizable, A
+                                           // vectorizable unless transposed,
+                                           // output fully vectorizable
+                 {505, 137, 248, 8, 8, 8}, // none vectorizable
+
+                 // The following cases are failing due to
+                 // https://github.com/NVIDIA/Fuser/issues/2118
+                 // Cases with vectorizable strides but misaligned base pointers
+                 {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
+                 {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
+                 {504, 136, 248, 8, 8, 2}, // epilogue not vectorizable due to
+                 // offset
+             }) {
+          const auto maybeUnalign = [](const at::Tensor& t, int offset) {
+            if (offset == 16 / t.element_size()) {
+              // Already fully aligned
+              return t;
+            }
+            return at::pad(t.ravel(), {{0, offset}})
+                .index({at::indexing::Slice(offset, t.numel() + offset, 1)})
+                .view({t.size(0), t.size(1)});
+          };
+
+          auto t0 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
+              alignA);
+          auto t1 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
+              alignB);
+
+          auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+          std::vector<c10::IValue> inputs = {t0, t1};
+
+          if (add_2d_bias) {
+            const auto options =
+                at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+            auto bias = maybeUnalign(at::randn({M, N}, options), alignBias);
+            tref = tref + bias;
+            inputs.push_back(bias);
+          }
+
+          if (downcast_output) {
+            tref = tref.to(at::kHalf);
+          }
+
+          auto fusion = std::make_unique<Fusion>();
+          FusionGuard fg(fusion.get());
+
+          auto tv0 = makeContigTensor(2, DataType::Half);
+          auto tv1 = makeContigTensor(2, DataType::Half);
+          fusion->addInput(tv0);
+          fusion->addInput(tv1);
+
+          tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+          tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+          auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+          if (add_2d_bias) {
+            auto bias = makeContigTensor(2, DataType::Half);
+            fusion->addInput(bias);
+            tv2 = add(tv2, bias);
+          }
+
+          if (downcast_output) {
+            tv2 = castOp(DataType::Half, tv2);
+          }
+
+          fusion->addOutput(tv2);
+
+          const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+          NVF_CHECK(
+              fusion_layout.isValid(),
+              "failed to get decide matmul layout through fusion definition");
+          NVF_CHECK(
+              fusion_layout.getData() == layout,
+              "mismatch between test layout (",
+              toString(layout),
+              ") and layout inferred from fusion definition (",
+              toString(fusion_layout.getData()),
+              ")");
+
+          MatMulTileOptions gemm_tile;
+          gemm_tile.cta_tile = GemmTile(160, 144, 16);
+          gemm_tile.warp_tile = GemmTile(80, 24, 16);
+          gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+          MatmulParams params;
+          params.mma_macro = MmaMacro::Ampere_16_8_16;
+          params.tile_sizes = gemm_tile;
+          params.async_gmem_load_operands = true;
+          params.double_buffer_options.double_buffer_smem_write = true;
+          params.double_buffer_options.double_buffer_smem_read = true;
+          params.double_buffer_options.smem_double_buffer_stage = 4;
+
+          // determine supported vectorization of an ATen tensor that will be
+          // loaded along its innermost dimension
+          const auto atenSupportedVectorization =
+              [](const at::Tensor& tens) -> int64_t {
+            int64_t vec_size =
+                scheduler_utils::maxVectorizationWidth(static_cast<int64_t>(
+                    std::reinterpret_cast<std::uintptr_t> tens.data_ptr()));
+            std::vector<int64_t> strides = tens.strides().vec();
+            std::sort(strides);
+            if (strides.front() > 1) {
+              // Discontiguous input
+              return 1;
+            }
+            NVF_ERROR(!strides.empty());
+            // Next smallest stride determines supported vectorization
+            vec_size = std::min(
+                vec_size,
+                scheduler_utils::maxVectorizationWidth(strides.front()));
+            return std::min(vec_size, (int64_t)(16 / tens.element_size()));
+          };
+
+          params.supported_vec_size = {.a = atenSupportedVectorization(t0);
+          .b = atenSupportedVectorization(t1);
+          .epilogue =
+              std::min(alignBias, scheduler_utils::maxVectorizationWidth(M));
+        };
+
+        scheduleMatmul(&fusion, params);
+
+        FusionExecutor fe;
+        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+            8,
+            0,
+            fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        auto cg_outputs = fe.runFusion(inputs);
+
+        auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+        // expected to match whole fusion with single segment
+        EXPECT_FALSE(
+            executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+        EXPECT_TRUE(isSchedulerInUse(
+            executor_cache.getMostRecentKernelRuntime(),
+            ScheduleHeuristic::Matmul));
+
+        EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+      }
+    }
+  }
+}
+} // namespace nvfuser
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

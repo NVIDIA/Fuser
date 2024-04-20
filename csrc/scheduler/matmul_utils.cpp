@@ -71,8 +71,7 @@ inline std::optional<MmaMacro> getMmaOp(
 //! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const ProblemShape& problem_shape,
-    const mma_utils::RolesMap& roles_map) {
+    const ProblemShape& problem_shape) {
   const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -127,33 +126,13 @@ inline bool initCoreHeuristics(
     if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
+      params->async_gmem_load_operands = true;
       params->double_buffer_options.double_buffer_smem_write = true;
       params->double_buffer_options.double_buffer_smem_read = true;
       params->double_buffer_options.smem_double_buffer_stage = stages;
     }
   }
 
-  const auto& roleMinDtypeSize = [&roles_map](MatmulRole role) -> int64_t {
-    const auto op_it = roles_map.find(role);
-    NVF_ERROR(op_it != roles_map.end());
-    int64_t min_size_bytes = 128LL;
-    for (const TensorView* operand : op_it->second) {
-      min_size_bytes = std::min(min_size_bytes, dataTypeSize(operand->dtype()));
-    }
-    return min_size_bytes;
-  };
-  params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
-      params.get(),
-      roleMinDtypeSize(MatmulRole::INPUT_A),
-      roleMinDtypeSize(MatmulRole::INPUT_B));
-
-  if (!params->async_gmem_load_operands) {
-    // Circular buffering requires async load. If we cannot use async load due
-    // to unsupported vectorization width, then we can only double buffer at
-    // most.
-    params->double_buffer_options.smem_double_buffer_stage =
-        std::min(2, params->double_buffer_options.smem_double_buffer_stage);
-  }
   return true;
 }
 
@@ -315,98 +294,6 @@ std::string isMatmulFusionDefinitionSupported(
   return "";
 }
 
-// Assume that tens has a contiguous dimension, and that we will load rows of
-// that dimension, without merging with another dimension first. Then determine
-// the maximum vectorization that can be used.
-//
-// If the argument has no contiguous dimensions, then a vectorization width of 1
-// is returned.
-//
-// These rows can start at any multiple of the non-contiguous strides, so we
-// seek the largest power of 2 that divides all those other dimensions (capped
-// to 16) as well as the data pointer.
-int64_t maxRowVectorization(const at::Tensor& tens) {
-  const int64_t data_ptr_int =
-      static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
-  int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-  vec_size = std::min(vec_size, (int64_t)(16l));
-  vec_size /= (int64_t)tens.element_size();
-  vec_size = std::max(vec_size, 1l);
-  if (vec_size == 1l) {
-    return vec_size;
-  }
-
-  std::vector<int64_t> strides = tens.strides().vec();
-  std::sort(strides.begin(), strides.end());
-  NVF_ERROR(!strides.empty());
-  if (strides.front() != 1l) {
-    // Tensor is discontiguous
-    return 1l;
-  }
-  strides.erase(strides.begin());
-  for (auto stride_i : strides) {
-    if (vec_size == 1l) {
-      break;
-    }
-    vec_size =
-        std::min(vec_size, scheduler_utils::maxVectorizationWidth(stride_i));
-  }
-
-  return vec_size;
-}
-
-MatmulParams::SupportedVectorization getSupportedVectorization(
-    const mma_utils::RolesMap& roles_map,
-    SchedulerRuntimeInfo& runtime_info) {
-  auto getMinVectorization = [&roles_map,
-                              &runtime_info](MatmulRole role) -> int64_t {
-    int64_t vec_size = 16; // max vectorization size
-    const auto it = roles_map.find(role);
-    if (it == roles_map.end()) {
-      return 16;
-    }
-    for (TensorView* tv : it->second) {
-      int64_t v = maxRowVectorization(
-          runtime_info.expressionEvaluator().evaluate(tv).as<at::Tensor>());
-      if (v < vec_size) {
-        vec_size = v;
-      }
-      if (v == 1) {
-        // No need to continue analyzing if we know we cannot vectorize
-        break;
-      }
-    }
-    return vec_size;
-  };
-  MatmulParams::SupportedVectorization supported_vec_size;
-  supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
-  supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_B);
-  // If there is no C tensor, then we will use full vectorization of the
-  // outputs. So find the max vectorization of the output tensors, then
-  // possibly reduce it if it is not supported by a input C tensor.
-  supported_vec_size.epilogue = getMinVectorization(MatmulRole::INPUT_C);
-  auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
-  // TODO: do we also need to look at OUTPUT_AUX?
-  for (TensorView* d : d_it->second) {
-    // Get inner dim of this output (the N dimension of the matmul problem). The
-    // output will be contiguous, so we will set the max vectorization that
-    // divides evenly into N, unless already set to something lower due to
-    // INPUT_C.
-    const int64_t N =
-        runtime_info.expressionEvaluator()
-            .evaluate(TensorDomain::noReductions(d->getMaybeRFactorDomain())
-                          .back()
-                          ->extent())
-            .as<int64_t>();
-    const int64_t d_max_vec = std::min(
-        (int64_t)16LL / dataTypeSize(d->dtype()),
-        scheduler_utils::maxVectorizationWidth(N));
-    supported_vec_size.epilogue =
-        std::min(supported_vec_size.epilogue, d_max_vec);
-  }
-  return supported_vec_size;
-}
-
 } // anonymous namespace
 
 std::string getMatmulRunTimeRejectReason(
@@ -466,24 +353,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   return "";
 }
 
-bool isCpAsyncOperandLoadSupported(
-    const MatmulParams* params,
-    int64_t dtype_size_a,
-    int64_t dtype_size_b) {
-  if (!isAmpere(params->mma_macro)) {
-    return false;
-  }
-  // Use cp.async for loading operands if vec size is compatible
-  const auto& validCpAsyncVecSize = [](int64_t dtype_size,
-                                       int64_t vec_size) -> bool {
-    int64_t cp_bytes = dtype_size * vec_size;
-    return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
-  };
-  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
-      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
-      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
-}
-
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -523,9 +392,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 
-  params->supported_vec_size =
-      getSupportedVectorization(roles_map, runtime_info);
-
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
         mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
@@ -547,7 +413,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status = initCoreHeuristics(params, problem_shape, roles_map);
+    auto status = initCoreHeuristics(params, problem_shape);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
