@@ -1,5 +1,5 @@
 #define COMPILE_ARGS 1
-#define DEBUG_ARGS 1
+#define DEBUG_ARGS 0
 #include <cassert>
 #include <iostream>
 #include <typeinfo>
