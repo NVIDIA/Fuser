@@ -456,10 +456,10 @@ bool reductionInterferingView(
       fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int>> disjoint_groups;
+  std::vector<std::vector<int64_t>> disjoint_groups;
 
   for (const auto& group : groups) {
-    std::vector<int> disjoint_id_sets;
+    std::vector<int64_t> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
           reduction_reference->getMaybeRFactorDomain().begin(),
@@ -472,7 +472,8 @@ bool reductionInterferingView(
       auto rfactor_pos = std::distance(
           reduction_reference->getMaybeRFactorDomain().begin(), find_it);
       NVF_ERROR(
-          rfactor_pos < (int)disjoint_set_information.disjoint_set_ids.size(),
+          rfactor_pos <
+              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
           "Error computing disjoint group on the rfactor domain of ",
           reduction_reference->toString());
       disjoint_id_sets.push_back(

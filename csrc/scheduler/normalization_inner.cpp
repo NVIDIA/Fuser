@@ -505,7 +505,7 @@ void innerPersistentHeuristic2D(
   }
 
   // Fill in the reduction params
-  rparams->cparams.maxrregcount = (int)best_heuristic.register_per_thread;
+  rparams->cparams.maxrregcount = best_heuristic.register_per_thread;
 
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
@@ -1019,7 +1019,7 @@ void innerPersistentHeuristic3D(
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
-  rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
+  rparams->cparams.maxrregcount = nvrtc_register_per_thread;
 
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;

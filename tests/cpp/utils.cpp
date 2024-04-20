@@ -88,8 +88,8 @@ namespace {
 // implementation borrowed from https://stackoverflow.com/a/17976541
 inline std::string_view trim(const std::string_view& s) {
   auto wsfront = std::find_if_not(
-      s.begin(), s.end(), [](int c) { return std::isspace(c); });
-  auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int c) {
+      s.begin(), s.end(), [](int64_t c) { return std::isspace(c); });
+  auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int64_t c) {
                   return std::isspace(c);
                 }).base();
   return (
@@ -322,9 +322,9 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
 }
 
 std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -349,9 +349,9 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
 }
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
@@ -368,9 +368,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring
 }
 
 std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -383,11 +383,11 @@ at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
-    const int M,
-    const int N,
-    const int K,
-    const int B,
-    const int device) {
+    const int64_t M,
+    const int64_t N,
+    const int64_t K,
+    const int64_t B,
+    const int64_t device) {
   const auto options =
       at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
   const auto is_batch = B != 0;
@@ -495,7 +495,7 @@ TensorView* canonicalizeInputToBMNK(
   } else { // B
     if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
       // [(M,) B, K, N] -> [B, (M,) N, K]
-      std::unordered_map<int, int> old2new = {{-1, -2}};
+      std::unordered_map<int64_t, int64_t> old2new = {{-1, -2}};
       if (has_batch && already_broadcasted) {
         old2new[0] = 1;
       }
@@ -564,7 +564,7 @@ void validateSegmentation(
       segment_groups.size() <= 2, "True segment order analysis is required");
 
   for (auto& group : segment_groups) {
-    int segment_order = group->producer_edges.empty() ? 0 : 1;
+    int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
     NVF_CHECK(
         group->heuristic() == expected_heuristics.at(segment_order),
         "Expected to use the ",
@@ -730,14 +730,14 @@ size_t getATenRandomSeed() {
   return seed;
 }
 
-int getNumSMs() {
+int64_t getNumSMs() {
   // Since cudaGetDeviceProperties can be slow, we memoize the value in num_SMs
-  static std::vector<int> num_SMs;
+  static std::vector<int64_t> num_SMs;
 
   int dev_idx = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
 
-  if (num_SMs.size() <= (size_t)dev_idx) {
+  if ((int64_t)num_SMs.size() <= dev_idx) {
     num_SMs.resize(dev_idx + 1, -1);
   }
 

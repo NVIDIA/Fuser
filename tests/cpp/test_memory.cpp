@@ -445,7 +445,7 @@ void scheduleTile(
       tv->split(i, tile_sizes[i]);
     }
     // [M/tile_sizes[0], tile_sizes[0], N/tile_sizes[1], tile_sizes[1], ...]
-    std::unordered_map<int, int> old2new;
+    std::unordered_map<int64_t, int64_t> old2new;
     for (int64_t i = 0; i < dim; i++) {
       old2new[2 * i] = i;
       old2new[2 * i + 1] = i + dim;

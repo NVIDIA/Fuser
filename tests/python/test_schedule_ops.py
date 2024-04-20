@@ -114,7 +114,7 @@ class TestScheduleOps(TestCase):
         )
         self.check_input_error(
             lambda fd: fd.sched.merge(fd.t1, 2),
-            "Invalid merge detected, either one or both axes are outside of TensorView's range.",
+            "Tried to access out of boundary index 3. total index: 3",
         )
         # TODO: I am not sure why this error doesn't match the previous error
         # The previous error seems like it should match as they represent the
@@ -126,7 +126,7 @@ class TestScheduleOps(TestCase):
         )
         self.check_input_error(
             lambda fd: fd.sched.merge(fd.t1, -4),
-            "Cannot merge axes within compute at position. Either axis -1 or 0 are within computePosition = 0",
+            "Tried to access out of boundary index -1. total index: 3",
         )
 
         self.valid_use(lambda fd: fd.sched.merge(fd.t1, 0))
@@ -224,11 +224,11 @@ class TestScheduleOps(TestCase):
         # Error checking split dimension
         self.check_input_error(
             lambda fd: fd.sched.split(fd.t1, 3, 2),
-            "Tried to access position . in domain",
+            "Tried to access out of boundary index 3. total index: 3",
         )
         self.check_input_error(
             lambda fd: fd.sched.split(fd.t1, -4, 2),
-            "Split axis is less than 0 even after adjusting for nDims",
+            "Tried to access out of boundary index -1. total index: 3",
         )
 
         # Error checking split factor.
@@ -236,14 +236,13 @@ class TestScheduleOps(TestCase):
         # size into 1.
         self.check_input_error(
             lambda fd: fd.sched.split(fd.t1, 1, 0),
-            "Expected rhs != 0 to be true, but got false",
+            "Invalid factor for split. Factor must be greater than 0. Factor = 0",
         )
         # NOTE: While a negative split is not allowed, it does not make sense
         # why the error is a TypeError given -1 is a valid int
         self.check_input_error(
             lambda fd: fd.sched.split(fd.t1, 1, -1),
-            "incompatible function arguments",
-            TypeError,
+            "Invalid factor for split. Factor must be greater than 0. Factor = -1",
         )
 
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))

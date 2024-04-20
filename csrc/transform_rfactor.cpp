@@ -266,15 +266,15 @@ class ReplayRFactor : public ReplayTransformations {
 
 std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     TensorDomain* original_td,
-    std::vector<int> axes) {
+    std::vector<int64_t> axes) {
   FUSER_PERF_SCOPE("TransformRFactor::runReplay");
 
   NVF_CHECK(!axes.empty(), "No axes provided to rfactor replay.");
 
-  int ndims = (int)original_td->nDims();
+  int64_t ndims = original_td->nDims();
 
   // Adjust and check provided axes
-  std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int i) {
+  std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int64_t i) {
     NVF_CHECK(
         i >= -ndims && i < ndims,
         "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
@@ -285,13 +285,15 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   });
 
   // remove duplicates, and put into a set for searching
-  std::unordered_set<int> axes_set(axes.begin(), axes.end());
+  std::unordered_set<int64_t> axes_set(axes.begin(), axes.end());
 
   NVF_ERROR(
       std::all_of(
           axes_set.begin(),
           axes_set.end(),
-          [original_td](int i) { return original_td->axis(i)->isReduction(); }),
+          [original_td](int64_t i) {
+            return original_td->axis(i)->isReduction();
+          }),
       "Cannot rfactor axes that are not reduction axes.");
 
   // RFactor requires at least one reduction axis to be marked as factored out,
@@ -389,7 +391,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis((int)i);
+      auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
           replayed_id_it != original_to_producer_id_map.end(),
@@ -466,7 +468,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   {
     // Construct the new consumer domain
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis((int)i);
+      auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {
         auto replayed_id = replayed_id_it->second;
