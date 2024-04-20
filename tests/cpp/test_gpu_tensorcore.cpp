@@ -3135,24 +3135,15 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
             int64_t vec_size =
                 scheduler_utils::maxVectorizationWidth(data_ptr_int) /
                 tens.element_size();
-            std::cout << "data_ptr_int=" << data_ptr_int << std::endl;
-            std::cout << "vec_size=" << vec_size << std::endl;
             std::vector<int64_t> strides = tens.strides().vec();
-            std::cout << "strides=" << strides << std::endl;
             std::sort(strides.begin(), strides.end());
-            std::cout << "sorted strides=" << strides << std::endl;
             if (strides.front() > 1) {
               // Discontiguous input
-              std::cout << "discontiguous input" << std::endl;
               return 1;
             }
             strides.erase(strides.begin());
             NVF_ERROR(!strides.empty());
             // Next smallest stride determines supported vectorization
-            std::cout << "stride-based vec_size="
-                      << scheduler_utils::maxVectorizationWidth(strides.front())
-                      << std::endl;
-            std::cout << "element_size=" << tens.element_size() << std::endl;
             vec_size = std::min(
                 vec_size,
                 scheduler_utils::maxVectorizationWidth(strides.front()));
@@ -3177,11 +3168,6 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
           // If we cannot use cp.async, it means we cannot do circular buffering
           params.double_buffer_options.smem_double_buffer_stage =
               params.async_gmem_load_operands ? 4 : 2;
-
-          std::cout << "layout=" << toString(layout) << " M=" << M << " N=" << N
-                    << " K=" << K << " add_2d_bias=" << add_2d_bias
-                    << " downcast_output=" << downcast_output << std::endl;
-          std::cout << params.toString() << std::endl;
 
           scheduleMatmul(fusion.get(), params);
 
