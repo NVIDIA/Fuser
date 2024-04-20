@@ -82,8 +82,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         }
       }
       NVF_ERROR(conditional != nullptr);
+#if 0
       conditional = GpuLower::current()->commonScalarMap().hoistScalar(
           conditional, for_loops_);
+#endif
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);

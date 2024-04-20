@@ -100,7 +100,9 @@ IterDomain* getLoopPromotion(IterDomain* id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-std::vector<IterDomain*> getLoopDomains(const Expr* expr, const IdModel& id_model) {
+std::vector<IterDomain*> getLoopDomains(
+    const Expr* expr,
+    const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   // Assume consumer-based indexing. Needs to revisit for ops like
@@ -485,6 +487,40 @@ ExprGroups getExprsBetween(
   return exprs;
 }
 
+ExprGroups getIndexingTraversalPath(
+    TensorView* tv,
+    const Expr* expr,
+    const std::vector<IterDomain*>& from_domains,
+    const std::vector<IterDomain*>& to_domains,
+    const ValGraph& traversal_graph) {
+  auto consumer_tv = ir_utils::getTvOutput(expr);
+  std::unordered_set<Resize*> resize_paths;
+  if (consumer_tv->hasRFactor()) {
+    auto root_to_rf_exprs = StmtSort::getExprsBetween(
+        {consumer_tv->getRootDomain().begin(),
+         consumer_tv->getRootDomain().end()},
+        {consumer_tv->getRFactorDomain().begin(),
+         consumer_tv->getRFactorDomain().end()});
+    for (Expr* root_to_rf_expr : root_to_rf_exprs) {
+      if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
+        resize_paths.insert(resize);
+      }
+    }
+  }
+
+  auto indexing_path =
+      getExprsBetween(from_domains, to_domains, traversal_graph, resize_paths);
+
+  VERBOSE() << "Indexing path:\n";
+  for (const auto& expr_group : indexing_path) {
+    Expr* expr = expr_group->front();
+    VERBOSE() << expr->toString();
+  }
+  VERBOSE() << "--- path done ---\n";
+
+  return indexing_path;
+}
+
 class IdGraphIndexCompute : public OptOutDispatch {
  public:
   IdGraphIndexCompute(
@@ -509,6 +545,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
   Val* getIndex(IterDomain* id) const;
 
   void setIndex(IterDomain* id, Val* idx);
+
+  std::unordered_map<ValGroup, Val*> indexMap() const {
+    return index_map_;
+  }
 
  private:
   const ValGraph& exact_graph_;
@@ -843,77 +883,20 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
   return loop_index;
 }
 
-// 1. Find the loop domains
-// 2. Find the index domains
-// 3. Find the path from the loop domains to the allocation domains
-// 4. Set the initial index vals
-// 5. Propagate the initial indices of the loop domains to the index
-// domains
-Val* TensorIndexer::getIndex(
+std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
-  // const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
-  const ValGraph& almost_exact_graph =
-      id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::vector<IterDomain*>& loop_domains,
+    const ValGraph& traversal_graph) const {
+  // loop_index_map_ is a map on the loop graph. For index
+  // propagation, need a map for the exact graph
 
-  const auto& index_graph = almost_exact_graph;
-
-  bool as_consumer =
+  const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  VERBOSE() << "getIndex of " << tv->toString() << " as "
-            << (as_consumer ? "consumer" : "producer") << " in "
-            << expr->toString() << std::endl;
-
-  auto loop_domains = getLoopDomains(expr, id_model_);
-
-  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
-
-  const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
-
-  VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
-            << std::endl;
-  std::stringstream ss;
-  ss << "Strides:";
-  for (const auto& stride : strides) {
-    ss << ", " << stride->toInlineString();
-  }
-  ss << std::endl;
-  VERBOSE() << ss.str();
-
-  // TODO: For resize, specific paths need to be taken
-  auto consumer_tv = ir_utils::getTvOutput(expr);
-  std::unordered_set<Resize*> resize_paths;
-  if (consumer_tv->hasRFactor()) {
-    auto root_to_rf_exprs = StmtSort::getExprsBetween(
-        {consumer_tv->getRootDomain().begin(),
-         consumer_tv->getRootDomain().end()},
-        {consumer_tv->getRFactorDomain().begin(),
-         consumer_tv->getRFactorDomain().end()});
-    for (Expr* root_to_rf_expr : root_to_rf_exprs) {
-      if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
-        resize_paths.insert(resize);
-      }
-    }
-  }
-
-  auto indexing_path =
-      getExprsBetween(loop_domains, index_domains, index_graph, resize_paths);
-
-  VERBOSE() << "Indexing path:\n";
-  for (const auto& expr_group : indexing_path) {
-    Expr* expr = expr_group->front();
-    VERBOSE() << expr->toString();
-  }
-  VERBOSE() << "--- path done ---\n";
-
-  // Map from exact groups to initial index Vals
   std::unordered_map<ValGroup, Val*> initial_index_map;
-
-  // loop_index_map_ is a map on the loop graph. For index
-  // propagation, need a map for the exact graph
 
   auto getForLoop = [&](IterDomain* id) -> kir::ForLoop* {
     if (!for_loops.has_value()) {
@@ -935,7 +918,7 @@ Val* TensorIndexer::getIndex(
 
   for (IterDomain* loop_id : loop_domains) {
     Val* loop_index = getLoopIndex(loop_id);
-    const auto& exact_group = index_graph.toGroup(loop_id);
+    const auto& exact_group = traversal_graph.toGroup(loop_id);
     VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
               << nvfuser::toString(exact_group) << ", "
               << loop_index->toInlineString() << std::endl;
@@ -970,7 +953,7 @@ Val* TensorIndexer::getIndex(
     // tensor itself
     if (for_loops.has_value() && GpuLower::hasCurrent() && !as_consumer) {
       loop_index = adjustProducerLoopIndexForDoubleBuffering(
-          tv, expr, for_loop, loop_index);
+          tv, ir_utils::getTvOutput(expr), for_loop, loop_index);
     }
 
     if (initial_index_map.find(exact_group) != initial_index_map.end()) {
@@ -999,7 +982,56 @@ Val* TensorIndexer::getIndex(
         loop_index->toInlineString());
   }
 
-  IdGraphIndexCompute index_compute(index_graph, initial_index_map);
+  return initial_index_map;
+}
+
+// 1. Find the loop domains
+// 2. Find the index domains
+// 3. Find the path from the loop domains to the allocation domains
+// 4. Set the initial index vals
+// 5. Propagate the initial indices of the loop domains to the index
+// domains
+Val* TensorIndexer::getIndex(
+    TensorView* tv,
+    const Expr* expr,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+  const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+
+  bool as_consumer =
+      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+      expr->outputs().end();
+
+  VERBOSE() << "getIndex of " << tv->toString() << " as "
+            << (as_consumer ? "consumer" : "producer") << " in "
+            << expr->toString() << std::endl;
+
+  auto loop_domains = getLoopDomains(expr, id_model_);
+
+  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
+
+  const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
+
+  VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
+            << std::endl;
+  std::stringstream ss;
+  ss << "Strides:";
+  for (const auto& stride : strides) {
+    ss << ", " << stride->toInlineString();
+  }
+  ss << std::endl;
+  VERBOSE() << ss.str();
+
+  // TODO: For resize, specific paths need to be taken
+  // auto consumer_tv = ir_utils::getTvOutput(expr);
+
+  auto indexing_path = getIndexingTraversalPath(
+      tv, expr, loop_domains, index_domains, traversal_graph);
+
+  // Map from exact groups to initial index Vals
+  std::unordered_map<ValGroup, Val*> initial_index_map =
+      getInitialIndexMap(tv, expr, for_loops, loop_domains, traversal_graph);
+
+  IdGraphIndexCompute index_compute(traversal_graph, initial_index_map);
 
   for (const auto& expr_group : indexing_path) {
     index_compute.propagate(expr_group);
@@ -1034,17 +1066,18 @@ Val* TensorIndexer::getIndex(
 }
 
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
-    TensorView* tv,
-    const Expr* expr,
+    TensorView* producer_tv,
+    TensorView* consumer_tv,
     const kir::ForLoop* for_loop,
     Val* loop_index) const {
   NVF_ERROR(for_loop != nullptr);
 
   // Double-buffered tensor itself does not need this adjustment
-  if (tv->isDoubleBuffered() &&
+  if (producer_tv->isDoubleBuffered() &&
       id_model_.idGraph(IdMappingMode::LOOP)
           .disjointValSets()
-          .strictAreMapped(getDoubleBufferAxis(tv), for_loop->iter_domain())) {
+          .strictAreMapped(
+              getDoubleBufferAxis(producer_tv), for_loop->iter_domain())) {
     return loop_index;
   }
 
@@ -1052,8 +1085,6 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
       for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Epilog) {
     return loop_index;
   }
-
-  auto consumer_tv = ir_utils::getTvOutput(expr);
 
   if (!consumer_tv->isDoubleBuffered()) {
     return loop_index;
@@ -1197,11 +1228,89 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   return true;
 }
 
+std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
+    TensorView* tv,
+    const Expr* expr,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::vector<IterDomain*>& index_domains,
+    const ValGraph& traversal_graph) {
+  // Step 1: Find loop domains (same as indexing)
+  // Step 2: Find rfactor domains
+  // Step 3: Find the path from the loop domains to the rfactor
+  // domains
+  // Step 4: Set the initial indices
+  // Step 5: Propagate the indices along the path
+
+  VERBOSE() << "getIndexMap of " << tv->toString() << " in " << expr->toString()
+            << std::endl;
+
+  auto loop_domains = getLoopDomains(expr, id_model_);
+  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
+
+  VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
+            << std::endl;
+
+  auto traversal_path = getIndexingTraversalPath(
+      tv, expr, loop_domains, index_domains, traversal_graph);
+
+  const auto initial_index_map =
+      getInitialIndexMap(tv, expr, for_loops, loop_domains, traversal_graph);
+
+  IdGraphIndexCompute index_compute(traversal_graph, initial_index_map);
+
+  for (const auto& expr_group : traversal_path) {
+    index_compute.propagate(expr_group);
+  }
+
+  return index_compute.indexMap();
+}
+
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& loops) {
-  return {};
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+  const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+  const auto zero_val = tv->fusion()->zeroVal();
+
+  // Predicate the rfactor domains
+  const auto& predicate_domains = tv->getMaybeRFactorDomain();
+  VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
+            << std::endl;
+
+  const auto& index_map =
+      getIndexMap(tv, expr, for_loops, predicate_domains, traversal_graph);
+
+  std::vector<RootPredicateInfo> info_vec;
+  info_vec.reserve(predicate_domains.size());
+
+  for (const auto& predicate_domain : predicate_domains) {
+    auto idx_it = index_map.find(traversal_graph.toGroup(predicate_domain));
+    NVF_ERROR(
+        idx_it != index_map.end(),
+        "Index not found for ",
+        predicate_domain->toString());
+    Val* idx = idx_it->second;
+    VERBOSE() << "Index of " << predicate_domain->toString() << ": "
+              << idx->toInlineString() << std::endl;
+
+    RootPredicateInfo info;
+    // For now, just set zero for both start and stop offsets
+    info.start_offset_ = zero_val;
+    info.stop_offset_ = zero_val;
+
+    // Use the same index for start and stop
+    info.start_predicate_ = SimplifyingIrBuilder::geExpr(
+        SimplifyingIrBuilder::addExpr(idx, info.start_offset_), zero_val);
+
+    // TODO: predicate elimination
+    info.stop_predicate_ = SimplifyingIrBuilder::leExpr(
+        SimplifyingIrBuilder::addExpr(idx, info.stop_offset_),
+        predicate_domain->extent());
+
+    info_vec.emplace_back(info);
+  }
+
+  return info_vec;
 }
 
 } // namespace nvfuser

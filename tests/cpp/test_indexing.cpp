@@ -1416,7 +1416,21 @@ TEST_F(IndexingTest, Simple1) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
+  tv1->split(0, 4);
+
   fusion.printKernel();
+
+  std::vector<int64_t> input_shape{17};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingTest, Simple2) {
@@ -1425,21 +1439,31 @@ TEST_F(IndexingTest, Simple2) {
 
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(1);
-  fusion.addInput(tv1);
 
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
-  auto tv3 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv1);
   fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
 
-  tv2->split(0, 4);
-  tv3->split(0, 8);
+  tv1->split(0, 4);
+  tv2->split(0, 8);
 
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
-  tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   fusion.printKernel();
+
+  std::vector<int64_t> input_shape{17};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

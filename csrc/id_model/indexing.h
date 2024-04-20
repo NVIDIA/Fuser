@@ -37,14 +37,21 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops);
 
+  std::unordered_map<ValGroup, Val*> getIndexMap(
+      TensorView* tv,
+      const Expr* expr,
+      const std::optional<std::vector<kir::ForLoop*>>& loops,
+      const std::vector<IterDomain*>& index_domains,
+      const ValGraph& traversal_graph);
+
   static bool isSupported(Fusion* fusion);
 
  private:
   void buildLoopIndexMap();
 
   Val* adjustProducerLoopIndexForDoubleBuffering(
-      TensorView* tv,
-      const Expr* expr,
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
       const kir::ForLoop* for_loop,
       Val* loop_index) const;
 
@@ -55,6 +62,13 @@ class TensorIndexer {
       Val* idx) const;
 
   Val* getLoopIndex(IterDomain* id) const;
+
+  std::unordered_map<ValGroup, Val*> getInitialIndexMap(
+      TensorView* tv,
+      const Expr* expr,
+      const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+      const std::vector<IterDomain*>& loop_domains,
+      const ValGraph& traversal_graph) const;
 
  private:
   const IdModel& id_model_;

@@ -367,6 +367,7 @@ class IndexSwizzle : public IndexCompute {
 //! Predicate information of a root or contiguous merged domain
 class RootPredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
