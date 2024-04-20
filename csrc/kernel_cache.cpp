@@ -1212,7 +1212,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   kernel_time_ms_ += executor.kernelTimeMs();
 
   // Print relevant information all at once for easy debuging of perf
-  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) && executor.isCompiled()) {
+  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) &&
+      executor.isCompiled()) {
     debug() << "\nRun kernel:\n";
     if (sg) {
       auto local_fusion = segmented_fusion_->makeFusion(sg).second;
