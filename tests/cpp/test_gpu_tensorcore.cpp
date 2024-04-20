@@ -3024,8 +3024,6 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
 
 // Test matmul with sizes that are not divisible by 8 and with misaligned inputs
 TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
-  // TODO: parametrized test instead of nested loops (still use a loop over
-  // sizes and re-use FusionExecutorCache)
   for (auto layout : kAllSupportedMmaLayout) {
     for (bool add_2d_bias : {false, true}) {
       for (bool downcast_output : {false, true}) {
@@ -3049,8 +3047,6 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
                                            // output fully vectorizable
                  {505, 137, 248, 8, 8, 8}, // none vectorizable
 
-                 // The following cases are failing due to
-                 // https://github.com/NVIDIA/Fuser/issues/2118
                  // Cases with vectorizable strides but misaligned base pointers
                  {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
                  {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset

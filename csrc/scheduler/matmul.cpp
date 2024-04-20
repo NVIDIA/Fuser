@@ -536,7 +536,7 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
 //! 2. Coalesce and vectorize the read write schedule.
 void scheduleProlog(
     TensorView* shared_mem_tv,
-    int vec_size,
+    int64_t vec_size,
     const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
@@ -1034,8 +1034,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduleProlog(acw_smem, (int)params.supported_vec_size.a, params);
-  scheduleProlog(bcw_smem, (int)params.supported_vec_size.b, params);
+  scheduleProlog(acw_smem, params.supported_vec_size.a, params);
+  scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();
