@@ -42,7 +42,7 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops,
       const std::vector<IterDomain*>& index_domains,
-      const ValGraph& traversal_graph);
+      const ValGraph& traversal_graph) const;
 
   static bool isSupported(Fusion* fusion);
 

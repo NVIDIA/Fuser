@@ -3214,6 +3214,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     kir::ForLoop* unswitch_or_vec_loop,
     bool shift_padding) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getReferenceRootPredicates");
+  std::cerr << "getReferenceRootPredicates: " << consumer_tv->toString() << std::endl;
 
   const auto gpu_lower = GpuLower::current();
 
@@ -3268,6 +3269,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
+    std::cerr << "Predicating " << contig_id->toString() << std::endl;
     // No predicates needed for braodcasted indices.
     if (contig_id->isBroadcast()) {
       continue;
@@ -3284,7 +3286,11 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     // generated in lower_misaligned_vectorization.
     //
     // Can not omit stop index even if it is zero. This is important for empty
-    // tensor support, because in empty tensor the extent of an ID can be zero
+    // tensor support, because in empty tensor the extent of an ID can
+    // be zero
+    // This also happens with buffer initialization loops for
+    // reductions, where reduction domains do not have corresponding
+    // loops.
     if (consumer_stop_indexing_it == consumer_stop_index_map.end()) {
       continue;
     }

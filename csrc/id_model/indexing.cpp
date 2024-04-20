@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
 
+#include <algorithm>
 #include <fstream>
 
 namespace nvfuser {
@@ -109,6 +110,17 @@ std::vector<IterDomain*> getLoopDomains(
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
 
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    loop_domains.erase(
+        std::remove_if(
+            loop_domains.begin(),
+            loop_domains.end(),
+            [](IterDomain* id) -> bool { return id->isReduction(); }),
+        loop_domains.end());
+  }
+
   for (auto& loop_id : loop_domains) {
     NVF_ERROR(loop_graph.hasGroup(loop_id));
 
@@ -144,7 +156,12 @@ Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
-namespace {
+// Currently it's only Shared or Local but Global can be the case
+// too.
+bool isAllocationBasedOnLeaf(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Local;
+}
 
 std::optional<std::vector<IterDomain*>>
 getAllocationDomainOfTransposedSmemTensor(
@@ -252,8 +269,6 @@ getAllocationDomainOfTransposedSmemTensor(
   // domains as the allocation domain of hte producer
   return consumer_non_inlined_domains;
 }
-
-} // namespace
 
 std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     TensorView* tv,
@@ -725,10 +740,62 @@ ParallelType getParallelType(const ValGroup& loop_group) {
   return common_pt;
 }
 
+std::vector<IterDomain*> getPredicateDomains(
+    TensorView* tv,
+    const Expr* expr,
+    const IdModel& id_model) {
+  // TODO: Contig merged indexing
+
+  // Rfactor domains should be the domains to predicate as they define
+  // the logical shape of a tensor. However, in the case of rfactored
+  // reductions, rfactor splits may not be divisible, thus root
+  // domains need to be predicated. Note that the non-divisible split
+  // info does not seem to cover non-divisible reduction rfactor
+  // splits.
+  std::vector<IterDomain*> predicate_domains =
+      tv->hasReduction() ? tv->getRootDomain() : tv->getMaybeRFactorDomain();
+
+  // Broadcast domains should not be predicated
+  predicate_domains.erase(
+      std::remove_if(
+          predicate_domains.begin(),
+          predicate_domains.end(),
+          [](IterDomain* id) -> bool { return id->isBroadcast(); }),
+      predicate_domains.end());
+
+  // If this is an expr initializing a buffer for a reduction, the
+  // reduction domains do not need to be predicated. In fact, if it's
+  // a Local or Shared memory, no predicate is necessary
+  if (lower_utils::isReductionInitExpr(expr)) {
+    if (isAllocationBasedOnLeaf(tv)) {
+      return {};
+    } else {
+      predicate_domains.erase(
+          std::remove_if(
+              predicate_domains.begin(),
+              predicate_domains.end(),
+              [](IterDomain* id) -> bool { return id->isReduction(); }),
+          predicate_domains.end());
+    }
+  }
+
+  return predicate_domains;
+}
+
 } // namespace
 
 TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
+
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+  for (const auto& [tv, splits] :
+       non_divisible_split_info.splitsToPredicate()) {
+    std::cerr << "Splits to predicate of tensor: " << tv->toString() << "\n";
+    for (const auto split : splits) {
+      std::cerr << "\t" << split->toString();
+    }
+  }
 }
 
 void TensorIndexer::buildLoopIndexMap() {
@@ -1005,43 +1072,23 @@ Val* TensorIndexer::getIndex(
             << (as_consumer ? "consumer" : "producer") << " in "
             << expr->toString() << std::endl;
 
-  auto loop_domains = getLoopDomains(expr, id_model_);
-
-  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
-
   const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
 
   VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
-  std::stringstream ss;
-  ss << "Strides:";
-  for (const auto& stride : strides) {
-    ss << ", " << stride->toInlineString();
-  }
-  ss << std::endl;
-  VERBOSE() << ss.str();
 
-  // TODO: For resize, specific paths need to be taken
-  // auto consumer_tv = ir_utils::getTvOutput(expr);
-
-  auto indexing_path = getIndexingTraversalPath(
-      tv, expr, loop_domains, index_domains, traversal_graph);
-
-  // Map from exact groups to initial index Vals
-  std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(tv, expr, for_loops, loop_domains, traversal_graph);
-
-  IdGraphIndexCompute index_compute(traversal_graph, initial_index_map);
-
-  for (const auto& expr_group : indexing_path) {
-    index_compute.propagate(expr_group);
-  }
+  const auto& index_map =
+      getIndexMap(tv, expr, for_loops, index_domains, traversal_graph);
 
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(index_domains.size())) {
     auto index_domain = index_domains.at(i);
-    auto idx = index_compute.getIndex(index_domain);
-    NVF_ERROR(idx != nullptr, "Index not found for ", index_domain->toString());
+    auto idx_it = index_map.find(traversal_graph.toGroup(index_domain));
+    NVF_ERROR(
+        idx_it != index_map.end(),
+        "Index not found for ",
+        index_domain->toString());
+    Val* idx = idx_it->second;
     VERBOSE() << "Index of " << index_domain->toString() << ": "
               << idx->toInlineString() << std::endl;
 
@@ -1060,7 +1107,7 @@ Val* TensorIndexer::getIndex(
     index = adjusted_index;
   }
 
-  VERBOSE() << "Index: " << index->toInlineString() << std::endl;
+  VERBOSE() << "Final index: " << index->toInlineString() << std::endl;
 
   return index;
 }
@@ -1179,61 +1226,12 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
   return updated_idx;
 }
 
-namespace {
-
-std::string getDisableReason(TensorView* tv) {
-  std::stringstream reason;
-
-  if (tv->isCircularBuffered()) {
-    reason << "Circular buffering is used: " << tv->toString();
-    return reason.str();
-  }
-
-  for (const auto& id : ir_utils::allIDsOf(tv)) {
-    if (id->getParallelType() == ParallelType::MisalignedVectorize) {
-      reason << "MialignedVectorize is used: " << id->toString();
-      return reason.str();
-    } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
-      reason << "Swizzle not supported: " << swizzle->toString();
-      return reason.str();
-    } else if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-      reason << "Swizzle2D not supported: " << swizzle2d->toString();
-      return reason.str();
-    }
-
-    if (ir_utils::isIndexedID(tv, id)) {
-      reason << "Index ops such as select not supported: " << tv->toString();
-      return reason.str();
-    }
-  }
-
-  // Returns an empty string when supported
-  return "";
-}
-
-} // namespace
-
-bool TensorIndexer::isSupported(Fusion* fusion) {
-  const auto all_tvs = ir_utils::allTvs(fusion);
-
-  for (const auto& tv : all_tvs) {
-    std::string disable_reason = getDisableReason(tv);
-    if (!disable_reason.empty()) {
-      std::cerr << "TensorIndexer disabled due to: " << disable_reason
-                << std::endl;
-      return false;
-    }
-  }
-
-  return true;
-}
-
 std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
     TensorView* tv,
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& index_domains,
-    const ValGraph& traversal_graph) {
+    const ValGraph& traversal_graph) const {
   // Step 1: Find loop domains (same as indexing)
   // Step 2: Find rfactor domains
   // Step 3: Find the path from the loop domains to the rfactor
@@ -1269,11 +1267,14 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+  VERBOSE() << "getPredicates of " << tv->toString() << " in "
+            << expr->toString();
+
   const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   const auto zero_val = tv->fusion()->zeroVal();
 
-  // Predicate the rfactor domains
-  const auto& predicate_domains = tv->getMaybeRFactorDomain();
+  const auto& predicate_domains = getPredicateDomains(tv, expr, id_model_);
+
   VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
             << std::endl;
 
@@ -1303,7 +1304,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
         SimplifyingIrBuilder::addExpr(idx, info.start_offset_), zero_val);
 
     // TODO: predicate elimination
-    info.stop_predicate_ = SimplifyingIrBuilder::leExpr(
+    info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
         SimplifyingIrBuilder::addExpr(idx, info.stop_offset_),
         predicate_domain->extent());
 
@@ -1311,6 +1312,44 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   }
 
   return info_vec;
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = ir_utils::allTvs(fusion);
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (tv->isCircularBuffered()) {
+      reason << "Circular buffering is used: " << tv->toString();
+    } else {
+      for (const auto& id : ir_utils::allIDsOf(tv)) {
+        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+          reason << "MialignedVectorize is used: " << id->toString();
+          break;
+        } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
+          reason << "Swizzle not supported: " << swizzle->toString();
+          break;
+        } else if (
+            auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedID(tv, id)) {
+          reason << "Index ops such as select not supported: "
+                 << tv->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      std::cerr << "TensorIndexer disabled due to: " << reason.str()
+                << std::endl;
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser
