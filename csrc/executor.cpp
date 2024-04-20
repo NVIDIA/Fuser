@@ -1789,7 +1789,7 @@ FusionExecutor::recomputeArgs(ExecutorEntry& entry,
 
   const std::vector<Val*>& params = kernel->parameters();
   const PrimDataType idx_type = kernel->indexType();
-#ifdef DEBUG_ARGS
+#if DEBUG_ARGS
   std::cout << "recomputeArgs(" << params.size() << "), args.size()="
             << args.size() << "; kernel=0x" << (const void*)kernel
             << "; entry=0x" << (void*)&entry << "; "
