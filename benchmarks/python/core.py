@@ -147,7 +147,9 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
-def compute_total_iobytes(tensor_props: dict):
+def compute_total_iobytes(
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+):
     """
     Compute IObytes for baselines from given description:
     Tensor_props has entries of the form: {'tensor_id': (size: tuple, dtype: torch.dtype)}
