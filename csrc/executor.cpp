@@ -2178,6 +2178,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
+  // When compilation is skipped, avoid serializing cubin because it doesn't
+  // exist. The remaining fields are also not necessary in this case.
   if (isCompilationSkipped()) {
     return serde::CreateFusionExecutorDirect(builder, isCompilationSkipped());
   }
@@ -2335,9 +2337,7 @@ void FusionExecutor::deserialize(
   // skip compilation?
   if (buffer->is_compilation_skipped()) {
     fusion_ = std::make_unique<Fusion>(*fusion);
-    NVF_ERROR(
-        !isCompiled() && isCompilationSkipped(),
-        "Failed to deserialize FusionExecutor");
+    NVF_ERROR(!isCompiled(), "Failed to deserialize FusionExecutor");
     return;
   }
 
