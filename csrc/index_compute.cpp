@@ -3309,9 +3309,6 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 
 } // namespace
 
-// TODO: we do not support "define box by compositing" yet.
-// WIP PR: https://github.com/NVIDIA/Fuser/pull/1991
-//
 // See doc/dev/tma.md for definitions of terms. These terms include:
 // partitioned IterDomain, box IterDomain, coordinate IterDomain, tile
 // IterDomain, stride IterDomain, boxing split, striding split, element stride.
@@ -3412,6 +3409,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     indexing = std::make_unique<IndexCompute>(index_from_id_graph.index);
   }
 
+  auto allocation_domain = TensorDomain::noBroadcasts(
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain()));
+  std::unordered_set<Val*> allocation_domain_set(
+      allocation_domain.begin(), allocation_domain.end());
+
   // Step 1: Get all bulk IterDomains and tile IterDomains.
   // An IterDomain is considered "bulk" if it has parallel type "Bulk" or all
   // its children are considered "bulk".
@@ -3453,31 +3455,32 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
         break;
       }
     }
+
     auto def = id->definition();
-    NVF_ERROR(
-        def != nullptr,
-        "A bulk IterDomain must have a definition, but ",
-        id,
-        " does not have one.");
-    if (bulk_ids.count(def->input(0)->as<IterDomain>()) > 0) {
-      // already processed from another path
-      continue;
-    }
+    bool should_propagate = false;
+    if (allocation_domain_set.count(id) == 0) {
+      // We only continue propagating if we have not reached the allocation
+      // domain yet.
+      NVF_ERROR(
+          def != nullptr,
+          "Allocation domain is unreachable from ",
+          id->toString());
 
-    bool all_outputs_are_bulk = true;
-    for (auto out : def->outputs()) {
-      if (bulk_ids.count(out->as<IterDomain>()) == 0) {
-        all_outputs_are_bulk = false;
-        break;
+      if (bulk_ids.count(def->input(0)->as<IterDomain>()) > 0) {
+        // already processed from another path
+        continue;
       }
+
+      should_propagate = std::all_of(
+          def->outputs().begin(), def->outputs().end(), [&](Val* out) {
+            return bulk_ids.count(out->as<IterDomain>()) > 0;
+          });
     }
 
-    if (all_outputs_are_bulk) {
-      // All outputs of def are bulk IterDomains, so all inputs of def are bulk
-      // IterDomains too by definition.
+    if (should_propagate) {
+      updated = true;
       for (auto id : def->inputs()) {
         if (bulk_ids.insert(id->as<IterDomain>()).second) {
-          updated = true;
           pending.push_back(id->as<IterDomain>());
         }
       }
@@ -3500,73 +3503,45 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     if (id == nullptr) {
       continue;
     }
-    auto def = id->definition();
-    NVF_ERROR(
-        def != nullptr && def->isA<Split>(),
-        "A tile IterDomain must be the output of a split, but ",
-        id->toString(),
-        " is not.");
     tile_ids.pushBack(id);
   }
 
   // Step 2: Get the box, partitioned, and stride IterDomains from each tile
-  // IterDomain. Similarily, the order of the `partitioned_ids` has no meaning.
-  // So `partitioned_ids` contains the same set of IDs as the TMA domain, but
+  // IterDomain. Similarily, the order of the `tma_ids` has no meaning.
+  // So `tma_ids` contains the same set of IDs as the TMA domain, but
   // can be in different order. We are using a std::vector<Val*> just to make
   // the algorithm deterministic, not because we care about its order.
 
-  std::vector<Val*> partitioned_ids;
-  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_box_id;
-  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_tile_id;
-  std::unordered_map<IterDomain*, IterDomain*> partitioned_id_to_stride_id;
-  for (auto id : tile_ids) {
-    auto def = id->definition()->as<Split>();
-    if (id == def->inner()) {
-      // Implicit element stride one
-      //
-      // partitioned ID --boxing-> (inner)box ID (== tile ID)
-      //                   split-> (outer)coordinate ID
-      //
-      // there is no striding split
-      Split* boxing_split = def;
-      IterDomain* box_id = id;
-      IterDomain* partitioned_id = boxing_split->in();
-      partitioned_ids.push_back(partitioned_id);
-      partitioned_id_to_box_id[partitioned_id] = box_id;
-      partitioned_id_to_tile_id[partitioned_id] = id;
-      NVF_ERROR(
-          bulk_ids.count(boxing_split->outer()) == 0,
-          "The outer output of boxing split must not be a bulk IterDomain, but ",
-          boxing_split->outer()->toString(),
-          " is.");
-    } else {
-      // Explicit element stride defined by the striding split
-      //
-      // partitioned ID--boxing-> (inner)box ID -----striding-> (inner)stride ID
-      //                  split-> (outer)coordinate ID  split-> (outer)tile ID
-      Split* striding_split = def;
-      NVF_ERROR(
-          bulk_ids.count(striding_split->inner()) == 0,
-          "The inner output of striding split must not be a bulk IterDomain, but ",
-          striding_split->inner()->toString(),
-          " is.");
-      IterDomain* box_id = striding_split->in();
-      Split* boxing_split = dynamic_cast<Split*>(box_id->definition());
-      NVF_ERROR(
-          boxing_split != nullptr && boxing_split->inner() == box_id,
-          "Box IterDomain is not defined as the inner output of the boxing split.",
-          " Box IterDomain: ",
-          box_id->toString());
-      NVF_ERROR(
-          bulk_ids.count(boxing_split->outer()) == 0,
-          "The outer output of boxing split must not be a bulk IterDomain, but ",
-          boxing_split->outer()->toString(),
-          " is.");
-      IterDomain* partitioned_id = boxing_split->in();
-      partitioned_ids.push_back(partitioned_id);
-      partitioned_id_to_box_id[partitioned_id] = box_id;
-      partitioned_id_to_tile_id[partitioned_id] = id;
-      partitioned_id_to_stride_id[partitioned_id] = striding_split->inner();
+  // tma_ids contains IDs known to be in the TMA domain. These IDs can be a box
+  // ID or partitioned ID. If a partitioned ID is in tma_ids, this means that
+  // there is a box dimension defined by partitioning. If a box ID is in
+  // tma_ids, this means that there is a box dimension defined by compositing.
+  std::vector<Val*> tma_ids;
+  std::unordered_map<IterDomain*, IterDomain*> tma_id_to_box_id;
+  std::unordered_map<IterDomain*, IterDomain*> tma_id_to_stride_id;
+  std::unordered_map<IterDomain*, IterDomain*> tma_id_to_partitioned_id;
+  for (auto tile_id : tile_ids) {
+    auto def = dynamic_cast<Split*>(tile_id->definition());
+    Split* striding_split = nullptr;
+    if (def != nullptr && def->outer() == tile_id) {
+      striding_split = def;
+    }
+    IterDomain* box_id =
+        (striding_split != nullptr ? striding_split->in() : tile_id);
+    IterDomain* stride_id =
+        (striding_split != nullptr ? striding_split->inner() : nullptr);
+    Split* boxing_split = dynamic_cast<Split*>(box_id->definition());
+    IterDomain* partitioned_id =
+        (boxing_split != nullptr ? boxing_split->in() : nullptr);
+    IterDomain* tma_id = (partitioned_id != nullptr ? partitioned_id : box_id);
+
+    tma_ids.push_back(tma_id);
+    tma_id_to_box_id[tma_id] = box_id;
+    if (stride_id != nullptr) {
+      tma_id_to_stride_id[tma_id] = stride_id;
+    }
+    if (partitioned_id != nullptr) {
+      tma_id_to_partitioned_id[tma_id] = partitioned_id;
     }
   }
 
@@ -3575,28 +3550,24 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   // order is meaningful, and it is the order that defines which is inner and
   // which is outer. The strides are also meaningful, and they are the
   // `globalStrides` of the `cuTensorMapEncodeTiled`. After propagation,
-  // `frontier` will be the TMA domain.
+  // `frontier` will be the TMA domain
 
   std::list<std::tuple<IterDomain*, /*contiguity*/ bool, /*stride*/ Val*>>
       frontier;
-  std::unordered_set<Val*> allocation_domain_set;
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  auto allocation_domain =
-      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
   for (auto i : c10::irange((int64_t)allocation_domain.size())) {
     auto id = allocation_domain.at(i);
-    if (id->isBroadcast()) {
-      continue;
-    }
+    // TODO: should I use i below, or should I instead use the position of id in
+    // the allocation domain with broadcast? I don't remember the detail, but
+    // I will just use i for now and leave the support for broadcast for future.
     auto stride = IrBuilder::getItemExpr(alloc_strides, i);
     frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
-    allocation_domain_set.insert(id);
   }
   // Propagate forward from the allocation domain to partitioned IterDomains
-  for (Expr* expr : DependencyCheck::getAllExprsBetween(
-           allocation_domain_set, partitioned_ids)) {
+  for (Expr* expr :
+       DependencyCheck::getAllExprsBetween(allocation_domain_set, tma_ids)) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       auto in = split->in();
       auto in_it =
@@ -3659,28 +3630,36 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     }
   }
 
+  // Frontier is now the TMA domain
+  const auto& tma_domain = frontier;
+
   NVF_ERROR(
-      std::get<1>(frontier.back()),
+      std::get<1>(tma_domain.back()),
       "The innermost IterDomain of the TMA domain must be contiguous");
-
-  int64_t dim = (int64_t)frontier.size();
   NVF_ERROR(
-      dim == (int64_t)tile_ids.size(),
-      "The number of tile IterDomains must be equivalent to the dimensionality of the tensor in the eyes of TMA, but ",
-      dim,
-      " is not equal to ",
-      tile_ids.size());
+      tma_id_to_stride_id.count(std::get<0>(tma_domain.back())) == 0,
+      "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
+      "(this is always the case for nvFuser now)",
+      ", the first element of elementStrides must be one.");
 
-  // Validate that frontier contains exactly the same IterDomains as
-  // partitioned_ids, otherwise there is something wrong in the schedule.
-  std::unordered_set<IterDomain*> seen;
-  for (auto tuple : frontier) {
-    auto id = std::get<0>(tuple);
+  // Validate that tma_domain is a superset of tma_ids, otherwise there is
+  // something wrong in the schedule.
+  {
+    std::unordered_set<IterDomain*> seen;
+    std::unordered_set<Val*> pending_tma_ids(tma_ids.begin(), tma_ids.end());
+    for (auto tuple : tma_domain) {
+      auto id = std::get<0>(tuple);
+      NVF_ERROR(
+          seen.insert(id).second,
+          "Mistake in schedule. Duplicate IterDomain found: ",
+          id->toString());
+      pending_tma_ids.erase(id);
+    }
     NVF_ERROR(
-        seen.insert(id).second && partitioned_id_to_box_id.count(id) > 0,
-        "The TMA domain must be equivalent to the allocation domain, but ",
-        id->toString(),
-        " is either duplicate or not a partitioned IterDomain.");
+        pending_tma_ids.empty(),
+        "Can not infer TMA domain from the schedule. The IterDomains ",
+        ir_utils::toString(pending_tma_ids),
+        " are expected to be in the TMA domain.");
   }
 
   // Step 4: Compute the tensor map descriptor and the index
@@ -3696,38 +3675,112 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  for (auto it = frontier.rbegin(); it != frontier.rend(); it++) {
-    auto id = std::get<0>(*it);
-    tensor_sizes_inner_to_outer.push_back(id->extent());
-    if (it != frontier.rbegin()) {
-      tensor_strides_inner_to_outer.push_back(
-          SimplifyingIrBuilder::mulExpr(std::get<2>(*it), itemsize));
-    }
-    box_sizes_inner_to_outer.push_back(
-        partitioned_id_to_box_id.at(id)->extent());
-
-    auto stride_it = partitioned_id_to_stride_id.find(id);
-    if (it == frontier.rbegin()) {
-      NVF_ERROR(
-          stride_it == partitioned_id_to_stride_id.end(),
-          "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
-          "(this is always the case for nvFuser now)",
-          ", the first element of elementStrides must be one.");
-    }
-    if (stride_it != partitioned_id_to_stride_id.end()) {
-      element_strides_inner_to_outer.push_back(stride_it->second->extent());
-    } else {
-      element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
-    }
+  // So far, we have infered the TMA domain. The size of TMA domain is not
+  // necessarily the dimensionality of TMA because we support defining box
+  // by compositing. We use a state machine to infer the dimensions of TMA.
+  //
+  // There can only be four types of IterDomains in the TMA domain:
+  // -  P: partitioned IterDomain
+  // -  C: coordinate IterDomain
+  // - SB: strided box IterDomain
+  // - CB: contiguous box IterDomain
+  //
+  // For the example of the Figure 6 in doc/dev/tma.md, the TMA domain is
+  // [I1, I2, I3, I4, I5, I6, I7, I8, I9], and the types of these IDs are
+  // [ C, CB,  P,  C, CB, CB,  C, CB, CB]
+  //
+  // The algorithm works as follows: We run a 3-state machine. The state machine
+  // is initialized as START. After setting the initial state, we loop through
+  // the TMA domain from inner to outer. During the loop, for each IterDomain we
+  // see, we take an action and change the state of the machine. The action and
+  // target state depend on the current state of the machine, and the type and
+  // contiguity of the IterDomain we encounter. The actions and transition of
+  // states are shown in the following diagram:
+  //
+  //                           P: create new dim
+  //                            .-------------.
+  //                            |             |
+  //                            '-- [START] <-'
+  //                      CB:     / ^  P:  ^ \     SB/C:
+  //                    create   / / create \ \   create
+  //                     new    / /  new dim \ \   new
+  //                     dim   / /            \ \  dim
+  //                          v /              \ v
+  //              .--- [PENDING BOX] -----> [PENDING COORD] <--.
+  //              |           ^ ^     SB/C:     | |            |
+  //              '-----------' |    create     | '------------'
+  //       CB: create new       |   new dim if  |       SB/C: create new
+  // dim if discontiguous       | discontiguous |       dim if discontiguous
+  // otherwise merge with       |     or SB     |       or SB, otherwise merge
+  //            prev dim        |               |       with prev dim
+  //                            '---------------'
+  //                           CB: create new dim
+  //
+  // There are three states in the machine. The meaning of these states are:
+  // - START: Everything clean, nothing pending merge.
+  // - PENDING BOX: Is there another contiguous box ID? I can merge it into the
+  //                current box.
+  // - PENDING COORD: Is there another coordinate ID? I can merge it into the
+  //                  current dimension.
+  enum { START, PENDING_BOX, PENDING_COORD } state = START;
+  for (auto it = tma_domain.rbegin(); it != tma_domain.rend(); it++) {
+    auto [id, contiguous, stride] = *it;
+    auto partitioned_id_it = tma_id_to_partitioned_id.find(id);
+    auto box_id_it = tma_id_to_box_id.find(id);
+    auto stride_id_it = tma_id_to_stride_id.find(id);
+    enum IDType { P, C, SB, CB };
+    IDType type =
+        (partitioned_id_it != tma_id_to_partitioned_id.end()
+             ? P
+             : (box_id_it == tma_id_to_box_id.end()
+                    ? C
+                    : (stride_id_it != tma_id_to_stride_id.end() ? SB : CB)));
+    bool should_create_new_dim =
+        !(contiguous &&
+          ((state == PENDING_BOX && (type == CB || type == C)) ||
+           (state == PENDING_COORD && type == C)));
 
     auto index_it = indexing->indexMap().find(id);
     NVF_ERROR(
         index_it != indexing->indexMap().end(),
         "Can not find index for ",
         id->toString());
-    indices_inner_to_outer.push_back(index_it->second);
+
+    if (should_create_new_dim) {
+      tensor_sizes_inner_to_outer.push_back(id->extent());
+      if (it != tma_domain.rbegin()) {
+        tensor_strides_inner_to_outer.push_back(
+            SimplifyingIrBuilder::mulExpr(stride, itemsize));
+      }
+      if (box_id_it != tma_id_to_box_id.end()) {
+        box_sizes_inner_to_outer.push_back(box_id_it->second->extent());
+      } else {
+        box_sizes_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+      }
+      if (stride_id_it != tma_id_to_stride_id.end()) {
+        element_strides_inner_to_outer.push_back(
+            stride_id_it->second->extent());
+      } else {
+        element_strides_inner_to_outer.push_back(gmem_tv->fusion()->oneVal());
+      }
+      indices_inner_to_outer.push_back(index_it->second);
+    } else {
+      indices_inner_to_outer.back() = SimplifyingIrBuilder::addExpr(
+          indices_inner_to_outer.back(),
+          SimplifyingIrBuilder::mulExpr(
+              tensor_sizes_inner_to_outer.back(), index_it->second));
+      tensor_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
+          tensor_sizes_inner_to_outer.back(), id->extent());
+      if (type == CB) {
+        box_sizes_inner_to_outer.back() = SimplifyingIrBuilder::mulExpr(
+            box_sizes_inner_to_outer.back(), id->extent());
+      }
+    }
+
+    state = (type == P ? START : (type == CB ? PENDING_BOX : PENDING_COORD));
   }
 
+  int64_t dim = (int64_t)tensor_sizes_inner_to_outer.size();
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
 
   Val* global_stride =
