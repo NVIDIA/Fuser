@@ -846,7 +846,7 @@ int64_t getVectorizationFactor(
     max_vec_size = std::min(
         max_vec_size,
         scheduler_utils::maxVectorizationWidth(
-            runtime_info.ptrOf(inp_or_out) / dtype_size));
+            (int64_t)runtime_info.ptrOf(inp_or_out) / dtype_size));
 
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
