@@ -1902,6 +1902,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
 TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+  // To verify input caching condition in this test, disable aliasing as that
+  // will skip compilation and no kernel will exist.
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
