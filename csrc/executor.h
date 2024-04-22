@@ -206,7 +206,7 @@ class FusionExecutor : public NonCopyable {
   }
 
   Fusion* fusion() const {
-    NVF_ERROR(lowered_ || fusion_);
+    NVF_ERROR(lowered_ ^ fusion_);
     return lowered_ ? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
