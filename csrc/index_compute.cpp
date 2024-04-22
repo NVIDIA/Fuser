@@ -3518,7 +3518,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   // tma_ids, this means that there is a box dimension defined by compositing.
   std::vector<Val*> tma_ids;
   std::unordered_map<IterDomain*, IterDomain*> tma_id_to_box_id;
-  std::unordered_map<IterDomain*, IterDomain*> tma_id_to_tile_id;
   std::unordered_map<IterDomain*, IterDomain*> tma_id_to_stride_id;
   std::unordered_map<IterDomain*, IterDomain*> tma_id_to_partitioned_id;
   for (auto tile_id : tile_ids) {
@@ -3538,7 +3537,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
     tma_ids.push_back(tma_id);
     tma_id_to_box_id[tma_id] = box_id;
-    tma_id_to_tile_id[tma_id] = tile_id;
     if (stride_id != nullptr) {
       tma_id_to_stride_id[tma_id] = stride_id;
     }
@@ -3646,21 +3644,23 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // Validate that tma_domain is a superset of tma_ids, otherwise there is
   // something wrong in the schedule.
-  std::unordered_set<IterDomain*> seen;
-  std::unordered_set<Val*> pending_tma_ids(tma_ids.begin(), tma_ids.end());
-  for (auto tuple : tma_domain) {
-    auto id = std::get<0>(tuple);
+  {
+    std::unordered_set<IterDomain*> seen;
+    std::unordered_set<Val*> pending_tma_ids(tma_ids.begin(), tma_ids.end());
+    for (auto tuple : tma_domain) {
+      auto id = std::get<0>(tuple);
+      NVF_ERROR(
+          seen.insert(id).second,
+          "Mistake in schedule. Duplicate IterDomain found: ",
+          id->toString());
+      pending_tma_ids.erase(id);
+    }
     NVF_ERROR(
-        seen.insert(id).second,
-        "Mistake in schedule. Duplicate IterDomain found: ",
-        id->toString());
-    pending_tma_ids.erase(id);
+        pending_tma_ids.empty(),
+        "Can not infer TMA domain from the schedule. The IterDomains ",
+        ir_utils::toString(pending_tma_ids),
+        " are expected to be in the TMA domain.");
   }
-  NVF_ERROR(
-      pending_tma_ids.empty(),
-      "Can not infer TMA domain from the schedule. The IterDomains ",
-      ir_utils::toString(pending_tma_ids),
-      " are expected to be in the TMA domain.");
 
   // Step 4: Compute the tensor map descriptor and the index
 
@@ -3687,7 +3687,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   //
   // For the example of the Figure 6 in doc/dev/tma.md, the TMA domain is
   // [I1, I2, I3, I4, I5, I6, I7, I8, I9], and the types of these IDs are
-  // [ C,  B,  P,  C,  B,  B,  C,  B,  B]
+  // [ C, CB,  P,  C, CB, CB,  C, CB, CB]
   //
   // The algorithm works as follows: We run a 3-state machine. The state machine
   // is initialized as START. After setting the initial state, we loop through
