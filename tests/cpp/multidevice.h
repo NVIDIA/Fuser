@@ -33,11 +33,11 @@ class MultiDeviceTest : public NVFuserTest {
 
   static Communicator* getOrCreateCommunicator();
 
-  Communicator* communicator = nullptr;
+  Communicator* communicator;
   c10::TensorOptions tensor_options;
-  bool debug_print = false;
-  bool do_barrier_at_test = false;
-  bool disable_skip = false;
+  bool debug_print;
+  bool do_barrier_at_test;
+  bool disable_skip;
 };
 
 class PipelineTest : public MultiDeviceTest {

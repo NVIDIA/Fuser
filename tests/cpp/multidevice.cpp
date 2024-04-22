@@ -20,19 +20,11 @@ MultiDeviceTest::MultiDeviceTest() {
   communicator = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") &&
-      communicator->is_available()) {
-    do_barrier_at_test = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip = true;
-  }
-  if (!disable_skip && !communicator->is_available()) {
-    GTEST_SKIP() << "This test needs an available communicator.";
-  }
+  debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+  do_barrier_at_test =
+      (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
+       communicator->is_available());
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
