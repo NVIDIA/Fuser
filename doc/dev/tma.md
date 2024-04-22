@@ -372,7 +372,7 @@ The Figure 12 below shows an example schedule of the consumer of a TMA load of a
 
 ![Figure 12: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
 
-### Step 5: schedule consumer tensor
+### Step 5: schedule the consumer tensor
 
 In nvFuser, the consumer dictates the loop nests and parallelization of an expression,
 and the leaf domain of the consumer has the responsibility of specifying these information.
