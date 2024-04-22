@@ -1744,6 +1744,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
 
+  NVF_ERROR(isCompiled() || isCompilationSkipped());
   NVF_ERROR(
       outputs.empty() || (outputs.size() == fusion()->outputs().size()),
       __func__,
