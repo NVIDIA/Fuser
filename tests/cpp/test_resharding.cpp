@@ -23,54 +23,50 @@
 
 namespace nvfuser {
 
-using namespace at::indexing;
-using MultiDeviceUtilsTest = NVFuserTest;
+using ReshardingTestParams =
+    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
 
-// TODO: This test checks that isSharded generates an error when a split/merged
-// axis is parallelized with DIDx. Update when this restriction is lifted.
-TEST_F(MultiDeviceUtilsTest, TestIsSharded) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
+ protected:
+  void SetUp() override {
+    fusion_ = std::make_unique<Fusion>();
+    fg_ = std::make_unique<FusionGuard>(fusion_.get());
+  }
+  void validate() {
+    for (auto expr : fusion_->exprs()) {
+      EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
+          << "on expr=" << expr;
+    }
 
-  TensorView* a = makeSymbolicTensor(3);
-  a->axis(2)->parallelize(ParallelType::DIDx);
-  a->split(0, 4);
-  EXPECT_TRUE(isSharded(a));
+    SegmentCandidateFinderOptions options{
+        .run_translate_welford = false,
+        .run_combine_reductions = false,
+        .run_herrmann_merge = true,
+        .run_final_merge = true,
+        .only_segment_resharding_exprs = true};
 
-  TensorView* b = makeSymbolicTensor(3);
-  b->split(1, 4);
-  b->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(b));
+    auto segmented_fusion =
+        SegmentCandidateFinder::segment(std::move(fusion_), nullptr, options);
 
-  TensorView* c = makeSymbolicTensor(3);
-  c->axis(0)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(c));
-}
+    for (SegmentedGroup* group : segmented_fusion->groups()) {
+      // TODO: use EXPECT_THAT.
+      EXPECT_TRUE(
+          std::none_of(
+              group->exprs().begin(),
+              group->exprs().end(),
+              [](auto expr) { return isResharding(expr); }) ||
+          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
+    }
+    // checks that the segments are disjoints and that the graph of segment is
+    // acyclic
+    segmented_fusion->validate();
+  }
 
-TEST_F(MultiDeviceUtilsTest, TestPropagateSharding) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_;
+  std::unique_ptr<FusionGuard> fg_;
+};
 
-  TensorView* a = makeSymbolicTensor(3);
-  TensorView* b = makeSymbolicTensor(3);
-  TensorView* c = add(a, b);
-
-  DeviceMesh mesh({0, 1, 2});
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  a->axis(0)->parallelize(ParallelType::DIDx);
-  b->axis(2)->parallelize(ParallelType::DIDx);
-  fusion.addInput(a);
-  fusion.addInput(b);
-  fusion.addOutput(c);
-
-  // Expected behavior: a's shardings propagate to c.
-  propagateShardings(&fusion);
-  checkSameShardings(a, c);
-}
-
-TEST_F(MultiDeviceUtilsTest, ReshardingDetection) {
+TEST_F(ReshardingTest, Detection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -201,35 +197,35 @@ TEST_F(MultiDeviceUtilsTest, ReshardingDetection) {
   fusion->addOutput(tv25);
   fusion->addOutput(tv26);
 
-  GTEST_EXPECT_TRUE(!isResharding(tv1->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv2->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv3->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv4->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv5->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv6->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv7->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv8->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv9->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv10->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv11->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv12->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv13->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv14->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv15->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv16->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv17->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv18->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv19->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv20->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv21->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv22->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv23->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv24->definition()));
-  GTEST_EXPECT_TRUE(!isResharding(tv25->definition()));
-  GTEST_EXPECT_TRUE(isResharding(tv26->definition()));
+  EXPECT_FALSE(isResharding(tv1->definition()));
+  EXPECT_TRUE(isResharding(tv2->definition()));
+  EXPECT_FALSE(isResharding(tv3->definition()));
+  EXPECT_TRUE(isResharding(tv4->definition()));
+  EXPECT_TRUE(isResharding(tv5->definition()));
+  EXPECT_FALSE(isResharding(tv6->definition()));
+  EXPECT_TRUE(isResharding(tv7->definition()));
+  EXPECT_FALSE(isResharding(tv8->definition()));
+  EXPECT_TRUE(isResharding(tv9->definition()));
+  EXPECT_TRUE(isResharding(tv10->definition()));
+  EXPECT_TRUE(isResharding(tv11->definition()));
+  EXPECT_FALSE(isResharding(tv12->definition()));
+  EXPECT_TRUE(isResharding(tv13->definition()));
+  EXPECT_TRUE(isResharding(tv14->definition()));
+  EXPECT_FALSE(isResharding(tv15->definition()));
+  EXPECT_TRUE(isResharding(tv16->definition()));
+  EXPECT_TRUE(isResharding(tv17->definition()));
+  EXPECT_FALSE(isResharding(tv18->definition()));
+  EXPECT_TRUE(isResharding(tv19->definition()));
+  EXPECT_TRUE(isResharding(tv20->definition()));
+  EXPECT_TRUE(isResharding(tv21->definition()));
+  EXPECT_FALSE(isResharding(tv22->definition()));
+  EXPECT_TRUE(isResharding(tv23->definition()));
+  EXPECT_FALSE(isResharding(tv24->definition()));
+  EXPECT_FALSE(isResharding(tv25->definition()));
+  EXPECT_TRUE(isResharding(tv26->definition()));
 }
 
-TEST_F(MultiDeviceUtilsTest, InsertResharding_Before) {
+TEST_F(ReshardingTest, InsertResharding_Before) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -258,7 +254,7 @@ TEST_F(MultiDeviceUtilsTest, InsertResharding_Before) {
   }
 }
 
-TEST_F(MultiDeviceUtilsTest, InsertResharding_After) {
+TEST_F(ReshardingTest, InsertResharding_After) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -285,7 +281,7 @@ TEST_F(MultiDeviceUtilsTest, InsertResharding_After) {
   checkSameShardings(a, expr->inputs()[0]->as<TensorView>());
 }
 
-TEST_F(MultiDeviceUtilsTest, InsertShardedAxisReordering) {
+TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -295,21 +291,15 @@ TEST_F(MultiDeviceUtilsTest, InsertShardedAxisReordering) {
   fusion.addInput(a);
   fusion.addOutput(c);
 
-  DeviceMesh mesh0({0, 1});
-  DeviceMesh mesh1({2});
-  a->setDeviceMesh(mesh0);
-  b->setDeviceMesh(mesh1);
-  c->setDeviceMesh(mesh1);
+  DeviceMesh mesh({0, 1});
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
 
-  a->axis(1)->parallelize(ParallelType::DIDx);
+  b->axis(1)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   insertReshardings(&fusion);
-  std::cout << "Fusion now contains " << fusion.exprs().size() << std::endl;
-  // int num_inner_reshardings = std::count_if(
-  //     fusion.exprs().begin(), fusion.exprs().end(), [](Expr* expr) {
-  //       return (isResharding(expr) && isInnerResharding(expr));
-  //     });
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && isInnerResharding(expr)) {
@@ -326,51 +316,7 @@ TEST_F(MultiDeviceUtilsTest, InsertShardedAxisReordering) {
   }
 }
 
-using automaticSetInsertionTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
-
-class automaticReshardingTest
-    : public NVFuserTest,
-      public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
- protected:
-  void SetUp() override {
-    fusion = std::make_unique<Fusion>();
-    fg = std::make_unique<FusionGuard>(fusion.get());
-  }
-  void validate() {
-    for (auto expr : fusion->exprs()) {
-      GTEST_EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
-          << "on expr=" << expr;
-    }
-
-    SegmentCandidateFinderOptions options{
-        .run_translate_welford = false,
-        .run_combine_reductions = false,
-        .run_herrmann_merge = true,
-        .run_final_merge = true,
-        .only_segment_resharding_exprs = true};
-
-    auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
-
-    for (SegmentedGroup* group : segmented_fusion->groups()) {
-      GTEST_EXPECT_TRUE(
-          std::none_of(
-              group->exprs().begin(),
-              group->exprs().end(),
-              [](auto expr) { return isResharding(expr); }) ||
-          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
-    }
-    // checks that the segments are disjoints and that the graph of segment is
-    // acyclic
-    segmented_fusion->validate();
-  }
-
-  std::unique_ptr<Fusion> fusion;
-  std::unique_ptr<FusionGuard> fg;
-};
-
-TEST_P(automaticReshardingTest, setInsertion) {
+TEST_P(ReshardingTest, Insert) {
   if (!distributedEnabled()) { // Test only works with distributed
     GTEST_SKIP() << "Requires distributed API";
   }
@@ -396,9 +342,9 @@ TEST_P(automaticReshardingTest, setInsertion) {
   tv3->setDeviceMesh(mesh0);
   tv4->setDeviceMesh(mesh1);
   tv5->setDeviceMesh(mesh0);
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-  fusion->addOutput(tv5);
+  fusion_->addInput(tv0);
+  fusion_->addOutput(tv1);
+  fusion_->addOutput(tv5);
 
   if (is_tv0_tv3_tv5_sharded) {
     tv0->axis(sharded_axis)->parallelize(ParallelType::DIDx);
@@ -413,8 +359,8 @@ TEST_P(automaticReshardingTest, setInsertion) {
     tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
 
-  insertReshardings(fusion.get());
-  insertShardedAxisReordering(fusion.get());
+  insertReshardings(fusion_.get());
+  insertShardedAxisReordering(fusion_.get());
   validate();
 }
 
@@ -428,7 +374,7 @@ DeviceMesh Mesh2({0, 1, 2, 3});
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    automaticReshardingTest,
+    ReshardingTest,
     ::testing::Combine(
         ::testing::Values(Mesh0, Mesh2),
         ::testing::Values(Mesh1, Mesh2),

@@ -257,6 +257,8 @@ void insertReshardings(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
+  // Replacing expression inputs creates a new expression. Map the old
+  // expression to new expression, so that we can continue iterating.
   std::unordered_map<Expr*, Expr*> replacement_map = {};
   for (auto expr : exprs) {
     if (replacement_map.find(expr) != replacement_map.end()) {
@@ -282,15 +284,10 @@ void insertReshardings(Fusion* fusion) {
     if (!inputs.empty() && expr->inputs().size() == 1) {
       auto input = *inputs.begin();
       TensorView* new_output = set(output);
-      for (auto e : output->uses()) {
-        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
-        replacement_map[e] = new_expr;
-      }
-      if (output->isFusionOutput()) {
-        fusion->replaceOutput(output, new_output);
-      }
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
-      // new_output); Update shardings new_output takes output's sharding,
+      auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          output, new_output);
+      replacement_map.merge(new_output_map);
+      // Update shardings new_output takes output's sharding,
       // output takes input's sharding
       shardAllLike(output, {new_output});
       shardAllLike(input, {output});
@@ -331,10 +328,12 @@ void insertShardedAxisReordering(Fusion* fusion) {
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
-        "Resharding operations can only have one output");
+        "Resharding operations can only have one output",
+        expr->toString());
     NVF_ERROR(
         expr->inputs().size() == 1,
-        "Resharding operations can have only one input");
+        "Resharding operations can have only one input",
+        expr->toString());
     auto output = expr->outputs().at(0)->as<TensorView>();
     auto input = expr->inputs().at(0)->as<TensorView>();
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
@@ -359,15 +358,9 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);
       TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
-      // new_output);
-      for (auto e : output->uses()) {
-        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
-        replacement_map.insert({e, new_expr});
-      }
-      if (output->isFusionOutput()) {
-        fusion->replaceOutput(output, new_output);
-      }
+      auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          output, new_output);
+      replacement_map.merge(new_output_map);
 
       // Propagate shardings from input and manually apply sharding deletions.
       shardAllLike(input, {input_permute, output_permute, new_output});
@@ -425,15 +418,9 @@ void insertShardedAxisReordering(Fusion* fusion) {
       // Note this is a no-op and is moving a device parallel axis back
       TensorView* new_output =
           permute(output_permute, {{0, sharding_axis_after_permute}});
-      // ir_utils::replaceValInAllExprInputsAndFusionOutputs(output,
-      // new_output);
-      for (auto e : output->uses()) {
-        auto new_expr = ir_utils::replaceValInExprInputs(e, output, new_output);
-        replacement_map.insert({e, new_expr});
-      }
-      if (output->isFusionOutput()) {
-        fusion->replaceOutput(output, new_output);
-      }
+      auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          output, new_output);
+      replacement_map.merge(new_output_map);
 
       // Propagate shardings from input and manually apply sharding additions.
       shardAllLike(input, {input_permute, output_permute, new_output});

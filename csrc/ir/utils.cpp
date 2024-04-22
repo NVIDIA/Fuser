@@ -199,14 +199,20 @@ Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
       expr, reference, substitute);
 }
 
-void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
+std::unordered_map<Expr*, Expr*> replaceValInAllExprInputsAndFusionOutputs(
+    Val* old_val,
+    Val* new_val) {
+  std::unordered_map<Expr*, Expr*> replacement_map;
   auto uses = old_val->uses();
   for (auto use_of_old_val : uses) {
-    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+    auto new_expr =
+        ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+    replacement_map.insert({use_of_old_val, new_expr});
   }
   if (old_val->isFusionOutput()) {
     old_val->fusion()->replaceOutput(old_val, new_val);
   }
+  return replacement_map;
 }
 
 Expr* transferDefinitionToNewOutputs(
