@@ -148,6 +148,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
 
 // Test that vectorization is properly computed when base pointer is not aligned
 // at 16 bytes. This can happen if a tensor is sliced then passed as input.
+// See https://github.com/NVIDIA/Fuser/pull/2118
 TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
