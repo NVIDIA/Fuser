@@ -7,7 +7,7 @@ from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 # test the influence of epilogue on the performance of reduction.
 # current reduction scheduler only allows epilogue to be fused with outer reduction without post reduction broadcast.
-# So, in this test, only outer reduction is tested. Can be extended to inner reduction if needed.
+# So, in this test, only outer reduction is tested. [reduction_axis] is kept to allow the extension to inner reduction.
 
 
 def reduction_epilogue_fusion(
@@ -47,7 +47,7 @@ def test_reduction_epilogue_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    x = torch.randn(*size, device="cuda", dtype=dtype)
+    x = torch.randn(size, device="cuda", dtype=dtype)
     epilogue = torch.randn(size[reduction_axis - 1], device="cuda", dtype=dtype)
     with FusionDefinition() as fd:
         reduction_epilogue_fusion(
@@ -77,7 +77,7 @@ def test_reduction_epilogue_baseline_benchmark(
 ):
     clear_cuda_cache()
 
-    x = torch.randn(*size, device="cuda", dtype=dtype)
+    x = torch.randn(size, device="cuda", dtype=dtype)
     epilogue = torch.randn([reduction_axis - 1], device="cuda", dtype=dtype)
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
