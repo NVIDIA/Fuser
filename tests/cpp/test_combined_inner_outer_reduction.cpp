@@ -1015,7 +1015,7 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 // Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
 // match to reduction axis in outer reduction tv.
 TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
-  auto test = [](const std::vector<int>& outer_reduction_axis) {
+  auto test = [](const std::vector<int64_t>& outer_reduction_axis) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -1044,12 +1044,10 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
       NVF_ERROR(is_segmented, "Fusion should be segmented!");
     }
 
-    std::vector<int64_t> vec64(
-        outer_reduction_axis.begin(), outer_reduction_axis.end());
     auto t1 = t0.sum({-1});
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
-    auto t4 = t0.sum(vec64);
+    auto t4 = t0.sum(outer_reduction_axis);
     testValidate(
         &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
   };

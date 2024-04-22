@@ -2125,18 +2125,18 @@ class PadOp : public Expr {
 
   //! Return axes that are actually paded, i.e., those that have
   //! non-zero pad widths
-  std::vector<int> getPaddedAxes() const;
+  std::vector<int64_t> getPaddedAxes() const;
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int axis) const;
+  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
-  int getPadWidthInputOffset() const {
+  int64_t getPadWidthInputOffset() const {
     return 2;
   }
 

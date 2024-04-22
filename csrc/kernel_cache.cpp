@@ -27,6 +27,9 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
+#include <mutex>
+#include <sstream>
+
 namespace nvfuser {
 
 namespace {
@@ -1265,6 +1268,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
+  std::string thread_pool_error_message;
+  std::mutex thread_pool_error_message_mutex;
   for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
@@ -1290,7 +1295,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             args,
                             group_runtime_inputs,
                             group_to_run,
-                            &detect_exception_in_thread_pool]() {
+                            &detect_exception_in_thread_pool,
+                            &thread_pool_error_message,
+                            &thread_pool_error_message_mutex]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
@@ -1300,6 +1307,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
           detect_exception_in_thread_pool.store(true);
+          const std::lock_guard<std::mutex> lock(
+              thread_pool_error_message_mutex);
+          std::stringstream ss;
+          ss << thread_pool_error_message << "\nError from segmentation group "
+             << group_to_run->groupId() << ": " << e.what() << "\n";
+          thread_pool_error_message = ss.str();
         }
       });
     }
@@ -1320,8 +1333,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
-        "Detected exception while compiling fusion segments in parallel.\n",
-        "Use NVFUSER_DISABLE=parallel_compile to print exception message.");
+        "Detected exception while compiling fusion segments in parallel. ",
+        "Error messages from all threads are printed below.\n",
+        thread_pool_error_message,
+        "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();

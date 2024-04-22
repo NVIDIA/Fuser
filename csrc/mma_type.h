@@ -47,8 +47,8 @@ static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
 
 //! Utility data structure for recording gemm tiles
 struct GemmTile {
-  int m, n, k;
-  GemmTile(int m_, int n_, int k_) : m(m_), n(n_), k(k_) {}
+  int64_t m, n, k;
+  GemmTile(int64_t m_, int64_t n_, int64_t k_) : m(m_), n(n_), k(k_) {}
 
   bool operator==(const GemmTile& other) const {
     return m == other.m && n == other.n && k == other.k;
@@ -58,7 +58,7 @@ struct GemmTile {
     return GemmTile(m / other.m, n / other.n, k / other.k);
   }
 
-  std::vector<int> toVector() const {
+  std::vector<int64_t> toVector() const {
     return {m, n, k};
   }
 };

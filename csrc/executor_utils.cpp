@@ -113,8 +113,8 @@ std::string kernelPreamble() {
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
-    int& major,
-    int& minor,
+    int64_t& major,
+    int64_t& minor,
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
@@ -249,11 +249,11 @@ namespace {
 //
 // Returns a pair consisting of a flag indicating if it's a fusion input (else
 // is output) and an integer position within in the input or output tensor list.
-std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
+std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
     TensorView* producer_tv,
     TensorView* consumer_tv,
     Fusion* fusion) {
-  std::vector<std::pair<bool, int>> input_output;
+  std::vector<std::pair<bool, int64_t>> input_output;
 
   // When the producer is a fusion input, only return the producer
   // (vectorization validation assumes consumer of input is vectorizable).
@@ -271,7 +271,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
     input_output.push_back(
-        std::make_pair<bool, int>(true, static_cast<int>(pos)));
+        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -284,7 +284,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
     input_output.push_back(
-        std::make_pair<bool, int>(false, static_cast<int>(pos)));
+        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
   }
 
   return input_output;
@@ -346,7 +346,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 
     for (const auto& inp_or_out : inp_or_out_info) {
       const bool is_input = inp_or_out.first;
-      const int pos = inp_or_out.second;
+      const int64_t pos = inp_or_out.second;
 
       if (is_aligned) {
         auto& pos_list = is_input
@@ -471,7 +471,7 @@ getTensorOffsets(
 
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
-    int word_size,
+    int64_t word_size,
     TensorView* tv,
     ExpressionEvaluator& eval) {
   eval.bind(tv, aten_tensor);
@@ -949,8 +949,8 @@ void fillCompileOptions(
     NvrtcCompileDriver& nvrtc_compile_driver,
     CuModuleLoadDataDriver& module_load_driver,
     bool compile_to_sass,
-    int major,
-    int minor,
+    int64_t major,
+    int64_t minor,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
@@ -1180,7 +1180,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
-  int major = 0, minor = 0;
+  int64_t major = 0, minor = 0;
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
@@ -1327,7 +1327,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
   NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
-  int major = 0, minor = 0;
+  int64_t major = 0, minor = 0;
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 

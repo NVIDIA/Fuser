@@ -208,7 +208,7 @@ TEST_F(PredicateEliminationTest, 5) {
   tvs2.avg->split(0, 4);
   TransformPropagatorWithCheck propagator(tvs2.avg);
   MaxRootDomainInfoSpanningTree(tvs2.avg).traverse(&propagator);
-  auto avg_rf = ir_utils::rfactorHelper(tvs2.avg, {1});
+  auto avg_rf = ir_utils::rFactorHelper(tvs2.avg, {1});
 
   avg_rf->axis(0)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(avg_rf);
@@ -345,7 +345,7 @@ TEST_F(PredicateEliminationTest, 8) {
   fusion.addInput(tv3);
   fusion.addInput(tv4);
 
-  std::vector<int> reduction_axes = {0, 2, 3};
+  std::vector<int64_t> reduction_axes = {0, 2, 3};
 
   Val* num_features = IrBuilder::create<Val>(tv1->container(), 1.0);
   for (const auto dim : reduction_axes) {
