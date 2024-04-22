@@ -115,7 +115,7 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
         (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");
     NVF_CHECK(
         a->getDataType().value() == bias->getDataType().value(),
-        "bias doesn't match input/weight");
+        "bias doesn't match input/weight dtype");
     auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
     auto* bcast_bias = ops::maybeBroadcast({output, bias_with_cast})[1];
     auto* bias_output = add(output, bcast_bias);
