@@ -131,7 +131,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
-#ifdef NVFUSER_DISTRIBUTED
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
   std::vector<TensorView*> tvs = ir_utils::allTvs(fusion);
@@ -152,15 +151,6 @@ void FusionDefinition::finalizeSchedule(
         user_sched_->fusion_id_,
         user_sched_->device_id_);
   }
-#else
-  FusionGuard::setCurFusion(prev_fusion_);
-  prev_fusion_ = nullptr;
-  user_sched_->executor->compileFusion(
-      user_sched_->schedule.get(),
-      inputs,
-      user_sched_->fusion_id_,
-      user_sched_->device_id_);
-#endif
   user_sched_ = nullptr;
 }
 
@@ -193,11 +183,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
-#ifdef NVFUSER_DISTRIBUTED
   if (multidevice_executor_) {
     return multidevice_executor_->runWithInput(inputs.vec());
   }
-#endif
 
   std::vector<at::Tensor> outputs;
 

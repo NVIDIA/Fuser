@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -47,10 +46,8 @@ void MultiDeviceTest::SetUp() {
   do_barrier_at_test =
       multidevice_env->doBarrierAtTest() && communicator->is_available();
   disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip &&
-      (!communicator->is_available() || communicator->size() < 2 ||
-       torch::cuda::device_count() < 2)) {
-    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
+  if (!disable_skip && !communicator->is_available()) {
+    GTEST_SKIP() << "This test needs an available communicator.";
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
@@ -61,32 +58,6 @@ void MultiDeviceTest::TearDown() {
     communicator->barrier();
   }
   NVFuserTest::TearDown();
-}
-
-void CommunicationTest::SetUp() {
-  MultiDeviceTest::SetUp();
-  if (!communicator->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
-  }
-  all_ranks = std::vector<DeviceIdxType>(communicator->size());
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-}
-
-void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
-  NVF_ERROR(
-      obtained.equal(expected),
-      "Device ",
-      communicator->deviceId(),
-      " expected tensor:\n",
-      expected,
-      "\nbut obtained tensor:\n",
-      obtained);
-}
-
-void CommunicationTest::resetDstBuffers() {
-  for (auto& buf : params.dst_bufs) {
-    buf.copy_(at::full(tensor_size, nan(""), tensor_options));
-  }
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -186,5 +157,3 @@ void PipelineTest::SetUp() {
 }
 
 } // namespace nvfuser
-
-#endif
