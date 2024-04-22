@@ -382,7 +382,8 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   std::vector<RootPredicateInfo> pred_info_vec;
-  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate")) {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
+      TensorIndexer::isSupported(GpuLower::current()->kernel())) {
     pred_info_vec = gpu_lower->tensorIndexer().getPredicates(
         out_tv,
         expr,

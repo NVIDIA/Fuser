@@ -251,59 +251,6 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   return index_parameters;
 }
 
-// Return true if it is sufficient to predicate the end of the loop
-// iteration. An aligned vectorized loop is one example where it is
-// guaranteed to be valid by the validation checks. More generally,
-// the divisible split set is used to find such loops. The divisible
-// split set contains splits used in view transformations as well as
-// those whose output domains are vectorized. View transformations
-// guarantee that any split involved is divisible, whereas
-// vectorization only guarantees that the overall root extent is
-// divisible by the split factor. Thus, if a loop IterDomain is
-// an output of a split included in the divisible view splits, we can
-// just predicate the end of the loop iteration. If a loop IterDomain
-// is an output of a divisible split due to vectorization, it is only
-// valid when the loop IterDomain is mapped with the vectorized inner
-// output IterDomain. If it is mapped with an outer IterDomain, since
-// the split input IterDomain may be an output IterDomain of a
-// non-divisible split, we still need to predicate each loop iteration
-// value.
-bool predicateAtEnd(kir::ForLoop* loop) {
-  auto loop_id = loop->iter_domain();
-  auto split = dynamic_cast<Split*>(loop_id->definition());
-  if (split == nullptr) {
-    return false;
-  }
-
-  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
-
-  if (!is_divisible) {
-    return false;
-  }
-
-  // Find the other output of the split
-  auto other_out_id =
-      split->inner() == loop_id ? split->outer() : split->inner();
-
-  // If the other output is mapped with a vectorized IterDomain,
-  // this IterDomain needs to be predicated at each iteration point.
-  const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
-
-  if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
-          })) {
-    return false;
-  }
-
-  // Now it is either loop_id is mapped with a vectorized IterDomain
-  // or it's an output of view transformations.
-  return true;
-}
-
 // Check if this loop is actually unswitched, meaning an initial index
 // of the maximum value from a non-size-one range is used.
 bool trackUnswitchedDomain(kir::ForLoop* loop) {
@@ -521,6 +468,42 @@ IndexingParameters getPredicateInitialIndexParameters(
 }
 
 } // namespace
+
+bool predicateAtEnd(kir::ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+  auto split = dynamic_cast<Split*>(loop_id->definition());
+  if (split == nullptr) {
+    return false;
+  }
+
+  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
+
+  if (!is_divisible) {
+    return false;
+  }
+
+  // Find the other output of the split
+  auto other_out_id =
+      split->inner() == loop_id ? split->outer() : split->inner();
+
+  // If the other output is mapped with a vectorized IterDomain,
+  // this IterDomain needs to be predicated at each iteration point.
+  const auto& other_id_exact_set = GpuLower::current()
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(other_out_id);
+
+  if (std::any_of(
+          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
+            return id->getParallelType() == ParallelType::Vectorize;
+          })) {
+    return false;
+  }
+
+  // Now it is either loop_id is mapped with a vectorized IterDomain
+  // or it's an output of view transformations.
+  return true;
+}
 
 LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
     const std::vector<kir::ForLoop*>& loops,

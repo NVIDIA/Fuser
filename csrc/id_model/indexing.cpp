@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
@@ -782,6 +783,23 @@ std::vector<IterDomain*> getPredicateDomains(
   return predicate_domains;
 }
 
+kir::ForLoop* getForLoop(
+    IterDomain* loop_id,
+    const std::vector<kir::ForLoop*>& for_loops,
+    const ValGraph& loop_graph) {
+  auto it = std::find_if(
+      for_loops.begin(), for_loops.end(), [&](kir::ForLoop* for_loop) -> bool {
+        IterDomain* for_loop_id = for_loop->iter_domain();
+        return loop_graph.disjointValSets().strictAreMapped(
+            loop_id, for_loop_id);
+      });
+  if (it != for_loops.end()) {
+    return *it;
+  } else {
+    return nullptr;
+  }
+}
+
 } // namespace
 
 TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
@@ -955,7 +973,8 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& loop_domains,
-    const ValGraph& traversal_graph) const {
+    const ValGraph& traversal_graph,
+    bool predicate) const {
   // loop_index_map_ is a map on the loop graph. For index
   // propagation, need a map for the exact graph
 
@@ -1004,10 +1023,6 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 
     // Even when the iter-domain is not size-1, the actual for-loop
     // can be (e.g., for double buffering)
-    if (for_loop != nullptr) {
-      std::cerr << "For loop stop: " << for_loop->stop()->toInlineString()
-                << ", ID: " << for_loop->iter_domain()->toString() << std::endl;
-    }
     if (for_loop != nullptr && for_loop->isTrivial()) {
       std::cerr << "Replacing a loop index with a loop start val: "
                 << for_loop->start()->toInlineString()
@@ -1021,6 +1036,9 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     if (for_loops.has_value() && GpuLower::hasCurrent() && !as_consumer) {
       loop_index = adjustProducerLoopIndexForDoubleBuffering(
           tv, ir_utils::getTvOutput(expr), for_loop, loop_index);
+    }
+
+    if (predicate && for_loop != nullptr && predicateAtEnd(for_loop)) {
     }
 
     if (initial_index_map.find(exact_group) != initial_index_map.end()) {
@@ -1078,7 +1096,7 @@ Val* TensorIndexer::getIndex(
             << std::endl;
 
   const auto& index_map =
-      getIndexMap(tv, expr, for_loops, index_domains, traversal_graph);
+      getIndexMap(tv, expr, for_loops, index_domains, traversal_graph, false);
 
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(index_domains.size())) {
@@ -1231,7 +1249,8 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& index_domains,
-    const ValGraph& traversal_graph) const {
+    const ValGraph& traversal_graph,
+    bool predicate) const {
   // Step 1: Find loop domains (same as indexing)
   // Step 2: Find rfactor domains
   // Step 3: Find the path from the loop domains to the rfactor
@@ -1251,8 +1270,8 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
   auto traversal_path = getIndexingTraversalPath(
       tv, expr, loop_domains, index_domains, traversal_graph);
 
-  const auto initial_index_map =
-      getInitialIndexMap(tv, expr, for_loops, loop_domains, traversal_graph);
+  const auto initial_index_map = getInitialIndexMap(
+      tv, expr, for_loops, loop_domains, traversal_graph, predicate);
 
   IdGraphIndexCompute index_compute(traversal_graph, initial_index_map);
 
@@ -1263,12 +1282,58 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
   return index_compute.indexMap();
 }
 
+std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
+    const std::vector<kir::ForLoop*>& for_loops,
+    bool is_start_predicate,
+    const std::unordered_map<ValGroup, Val*>& index_map,
+    const ValGraph& traversal_graph) {
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (const auto fl : for_loops) {
+    auto loop_id = fl->iter_domain();
+    NVF_ERROR(
+        !loop_id->maybePartial(),
+        "Partial loop not supported: ",
+        fl->toString());
+    auto loop_index_it = index_map.find(traversal_graph.toGroup(loop_id));
+    if (loop_index_it == index_map.end()) {
+      // The index map is built from the tensor loop domains. There
+      // can be for-loops that are not part of the tensor loop
+      // domains.
+      continue;
+    }
+    NVF_ERROR(
+        loop_index_it != index_map.end(),
+        "Index for a loop not found: ",
+        loop_id->toString());
+    Val* loop_index = loop_index_it->second;
+    if (predicateAtEnd(fl)) {
+      if (loop_id->isThread()) {
+        continue;
+      }
+      Val* replacement = is_start_predicate
+          ? loop_index->fusion()->zeroVal()
+          : SimplifyingIrBuilder::subExpr(
+                loop_id->extent(), loop_index->fusion()->oneVal());
+      auto inserted = replacement_map.emplace(loop_index, replacement).second;
+      NVF_ERROR(
+          inserted, "Duplicate replacement attempted: ", loop_id->toString());
+      VERBOSE() << "Replacing initial index: " << loop_index->toInlineString()
+                << " with " << replacement->toInlineString() << std::endl;
+    }
+  }
+
+  return replacement_map;
+}
+
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
   VERBOSE() << "getPredicates of " << tv->toString() << " in "
             << expr->toString();
+
+  NVF_ERROR(for_loops.has_value());
 
   const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   const auto zero_val = tv->fusion()->zeroVal();
@@ -1278,8 +1343,14 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
             << std::endl;
 
-  const auto& index_map =
-      getIndexMap(tv, expr, for_loops, predicate_domains, traversal_graph);
+  const auto& index_map = getIndexMap(
+      tv, expr, for_loops, predicate_domains, traversal_graph, true);
+
+  const auto& replacement_map_start = getPredicateIndexReplacementMap(
+      for_loops.value(), true, index_map, traversal_graph);
+
+  const auto& replacement_map_stop = getPredicateIndexReplacementMap(
+      for_loops.value(), false, index_map, traversal_graph);
 
   std::vector<RootPredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
@@ -1291,7 +1362,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
         "Index not found for ",
         predicate_domain->toString());
     Val* idx = idx_it->second;
-    VERBOSE() << "Index of " << predicate_domain->toString() << ": "
+    VERBOSE() << "Predicate index of " << predicate_domain->toString() << ": "
               << idx->toInlineString() << std::endl;
 
     RootPredicateInfo info;
@@ -1300,16 +1371,24 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     info.stop_offset_ = zero_val;
 
     // Use the same index for start and stop
-    info.start_predicate_ = SimplifyingIrBuilder::geExpr(
-        SimplifyingIrBuilder::addExpr(idx, info.start_offset_), zero_val);
+    auto start_idx =
+        ir_utils::replaceValRecursively(idx, replacement_map_start);
+    info.start_predicate_ =
+
+        SimplifyingIrBuilder::geExpr(
+            SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_),
+            zero_val);
 
     // TODO: predicate elimination
+    auto stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
-        SimplifyingIrBuilder::addExpr(idx, info.stop_offset_),
+        SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
         predicate_domain->extent());
 
     info_vec.emplace_back(info);
   }
+
+  // TODO: Add non-divisible predicates
 
   return info_vec;
 }
