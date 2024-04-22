@@ -292,7 +292,7 @@ After viewing the tile as a 2D matrix, we further divide this matrix as blocks o
 We divide each row into unit of 16 bytes, so each row will have `N/16` units.
 For each column, we divide it into unit of `128/N` rows,
 so each unit row has `128/N * N bytes = 128 bytes`, which is exactly the width of all 32 banks.
-The unit matrix is the minumum unit of operation when applying swizzles.
+The unit matrix is the minimum unit of operation when applying swizzles.
 
 After viewing the tile as blocks of unit matrices, we can apply the xor-swizzle using the following steps:
 
