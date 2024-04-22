@@ -216,12 +216,14 @@ Communicator::Communicator(
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
-    std::optional<CommunicatorBackend> backend) {
+    std::optional<CommunicatorBackend> backend,
+      bool use_cache
+      bool block_during_backend_creation) {
   CommunicatorBackend b = getBackend(backend);
   std::string team_key = getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
-      backends_.end()) { // create the backend and cache it
+      backends_.end() || !use_cache) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(team.begin(), team.end(), deviceId());
@@ -237,6 +239,9 @@ c10d::Backend* Communicator::getBackendForTeam(
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
         static_cast<int64_t>(team.size()));
+    if (block_during_backend_creation) {
+      backends_.at(team_key)->barrier()->wait();
+    }
 #else
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif
