@@ -217,7 +217,7 @@ Communicator::Communicator(
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
-      bool use_cache
+      bool use_cache,
       bool block_during_backend_creation) {
   CommunicatorBackend b = getBackend(backend);
   std::string team_key = getTeamKey(team, b);

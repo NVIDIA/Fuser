@@ -64,8 +64,9 @@ class OverlapTest : public MultiDeviceTest {
         std::vector<int64_t> devices(num_devices);
         std::iota(devices.begin(), devices.end(), 0);
         CommunicatorBackend b = getNvFuserEnv("OVERLAP_USE_UCC")? CommunicatorBackend::ucc : CommunicatorBackend::nccl;
+        wait_at_backend_creation = getNvFuserEnv("OVERLAP_WAIT_BACKEND_CREATION");
         world_communicator = communicator->getBackendForTeam(
-            devices, /* backend */b);
+            devices, /* backend */b, /*use cache*/true, /*wait*/ wait_at_backend_creation);
 
         // Define the constants
         A = num_devices;
@@ -89,6 +90,7 @@ class OverlapTest : public MultiDeviceTest {
                                 : 1;
         compute_mode = getNvFuserEnv("OVERLAP_COMPUTE_PYTORCH")? ComputeMode::Pytorch : ComputeMode::nvFuserFusionExecutor;
         std::cout << "Using Streams: "<<use_different_streams << "\n"
+                  << "Wait at backend creation=" << wait_at_backend_creation << "\n"
                   << "n_iterations=" << n_iterations << "\n"
                   << "compute_mode=" << compute_mode << "\n"
                   << "Used Backend: " << b << "\n"
@@ -136,6 +138,7 @@ class OverlapTest : public MultiDeviceTest {
     int64_t tile_size;
     int64_t number_of_tiles;
     bool use_different_streams;
+    bool wait_at_backend_creation;
 
     // compute params
     int n_iterations;
