@@ -521,9 +521,23 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
+  // Set register used to store vectorized and unrolled data loaded from gmem.
+  // A large value allows more unroll and vectorization, which is beneficial
+  // for memory-bound kernels. However, it increases register pressure and may
+  // lead to lower occupancy which is bad for compute-bound kernels. Here, 8 is
+  // chosen as a balance between memory-bound and compute-bound kernels. In most
+  // cases, the scheduler uses 512 threads and to reach an occupancy of 50%,
+  // each thread can use up to 64 registers, here only 8 registers are reserved
+  // for unroll and vectorization. The fused ops can have 48 registers for other
+  // purposes. Test shows it leads to 75% occupancy for outer reduction without
+  // fused ops and 50% occupancy for gelu backward which fused 21 ops including
+  // the external tanh op. Further tuning of this heuristic can utilize the cost
+  // of the fused ops.
+  const int64_t buffer_reg_count = 8L;
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)16 / (int64_t)max_input_dtype_size,
+      buffer_reg_count * scheduler_utils::bytes_per_register /
+          (int64_t)max_input_dtype_size,
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
       scheduler_utils::lastPow2(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
@@ -623,7 +637,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // Unroll amount
   int64_t inner_reduction_unroll_factor = 1;
   int64_t iter_unroll_factor = 1;
-  bool vectorize = false;
 
   // Helper lambda's to figure out how much is left in the iter or reduction dim
   auto iDimAvail = [&]() {
@@ -658,27 +671,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         // Don't exceed max thread count
         target_threads_in_block);
   }
-
-  // Purely empirically found switch to start vectorization, tuned on v100,
-  // should check it's validity on other hardware or if we need to switch to
-  // size not n_elems
-  if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
-    // Do some unrolling on the iter dimension
-    iter_unroll_factor =
-        vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll;
-    iter_unroll_factor =
-        std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024l * 1024l));
-    iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
-    iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
-    iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
-    if (vectorize_factor > 1 &&
-        iter_unroll_factor <= (int64_t)vectorize_factor) {
-      iter_unroll_factor =
-          std::min(iter_unroll_factor, (int64_t)vectorize_factor);
-      vectorize = true;
-    }
-  }
-
   // Round bdimx to a nice value
   int64_t niceValue = 8;
   if (n_elems >= device_multiprocessor_count *
@@ -686,6 +678,25 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     niceValue = 32;
   }
   bdimx = roundUpPow2OrMultipleOf(bdimx, niceValue);
+
+  // Purely empirically found switch to start vectorization, tuned on H100.
+  // vectorization reduces number of load instructions but also increased
+  // reductions each x-dim threads processes. want to start with a small value
+  // and incrase when bdimx is larger than 64. It reduces bdimx and gdimx to
+  // allow more threads and blocks in the reduction dimension. The maximum
+  // value is set to 4 to leave more factors for unroll in the reduction
+  // dimensions, it benefits memory bound kernels. If [buffer_reg_count] is
+  // increased, this vectorization factor limit can be increased.
+  const int64_t empirical_max_vect = 4L;
+  const int64_t max_vectorize_factor = std::min(
+      empirical_max_vect,
+      std::min(
+          (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
+  if (total_iteration_numel > 4096) {
+    iter_unroll_factor = bdimx > 64 ? 4L : 2L;
+    iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
+    iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+  }
 
   // Fill bdimy with left over threads
   bdimy = std::min(
@@ -702,6 +713,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
     inner_reduction_unroll_factor =
         scheduler_utils::lastPow2(inner_reduction_unroll_factor);
+    // inner_reduction_unroll_factor = std::min(inner_reduction_unroll_factor,
+    // 8);
   }
 
   gidim = iDimAvail();
@@ -710,13 +723,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
 
   // // Extend to go to target blocks, but keep 16 iterations per thread
+  const int64_t min_serial_top_unroll = 4L;
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
     // sure we have 4 reductions per thread beyond what's already set as we
     // consider expanding to target block
     grdim = std::min(
         // At least 4 iterations of the reduction per thread ontop of unroll
-        ceilDiv(rDimAvail() * grdim, 4),
+        ceilDiv(rDimAvail() * grdim, min_serial_top_unroll),
         // Expand to target blocks
         ceilDiv(target_blocks, gidim));
   }
@@ -763,6 +777,30 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         new_grdim * gidim % device_multiprocessor_count >
             grdim * gidim % device_multiprocessor_count) {
       grdim = new_grdim;
+    }
+  }
+
+  // try to adjust unroll and vect to clean ragged waves e.g. increase gdimy
+  // from 13 to 27 is prefered since it is divisible by sm count of A100.
+  bool iter_divisible =
+      total_iteration_numel % (gidim * bdimx * iter_unroll_factor) == 0;
+  bool has_ragged_wave = (grdim * gidim) % device_multiprocessor_count != 0;
+  bool has_adjust_space = iter_unroll_factor * 2 <= max_vectorize_factor &&
+      inner_reduction_unroll_factor >= 2;
+  if (iter_divisible && has_ragged_wave && has_adjust_space) {
+    int64_t tmp_vect = iter_unroll_factor * 2;
+    int64_t tmp_unroll = inner_reduction_unroll_factor / 2;
+    int64_t tmp_gidim = gidim / 2;
+    int64_t tmp_grdim = std::min(
+        ceilDiv(
+            total_reduction_numel, bdimy * tmp_unroll * min_serial_top_unroll),
+        ceilDiv(target_blocks, tmp_gidim));
+    // no ragged wave, accept this adjust
+    if ((tmp_gidim * tmp_grdim) % device_multiprocessor_count == 0) {
+      iter_unroll_factor = tmp_vect;
+      inner_reduction_unroll_factor = tmp_unroll;
+      gidim = tmp_gidim;
+      grdim = tmp_grdim;
     }
   }
 
@@ -820,9 +858,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
 
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
-  if (iter_unroll_factor > 1) {
-    rparams->vectorize_iter_dom = vectorize;
-  }
+  rparams->vectorize_iter_dom = iter_unroll_factor > 1;
 
   rparams->lparams = LaunchParams(
       gdimx,
@@ -833,7 +869,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
+    debug() << "\n===== Outer Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "vectorize_factor: " << iter_unroll_factor << "\n"
