@@ -20,6 +20,8 @@ void MultiDeviceTest::SetUp() {
   NVFuserTest::SetUp();
 
   communicator = getOrCreateCommunicator();
+  tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator->device());
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
     debug_print = true;
   }
@@ -33,8 +35,6 @@ void MultiDeviceTest::SetUp() {
   if (!disable_skip && !communicator->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
-  tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator->device());
 }
 
 void MultiDeviceTest::TearDown() {
