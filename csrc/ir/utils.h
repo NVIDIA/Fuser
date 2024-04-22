@@ -221,7 +221,7 @@ auto filterByType(const ContainerType& inputs) {
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims);
+    int64_t ndims);
 
 //! Returns a list of new-to-old mappings.
 //!
@@ -236,9 +236,9 @@ std::vector<int64_t> normalizeNew2Old(
 //!
 //!   {{0, -1}} -> [N-1, ...., 0]
 //!   Swaps the first and last axes.
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims);
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims);
 
 //! Replaces reference Val with substitute in all Expr inputs and attributes.
 //! Warning: Invalidates provided Expr.
@@ -277,9 +277,9 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-NVF_API TensorView* rfactorHelper(
+NVF_API TensorView* rFactorHelper(
     TensorView* red_tv,
-    const std::vector<int>& axes);
+    const std::vector<int64_t>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.

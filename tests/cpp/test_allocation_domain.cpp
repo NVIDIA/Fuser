@@ -46,8 +46,8 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
   auto bc = fusion.bankConflictInfo();
   ASSERT_TRUE(bc.size() == 1);
   auto [read, write] = bc.at(tv1);
-  ASSERT_EQ(read, std::vector<int>{32});
-  ASSERT_EQ(write, std::vector<int>{32});
+  ASSERT_EQ(read, std::vector<int64_t>{32});
+  ASSERT_EQ(write, std::vector<int64_t>{32});
 
   std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
   tv1->setAllocationDomain(tv1_transposed, true);

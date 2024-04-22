@@ -1349,7 +1349,7 @@ class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
   }
 
   //! Return the required smem buffer size
-  int getSmemBufferSize(int bdimx, int bdimy, int bdimz) const;
+  int64_t getSmemBufferSize(int64_t bdimx, int64_t bdimy, int64_t bdimz) const;
 };
 
 //! Represents a WelfordOp with the division by count is hoisted out

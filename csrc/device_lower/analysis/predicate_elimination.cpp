@@ -487,7 +487,7 @@ class PredicateChcker : public IterVisitor {
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_leaf_ids;
     for (const auto i : c10::irange(tv->nDims())) {
-      auto leaf_id = tv->axis((int)i);
+      auto leaf_id = tv->axis(i);
       if (is_shared_mem && leaf_id->isThreadDim()) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share

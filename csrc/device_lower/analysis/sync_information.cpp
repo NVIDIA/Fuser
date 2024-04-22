@@ -21,7 +21,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
   for (auto i : c10::irange(tv->nDims())) {
-    auto axis = tv->axis((int)i);
+    auto axis = tv->axis(i);
     auto ptype = axis->getParallelType();
     if (!isParallelTypeThread(ptype)) {
       continue;
@@ -493,7 +493,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           producer_redundant_types & (~producer_redundant_use_types);
 
       for (const auto producer_i : c10::irange(producer->nDims())) {
-        auto producer_axis = producer->axis((int)producer_i);
+        auto producer_axis = producer->axis(producer_i);
         auto producer_ptype =
             ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
@@ -519,7 +519,7 @@ SyncMap::SyncMap(Fusion* fusion) {
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
         ParallelTypeBitmap consumer_parallel_bitmap;
         for (const auto consumer_i : c10::irange(consumer->nDims())) {
-          auto consumer_axis = consumer->axis((int)consumer_i);
+          auto consumer_axis = consumer->axis(consumer_i);
           auto consumer_ptype =
               ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();

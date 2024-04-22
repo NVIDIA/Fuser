@@ -815,7 +815,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict1) {
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{32});
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict2) {
@@ -835,7 +835,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict2) {
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 32));
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int64_t>(2, 32));
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict3) {
@@ -855,7 +855,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict3) {
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{8});
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict4) {
@@ -891,10 +891,10 @@ TEST_F(TransposeTest, FusionTransposeBankConflict4) {
   // T3 [16, TIDx(32), 2]
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 8));
-  ASSERT_EQ(bank_conflict_info.at(tv2).first, std::vector<int>{2});
-  ASSERT_EQ(bank_conflict_info.at(tv2).second, std::vector<int>{4});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{8});
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int64_t>(2, 8));
+  ASSERT_EQ(bank_conflict_info.at(tv2).first, std::vector<int64_t>{2});
+  ASSERT_EQ(bank_conflict_info.at(tv2).second, std::vector<int64_t>{4});
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict5) {
@@ -917,7 +917,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict5) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{32});
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict6) {
@@ -940,7 +940,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict6) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{32});
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict7) {
@@ -966,7 +966,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict7) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 2));
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int64_t>(2, 2));
 }
 
 TEST_F(TransposeTest, FusionTransposeBankConflict8) {
@@ -1023,7 +1023,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   }
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{16});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 32, 2}, options);
