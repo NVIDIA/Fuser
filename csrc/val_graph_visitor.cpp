@@ -297,54 +297,64 @@ void ValGraphBFS::traverse() {
 
 bool ValGraphBFS::isReady(const GroupType& group) const {
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
-    // Either all inputs or all outputs must have been visited
-    auto inputs = graph_.inputGroups(*eg);
-    if (!inputs.empty() &&
-        std::all_of(
-            inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
-              return isVisited(input);
-            })) {
-      return true;
-    }
-    auto outputs = graph_.outputGroups(*eg);
-    if (!outputs.empty() &&
-        std::all_of(
-            outputs.begin(),
-            outputs.end(),
-            [&](const ValGroup& output) -> bool {
-              return isVisited(output);
-            })) {
-      return true;
-    }
-
-    return false;
+    return isReady(*eg);
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&group)) {
-    // In the case of Val, requires one def or use expr.
-    // Check if any use is visited
-    if (!graph_.getUses(*vg).empty() &&
-        std::any_of(
-            graph_.getUses(*vg).begin(),
-            graph_.getUses(*vg).end(),
-            [&](const ExprGroup& use_eg) -> bool {
-              return isVisited(use_eg);
-            })) {
-      return true;
-    }
-    // Check if all defs are visited
-    if (!graph_.getDefinitions(*vg).empty() &&
-        std::any_of(
-            graph_.getDefinitions(*vg).begin(),
-            graph_.getDefinitions(*vg).end(),
-            [&](const ExprGroup& def_eg) -> bool {
-              return isVisited(def_eg);
-            })) {
-      return true;
-    }
-
-    return false;
+    return isReady(*vg);
   } else {
     NVF_ERROR(false);
   }
+}
+
+bool ValGraphBFS::isReady(const ExprGroup& expr_group) const {
+  // Either all inputs or all outputs must have been visited
+  auto inputs = graph_.inputGroups(expr_group);
+  if (!inputs.empty() &&
+      std::all_of(
+          inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
+            return isDependencySatisfied(input);
+          })) {
+    return true;
+  }
+  auto outputs = graph_.outputGroups(expr_group);
+  if (!outputs.empty() &&
+      std::all_of(
+          outputs.begin(), outputs.end(), [&](const ValGroup& output) -> bool {
+            return isDependencySatisfied(output);
+          })) {
+    return true;
+  }
+
+  return false;
+}
+
+bool ValGraphBFS::isReady(const ValGroup& val_group) const {
+  // In the case of Val, requires one def or use expr.
+  // Check if any use is visited
+  if (!graph_.getUses(val_group).empty() &&
+      std::any_of(
+          graph_.getUses(val_group).begin(),
+          graph_.getUses(val_group).end(),
+          [&](const ExprGroup& use_eg) -> bool {
+            return isDependencySatisfied(use_eg);
+          })) {
+    return true;
+  }
+  // Check if all defs are visited
+  if (!graph_.getDefinitions(val_group).empty() &&
+      std::any_of(
+          graph_.getDefinitions(val_group).begin(),
+          graph_.getDefinitions(val_group).end(),
+          [&](const ExprGroup& def_eg) -> bool {
+            return isDependencySatisfied(def_eg);
+          })) {
+    return true;
+  }
+
+  return false;
+}
+
+bool ValGraphBFS::isDependencySatisfied(const GroupType& group) const {
+  return isVisited(group);
 }
 
 bool ValGraphBFS::isVisited(const GroupType& g) const {

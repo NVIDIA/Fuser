@@ -147,6 +147,12 @@ class ValGraphBFS {
 
   virtual bool isReady(const GroupType& group) const;
 
+  virtual bool isReady(const ExprGroup& expr_group) const;
+
+  virtual bool isDependencySatisfied(const GroupType& group) const;
+
+  virtual bool isReady(const ValGroup& val_group) const;
+
   virtual bool isVisited(const GroupType& group) const;
 
   virtual void setVisited(const GroupType& group);
