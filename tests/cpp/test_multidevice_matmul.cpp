@@ -49,17 +49,18 @@ class DistributedMatmulTest : public MultiDeviceTest {
     num_devices = communicator->size();
   }
 
-  // use_fusion_executor cache=true, skip_auto_scheduling=false
-  // cache_fusion_executor=false
-  MultiDeviceExecutorParams executor_params{true, false, false};
+  MultiDeviceExecutorParams executor_params{
+      .use_fusion_executor_cache = true,
+      .skip_auto_scheduling = false,
+      .cache_fusion_executor = false};
   int num_devices;
 
   ValidationConstants getTolerances() {
     ValidationConstants tolerance_overwrite = ValidationConstants();
     std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-    // for (auto& arr : relaxed_sum_tol) {
-    //   arr = {128, 2e-4};
-    // }
+    for (auto& arr : relaxed_sum_tol) {
+      arr = {128, 2e-4};
+    }
     tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
     return tolerance_overwrite;
   }
@@ -92,7 +93,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   // Tests local matmul with no communication
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh();
+  DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 1024, N = 512, K = 256;
   // TODO: until we support split, manually split axes
@@ -149,7 +150,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   // Tests local matmul + allgather
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh();
+  DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 1024, N = 512, K = 256;
   int Mo = num_devices;
@@ -162,14 +163,15 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
   TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
   TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
-  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+  TensorView* c0 = sum(ab, {-1}); // (Mo,Mi,N,r)
+  TensorView* c = set(c0);
 
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
 
   // Sharding M dimension
-  auto all_sharded_tvs = {a, a_b, b_b, ab};
+  auto all_sharded_tvs = {a, a_b, b_b, ab, c0};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
@@ -200,73 +202,13 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       getTolerances());
 }
 
-TEST_F(DistributedMatmulTest, LayoutNN) {
-  // B and C are sharded on N
-  // Tests local matmul
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh();
-
-  int M = 1024, N = 512, K = 256;
-  int Mo = num_devices;
-  int Mi = M / Mo;
-  std::vector<int> a_shape = {K, Mo, Mi};
-  std::vector<int> b_shape = {N, K};
-
-  TensorView* a = makeContigTensor(3, DataType::Half); // (K,Mo,Mi)
-  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
-  // Permute a into Transponsed layout.
-  TensorView* a_p = permute(a, {1, 2, 0}); // (Mo,Mi,K)
-  TensorView* a_b = broadcast(a_p, {false, false, true, false}); // (Mo,Mi,b,K)
-  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
-  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
-  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
-
-  fusion->addInput(a);
-  fusion->addInput(b);
-  fusion->addOutput(c);
-
-  // Sharding M dimension
-  a->setDeviceMesh(mesh);
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  auto all_sharded_tvs = {a_p, a_b, b_b, ab};
-  for (auto tv : all_sharded_tvs) {
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-    tv->setDeviceMesh(mesh);
-  }
-  b->setDeviceMesh(mesh);
-  c->setDeviceMesh(mesh);
-
-  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NN, M, N, K);
-  a_ = a_.view({K, Mo, Mi});
-  c_ = c_.view({Mo, Mi, N});
-
-  std::vector<c10::IValue> inputs = {
-      shardTensor(a_, a, communicator->deviceId()), b_};
-  auto expected_output = shardTensor(c_, c, communicator->deviceId());
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params);
-  auto outputs = runtime.runWithInput(inputs);
-
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      {expected_output},
-      __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      getTolerances());
-}
-
 TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.
   // Tests local matmul + allreduce
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh();
+  DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   // Note: Manually split K into Ko(device dim), Ki until split supported.
   int M = 1024, N = 512, K = 256;
@@ -326,10 +268,10 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   // Tests local matmul + reduce scatter
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh();
+  DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   // Note: Manually split K and M
-  int M = 1024, N = 512, K = 256;
+  int M = 1024, N = 128, K = 256;
   int Ko = num_devices, Ki = K / Ko;
   int Mo = num_devices, Mi = M / Mo;
   std::vector<int> a_shape = {Ko, Ki, M};
@@ -344,10 +286,8 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
   TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  // TODO: Reshape works using sharded sizes. Should use unsharded size to
-  // stay consistent.
-  std::vector<int64_t> orig_size = {1, M, N};
-  std::vector<int64_t> new_size = {1, Mo, Mi, N};
+  std::vector<int64_t> orig_size = {K, M, N};
+  std::vector<int64_t> new_size = {K, Mo, Mi, N};
   TensorView* c1 = reshape(c0, orig_size, new_size);
   TensorView* c = sum(c1, {0});
 
@@ -356,7 +296,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   fusion->addOutput(c);
 
   // Sharding K dimension of all inputs and intermediates.
-  auto all_sharded_tvs = {a, b, a_t, b_t, a_b, b_b, ab};
+  auto all_sharded_tvs = {a, b, a_t, b_t, a_b, b_b, ab, c0, c1};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);

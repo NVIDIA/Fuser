@@ -63,8 +63,8 @@ void MultiDeviceTest::TearDown() {
   NVFuserTest::TearDown();
 }
 
-DeviceMesh MultiDeviceTest::createDeviceMesh() {
-  std::vector<int64_t> devices(communicator->size());
+DeviceMesh MultiDeviceTest::createDeviceMesh(int size) {
+  std::vector<int64_t> devices(size);
   std::iota(devices.begin(), devices.end(), 0);
   return DeviceMesh(devices);
 }

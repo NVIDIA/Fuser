@@ -1265,7 +1265,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       a->dtype(), b->dtype(), mma_result->dtype()};
   // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
   // batch loop
-  bool guaranteed_operand_reuse = num_batch_dims == 0 || num_splitk_dims == 0;
+  bool guaranteed_operand_reuse = num_local_batch_dims == 0 || num_splitk_dims == 0;
   int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
       params,
       data_types,

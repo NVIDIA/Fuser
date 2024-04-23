@@ -274,33 +274,17 @@ void insertReshardings(Fusion* fusion) {
         "multi-output expressions are not supported");
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::vector<TensorView*> new_inputs;
-    auto inputs = getTvsWithDifferentSharding(
-        output, ir_utils::filterByType<TensorView>(expr->inputs()));
-
-    // Insert resharding set after the expr when there is only one input.
-    // input [expr] output [set] new_output
-    if (!inputs.empty() && expr->inputs().size() == 1) {
-      auto input = *inputs.begin();
-      TensorView* new_output = set(output);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      // Update shardings new_output takes output's sharding, output takes
-      // input's sharding
-      shardAllLike(output, {new_output});
-      shardAllLike(input, {output});
-    } else {
-      // For expressions with > 1 input, insert resharding set before the expr
-      // for each input (input [set] new_input) [expr] output
-      for (auto input : inputs) {
-        // TODO: reuse cacheAfter?
-        // TODO: here we should add a mechanism to potentially reuse the
-        // inserted resharding accross all the consumer of the resharded tensor.
-        // This way we could avoid wasteful resharding set insertion.
-        TensorView* new_input = set(input);
-        new_inputs.push_back(new_input);
-        expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
-      }
-      shardAllLike(output, new_inputs);
+    for (auto input : getTvsWithDifferentSharding(
+             output, ir_utils::filterByType<TensorView>(expr->inputs()))) {
+      // TODO: reuse cacheAfter?
+      // TODO: here we should add a mechanism to potentially reuse the inserted
+      // resharding accross all the consumer of the resharded tensor. This way
+      // we could avoid wasteful resharding set insertion.
+      TensorView* new_input = set(input);
+      new_inputs.push_back(new_input);
+      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
+    shardAllLike(output, new_inputs);
   }
 }
 
