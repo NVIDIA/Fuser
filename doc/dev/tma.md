@@ -378,7 +378,7 @@ For 32 byte swizzle, the above shape is `[-1, 2, 4, 2, 16B]`.
 For 64 byte swizzle, the above shape is `[-1, 4, 2, 4, 16B]`.
 For 128 byte swizzle, the above shape is `[-1, 8, 1, 8, 16B]`,
 where the `1` can be omitted and just use `[-1, 8, 8, 16B]` in practice
-(and be sure that you use the correct axis if you do so).
+(and be sure that you use the correct axis for swizzle if you do so).
 
 The Figure 12 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
 
