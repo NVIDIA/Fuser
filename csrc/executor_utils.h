@@ -119,17 +119,17 @@ class ParallelIterExtentMap {
 //!    Auxiliary data type for entry class VectorizedTensorValidation
 struct VectorizedTensorInfo {
   //! Aligned vectorized fusion inputs
-  std::vector<int> aligned_vectorized_inp_tensor_pos;
+  std::vector<int64_t> aligned_vectorized_inp_tensor_pos;
   //! Aligned vectorized fusion outputs
-  std::vector<int> aligned_vectorized_out_tensor_pos;
+  std::vector<int64_t> aligned_vectorized_out_tensor_pos;
   //! Misaligned vectorized input tensors
   std::unordered_set<TensorView*> global_inp_misaligned_tv;
   //! Misaligned vectorized output tensors
   std::unordered_set<TensorView*> global_out_misaligned_tv;
   //! Positions of misaligned input tensors
-  std::vector<int> inp_misaligned_tensors_pos;
+  std::vector<int64_t> inp_misaligned_tensors_pos;
   //! Positions of misaligned output tensors
-  std::vector<int> out_misaligned_tensors_pos;
+  std::vector<int64_t> out_misaligned_tensors_pos;
 };
 
 //! Compile-time info to be cached in each FusionExecutor:
@@ -296,8 +296,8 @@ class CudaKernelTimer {
 //! Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
-    int& major,
-    int& minor,
+    int64_t& major,
+    int64_t& minor,
     bool& compile_to_sass);
 
 } // namespace executor_utils

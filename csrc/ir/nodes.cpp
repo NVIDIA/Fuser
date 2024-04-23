@@ -72,7 +72,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<int64_t> shape;
   for (auto i : c10::irange(inputs.size() - 1)) {
-    shape.push_back((int)inputs.at(i));
+    shape.push_back(inputs.at(i).as<int64_t>());
   }
   DataType dtype = getFillValue()->getDataType().value();
   const auto options =
@@ -413,31 +413,50 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     MmaOpUtils::MatmulInputs matmul_inp;
 
     if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to MmaOp are of the shape [M, K, 1] x [1, K, N]
-      const auto a = ee.evaluate(matmul_inp.mma_lhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(-1);
-      const auto b = ee.evaluate(matmul_inp.mma_rhs, known_values)
-                         .as<at::Tensor>()
-                         .squeeze(0);
+      // Inputs to the pattern are of the shape [M, K] x [K, N] (matmul) / [M,
+      // K] x [N, K] (linear). Note: alpha, beta parameters are nullptr for
+      // linear.
+      const auto a =
+          ee.evaluate(matmul_inp.mma_lhs, known_values).as<at::Tensor>();
+      const auto b =
+          ee.evaluate(matmul_inp.mma_rhs, known_values).as<at::Tensor>();
       const c10::Scalar alpha = matmul_inp.alpha
           ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
           : 1;
 
+      // Matmul/Addmm: n_pos=2, k_pos=1
+      // Linear: n_pos=1, k_pos=2
+      const int k_pos =
+          std::get<(size_t)MatmulDomain::K>(matmul_inp.mma_dims_pos);
+      const int n_pos =
+          std::get<(size_t)MatmulDomain::N>(matmul_inp.mma_dims_pos);
+
       if (matmul_inp.bias == nullptr) {
-        return {alpha * a.matmul(b)};
+        auto out = k_pos < n_pos ? alpha * a.matmul(b) : at::linear(a, b);
+        return {out};
       }
+
       auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
-      if (bias.dim() != a.dim()) {
-        // Bias is of shape [M,].
-        NVF_ERROR(bias.dim() == a.dim() - 1);
-        bias = bias.unsqueeze(-1);
+
+      // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
+      if (bias.dim() != a.dim() && (k_pos < n_pos)) {
+        // Unsqueeze the broadcast dimensions.
+        // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
+        for (auto dim :
+             c10::irange((int64_t)matmul_inp.bias_bcast_flags.size())) {
+          if (matmul_inp.bias_bcast_flags[dim]) {
+            bias = bias.unsqueeze(dim);
+          }
+        }
       }
+
       const c10::Scalar beta = matmul_inp.beta
           ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
           : 1;
 
-      return {at::addmm(bias, a, b, beta, alpha)};
+      auto out = k_pos < n_pos ? at::addmm(bias, a, b, beta, alpha)
+                               : at::linear(a, b, bias);
+      return {out};
     }
   }
 
@@ -1355,7 +1374,7 @@ SqueezeOp::SqueezeOp(
       is_squeeze_dims.size() == in_dom.size(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
 
-  auto in_size = is_squeeze_dims.size();
+  int64_t in_size = (int64_t)is_squeeze_dims.size();
   auto num_removed_broadcasts = 0;
   for (const auto i : c10::irange(is_squeeze_dims.size())) {
     if (is_squeeze_dims[i]) {
@@ -2282,13 +2301,8 @@ std::string GatherOp::toInlineString(int indent_size) const {
 }
 
 int64_t GatherOp::gatherAxis(int64_t axis) const {
-  if (axis < 0) {
-    axis += (int64_t)out()->as<TensorView>()->nDims();
-  }
-  NVF_ERROR(
-      axis >= 0 && axis < (int64_t)windowShape().size(),
-      "Invalid axis: ",
-      axis);
+  axis = wrapDim(axis, out()->as<TensorView>()->nDims());
+  NVF_ERROR(axis < (int64_t)windowShape().size(), "Invalid axis: ", axis);
   return (int64_t)windowShape().size() + axis;
 }
 
@@ -3244,8 +3258,7 @@ TensorDomain::TensorDomain(
 
     allocation_domain_.resize(rank, nullptr);
     for (auto i : c10::irange(rank)) {
-      allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
-          root_domain_[i];
+      allocation_domain_[rank - 1 - stride_order[i]] = root_domain_[i];
     }
   }
   validateContiguity(maybeAllocation(), contiguity_);
@@ -3412,7 +3425,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   }
 
   for (const auto i : c10::irange(nDims())) {
-    if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
+    if (!(axis(i)->sameAs(other_td->axis(i)))) {
       return false;
     }
   }
@@ -3557,32 +3570,23 @@ bool TensorDomain::hasVectorize() const {
       });
 }
 
-std::optional<unsigned int> TensorDomain::getReductionAxis() const {
+std::optional<int64_t> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
       leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
         return id->isReduction();
       });
   if (it == leaf_domain_.end()) {
-    return std::optional<unsigned int>();
+    return std::optional<int64_t>();
   } else {
-    return std::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
+    return std::optional<int64_t>(std::distance(leaf_domain_.begin(), it));
   }
 }
 
 // i here is int, as we want to accept negative value and ::size_type can be a
 // uint.
-IterDomain* TensorDomain::axis(int i) const {
+IterDomain* TensorDomain::axis(int64_t i) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0) {
-    i += (int)nDims();
-  }
-  NVF_CHECK(
-      i >= 0 && (unsigned int)i < nDims(),
-      "Tried to access axis ",
-      i,
-      " in domain ",
-      this);
-  return leaf_domain_[i];
+  return leaf_domain_[wrapDim(i)];
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
@@ -3607,20 +3611,14 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
 }
 
 void TensorDomain::split(
-    int axis_,
+    int64_t axis,
     Val* factor,
     bool inner_split,
     bool trim_out_of_bounds) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
-  if (axis_ < 0) {
-    axis_ += (int)nDims();
-  }
+  axis = wrapDim(axis);
 
-  NVF_ERROR(
-      axis_ >= 0 && (unsigned int)axis_ < nDims(),
-      "Tried to split on axis outside TensorDomain's range.");
-
-  IterDomain* id = axis(axis_);
+  IterDomain* id = this->axis(axis);
 
   // partial split is only allowed with root domains
   if (trim_out_of_bounds) {
@@ -3635,27 +3633,17 @@ void TensorDomain::split(
 
   auto split_ids =
       IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.second);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.first);
+  leaf_domain_.erase(leaf_domain_.begin() + axis);
+  leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.second);
+  leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.first);
   resetDomains();
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
-void TensorDomain::merge(int axis_o, int axis_i) {
+void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-  if (axis_o < 0) {
-    axis_o += (int)nDims();
-  }
-
-  if (axis_i < 0) {
-    axis_i += (int)nDims();
-  }
-
-  NVF_CHECK(
-      axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
-          (unsigned int)axis_i < nDims(),
-      "Invalid merge detected, either one or both axes are outside of TensorView's range.");
+  axis_o = wrapDim(axis_o);
+  axis_i = wrapDim(axis_i);
 
   NVF_CHECK(
       axis_o != axis_i,
@@ -3677,7 +3665,8 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 }
 
 // Reorder axes according to map[old_pos] = new_pos
-void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
+void TensorDomain::reorder(
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   leaf_domain_ = orderedAs(leaf_domain_, old2new_);
@@ -3686,35 +3675,29 @@ void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
 
 std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
-    const std::unordered_map<int, int>& old2new_) {
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
       !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 
-  auto new2old = ir_utils::normalizeOld2New(old2new_, dom.size());
+  auto new2old = ir_utils::normalizeOld2New(old2new_, (int64_t)dom.size());
 
   std::vector<IterDomain*> reordered_domain;
   std::transform(
       new2old.begin(),
       new2old.end(),
       std::back_inserter(reordered_domain),
-      [dom](int i) -> IterDomain* { return dom[i]; });
+      [dom](int64_t i) -> IterDomain* { return dom[i]; });
 
   return reordered_domain;
 }
 
-void TensorDomain::swizzle(SwizzleType swizzle_type, int x, int y) {
+void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-
-  NVF_CHECK(
-      x >= 0 && (unsigned int)x < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
-
-  NVF_CHECK(
-      y >= 0 && (unsigned int)y < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+  x = wrapDim(x);
+  y = wrapDim(y);
 
   IterDomain* axis_x = axis(x);
   IterDomain* axis_y = axis(y);
@@ -3736,18 +3719,12 @@ void TensorDomain::swizzle(SwizzleType swizzle_type, int x, int y) {
 
 void TensorDomain::swizzle(
     Swizzle2DType swizzle_type,
-    int x,
-    int y,
+    int64_t x,
+    int64_t y,
     SwizzleMode swizzle_mode) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-
-  NVF_CHECK(
-      x >= 0 && (unsigned int)x < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
-
-  NVF_CHECK(
-      y >= 0 && (unsigned int)y < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+  x = wrapDim(x);
+  y = wrapDim(y);
 
   IterDomain* axis_x = axis(x);
   IterDomain* axis_y = axis(y);
@@ -3849,8 +3826,8 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
-  for (auto i : c10::irange(inp_domain.size())) {
-    bool is_rfactor_dim = i >= size_t(start_dim) && i <= size_t(end_dim);
+  for (auto i : c10::irange((int64_t)inp_domain.size())) {
+    bool is_rfactor_dim = i >= start_dim && i <= end_dim;
     auto inp_id = inp_domain[i];
     auto out_id = IterDomainBuilder(inp_id)
                       .is_rfactor_domain(is_rfactor_dim)
@@ -3900,7 +3877,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
 // pair is in order where second is the consumer of first
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
-    const std::vector<int>& axes_) {
+    const std::vector<int64_t>& axes_) {
   return TransformRFactor::runReplay(this, axes_);
 }
 
@@ -4232,16 +4209,16 @@ std::string PadOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<int> PadOp::getPaddedAxes() const {
-  auto num_dims = out()->as<TensorView>()->getRootDomain().size();
-  std::vector<int> padded_axes;
+std::vector<int64_t> PadOp::getPaddedAxes() const {
+  auto num_dims = (int64_t)out()->as<TensorView>()->getRootDomain().size();
+  std::vector<int64_t> padded_axes;
   for (const auto i : c10::irange(num_dims)) {
-    auto [left_pad, right_pad] = getPadWidths((int)i);
+    auto [left_pad, right_pad] = getPadWidths(i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
       continue;
     }
-    padded_axes.push_back((int)i);
+    padded_axes.push_back(i);
   }
   return padded_axes;
 }
@@ -4250,14 +4227,9 @@ std::vector<Val*> PadOp::getPadWidths() const {
   return {getPadWidthInputBegin(), getPadWidthInputEnd()};
 }
 
-std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
-  auto num_dims = (int)out()->as<TensorView>()->getRootDomain().size();
-
-  if (axis < 0) {
-    axis += num_dims;
-  }
-
-  NVF_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
+std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
+  auto num_dims = (int64_t)out()->as<TensorView>()->getRootDomain().size();
+  axis = wrapDim(axis, num_dims);
 
   int64_t offset_even = (int64_t)axis * 2;
   int64_t offset_odd = offset_even + 1;
@@ -4383,8 +4355,8 @@ CatOp::CatOp(
   }
   NVF_ERROR(
       concatenated_dim >= 0 &&
-          concatenated_dim <
-              static_cast<int>(ir_utils::getTv(out)->getRootDomain().size()),
+          concatenated_dim < static_cast<int64_t>(
+                                 ir_utils::getTv(out)->getRootDomain().size()),
       "Invalid dimension to concatenate: ",
       concatenated_dim);
 
@@ -4447,11 +4419,11 @@ Val* CatOp::getPred(int input_idx) const {
   NVF_ERROR(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  const auto num_input_tensors = static_cast<int>(inputs().size());
+  const auto num_input_tensors = static_cast<int64_t>(inputs().size());
   NVF_ERROR(input_idx < num_input_tensors, "Invalid input index: ", input_idx);
   const auto attr_idx = input_idx + 2;
   NVF_ERROR(
-      attr_idx < static_cast<int>(attributes().size()),
+      attr_idx < static_cast<int64_t>(attributes().size()),
       "Invalid attribute index: ",
       attr_idx,
       ", number of attributes: ",

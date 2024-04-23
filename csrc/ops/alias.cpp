@@ -207,10 +207,10 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
 TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int>(x_dom.size());
+  const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
-      (int)dims.size() <= ndims,
+      (int64_t)dims.size() <= ndims,
       "The dims to squeeze must be <= the number of dims of the input tensor. ",
       "Squeeze dims: ",
       dims.size(),
@@ -241,10 +241,10 @@ TensorView* squeeze(
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int>(x_dom.size());
+  const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
-      ndims == (int)to_squeeze.size(),
+      ndims == (int64_t)to_squeeze.size(),
       "Invalid to_squeeze for squeeze: ",
       to_squeeze,
       ". Input tensor: ",
@@ -288,9 +288,9 @@ TensorView* squeeze(
   return out;
 }
 
-TensorView* unsqueeze(TensorView* x, int dim) {
+TensorView* unsqueeze(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
 
   if (dim < 0) {
     dim = ndims + dim + 1;
@@ -335,7 +335,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   }
 
   auto normalized_new2old =
-      ir_utils::normalizeNew2Old(new2old, inp_domain.size());
+      ir_utils::normalizeNew2Old(new2old, (int64_t)inp_domain.size());
 
   std::vector<IterDomain*> out_root;
   out_root.reserve(inp_domain.size());
@@ -362,13 +362,13 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
 
 TensorView* permute(
     TensorView* x,
-    const std::initializer_list<std::pair<const int, int>>& old2new) {
-  return permute(x, std::unordered_map<int, int>(old2new));
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+  return permute(x, std::unordered_map<int64_t, int64_t>(old2new));
 }
 
 TensorView* permute(
     TensorView* x,
-    const std::unordered_map<int, int>& old2new) {
+    const std::unordered_map<int64_t, int64_t>& old2new) {
   auto y = set(x);
   y->reorder(old2new);
   y->commitLeafToRFactor();
@@ -377,7 +377,7 @@ TensorView* permute(
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
 
   if (dim0 < 0) {
     dim0 = ndims + dim0;
@@ -408,7 +408,7 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
 
 TensorView* transpose(TensorView* x) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
 
   NVF_CHECK(
       ndims <= 2,
@@ -667,10 +667,10 @@ TensorView* cat(
 
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  const int ndims = static_cast<int>(inp_dom.size());
+  const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
   NVF_CHECK(
-      ndims == static_cast<int>(ranges.size()),
+      ndims == static_cast<int64_t>(ranges.size()),
       "The range vector must have the same number of Slice descriptors. Given: ",
       ranges.size(),
       ", Expected: ",

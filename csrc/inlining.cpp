@@ -137,10 +137,10 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     // not inline into this position, otherwise the max producer position of
     // the consumer will become invalid and expression sort will fail.
     if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            consumer, producer, (int)producer_pos + 1) < 0) {
+            consumer, producer, producer_pos + 1) < 0) {
       return producer_pos;
     }
-    auto map_it = p2c_replay_map.find(producer->axis((int)producer_pos));
+    auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
     if (map_it != p2c_replay_map.end()) {
       auto c_id = map_it->second;
       if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
@@ -202,11 +202,11 @@ namespace {
 // Find the positions of `selected` tensors that is mapped to the given position
 // in the reference tensor.
 class FindMappedPositions : public MaxInfoSpanningTree::Propagator {
-  std::unordered_map<TensorView*, size_t>& output_;
+  std::unordered_map<TensorView*, int64_t>& output_;
 
  public:
   FindMappedPositions(
-      std::unordered_map<TensorView*, size_t>& output,
+      std::unordered_map<TensorView*, int64_t>& output,
       TensorView* reference,
       int64_t reference_pos);
 
@@ -218,7 +218,7 @@ class FindMappedPositions : public MaxInfoSpanningTree::Propagator {
 };
 
 FindMappedPositions::FindMappedPositions(
-    std::unordered_map<TensorView*, size_t>& output,
+    std::unordered_map<TensorView*, int64_t>& output,
     TensorView* reference,
     int64_t reference_pos)
     : output_(output) {
@@ -238,7 +238,7 @@ FindMappedPositions::FindMappedPositions(
 }
 
 void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
-  int from_pos = (int)output_.at(from);
+  int64_t from_pos = output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -252,7 +252,7 @@ void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void FindMappedPositions::propagateP2C(TensorView* from, TensorView* to) {
-  int from_pos = (int)output_.at(from);
+  int64_t from_pos = output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -277,10 +277,10 @@ void FindMappedPositions::propagateSibling(TensorView* from, TensorView* to) {
   output_[to] = from_pos;
 }
 
-std::unordered_map<TensorView*, size_t> getPositionsMappedTo(
+std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
-  std::unordered_map<TensorView*, size_t> mapped_positions;
+  std::unordered_map<TensorView*, int64_t> mapped_positions;
   MaxRootDomainInfoSpanningTree tree(reference_tv, reference_pos);
   FindMappedPositions propagator(mapped_positions, reference_tv, reference_pos);
   tree.traverse(&propagator);

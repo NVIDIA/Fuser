@@ -6,10 +6,8 @@
  */
 // clang-format on
 #include <multidevice/communication.h>
-#ifdef NVFUSER_DISTRIBUTED
-#ifdef USE_C10D_NCCL
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
-#endif
 #endif
 #include <utils.h>
 
@@ -140,7 +138,6 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(
 
 Gather::Gather(CommParams params) : Communication(params, "gather") {
   assertBufferCount(params_.src_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Gather::post(
@@ -170,7 +167,6 @@ Allgather::Allgather(CommParams params)
     : Communication(params, "allgather", false) {
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, params_.team.size());
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(
@@ -189,7 +185,6 @@ c10::intrusive_ptr<c10d::Work> Allgather::post(
 
 Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Scatter::post(
@@ -272,7 +267,6 @@ ReduceScatter::ReduceScatter(CommParams params)
     : Communication(params, "reduce_scatter", false) {
   assertBufferCount(params_.src_bufs, params_.team.size());
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> ReduceScatter::post(

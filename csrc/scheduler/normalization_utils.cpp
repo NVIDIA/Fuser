@@ -612,7 +612,7 @@ bool isReductionIterationAxisMatched(
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
   for (const auto i : c10::irange(reference_tv->nDims())) {
-    auto id = reference_tv->axis((int)i);
+    auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
             id->getIterType() == IterType::Reduction,
@@ -627,7 +627,7 @@ bool isReductionIterationAxisMatched(
   for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,
@@ -642,7 +642,7 @@ bool isReductionIterationAxisMatched(
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,

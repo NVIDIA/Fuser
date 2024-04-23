@@ -1,8 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
+import numpy as np
 
 
 def norm_fwd_fusion(
@@ -188,7 +192,7 @@ def norm_bwd_fusion(
     fd.add_output(grad_bias)
 
 
-def norm_fwd_benchmark(
+def norm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -209,7 +213,7 @@ def norm_fwd_benchmark(
     # Size is assumed to be in the order N, C, ...
     num_dims = len(size)
 
-    at_inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    at_inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     weight = torch.randn(size[1], device="cuda", dtype=dtype)
     bias = torch.randn(size[1], device="cuda", dtype=dtype)
 
@@ -275,7 +279,7 @@ def norm_fwd_benchmark(
         )
 
 
-def norm_bwd_benchmark(
+def norm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -297,8 +301,8 @@ def norm_bwd_benchmark(
 
     num_dims = len(size)
 
-    at_inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
-    at_grads = torch.randn(*size, device="cuda", dtype=dtype)
+    at_inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    at_grads = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
@@ -374,3 +378,125 @@ def norm_bwd_benchmark(
             fd.execute,
             [inputs, grads, weight, running_mean, running_var, mean, invstd],
         )
+
+
+def batchnorm_fwd_fn(inputs: list):
+    input, weight, bias, running_mean, running_var = inputs
+    return torch.nn.functional.batch_norm(
+        input,
+        running_mean,
+        running_var,
+        weight=weight,
+        bias=bias,
+        training=True,
+    )
+
+
+def instancenorm_fwd_fn(inputs: list):
+    input, weight, bias, running_mean, running_var = inputs
+    return torch.nn.functional.instance_norm(
+        input,
+        running_mean,
+        running_var,
+        weight=weight,
+        bias=bias,
+    )
+
+
+def norm_fwd_iobytes(size: tuple, dtype: torch.dtype, norm: str):
+    # Manual IOBytes computation required since nvFuser outputs (out, mean, invstd) differs from baselines (out)
+    # size = [N, C, H, W]
+    # Total IO bytes = in_tensor (size, dtype) + weight (size[1], dtype) + bias (size[1], dtype) +
+    #           running_mean (size[1], float) + running_var (size[1], float) + output (size, dtype) +
+    #           mean ([C]/[N, C] , float) + invstd ([C]/[N, C] , float)
+    stat_size = (
+        size[1] if norm == "batch_norm" else size[0] * size[1]
+    )  # size of mean/invstd
+    return int(
+        dtype.itemsize * 2 * (np.prod(size) + size[1])
+        + torch.float.itemsize * 2 * (size[1] + stat_size)
+    )
+
+
+def norm_bwd_iobytes(size: tuple, dtype: torch.dtype, norm: str):
+    # Manual IOBytes computation since nvfuser input/outputs (in_tensor, grad_out, mean, invstd, weigts, grad_in, grad_weight, grad_bias) differ from baselines (out, grad_out)
+    # size = [N, C, H, W]
+    # Total IO bytes = in_tensor (size, dtype) + weight (size[1], dtype) +
+    #           running_mean (size[1], float) + running_var (size[1], float) +
+    #           mean ([C]/[N, C] , float) + invstd ([C]/[N, C] , float) + grad_out (size, dtype) +
+    #           grad_in (size, dtype) + grad_weight (size[1], dtype) + grad_bias (size[1], dtype)
+    stat_size = size[1] if norm == "batch_norm" else size[0] * size[1]
+    return int(
+        dtype.itemsize * 3 * (np.prod(size) + size[1])
+        + torch.float.itemsize * 2 * (size[1] + stat_size)
+    )
+
+
+def norm_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    channels_last: bool,
+    compile: bool,
+    norm: str,
+):
+    clear_cuda_cache()
+
+    assert norm in ["batch_norm", "instance_norm"], NotImplementedError
+
+    # Size is assumed to be in the order N, C, ...
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+
+    running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
+    running_var = torch.ones(size[1], device="cuda", dtype=dtype)
+    if channels_last:
+        inputs = inputs.to(memory_format=torch.channels_last)
+
+    norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(norm_fwd_fn) if compile else norm_fwd_fn,
+        [inputs, weight, bias, running_mean, running_var],
+        iobytes=norm_fwd_iobytes(size, dtype, norm),
+    )
+
+
+def norm_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    channels_last: bool,
+    compile: bool,
+    norm: str,
+):
+    clear_cuda_cache()
+
+    assert norm in ["batch_norm", "instance_norm"], NotImplementedError
+
+    # Size is assumed to be in the order N, C, ...
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+
+    running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
+    running_var = torch.ones(size[1], device="cuda", dtype=dtype)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
+
+    if channels_last:
+        inputs = inputs.to(memory_format=torch.channels_last)
+        grads = grads.to(memory_format=torch.channels_last)
+
+    norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
+    output = norm_fwd_fn([inputs, weight, bias, running_mean, running_var])
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [output, grads],
+        iobytes=norm_bwd_iobytes(size, dtype, norm),
+    )

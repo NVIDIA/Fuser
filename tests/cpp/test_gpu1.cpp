@@ -427,21 +427,11 @@ TEST_F(NVFuserTest, FusionComplexAbsTypes_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto tensor_cf = at::randn({4, 4, 4}, options.dtype(at::kComplexFloat));
-  auto tensor_cd = at::randn({4, 4, 4}, options.dtype(at::kComplexDouble));
+  auto tv_cf = makeContigTensor(3, DataType::ComplexFloat);
+  auto tv_cd = makeContigTensor(3, DataType::ComplexDouble);
 
-  auto type_cf = at::TensorType::create(tensor_cf);
-  auto tv_cf = IrBuilder::create<TensorView>(type_cf);
-  auto type_cd = at::TensorType::create(tensor_cd);
-  auto tv_cd = IrBuilder::create<TensorView>(type_cd);
-
-  NVF_CHECK(
-      tensor_cf.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cf)->getDataType().value()));
-  NVF_CHECK(
-      tensor_cd.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cd)->getDataType().value()));
+  EXPECT_EQ(DataType::Float, abs(tv_cf)->getDataType());
+  EXPECT_EQ(DataType::Double, abs(tv_cd)->getDataType());
 }
 
 TEST_F(NVFuserTest, FusionRegister_CUDA) {
@@ -547,70 +537,6 @@ TEST_F(NVFuserTest, FusionTopoSort_CUDA) {
   NVF_CHECK(v6->definition()->name() == 3);
 }
 
-TEST_F(NVFuserTest, FusionTensor_CUDA) {
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  {
-    auto tensor = at::randn({2, 3, 4, 5}, options);
-    auto tensor_type = at::TensorType::create(tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(
-          fuser_tensor->axis(i)->isBroadcast() == (tensor.sizes()[i] == 1));
-      // check contiguity information;
-      NVF_CHECK(fuser_tensor->domain()->contiguity()[i]);
-    }
-  }
-
-  // TensorType::create fills stride_properties, which helps us to mark
-  // IterDomain properly
-  // Note: implementation could change, depending on how much we want to invest
-  // in our home-brew contiguity coalescing. For now let's make sure that we
-  // properly test what we are using.
-  {
-    auto tensor = at::randn({4, 4, 4}, options);
-    auto sliced_tensor = tensor.slice(1, 0, -1, 2);
-
-    auto tensor_type = at::TensorType::create(sliced_tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
-    }
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[0]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[1]);
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[2]);
-  }
-
-  {
-    auto tensor = at::randn({2, 3, 4, 5}, options);
-    auto permuted_tensor = tensor.permute({0, 3, 1, 2});
-    auto tensor_type = at::TensorType::create(permuted_tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
-    }
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[0]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[1]);
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[2]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[3]);
-  }
-}
-
 TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -684,13 +610,13 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::unordered_map<int, int> shift_right{{-1, 0}};
+  std::unordered_map<int64_t, int64_t> shift_right{{-1, 0}};
 
-  std::unordered_map<int, int> shift_left{{0, -1}};
+  std::unordered_map<int64_t, int64_t> shift_left{{0, -1}};
 
-  std::unordered_map<int, int> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
+  std::unordered_map<int64_t, int64_t> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
 
-  std::unordered_map<int, int> swap{{0, 2}, {2, 0}};
+  std::unordered_map<int64_t, int64_t> swap{{0, 2}, {2, 0}};
 
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
@@ -2397,7 +2323,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
     }
     std::for_each(ops.begin(), ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2415,7 +2342,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Int, DataType::Int32};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "bitwise_not",
         /*Aten Func   */
@@ -2431,7 +2359,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Bool};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "logical_not",
         /*Aten Func   */
@@ -2510,7 +2439,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     std::for_each(logic_ops.begin(), logic_ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2555,7 +2485,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             return;
           }
           test_op(
-              /*blocks*/ 640,
+              /*blocks*/
+              640,
               /*threads*/ 64,
               /*name*/ std::get<2>(op),
               /*Aten Func   */
@@ -2574,7 +2505,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
         });
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "add_alpha",
         /*Aten Func   */
@@ -2591,7 +2523,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             std::make_pair(ValType::Others, dtype)));
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "sub_alpha",
         /*Aten Func   */
@@ -2620,7 +2553,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
     // clamp and threshold are not supported for complex on eager mode
     if (dtype != DataType::ComplexFloat && dtype != DataType::ComplexDouble) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "clamp",
           /*Aten Func   */
@@ -2645,7 +2579,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           /*Inputs Tuple*/
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "threshold",
           /*Aten Func   */
@@ -2671,7 +2606,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
     }
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "where",
         /*Aten Func   */
@@ -2698,7 +2634,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
 
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "lerp",
         /*Aten Func   */
@@ -2714,7 +2651,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype)));
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "addcmul",
         /*Aten Func   */
@@ -5276,7 +5214,7 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     fusion.addInput(tv0);
 
     for (auto rdims : reduction_dims) {
-      std::vector<int> rdims_(rdims.begin(), rdims.end());
+      std::vector<int64_t> rdims_(rdims.begin(), rdims.end());
       auto tv = sum(tv0, rdims_);
       fusion.addOutput(tv);
     }
@@ -5362,7 +5300,7 @@ TEST_F(NVFuserTest, FusionSymbolicReduction_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
-  const std::vector<int> red_dims = {0, 2};
+  const std::vector<int64_t> red_dims = {0, 2};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {0, 2};
@@ -5408,7 +5346,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
-  const std::vector<int> red_dims = {1, 3};
+  const std::vector<int64_t> red_dims = {1, 3};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {1, 3};
@@ -5464,7 +5402,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
   }
 #endif
 
-  std::vector<int> red_dims;
+  std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
@@ -5547,13 +5485,13 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
   }
 #endif
 
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
+  std::vector<int64_t> red_axis = {1, 0};
+  std::vector<int64_t> output_dims = {160, 320};
+  std::vector<int64_t> red_dims;
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
+  for (int64_t i = 1; i <= 1024 * 1024; i <<= 2) {
     red_dims.push_back(i);
   }
 

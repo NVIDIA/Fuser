@@ -2382,7 +2382,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         inputs_nt = [
-            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, k]),
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
             inputs_tt[1].clone(),
         ]
 
@@ -2401,6 +2401,63 @@ class TestNvFuserFrontend(TestCase):
             eager_out = torch.matmul(inps[0], inps[1])
             fp16_nvf_out = nvf_out[0]
             self.assertEqual(eager_out, fp16_nvf_out)
+
+    def test_linear(self):
+        m = 24
+        n = 16
+        k = 8
+        bias = torch.randn(n, device="cuda", dtype=torch.float16)
+        bias2d = torch.rand(m, n, device="cuda", dtype=torch.float16)
+
+        inputs_mk_nk = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(n, k, device="cuda", dtype=torch.float16),
+        ]
+
+        inputs_mk_kn = [
+            inputs_mk_nk[0].clone(),
+            inputs_mk_nk[1].clone().as_strided(size=[n, k], stride=[1, n]),
+        ]
+
+        inputs_km_nk = [
+            inputs_mk_nk[0].clone().as_strided(size=[m, k], stride=[1, m]),
+            inputs_mk_nk[1].clone(),
+        ]
+
+        inputs_km_kn = [
+            inputs_km_nk[0].clone(),
+            inputs_mk_kn[1].clone(),
+        ]
+
+        def fusion_func(
+            fd: FusionDefinition,
+            inp: torch.Tensor,
+            wt: torch.Tensor,
+            bias: torch.Tensor | None,
+        ) -> None:
+            t0 = fd.from_pytorch(inp)
+            t1 = fd.from_pytorch(wt)
+            if bias is not None:
+                t2 = fd.from_pytorch(bias)
+                t_out = fd.ops.linear(t0, t1, t2)
+            else:
+                t_out = fd.ops.linear(t0, t1)
+            fd.add_output(t_out)
+
+        in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
+        use_bias = [None, bias, bias2d]
+        for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
+            with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
+                input_tensors = (
+                    (inp, wt, use_bias) if use_bias is not None else (inp, wt)
+                )
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(fusion_func, inp=inp, wt=wt, bias=use_bias),
+                    input_tensors,
+                )
+                eager_out = F.linear(input=inp, weight=wt, bias=use_bias)
+                fp16_nvf_out = nvf_out[0]
+                torch.testing.assert_close(fp16_nvf_out, eager_out, atol=1e-3, rtol=0)
 
     def test_integer_division(self):
         inputs = [
