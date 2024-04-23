@@ -395,6 +395,7 @@ Oh, well, I may be wrong.
 Sometimes, merging all of these IterDomains first then parallelize the merged IterDomain as `ParallelType::Bulk` takes less keystrokes.
 So, maybe do the latter instead of the former.
 Anyway, we can just pick whatever the most convenient way to parallelize all these IterDomains as `ParallelType::Bulk`.
+Like `ParallelType::Vectorize`, IterDomains parallelized with `ParallelType::Bulk` will be lowered as trivial loops, so they will not appear in the generated C++ code.
 
 > [!WARNING]
 > Due to the limitation of our current indexing approach,
