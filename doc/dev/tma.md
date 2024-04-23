@@ -25,9 +25,13 @@ Here we use two separate words *box* and *tile* to refer to different things.
 `(x1, x2, ..., xN)`, `(x1, x2, ..., xN + rN)`, ..., `(x1, x2, ..., xN + rN * (sN - 1))`,
 ..., `(x1 + r1 * (s1 - 1), x2 + r2 * (s2 - 1), ..., xN + rN * (sN - 1))`.
 
-In Figure 1, we have box size `(6, 4)` for both diagram.
-For the diagram on the left, we have tile size `(6, 4)` and stride `(1, 1)`.
-For the diagram on the right, we have tile size `(6, 2)`, and stride `(1, 3)`.
+In Figure 1, we have box size `(8, 4)` for both diagram.
+For the diagram on the left, we have tile size `(8, 4)` and stride `(1, 1)`.
+For the diagram on the right, we have tile size `(8, 2)`, and stride `(1, 3)`.
+
+Note that TMA PTX instructions and CUDA driver API uses column-major,
+and we want to be consistent with them.
+So here we say we have box size `(8, 4)` instead of `(4, 8)`.
 
 Box and tile for the above example is shown below in Figure 2:
 
