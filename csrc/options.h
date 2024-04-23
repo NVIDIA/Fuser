@@ -65,7 +65,6 @@ enum class DebugDumpOption {
   Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
-  PerfHints, //! Provide hints for speeding up generated kernels
   PreSegmenterLogging,
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonFrontendDebug, //! Python Frontend debug information.
@@ -123,6 +122,7 @@ enum class DisableOption {
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
+  PerfHints, //! Disable (some or all) hints for speeding up generated kernels
   PredicateElimination, //! Disable predicate elimination
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes

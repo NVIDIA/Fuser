@@ -303,45 +303,48 @@ void nvfErrorFail(
 }
 
 bool perfHintEnabled(const char* id) {
-  if (!isDebugDumpEnabled(DebugDumpOption::PerfHints)) {
-    return false;
-  }
-  const std::vector<std::string>& enabled_hints =
-      getDebugDumpArguments(DebugDumpOption::PerfHints);
-  // no arguments i.e. NVFUSER_DUMP=perf_hints means show all hints
-  if (enabled_hints.empty()) {
+  std::cout << "perfHintEnabled " << id << std::endl;
+  if (!isOptionDisabled(DisableOption::PerfHints)) {
+    std::cout << "option not disabled" << std::endl;
     return true;
   }
+  const std::vector<std::string>& disabled_hints =
+      getDisableOptionArguments(DisableOption::PerfHints);
+  // no arguments i.e. NVFUSER_DISABLE=perf_hints means disable all hints
+  if (disabled_hints.empty()) {
+    return false;
+  }
   // If arguments are given, then they should either all be "positive" or all
-  // "negative". Negative arguments start with '-' and means show all hints
+  // "negative". Negative arguments start with '-' and means hide all hints
   // except those given.
-  uint8_t sign = 0;
-  for (const std::string& h : enabled_hints) {
+  // sign == 1 means disable only the mentioned hints
+  // sign == -1 means leave only the mentioned hints enabled
+  int8_t sign = 0;
+  for (const std::string& h : disabled_hints) {
     NVF_CHECK(
         !h.empty(),
-        "Arguments to debug dump option 'perf_hints' ",
+        "Arguments to default option 'perf_hints' ",
         "must not be empty string");
-    uint8_t new_sign = h[0] == '-' ? -1 : 1;
+    int8_t new_sign = h[0] == '-' ? -1 : 1;
     if (sign == 0) {
       sign = new_sign;
       continue;
     }
     NVF_CHECK(
         sign == new_sign,
-        "Arguments to debug dump option 'perf_hints' ",
+        "Arguments to disable option 'perf_hints' ",
         "must be all positive or all negative");
   }
-  for (std::string_view h : enabled_hints) {
+  for (std::string_view h : disabled_hints) {
     if (sign == -1) {
       // strip minus sign
       h = h.substr(1, h.size() - 1);
     }
     if (h == id) {
-      return sign == 1;
+      return sign == -1;
     }
   }
-  // In negate mode, default to returning true
-  return sign == -1;
+  return sign == 1;
 }
 
 } // namespace nvfuser

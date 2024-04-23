@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include <debug.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -287,7 +288,7 @@ bool perfHintEnabled(const char* id);
 //!
 //! An id should be given so that users can selectively enable and disable
 //! hints.
-#define NVF_PERF_HINT(id, cond, ...)                              \
-  if (nvfuser::perfHintEnabled(#id) && !(cond)) {                 \
-    NVF_CHECK_MSG("NVFUSER PERF HINT[" #id "]: ", ##__VA_ARGS__); \
+#define NVF_PERF_HINT(id, ...)                                                 \
+  if (nvfuser::perfHintEnabled(id)) {                                          \
+    debug() << nvfuser::to_str("NVFUSER PERF HINT [" id "]: ", ##__VA_ARGS__); \
   }
