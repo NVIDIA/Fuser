@@ -174,3 +174,22 @@ and the former is not equivalent to the latter as discussed in [Divisibility of 
 ### Step 4: Schedule tile
 
 ### Step 5: Schedule coordinates
+
+### Examples
+
+#### Example 1: broadcast kernel with discontiguous input
+
+Let's consider example:
+
+```
+inputs:
+T0[I1, I2, I3] contiguity: T, T, T
+T1[I0, I1, I2, I3] contiguity: T, F, T, T
+
+math:
+T2[b, I1, I2, I3] = broadcast(T0[I1, I2, I3])
+T3[I0, I1, I2, I3] = T1[I0, I1, I2, I3] + T2[b, I1, I2, I3]
+
+outputs:
+T3[I0, I1, I2, I3] contiguity: T, T, T, T
+```
