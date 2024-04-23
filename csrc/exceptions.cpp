@@ -303,9 +303,7 @@ void nvfErrorFail(
 }
 
 bool perfHintEnabled(const char* id) {
-  std::cout << "perfHintEnabled " << id << std::endl;
   if (!isOptionDisabled(DisableOption::PerfHints)) {
-    std::cout << "option not disabled" << std::endl;
     return true;
   }
   const std::vector<std::string>& disabled_hints =
