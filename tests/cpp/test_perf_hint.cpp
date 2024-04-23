@@ -27,8 +27,13 @@ TEST_F(PerfHintTest, Basic) {
     DisableOptionsGuard dog;
     // NVFUSER_DISABLE=
     DisableOptionsGuard::getCurOptions().unset(DisableOption::PerfHints);
+    // Test with multiple args including non-string args that implement
+    // operator<<(const std::ostream&)
     NVF_PERF_HINT("test_perf_bug", "Your kernel will be slow because ", 42);
     EXPECT_FALSE(ss.str().empty());
+    EXPECT_EQ(
+        ss.str(),
+        "NVFUSER PERF HINT [test_perf_bug]: Your kernel will be slow because 42");
   }
 
   {
