@@ -169,7 +169,10 @@ namespace {
 
 std::string toString(const ValGraphBFS::GroupType& g) {
   if (const ExprGroup* eg = std::get_if<ExprGroup>(&g)) {
-    return nvfuser::toString(*eg);
+    std::stringstream ss;
+    ss << nvfuser::toString(*eg)
+       << ", input: " << (*eg)->front()->input(0)->name();
+    return ss.str();
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&g)) {
     return nvfuser::toString(*vg);
   } else {
@@ -313,6 +316,7 @@ bool ValGraphBFS::isReady(const ExprGroup& expr_group) const {
           inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
             return isDependencySatisfied(input);
           })) {
+    std::cerr << "Forward EG ready\n";
     return true;
   }
   auto outputs = graph_.outputGroups(expr_group);
@@ -321,6 +325,7 @@ bool ValGraphBFS::isReady(const ExprGroup& expr_group) const {
           outputs.begin(), outputs.end(), [&](const ValGroup& output) -> bool {
             return isDependencySatisfied(output);
           })) {
+    std::cerr << "Backward EG ready\n";
     return true;
   }
 
@@ -436,39 +441,58 @@ void ValGraphBFS::setPrevGroup(const GroupType& group) {
     if (!inputs.empty() &&
         std::all_of(
             inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
-              return isVisited(input);
+              return isDependencySatisfied(input);
             })) {
-      prev_groups = {inputs.begin(), inputs.end()};
-    }
-    auto outputs = graph_.outputGroups(*eg);
-    if (!outputs.empty() &&
-        std::all_of(
-            outputs.begin(),
-            outputs.end(),
-            [&](const ValGroup& output) -> bool {
-              return isVisited(output);
-            })) {
-      prev_groups = {outputs.begin(), outputs.end()};
+      // Some groups may not be visited, e.g., broadcast groups
+      for (const auto& input_group : inputs) {
+        if (isVisited(input_group)) {
+          prev_groups.emplace_back(input_group);
+        }
+      }
+    } else {
+      auto outputs = graph_.outputGroups(*eg);
+      NVF_ERROR(
+          !outputs.empty() &&
+              std::all_of(
+                  outputs.begin(),
+                  outputs.end(),
+                  [&](const ValGroup& output) -> bool {
+                    return isDependencySatisfied(output);
+                  }),
+          "Invalid logic. Both inputs and outputs are not ready");
+      for (const auto& output_group : outputs) {
+        if (isVisited(output_group)) {
+          prev_groups.emplace_back(output_group);
+        }
+      }
     }
   } else if (const ValGroup* vg = std::get_if<ValGroup>(&group)) {
-    if (auto it = std::find_if(
+    if (auto use_it = std::find_if(
             graph_.getUses(*vg).begin(),
             graph_.getUses(*vg).end(),
             [&](const ExprGroup& use_eg) -> bool { return isVisited(use_eg); });
-        it != graph_.getUses(*vg).end()) {
-      prev_groups.emplace_back(*it);
-    } else if (auto it = std::find_if(
-                   graph_.getDefinitions(*vg).begin(),
-                   graph_.getDefinitions(*vg).end(),
-                   [&](const ExprGroup& use_eg) -> bool {
-                     return isVisited(use_eg);
-                   });
-               it != graph_.getDefinitions(*vg).end()) {
-      prev_groups.emplace_back(*it);
+        use_it != graph_.getUses(*vg).end()) {
+      prev_groups.emplace_back(*use_it);
+    } else {
+      auto def_it = std::find_if(
+          graph_.getDefinitions(*vg).begin(),
+          graph_.getDefinitions(*vg).end(),
+          [&](const ExprGroup& def_eg) -> bool {
+            return isVisited(def_eg);
+          });
+      NVF_ERROR(def_it != graph_.getDefinitions(*vg).end(),
+                "Invalid logic. Both defs and uses are not ready");
+      prev_groups.emplace_back(*def_it);
     }
   } else {
     NVF_ERROR(false);
   }
+
+  std::cerr << "setPrevGroup: " << toString(group) << ": -> ";
+  for (const auto& g : prev_groups) {
+    std::cerr << " " << toString(g);
+  }
+  std::cerr << std::endl;
 
   NVF_ERROR(
       prev_groups_.emplace(group, prev_groups).second,
@@ -506,6 +530,8 @@ ExprGroups ValGraphBFS::getShortestExprPath() const {
     const auto group = to_visit.front();
     to_visit.pop_front();
 
+    //std::cerr << "getShortestExprPath: " << toString(group) << std::endl;
+
     if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
       path.emplace_back(*eg);
     }
@@ -524,6 +550,11 @@ ExprGroups ValGraphBFS::getShortestExprPath() const {
     }
 
     for (const auto& prev_group : prev_groups_it->second) {
+#if 0
+      std::cerr << "prev_group: "
+                << toString(prev_group)
+                << std::endl;
+#endif
       to_visit.emplace_back(prev_group);
     }
   }

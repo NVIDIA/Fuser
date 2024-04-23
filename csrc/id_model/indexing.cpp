@@ -629,6 +629,7 @@ bool IdGraphIndexCompute::isForward(Expr* expr) const {
   bool ready = true;
   for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
     if (!hasIndex(inp)) {
+      std::cerr << "No index for input: " << inp->toString() << std::endl;
       ready = false;
       break;
     }
