@@ -2647,20 +2647,6 @@ kir::TensorIndex* Index::getConsumerIndex(
 
 namespace {
 
-struct PredicateDomainInfo {
- public:
-  // Iteration domain to predicate
-  IterDomain* id = nullptr;
-  // The set of iteration domains that make up the id. If this is for
-  // a non-divisible split, the set only contains the id itself. This
-  // set is used to remove redundant predicates when gathering
-  // unswitch predicates.
-  std::unordered_set<IterDomain*> covered_ids;
-  // True if this predicate is for an intermediate domain. Examples
-  // include domains with non-divisible split and resized domains.
-  bool is_intermediate_domain = false;
-};
-
 // Find iteration domains in the history of a consumer to predicate comprised
 // only of merge operations. Only return iteration domains that are subsequently
 // fed into a split, or are in the provided domain. In other words, we don't
@@ -2759,28 +2745,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     contig_id_infos.push_back(contig_id_info);
   }
   return contig_id_infos;
-}
-
-std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
-    TensorView* consumer_tv) {
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-
-  std::vector<PredicateDomainInfo> pred_info_vec;
-
-  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
-  if (it == non_divisible_split_info.splitsToPredicate().end()) {
-    return {};
-  }
-
-  const auto& splits_to_predicate = it->second;
-
-  for (auto split : splits_to_predicate) {
-    PredicateDomainInfo info{split->in(), {split->in()}, true};
-    pred_info_vec.emplace_back(info);
-  }
-
-  return pred_info_vec;
 }
 
 bool needsPadding(TensorView* tv) {
@@ -3205,6 +3169,28 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 }
 
 } // namespace
+
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
+  if (it == non_divisible_split_info.splitsToPredicate().end()) {
+    return {};
+  }
+
+  const auto& splits_to_predicate = it->second;
+
+  for (auto split : splits_to_predicate) {
+    PredicateDomainInfo info{split->in(), {split->in()}, true};
+    pred_info_vec.emplace_back(info);
+  }
+
+  return pred_info_vec;
+}
 
 // Returns predicates and the concrete (by loop map) root domains they cover
 std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(

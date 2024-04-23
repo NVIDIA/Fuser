@@ -19,6 +19,11 @@
 
 namespace nvfuser {
 
+struct IndexingInfo {
+  ExprGroups traversal_path;
+  std::unordered_map<ValGroup, Val*> index_map;
+};
+
 class TensorIndexer {
  public:
   TensorIndexer(const IdModel& id_model);
@@ -37,7 +42,7 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops);
 
-  std::unordered_map<ValGroup, Val*> getIndexMap(
+  IndexingInfo getIndex(
       TensorView* tv,
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops,

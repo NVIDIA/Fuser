@@ -12,6 +12,7 @@
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
+#include <index_compute.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
@@ -768,6 +769,7 @@ std::vector<IterDomain*> getPredicateDomains(
   // reduction domains do not need to be predicated. In fact, if it's
   // a Local or Shared memory, no predicate is necessary
   if (lower_utils::isReductionInitExpr(expr)) {
+    VERBOSE() << "Reduction init expr: " << expr->toString();
     if (isAllocationBasedOnLeaf(tv)) {
       return {};
     } else {
@@ -1095,8 +1097,9 @@ Val* TensorIndexer::getIndex(
   VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
 
-  const auto& index_map =
-      getIndexMap(tv, expr, for_loops, index_domains, traversal_graph, false);
+  const auto& index_info =
+      getIndex(tv, expr, for_loops, index_domains, traversal_graph, false);
+  const auto& index_map = index_info.index_map;
 
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(index_domains.size())) {
@@ -1244,7 +1247,7 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
   return updated_idx;
 }
 
-std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
+IndexingInfo TensorIndexer::getIndex(
     TensorView* tv,
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
@@ -1279,7 +1282,8 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getIndexMap(
     index_compute.propagate(expr_group);
   }
 
-  return index_compute.indexMap();
+  IndexingInfo info{traversal_path, index_compute.indexMap()};
+  return info;
 }
 
 std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
@@ -1326,6 +1330,30 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   return replacement_map;
 }
 
+namespace {
+
+bool isNonDivisibleSplit(const ExprGroup& expr_group) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  // non_divisible_split_info should just have a set of all
+  // non-divisible splits
+  for (const auto& [tv, splits] :
+       non_divisible_split_info.splitsToPredicate()) {
+    if (std::find_if(splits.begin(), splits.end(), [&](Split* split) {
+          return expr_group->has(split);
+        }) != splits.end()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+} // namespace
+
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
@@ -1343,8 +1371,9 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
             << std::endl;
 
-  const auto& index_map = getIndexMap(
-      tv, expr, for_loops, predicate_domains, traversal_graph, true);
+  const auto& index_info =
+      getIndex(tv, expr, for_loops, predicate_domains, traversal_graph, true);
+  const auto& index_map = index_info.index_map;
 
   const auto& replacement_map_start = getPredicateIndexReplacementMap(
       for_loops.value(), true, index_map, traversal_graph);
@@ -1352,8 +1381,10 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   const auto& replacement_map_stop = getPredicateIndexReplacementMap(
       for_loops.value(), false, index_map, traversal_graph);
 
+  auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
+
   std::vector<RootPredicateInfo> info_vec;
-  info_vec.reserve(predicate_domains.size());
+  info_vec.reserve(predicate_domains.size() + non_divisible_splits.size());
 
   for (const auto& predicate_domain : predicate_domains) {
     auto idx_it = index_map.find(traversal_graph.toGroup(predicate_domain));
@@ -1373,11 +1404,8 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     // Use the same index for start and stop
     auto start_idx =
         ir_utils::replaceValRecursively(idx, replacement_map_start);
-    info.start_predicate_ =
-
-        SimplifyingIrBuilder::geExpr(
-            SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_),
-            zero_val);
+    info.start_predicate_ = SimplifyingIrBuilder::geExpr(
+        SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
 
     // TODO: predicate elimination
     auto stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
@@ -1385,10 +1413,73 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
         SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
         predicate_domain->extent());
 
+    info.root_ids_ = {predicate_domain};
+
     info_vec.emplace_back(info);
   }
 
-  // TODO: Add non-divisible predicates
+  // If this is a reduction init expr, then no need to take care of
+  // non divisible splits
+  if (!lower_utils::isReductionInitExpr(expr)) {
+#if 0
+    for (const PredicateDomainInfo& non_divisible_split_info :
+             non_divisible_splits) {
+      IterDomain* non_divisible_domain = non_divisible_split_info.id;
+      VERBOSE() << "Non-divisible predicate: " << non_divisible_split_info.id->toString()
+                << std::endl;
+      RootPredicateInfo info;
+      info.start_offset_ = zero_val;
+      info.stop_offset_ = zero_val;
+
+      auto idx_it = index_map.find(traversal_graph.toGroup(non_divisible_domain));
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible split domain: ",
+          non_divisible_domain->toString());
+
+      auto idx = ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
+      VERBOSE() << "Precicate: " << info.stop_predicate_->toInlineString()
+                << std::endl;
+      info.root_ids_ = {non_divisible_domain};
+      info_vec.emplace_back(info);
+    }
+#else
+    for (const ExprGroup& eg : index_info.traversal_path) {
+      if (!isNonDivisibleSplit(eg)) {
+        continue;
+      }
+
+      NVF_ERROR(eg->front()->isA<Split>());
+      auto split_to_predicate = eg->front()->as<Split>();
+      VERBOSE() << "Non-divisible predicate: "
+                << split_to_predicate->toString();
+
+      IterDomain* non_divisible_domain = split_to_predicate->in();
+
+      RootPredicateInfo info;
+      info.start_offset_ = zero_val;
+      info.stop_offset_ = zero_val;
+
+      auto idx_it =
+          index_map.find(traversal_graph.toGroup(non_divisible_domain));
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible split domain: ",
+          non_divisible_domain->toString());
+
+      auto idx =
+          ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
+      VERBOSE() << "Precicate: " << info.stop_predicate_->toInlineString()
+                << std::endl;
+      info.root_ids_ = {non_divisible_domain};
+      info_vec.emplace_back(info);
+    }
+#endif
+  }
 
   return info_vec;
 }
