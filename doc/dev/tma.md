@@ -182,6 +182,9 @@ One important constraint we must realize is, for TMA,
 the minimum unit that the programmer has control of is a tile.
 We are free to specify where to place different tiles in shared memory,
 but each tile must span a contiguous space.
+Besides the tile must be contiguous in the allocation domain,
+the allocation domain is also required to be a multiple of whole tiles,
+because tile is the minimum unit of a TMA operation.
 If a schedule indicates the opposite, then this schedule is wrong.
 
 The Figure 8 below shows some invalid schedule on the shared memory tensor:
@@ -193,17 +196,23 @@ These examples have the same reason for being invalid: The tile in shared memory
 In the example (a), the allocated IterDomains are `[I3, I7, I8, I6]`
 (note that `I5` is parallelized on `blockIdx.x`, it is not allocated on shared memory).
 The tile IterDomains are `I7` and `I6`, there is an `I8` between them,
-makeing the tile not contiguous in memory.
+making the tile not contiguous in memory.
 
 In the example (b), the allocated IterDomains are `[(partial) I1, I2]`,
 where `I2` contains not only `I6` but also `I5`,
 so `I4` and `I6` is not contiguous in memory.
-Similar argument applies to example (d).
+Besides, because the boxing split of `I2` is not divisible, `I2` is not a multiple of whole tile.
 
 In the example (c), the allocated IterDomains are `[I3, I4, I5, I6]`.
 The `I5` between `I4` and `I6` is parallelized on `TIDx`, therefore allocated.
 So `I4` and `I6` is not contiguous in memory.
-Similar argument applies to example (e).
+
+In the example (d), the shared memory tensor is the producer.
+Similar to (b), because `I2` contains `I5`, the tile is not contiguous in shared memory.
+Also `I2` is not a multiple of `I6`, which is not allowed as well.
+
+In the example (e), the allocated IterDomains are `[I3, I4, I5, I6]`.
+The `I5` between `I4` and `I6` makes the tile discontiguous in shared memory.
 
 The Figure 9 below shows some valid schedule on the shared memory tensor:
 
@@ -221,9 +230,6 @@ the extent of `I4` is `1` so it is a trivial IterDomain that we do now care wher
 Example (e) is valid because, although there is an `I5` between `I4` and `I6` in the allocation domain,
 because the extent of `I5` is `1` so it is a trivial IterDomain that does not make `I4` and `I6` discontiguous.
 
-Besides the tile must be contiguous in the allocation domain,
-the allocation domain is also required to be a multiple of whole tiles,
-because tile is the minimum unit of a TMA operation.
 Except for the above mentioned constraints,
 we do not have further limitation on what the allocation domain should look like.
 Especially, as long as we are keeping each tile contiguous in memory, we can view it arbitrarily.
