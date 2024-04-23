@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 // This is a refactor of the tests used for PyTorch macros --
 // NVF_ERROR and NVF_CHECK.
 
