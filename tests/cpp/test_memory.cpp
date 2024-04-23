@@ -445,7 +445,7 @@ void scheduleTile(
       tv->split(i, tile_sizes[i]);
     }
     // [M/tile_sizes[0], tile_sizes[0], N/tile_sizes[1], tile_sizes[1], ...]
-    std::unordered_map<int, int> old2new;
+    std::unordered_map<int64_t, int64_t> old2new;
     for (int64_t i = 0; i < dim; i++) {
       old2new[2 * i] = i;
       old2new[2 * i + 1] = i + dim;
@@ -744,6 +744,116 @@ TEST_F(TMAIndexingTest, Advanced) {
 
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 5);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, DefineBoxByCompositing1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(8)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false, true, false, true, true, true})
+                 .build();
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [I1, I2, I3, I4, I5, I6, I7, I8]
+    tv->merge(6);
+    tv->split(6, 32);
+    // [I1, I2, I3, I4, I5, I6, I7*I8/32, 32]
+    // Will use 4D TMA:
+    // [ I1, I2, I3,
+    //   I4, I5,
+    //   I6,
+    //   I7*I8/32, 32]
+    // Where the first 3 dims are implicitly tiled 1x1x1
+    for (auto _ : c10::irange(6)) {
+      (void)_;
+      tv->merge(0);
+    }
+    // [I1*I2*I3*I4*I5*I6*(I7*I8/32), 32]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  // Parallelize the tile axes
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  // tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 32, 2, 8, 8, 8, 32, 8}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 4);
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 =
+      TensorViewBuilder()
+          .ndims(9)
+          .dtype(DataType::Float)
+          .contiguity({true, true, false, true, false, true, true, false, true})
+          .build();
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [I1, I2, I3, I4, I5, I6, I7, I8, I9]
+    tv->merge(3);
+    tv->split(3, 3);
+    // [I1, I2, I3, I4*I5/3, 3, I6, I7, I8, I9]
+    tv->reorder({{1, -5}, {3, -4}});
+    // [I1, I3, 3, I6, I2, I4*I5/3, I7, I8, I9]
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(1);
+    tv->merge(1);
+    tv->merge(1);
+    tv->merge(1);
+    // [I1*I3*3*I6, I2*(I4*I5/3)*I7*I8*I9]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    // Will use 5D TMA:
+    // [ I1, I2,
+    //   I3,
+    //   I4, I5,
+    //   I6, I7, I8,
+    //   I9]
+  }
+  // Parallelize the tile axes
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  // tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 4, 2, 8, 8, 8, 2, 8, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 5);
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv1, fe.kernel()));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1235,7 +1345,7 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit1) {
+TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1269,10 +1379,10 @@ TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit1) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The set of all partitioned IterDomains must be equivalent to the allocation domain, but")));
+          "Can not infer TMA domain from the schedule. The IterDomains")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit2) {
+TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1306,8 +1416,7 @@ TEST_F(TMACompileTimeInvalidTest, DependentBulkSplit2) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "When an originating bulk IterDomain is an outer of a split, "
-          "The parent of an originating bulk IterDomain must be an inner output of a split, but")));
+          "Can not infer TMA domain from the schedule. The IterDomains")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
@@ -1342,7 +1451,7 @@ TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The innermost IterDomain of the allocation domain must be contiguous")));
+          "The innermost IterDomain of the TMA domain must be contiguous")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, MergeDiscontiguous) {
@@ -1458,7 +1567,7 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "An originating bulk IterDomain must be the output of a split, but")));
+          "Unsupported expression between the allocation domain and the partitioned IterDomains:")));
 }
 
 // End TMA tests

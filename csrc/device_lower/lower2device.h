@@ -83,7 +83,7 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
-  const std::pair<int, int>& minDeviceVersion() const {
+  const auto& minDeviceVersion() const {
     return min_device_version_;
   }
 
@@ -287,7 +287,7 @@ class GpuLower : public NonCopyable {
   // would be safer to wrap all of these in unique pointers and remove the build
   // interface and default constructor. That way they couldn't be accessed
   // without being initialized.
-  std::pair<int, int> min_device_version_;
+  std::pair<int64_t, int64_t> min_device_version_;
   std::string min_device_version_reason_;
   std::shared_ptr<const ConcretizedBroadcastDomains>
       concretized_broadcast_domains_;
@@ -311,7 +311,7 @@ class GpuLower : public NonCopyable {
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
   // std::unordered_map<TensorView*, VectorizationInfo> vectorized_accesses_;
-  std::unordered_map<TensorView*, int> vectorized_accesses_;
+  std::unordered_map<TensorView*, int64_t> vectorized_accesses_;
   // Info on each vectorized set op
   std::vector<VectorizedSetInfo> vectorized_set_info_;
 

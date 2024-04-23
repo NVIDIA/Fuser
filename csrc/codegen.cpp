@@ -530,7 +530,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           " ",
           value);
       auto atype = std::get<ArrayType>(dtype.type);
-      auto dims = static_cast<int>(value.as<std::vector>().size());
+      auto dims = static_cast<int64_t>(value.as<std::vector>().size());
       code_ << "{ ";
       for (auto i = 0; i < dims; i++) {
         if (i > 0) {

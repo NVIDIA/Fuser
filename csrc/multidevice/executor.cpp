@@ -255,12 +255,8 @@ std::ostream& MultiDeviceExecutor::print() {
   int communication_counter = 0;
   for (auto group : workspace.group_run_order) {
     if (is_resharding_[group]) {
-      debug() << "Communication " << communication_counter << ":{\n";
-      for (const auto& comm :
-           lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
-        debug() << comm->toString(2) << "\n";
-      }
-      debug() << "}\n";
+      debug() << "Communication " << communication_counter << ": "
+              << group->exprs().at(0) << "\n";
       communication_counter++;
     } else {
       debug() << "Compute segment " << compute_segment_counter << ":{\n";

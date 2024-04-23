@@ -204,7 +204,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
 
   // Traverser from the inner-most loop and apply the magic-zero
   // prorection if needed
-  for (int i = static_cast<int>(loops.size()) - 1; i >= 0; --i) {
+  for (int64_t i = static_cast<int64_t>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
     NVF_ERROR(GpuLower::current()->caMap()->areMapped(

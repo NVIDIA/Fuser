@@ -59,7 +59,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
       ParallelTypeBitmap sync_pattern;
       auto out = rop->out()->as<TensorView>();
       NVF_ERROR(out != nullptr);
-      for (int i : c10::irange((int)out->nDims())) {
+      for (int64_t i : c10::irange(out->nDims())) {
         IterDomain* ax = out->axis(i);
         if (!ax->isReduction()) {
           continue;

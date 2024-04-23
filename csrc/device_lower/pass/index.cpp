@@ -1228,8 +1228,8 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
     return false;
   }
-  auto tidx = static_cast<int>(tidx_val->evaluate());
-  auto tidy = static_cast<int>(tidy_val->evaluate());
+  auto tidx = tidx_val->evaluate().as<int64_t>();
+  auto tidy = tidy_val->evaluate().as<int64_t>();
 
   // TIDz and BIDz must be unused or just 1. This contraint can be
   // lifted if necessary.
@@ -1252,14 +1252,14 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
     return false;
   }
 
-  int num_grouped_iterations = 1;
+  int64_t num_grouped_iterations = 1;
   for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       NVF_ERROR(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluate();
+      num_grouped_iterations *= axis->extent()->evaluate().as<int64_t>();
     }
   }
 

@@ -8,6 +8,7 @@ import torch
 from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
+import numpy as np
 
 
 def get_device_properties() -> Tuple[int, float]:
@@ -144,6 +145,23 @@ def clear_cuda_cache() -> None:
 # Backward function for torch baseline benchmarks.
 def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
+
+
+def compute_total_iobytes(
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+):
+    """
+    Compute IObytes for baselines from given description:
+    Tensor_props has entries of the form: {'tensor_id': (size: tuple, dtype: torch.dtype)}
+    """
+    iobytes = 0
+    for _, tensor_prop in tensor_props.items():
+        size, dtype = tensor_prop[0], tensor_prop[1]
+        if isinstance(size, tuple):
+            iobytes += np.prod(size) * dtype.itemsize
+        else:
+            iobytes += size * dtype.itemsize
+    return int(iobytes)
 
 
 class NVFBenchmark:
@@ -286,12 +304,15 @@ class NVFBenchmark:
         )
 
 
+# These variables can be overwritten through CLI commands
+# --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
+BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1}
+
+
 def run_benchmark(
     benchmark: pytest_benchmark.fixture.BenchmarkFixture,
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
-    rounds: int = 10,
-    warmup_rounds: int = 1,
     iobytes: int = None,
 ) -> Union[torch.Tensor, List]:
     """
@@ -312,7 +333,10 @@ def run_benchmark(
 
     nvf_benchmark = NVFBenchmark(benchmark)
     outputs = nvf_benchmark.pedantic(
-        benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
+        benchmark_fn,
+        setup=setup,
+        rounds=BENCHMARK_CONFIG["rounds"],
+        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
     )
     nvf_benchmark.set_metrics(inputs, outputs, iobytes)
     nvf_benchmark.cleanup()

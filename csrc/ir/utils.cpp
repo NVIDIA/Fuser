@@ -22,9 +22,9 @@ namespace nvfuser::ir_utils {
 
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims) {
+    int64_t ndims) {
   NVF_CHECK(
-      new2old_in.size() == ndims,
+      (int64_t)new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
@@ -40,9 +40,7 @@ std::vector<int64_t> normalizeNew2Old(
       std::none_of(
           new2old.begin(),
           new2old.end(),
-          [ndims](int64_t entry) {
-            return entry < 0 || (unsigned int)entry >= ndims;
-          }),
+          [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
       "New2Old axes are not within the number of dimensions of the provided domain.\t",
       new2old);
 
@@ -56,25 +54,25 @@ std::vector<int64_t> normalizeNew2Old(
 
   // Error out if duplicate values are found.
   NVF_CHECK(
-      new2old.size() == ndims && old_pos_set.size() == new2old.size(),
+      (int64_t)new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
   // END VALIDATION CHECKS
   return new2old;
 }
 
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims) {
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims) {
   // adjust based on negative values (any negative values gets nDims added to
   // it)
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
   std::transform(
       old2new_in.begin(),
       old2new_in.end(),
       std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
+      [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+        return std::unordered_map<int64_t, int64_t>::value_type({
             entry.first < 0 ? entry.first + ndims : entry.first,
             entry.second < 0 ? entry.second + ndims : entry.second,
         });
@@ -86,29 +84,29 @@ std::vector<int> normalizeOld2New(
       std::none_of(
           old2new.begin(),
           old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
+          [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+            return entry.first < 0 || entry.first >= ndims ||
+                entry.second < 0 || entry.second >= ndims;
           }),
       "Reorder axes are not within the number of dimensions of the provided domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
-  std::set<int> old_pos_set;
+  std::set<int64_t> old_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.first;
       });
 
-  std::set<int> new_pos_set;
+  std::set<int64_t> new_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.second;
       });
 
@@ -120,27 +118,27 @@ std::vector<int> normalizeOld2New(
 
   // END VALIDATION CHECKS
 
-  std::vector<int> new2old(ndims, -1);
+  std::vector<int64_t> new2old(ndims, -1);
 
   // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
+  for (std::pair<int64_t, int64_t> elem : old2new) {
+    int64_t old_pos = elem.first;
+    int64_t new_pos = elem.second;
     new2old[new_pos] = old_pos;
   }
 
   // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
+  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
   old_positions.erase(-1);
 
   // All available new positions
-  std::set<int> all_positions;
+  std::set<int64_t> all_positions;
   for (auto i : c10::irange(ndims)) {
-    all_positions.insert((int)i);
+    all_positions.insert((int64_t)i);
   }
 
   // Check what positions haven't been specified.
-  std::set<int> positions_left;
+  std::set<int64_t> positions_left;
   std::set_difference(
       all_positions.begin(),
       all_positions.end(),
@@ -153,9 +151,10 @@ std::vector<int> normalizeOld2New(
   // new2old[new_position] = old_position
   auto it = positions_left.begin(); // old positions left
   std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+      new2old.begin(),
+      new2old.end(),
+      new2old.begin(),
+      [&it](int64_t i) -> int64_t { return i == -1 ? *it++ : i; });
 
   return new2old;
 }
@@ -256,9 +255,9 @@ Expr* transferDefinitionToNewOutputs(
   return mutator.mutateExprOutputsOnly(expr);
 }
 
-TensorView* rfactorHelper(
+TensorView* rFactorHelper(
     TensorView* reduction_tv,
-    const std::vector<int>& axes) {
+    const std::vector<int64_t>& axes) {
   NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
