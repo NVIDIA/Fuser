@@ -133,46 +133,6 @@ bool isSharded(TensorView* tv) {
   return is_sharded;
 }
 
-template <typename TvIterator>
-std::unordered_set<TensorView*> getTvsWithDifferentSharding(
-    TensorView* ref,
-    TvIterator tvs) {
-  std::unordered_set<TensorView*> ret;
-  // isSharded asserts that there are no split/merge and that only the outmost
-  // dimension is possibly sharded
-  isSharded(ref);
-  const auto& reference_dom = ref->getLeafDomain();
-  FusionGuard fg(ref->fusion());
-  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
-  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
-  for (auto id : reference_dom) {
-    auto ca_id =
-        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-    concrete_to_reference_map[ca_id] = id;
-  }
-
-  for (TensorView* tv : tvs) {
-    isSharded(tv);
-    if (!(ref->getDeviceMesh().vector() == tv->getDeviceMesh().vector())) {
-      ret.insert(tv);
-      continue;
-    }
-    for (auto id : tv->getLeafDomain()) {
-      auto ca_id =
-          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto ref_id = concrete_to_reference_map.at(ca_id);
-        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
-            ref_id->getParallelType() != id->getParallelType()) {
-          ret.insert(tv);
-          break;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
 bool isResharding(Expr* expr) {
   std::unordered_set<TensorView*> tvs;
   for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {

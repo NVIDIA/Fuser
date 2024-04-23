@@ -10,7 +10,7 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
+#include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
@@ -58,7 +58,8 @@ TEST_F(ShardingTest, PropagateSharding) {
 
   // Expected behavior: a's shardings propagate to c.
   propagateShardings(&fusion);
-  checkSameShardings(a, c);
+  std::vector<TensorView*> tvs = {c};
+  EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
 }
 
 TEST_P(ShardingTest, ComputeIndex) {

@@ -15,7 +15,6 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -249,9 +248,11 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
-  for (auto input : c->definition()->inputs()) {
-    checkSameShardings(c, input->as<TensorView>());
+  std::vector<TensorView*> inputs(c->definition()->inputs().size());
+  for (auto i : c10::irange(c->definition()->inputs().size())) {
+    inputs[i] = c->definition()->input(i)->as<TensorView>();
   }
+  EXPECT_TRUE(getTvsWithDifferentSharding(c, inputs).empty());
 }
 
 TEST_F(ReshardingTest, InsertResharding_After) {
@@ -277,8 +278,9 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   b = outputs[0]->as<TensorView>();
   Expr* expr = b->definition();
   EXPECT_TRUE(expr->isA<LoadStoreOp>());
-  EXPECT_TRUE(expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
-  checkSameShardings(a, expr->inputs()[0]->as<TensorView>());
+  EXPECT_EQ(expr->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
+  std::vector<TensorView*> tvs = {expr->inputs()[0]->as<TensorView>()};
+  EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
 }
 
 TEST_F(ReshardingTest, InsertShardedAxisReordering) {

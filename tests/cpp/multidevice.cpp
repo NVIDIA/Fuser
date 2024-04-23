@@ -16,14 +16,6 @@
 
 namespace nvfuser {
 
-void checkSameShardings(TensorView* ref, TensorView* tv) {
-  ASSERT_EQ(ref->nDims(), tv->nDims());
-  EXPECT_TRUE(ref->getDeviceMesh() == tv->getDeviceMesh());
-  for (auto i : c10::irange(ref->nDims())) {
-    EXPECT_TRUE(ref->axis(i)->getParallelType() == tv->axis(i)->getParallelType());
-  }
-}
-
 auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
     testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
 
