@@ -133,6 +133,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
+      {"perf_hints", DebugDumpOption::PerfHints},
       {"pre_segmenter_logging", DebugDumpOption::PreSegmenterLogging},
       {"predicate_elimination", DebugDumpOption::PredicateElimination},
       {"ptx", DebugDumpOption::Ptx},

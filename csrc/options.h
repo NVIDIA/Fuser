@@ -65,6 +65,7 @@ enum class DebugDumpOption {
   Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
+  PerfHints, //! Provide hints for speeding up generated kernels
   PreSegmenterLogging,
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonFrontendDebug, //! Python Frontend debug information.

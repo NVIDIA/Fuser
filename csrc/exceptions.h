@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
@@ -247,6 +248,8 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
   return args;
 }
 
+bool perfHintEnabled(const char* id);
+
 } // namespace nvfuser
 
 #define STRINGIZE_IMPL(x) #x
@@ -276,4 +279,15 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         __FILE__,                                \
         static_cast<uint32_t>(__LINE__),         \
         NVF_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
+  }
+
+//! This macro can be used to provide a performance hint to the user. It is
+//! intended to be used during lowering/compilation when suboptimal conditions
+//! are encountered, such as misaligned inputs or inefficient problem sizes.
+//!
+//! An id should be given so that users can selectively enable and disable
+//! hints.
+#define NVF_PERF_HINT(id, cond, ...)                              \
+  if (nvfuser::perfHintEnabled(#id) && !(cond)) {                 \
+    NVF_CHECK_MSG("NVFUSER PERF HINT[" #id "]: ", ##__VA_ARGS__); \
   }

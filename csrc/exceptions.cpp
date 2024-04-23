@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
@@ -11,7 +12,9 @@
 #include <cxxabi.h>
 #include <exceptions.h>
 #include <execinfo.h>
+#include <options.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -297,6 +300,48 @@ void nvfErrorFail(
     const char* condMsg,
     const std::string& userMsg) {
   nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, userMsg));
+}
+
+bool perfHintEnabled(const char* id) {
+  if (!isDebugDumpEnabled(DebugDumpOption::PerfHints)) {
+    return false;
+  }
+  const std::vector<std::string>& enabled_hints =
+      getDebugDumpArguments(DebugDumpOption::PerfHints);
+  // no arguments i.e. NVFUSER_DUMP=perf_hints means show all hints
+  if (enabled_hints.empty()) {
+    return true;
+  }
+  // If arguments are given, then they should either all be "positive" or all
+  // "negative". Negative arguments start with '-' and means show all hints
+  // except those given.
+  uint8_t sign = 0;
+  for (const std::string& h : enabled_hints) {
+    NVF_CHECK(
+        !h.empty(),
+        "Arguments to debug dump option 'perf_hints' ",
+        "must not be empty string");
+    uint8_t new_sign = h[0] == '-' ? -1 : 1;
+    if (sign == 0) {
+      sign = new_sign;
+      continue;
+    }
+    NVF_CHECK(
+        sign == new_sign,
+        "Arguments to debug dump option 'perf_hints' ",
+        "must be all positive or all negative");
+  }
+  for (std::string_view h : enabled_hints) {
+    if (sign == -1) {
+      // strip minus sign
+      h = h.substr(1, h.size() - 1);
+    }
+    if (h == id) {
+      return sign == 1;
+    }
+  }
+  // In negate mode, default to returning true
+  return sign == -1;
 }
 
 } // namespace nvfuser
