@@ -96,7 +96,6 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 1024, N = 512, K = 256;
-  // TODO: until we support split, manually split axes
   int Mo = num_devices;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
@@ -210,7 +209,6 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  // Note: Manually split K into Ko(device dim), Ki until split supported.
   int M = 1024, N = 512, K = 256;
   int Ko = num_devices, Ki = K / Ko;
   std::vector<int> a_shape = {Ko, Ki, M};
@@ -270,7 +268,6 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  // Note: Manually split K and M
   int M = 1024, N = 128, K = 256;
   int Ko = num_devices, Ki = K / Ko;
   int Mo = num_devices, Mi = M / Mo;

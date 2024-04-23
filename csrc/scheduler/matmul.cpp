@@ -922,7 +922,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
   const int64_t num_local_dims =
-      TensorDomain::noDevices(mma_result->getLeafDomain()).size();
+      (int64_t) TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
       num_local_dims == 3 || num_local_dims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",

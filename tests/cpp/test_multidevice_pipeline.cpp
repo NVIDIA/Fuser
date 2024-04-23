@@ -17,7 +17,6 @@
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
-#include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
@@ -30,7 +29,6 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>

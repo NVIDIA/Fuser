@@ -38,8 +38,8 @@ class MultiDeviceTest : public NVFuserTest {
     }
     return tensor.slice(sharded_dim, i, i + 1).contiguous();
   }
-  
-  //Creates a 1D device mesh from [0 ... size)
+
+  // Creates a 1D device mesh from [0 ... size)
   DeviceMesh createDeviceMesh(int size);
 
  protected:
