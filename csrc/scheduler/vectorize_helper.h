@@ -317,13 +317,13 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point,
-    const std::unordered_map<int, int>& rfactor_reorder = {});
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
-    size_t inner_most_dim,
-    const std::vector<size_t>& dims_to_merge,
+    int64_t inner_most_dim,
+    const std::vector<int64_t>& dims_to_merge,
     const std::vector<TensorView*>& vec_tv,
     int64_t max_vectorization);
 

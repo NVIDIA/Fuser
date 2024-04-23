@@ -121,15 +121,15 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   // The pointwise scheduler heuristics requires a minimum number of axes.
   // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensorView(size_t minimum_num_axes = 0) const {
+  TensorView* findReferenceTensorView(int64_t minimum_num_axes = 0) const {
     TensorView* result = nullptr;
-    int max_dims = -1;
+    int64_t max_dims = -1;
     for (auto output_tv :
          ir_utils::filterByType<TensorView>(fusion_->outputs())) {
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
-        int n_dims = (int)pointwise_utils::nRootDims(output_tv);
+        int64_t n_dims = pointwise_utils::nRootDims(output_tv);
         if (n_dims > max_dims) {
           result = output_tv;
           max_dims = n_dims;
@@ -140,9 +140,11 @@ class DomainMap : public pointwise_utils::DomainMap {
   }
 
  private:
-  bool hasMinimumSize(TensorView* tv, size_t num_axes) const {
+  bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
     NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || tv->getMaybeRFactorDomain().size() > num_axes);
+    return (
+        num_axes == 0 ||
+        (int64_t)tv->getMaybeRFactorDomain().size() > num_axes);
   }
 };
 
@@ -206,13 +208,13 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             // NOTE: rfactor_reorder_map is only applied for fusion without view
             // op yet.
             if (!ir_utils::getViewOps(fusion).empty()) {
-              return std::make_unique<std::unordered_map<int, int>>();
+              return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
-            return std::make_unique<std::unordered_map<int, int>>(
+            return std::make_unique<std::unordered_map<int64_t, int64_t>>(
                 scheduler_utils::maybeRfactorReorderAsAllocationMap(
                     largest_out));
           });
-  const std::unordered_map<int, int>& rfactor_reorder_map =
+  const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map =
       rfactor_reorder_map_entry.get();
 
   auto ref_root = largest_out->getMaybeRFactorDomain();
@@ -360,10 +362,10 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange(ref_root.size())) {
+      for (const auto break_point_i : c10::irange((int64_t)ref_root.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
-                view_disjoint_sets, (int)break_point_i)) {
+                view_disjoint_sets, break_point_i)) {
           continue;
         }
 
@@ -562,7 +564,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  size_t max_dims = 0;
+  int64_t max_dims = 0;
   for (auto inp : input_tvs) {
     max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
   }
@@ -583,8 +585,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       "Could not find a fully broadcasted output to reference schedule on.");
 
   // Positions of rhs and lhs after merging all dimensions.
-  int rhs_i = -1;
-  int lhs_i = -1;
+  int64_t rhs_i = -1;
+  int64_t lhs_i = -1;
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
@@ -635,14 +637,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     for (auto i : c10::irange(ndims)) {
       // Merge from right to left
       auto pos = ndims - 1 - i;
-      auto id = reference_tv->axis((int)pos);
+      auto id = reference_tv->axis(pos);
       if (lhs_all_vals_set.count(id) > 0) {
         if (lhs_id == nullptr) {
           lhs_id = id;
-          lhs_i = (int)pos;
+          lhs_i = pos;
         } else {
-          reference_tv->merge((int)pos, lhs_i);
-          lhs_i = (int)pos;
+          reference_tv->merge(pos, lhs_i);
+          lhs_i = pos;
           if (rhs_i > lhs_i) {
             rhs_i--;
           }
@@ -650,10 +652,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       } else if (rhs_all_vals_set.count(id) > 0) {
         if (rhs_id == nullptr) {
           rhs_id = id;
-          rhs_i = (int)pos;
+          rhs_i = pos;
         } else {
-          reference_tv->merge((int)pos, rhs_i);
-          rhs_i = (int)pos;
+          reference_tv->merge(pos, rhs_i);
+          rhs_i = pos;
           if (lhs_i > rhs_i) {
             lhs_i--;
           }
@@ -665,14 +667,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    std::unordered_map<int, int> rfactor_reorder_map =
+    std::unordered_map<int64_t, int64_t> rfactor_reorder_map =
         scheduler_utils::maybeRfactorReorderAsAllocationMap(reference_tv);
     if (!rfactor_reorder_map.empty()) {
       reference_tv->reorder(rfactor_reorder_map);
     }
 
     // Merge right side of break point
-    for (int i = (int)reference_tv->nDims(); i > (int)params.break_point; i--) {
+    for (int64_t i = reference_tv->nDims(); i > params.break_point; i--) {
       auto axis_i = i - 1;
       if (rhs_i == -1) {
         rhs_i = axis_i;
@@ -687,7 +689,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge left side of break point
-    for (int i = (int)params.break_point; i > 0; i--) {
+    for (int64_t i = params.break_point; i > 0; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;

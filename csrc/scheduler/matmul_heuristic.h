@@ -64,6 +64,38 @@ class MatmulParams : public HeuristicParams {
     }
   };
 
+  //! This is the maximum vectorization supported by the inputs.
+  struct SupportedVectorization {
+    // operands
+    int64_t a = 8;
+    int64_t b = 8;
+    // This is the minimum vectorization factor between all epilogue tensor
+    // inputs and output tensors. These are treated jointly since we inline the
+    // epilogue with the output store and vectorize the inputs and outputs in
+    // the same way.
+    int64_t epilogue = 4;
+
+    bool operator==(const SupportedVectorization& other) const {
+      return other.a == a && other.b == b && other.epilogue == epilogue;
+    }
+
+    std::string toString() const {
+      std::stringstream ss;
+      ss << "SupportedVectorization:\n"
+         << "  a: " << a << "\n"
+         << "  b: " << b << "\n"
+         << "  epilogue: " << epilogue;
+      return ss.str();
+    }
+
+    size_t hash() const {
+      return std::hash<size_t>{}(
+                 (static_cast<size_t>(a) << 8) |
+                 (static_cast<size_t>(b)) << 4) |
+          (static_cast<size_t>(epilogue));
+    }
+  } supported_vec_size;
+
   //! Whether to rotate the ldmatrix out of the main loop
   bool rotate_ldmatrix_out_of_main_loop = true;
 
@@ -115,6 +147,7 @@ class MatmulParams : public HeuristicParams {
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
        << double_buffer_options.toString() << "\n"
+       << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
        << (rotate_ldmatrix_out_of_main_loop ? "true" : "false") << "\n"
@@ -169,6 +202,7 @@ class MatmulParams : public HeuristicParams {
         rotate_ldmatrix_out_of_main_loop &&
         other_casted->tile_sizes == tile_sizes &&
         other_casted->double_buffer_options == double_buffer_options &&
+        other_casted->supported_vec_size == supported_vec_size &&
         other_casted->cta_order == cta_order &&
         other_casted->grid_swizzle_factor == grid_swizzle_factor &&
         other_casted->use_smem_epilogue == use_smem_epilogue &&

@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <transform_view.h>
 
 namespace nvfuser {
@@ -87,6 +88,44 @@ TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input) {
 
 TensorView* matmul(TensorView* a, TensorView* b) {
   return matmul(a, b, true /* cast output to input dtype */);
+}
+
+TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
+  // TODO: Support 1+ dimensional A.
+  NVF_CHECK(
+      (a->nDims() == 2 && b->nDims() == 2),
+      "Only 2-D Inputs and Weights are currently supported in Linear!");
+
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  // A: [M, Bcast, K]
+  // B: [Bcast, N, K]
+  bcast_dims.at(bcast_dims.size() - 2) = true;
+  auto* tv0b = broadcast(a, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 2) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  auto* tv1b = broadcast(b, bcast_dims);
+
+  NVF_CHECK(
+      a->getDataType().value() == b->getDataType().value(),
+      "data types of inputs to matmul don't match");
+
+  auto* output = fusedMultiplySum(tv0b, tv1b, {-1});
+  if (bias) {
+    NVF_CHECK(
+        (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");
+    NVF_CHECK(
+        a->getDataType().value() == bias->getDataType().value(),
+        "bias doesn't match input/weight dtype");
+    auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
+    auto* bcast_bias = ops::maybeBroadcast({output, bias_with_cast})[1];
+    auto* bias_output = add(output, bcast_bias);
+    return maybeCastOp(a->getDataType().value(), bias_output);
+  }
+  return maybeCastOp(a->getDataType().value(), output);
+}
+
+TensorView* linear(TensorView* a, TensorView* b) {
+  return linear(a, b, nullptr /*bias*/);
 }
 
 LstmResult lstm(

@@ -325,8 +325,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     // materializes an axis so expr is guaranteed to be a set.
     if (!shard_deletions.empty() && isInnerResharding(expr)) {
       IterDomain* shard_deleted_id = shard_deletions[0];
-      int sharding_axis =
-          static_cast<int>(input->domain()->rootPosOf(shard_deleted_id));
+      int64_t sharding_axis = input->domain()->rootPosOf(shard_deleted_id);
 
       TensorView* input_permute = permute(input, {{sharding_axis, 0}});
       TensorView* output_permute = set(input_permute);

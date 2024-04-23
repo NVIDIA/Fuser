@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #pragma once
 
 #include <multidevice/communication.h>
@@ -15,35 +14,6 @@
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
-
-class MultiDeviceEnvironment : public testing::Environment {
- public:
-  void SetUp() override;
-  void TearDown() override;
-
-  Communicator* communicator() const {
-    NVF_ERROR(communicator_ != nullptr);
-    return communicator_.get();
-  }
-
-  bool debugPrint() const {
-    return debug_print_;
-  }
-
-  bool doBarrierAtTest() const {
-    return do_barrier_at_test_;
-  }
-
-  bool disableSkip() const {
-    return disable_skip_;
-  }
-
- private:
-  std::unique_ptr<Communicator> communicator_ = nullptr;
-  bool debug_print_ = false;
-  bool do_barrier_at_test_ = false;
-  bool disable_skip_ = false;
-};
 
 class MultiDeviceTest : public NVFuserTest {
  public:
@@ -75,27 +45,17 @@ class MultiDeviceTest : public NVFuserTest {
  protected:
   void SetUp() override;
   void TearDown() override;
-  Communicator* communicator;
-  c10::TensorOptions tensor_options;
-  bool debug_print;
-  bool do_barrier_at_test;
-  bool disable_skip;
-};
 
-class CommunicationTest
-    : public MultiDeviceTest,
-      public ::testing::WithParamInterface<CommunicatorBackend> {
- protected:
-  void SetUp() override;
-  void validate(at::Tensor obtained, at::Tensor expected);
-  void resetDstBuffers();
-  static constexpr DeviceIdxType root = 0;
-  static constexpr int tensor_size = 1024;
-  static constexpr int number_of_repetitions = 8;
-  static constexpr c10d::ReduceOp::RedOpType red_op =
-      c10d::ReduceOp::RedOpType::SUM;
-  CommParams params;
-  std::vector<DeviceIdxType> all_ranks;
+  Communicator* getOrCreateCommunicator() {
+    static Communicator* communicator = new Communicator();
+    return communicator;
+  }
+
+  Communicator* communicator = nullptr;
+  c10::TensorOptions tensor_options;
+  bool debug_print = false;
+  bool do_barrier_at_test = false;
+  bool disable_skip = false;
 };
 
 class PipelineTest : public MultiDeviceTest {
@@ -119,5 +79,3 @@ class PipelineTest : public MultiDeviceTest {
 };
 
 } // namespace nvfuser
-
-#endif
