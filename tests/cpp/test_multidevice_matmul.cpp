@@ -55,16 +55,6 @@ class DistributedMatmulTest : public MultiDeviceTest {
       .cache_fusion_executor = false};
   int num_devices;
 
-  ValidationConstants getTolerances() {
-    ValidationConstants tolerance_overwrite = ValidationConstants();
-    std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-    for (auto& arr : relaxed_sum_tol) {
-      arr = {128, 2e-4};
-    }
-    tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
-    return tolerance_overwrite;
-  }
-
   std::tuple<at::Tensor, at::Tensor, at::Tensor> getAtenInputOutputs(
       MmaLayout layout,
       int M,
@@ -77,7 +67,8 @@ class DistributedMatmulTest : public MultiDeviceTest {
         layout, TensorMatmulPos::A, type, M, N, K, 0, local_rank);
     auto b = matmulAtInput2D(
         layout, TensorMatmulPos::B, type, M, N, K, 0, local_rank);
-    auto c = atMatmul(a.to(at::kFloat), b.to(at::kFloat), layout);
+    auto c =
+        atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kFloat);
     return std::make_tuple(a, b, c);
   }
 
@@ -95,7 +86,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 1024, N = 512, K = 256;
+  int M = 256, N = 64, K = 64;
   int Mo = num_devices;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
@@ -137,10 +128,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
       inputs,
       {expected_output},
       __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      getTolerances());
+      __FILE__);
 }
 
 TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
@@ -151,7 +139,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 1024, N = 512, K = 256;
+  int M = 256, N = 64, K = 64;
   int Mo = num_devices;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
@@ -195,10 +183,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       inputs,
       {expected_output},
       __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      getTolerances());
+      __FILE__);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
@@ -209,7 +194,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 1024, N = 512, K = 256;
+  int M = 256, N = 64, K = 64;
   int Ko = num_devices, Ki = K / Ko;
   std::vector<int> a_shape = {Ko, Ki, M};
   std::vector<int> b_shape = {Ko, Ki, N};
@@ -249,15 +234,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      {c_},
-      __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      getTolerances());
+      runtime.completeFusion(), outputs, inputs, {c_}, __LINE__, __FILE__);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
@@ -268,7 +245,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 1024, N = 128, K = 256;
+  int M = 256, N = 128, K = 64;
   int Ko = num_devices, Ki = K / Ko;
   int Mo = num_devices, Mi = M / Mo;
   std::vector<int> a_shape = {Ko, Ki, M};
@@ -321,10 +298,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       inputs,
       {expected_output},
       __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      getTolerances());
+      __FILE__);
 }
 } // namespace nvfuser
 #endif
