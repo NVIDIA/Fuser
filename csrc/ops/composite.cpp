@@ -91,19 +91,39 @@ TensorView* matmul(TensorView* a, TensorView* b) {
 }
 
 TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
-  // TODO: Support 1+ dimensional A.
   NVF_CHECK(
-      (a->nDims() == 2 && b->nDims() == 2),
-      "Only 2-D Inputs and Weights are currently supported in Linear!");
+      (b->nDims() <= 2), "Only 2-D  or 1-D Weights are supported in Linear!");
+  NVF_CHECK((a->nDims() >= 1), "Inputs need to be more than 1D!");
 
-  std::vector<bool> bcast_dims(a->nDims() + 1, false);
   // A: [M, Bcast, K]
   // B: [Bcast, N, K]
-  bcast_dims.at(bcast_dims.size() - 2) = true;
-  auto* tv0b = broadcast(a, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 2) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  auto* tv1b = broadcast(b, bcast_dims);
+  // We broadcast the M and N dims if they aren't present.
+  std::vector<bool> a_flags = {a->nDims() < 2, true, false};
+  std::vector<bool> b_flags = {true, b->nDims() < 2, false};
+
+  // After broadcasting we want the outputs to have the same
+  // number of dims.
+  std::vector<bool> b_flags_prefix(std::abs(a->nDims() - 2), true);
+  std::vector<bool> a_flags_prefix(std::abs(a->nDims() - 2), false);
+
+  if (a->nDims() > 2) {
+    b_flags.insert(
+        b_flags.begin(), b_flags_prefix.begin(), b_flags_prefix.end());
+    a_flags.insert(
+        a_flags.begin(), a_flags_prefix.begin(), a_flags_prefix.end());
+  }
+
+  auto* tv0b = broadcast(a, a_flags);
+  auto* tv1b = broadcast(b, b_flags);
+
+  // std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  // // A: [M, Bcast, K]
+  // // B: [Bcast, N, K]
+  // bcast_dims.at(bcast_dims.size() - 2) = true;
+  // auto* tv0b = broadcast(a, bcast_dims);
+  // bcast_dims.at(bcast_dims.size() - 2) = false;
+  // bcast_dims.at(bcast_dims.size() - 3) = true;
+  // auto* tv1b = broadcast(b, bcast_dims);
 
   NVF_CHECK(
       a->getDataType().value() == b->getDataType().value(),

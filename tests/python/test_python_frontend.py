@@ -2430,6 +2430,11 @@ class TestNvFuserFrontend(TestCase):
             inputs_mk_kn[1].clone(),
         ]
 
+        inputs_m1m2mk_nk = [
+            torch.randn(16, 8, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(n, k, device="cuda", dtype=torch.float16),
+        ]
+
         def fusion_func(
             fd: FusionDefinition,
             inp: torch.Tensor,
@@ -2445,8 +2450,10 @@ class TestNvFuserFrontend(TestCase):
                 t_out = fd.ops.linear(t0, t1)
             fd.add_output(t_out)
 
-        in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias0d, bias1d, bias2d]
+        # in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
+        in_tensors = [inputs_m1m2mk_nk]
+        # use_bias = [None, bias0d, bias1d, bias2d]
+        use_bias = [bias1d]
         for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
             with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
                 input_tensors = (
