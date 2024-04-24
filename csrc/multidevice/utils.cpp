@@ -250,7 +250,7 @@ void insertReshardings(Fusion* fusion) {
     // Insert resharding set after the expr when there is only one input.
     // input [expr] output [set] new_output
     if (!inputs.empty() && expr->inputs().size() == 1) {
-      TensorView* input = inputs.front();
+      TensorView* input = *inputs.begin();
       TensorView* new_output = set(output);
       auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           output, new_output);
