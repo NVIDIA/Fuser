@@ -336,10 +336,15 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       combiner.getMulSumCanidates();
   // #2
   {
-    const auto input_layout_opt =
-        mma_utils::getMmaLayout(fusion, mma_from_mul_sums.front().insouts);
-    if (!input_layout_opt.isValid()) {
-      return input_layout_opt.getErrorMsg();
+    // Layout Doesn't matter for aten path
+    // It fails for cases for Linear such [K]&[N, K]
+    // There are no guarantees for concrete M or N dim.
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+      const auto input_layout_opt =
+          mma_utils::getMmaLayout(fusion, mma_from_mul_sums.front().insouts);
+      if (!input_layout_opt.isValid()) {
+        return input_layout_opt.getErrorMsg();
+      }
     }
   }
 

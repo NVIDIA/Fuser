@@ -116,15 +116,6 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
   auto* tv0b = broadcast(a, a_flags);
   auto* tv1b = broadcast(b, b_flags);
 
-  // std::vector<bool> bcast_dims(a->nDims() + 1, false);
-  // // A: [M, Bcast, K]
-  // // B: [Bcast, N, K]
-  // bcast_dims.at(bcast_dims.size() - 2) = true;
-  // auto* tv0b = broadcast(a, bcast_dims);
-  // bcast_dims.at(bcast_dims.size() - 2) = false;
-  // bcast_dims.at(bcast_dims.size() - 3) = true;
-  // auto* tv1b = broadcast(b, bcast_dims);
-
   NVF_CHECK(
       a->getDataType().value() == b->getDataType().value(),
       "data types of inputs to matmul don't match");

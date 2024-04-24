@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 
 #include <limits>
@@ -1250,27 +1251,45 @@ MmaOpDetails getMmaOpDetails(
                                        const std::string& desc) {
     NVF_ERROR(!details.bcasts.empty(), desc, ": has no broadcast domains.");
     NVF_ERROR(details.rdomains.empty(), desc, ": has reduction domains.");
-    NVF_ERROR(
-        details.cdomains.size() >= expected_gemm_cdomains,
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
+    // PROTONU: TODO: Figure out what to do here.
+    // The dimensions of A could be anything >=1
+    // The dimensions of B should be <=2 (figure out for bmm)
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+      NVF_ERROR(
+          details.cdomains.size() >= expected_gemm_cdomains,
+          desc,
+          ": has unsupported number of concrete domains, expected at least ",
+          expected_gemm_cdomains,
+          ", got ",
+          details.cdomains.size());
+    }
   };
 
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
+
+    // We need to disable this as well for the aten path since
+    // we will support linear of form: A[k]@ B[N, K] -> C[Bcast, N,
+    // Reduction(K)]
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+      NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
+    }
+
     NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
-    NVF_ERROR(
-        (details.cdomains.size() >= expected_gemm_cdomains),
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
+
+    // We need to disable this as well for the aten path since
+    // we will support linear of form: A[k]@ B[N, K] -> C[Bcast, N,
+    // Reduction(K)]
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+      NVF_ERROR(
+          (details.cdomains.size() >= expected_gemm_cdomains),
+          desc,
+          ": has unsupported number of concrete domains, expected at least ",
+          expected_gemm_cdomains,
+          ", got ",
+          details.cdomains.size());
+    }
   };
 
   validateInputDetails(in_a_details, "MmaOp input A");
@@ -1288,24 +1307,31 @@ MmaOpDetails getMmaOpDetails(
       in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
   details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
 
-  NVF_ERROR(
-      !details.m_axes.empty(),
-      "MmaOp inputs must define at least a single M dimension");
-  NVF_ERROR(
-      !details.n_axes.empty(),
-      "MmaOp inputs must define at least a single N dimension");
+  if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+    NVF_ERROR(
+        !details.m_axes.empty(),
+        "MmaOp inputs must define at least a single M dimension");
+    NVF_ERROR(
+        !details.n_axes.empty(),
+        "MmaOp inputs must define at least a single N dimension");
+  }
   NVF_ERROR(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
 
   // TODO: for tensor contraction / split-k uses of MmaOp different input layout
   // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
+  if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+    details.input_layout = getInputLayout(
+        in_a_details,
+        in_b_details,
+        details.m_axes,
+        details.n_axes,
+        details.k_axes);
+  } else {
+    // Set this to any value for the aten execution.
+    details.input_layout = MmaLayout::TN;
+  }
 
   return details;
 }
