@@ -1294,7 +1294,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (isCompiled()) {
+  if (hasCompiledKernel()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -1649,7 +1649,8 @@ void FusionExecutor::recompileKernel(
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
-      isCompiled(), "Cannot get dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1663,7 +1664,8 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 
 int64_t FusionExecutor::getStaticSmemSize() {
   NVF_ERROR(
-      isCompiled(), "Cannot get static smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1704,7 +1706,8 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      isCompiled(), "Cannot set dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -1744,7 +1747,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
 
-  NVF_ERROR(isCompiled() || isCompilationSkipped());
+  NVF_ERROR(hasCompiledKernel() || isCompilationSkipped());
   NVF_ERROR(
       outputs.empty() || (outputs.size() == fusion()->outputs().size()),
       __func__,
@@ -1777,7 +1780,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     return outputs;
   }
 
-  NVF_ERROR(isCompiled());
+  NVF_ERROR(hasCompiledKernel());
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
@@ -2338,10 +2341,10 @@ void FusionExecutor::deserialize(
   bool is_expression_evaluated = std::all_of(
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-  });
+      });
   if (is_expression_evaluated) {
     fusion_ = std::make_unique<Fusion>(*fusion);
-    NVF_ERROR(!isCompiled(), "Failed to deserialize FusionExecutor");
+    NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
     return;
   }
 
@@ -2404,7 +2407,7 @@ void FusionExecutor::deserialize(
       buffer->compiled_kernel(), compile_params);
 
   NVF_ERROR(
-      isCompiled() && !isCompilationSkipped(),
+      hasCompiledKernel() && !isCompilationSkipped(),
       "Failed to deserialize FusionExecutor");
 }
 

@@ -170,9 +170,14 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
+  // Function to query whether compilation was attempted for a `FusionExecutor`
+  bool isCompiled() const {
+    return hasCompiledKernel() || isCompilationSkipped();
+  };
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool isCompiled() const {
+  bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
     }
@@ -411,7 +416,9 @@ class FusionExecutor : public NonCopyable {
 
   //! Check if compilation was skipped (fusion segment marked for EE).
   bool isCompilationSkipped() const {
-    NVF_ERROR(fusion_ == nullptr || !lowered_, "Expected GPU lowering to be skipped.");
+    NVF_ERROR(
+        fusion_ == nullptr || !lowered_,
+        "Expected GPU lowering to be skipped.");
     return fusion_ != nullptr;
   }
 
