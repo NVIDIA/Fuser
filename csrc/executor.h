@@ -172,7 +172,10 @@ class FusionExecutor : public NonCopyable {
 
   // Function to query whether compilation was attempted for a `FusionExecutor`
   bool isCompiled() const {
-    return hasCompiledKernel() || isCompilationSkipped();
+    // Check atmost one of fusion_ and lowered_ is null.
+    NVF_ERROR(fusion_  == nullptr || !lowered_, "Expected GPU lowering to be skipped.");
+    NVF_ERROR(lowered_ == nullptr || !fusion_, "fusion_ should only be initializaed when using expression evaluator.");
+    return fusion_ || lowered_;
   };
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
@@ -180,6 +183,7 @@ class FusionExecutor : public NonCopyable {
   bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
+      NVF_ERROR(!fusion_, "fusion_ should only be initializaed when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
@@ -415,7 +419,7 @@ class FusionExecutor : public NonCopyable {
       int64_t group_id);
 
   //! Check if compilation was skipped (fusion segment marked for EE).
-  bool isCompilationSkipped() const {
+  bool isExprEval() const {
     NVF_ERROR(
         fusion_ == nullptr || !lowered_,
         "Expected GPU lowering to be skipped.");

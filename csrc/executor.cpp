@@ -256,12 +256,12 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
-  bool skip_compilation = std::all_of(
+  bool is_expr_eval = std::all_of(
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
       });
 
-  if (skip_compilation) {
+  if (is_expr_eval) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
@@ -1649,8 +1649,7 @@ void FusionExecutor::recompileKernel(
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot get dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(), "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1664,8 +1663,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 
 int64_t FusionExecutor::getStaticSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot get static smem size unless kernel is compiled");
+      hasCompiledKernel(), "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1706,8 +1704,7 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      hasCompiledKernel(),
-      "Cannot set dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(), "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -1747,7 +1744,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
 
-  NVF_ERROR(hasCompiledKernel() || isCompilationSkipped());
+  NVF_ERROR(isCompiled());
   NVF_ERROR(
       outputs.empty() || (outputs.size() == fusion()->outputs().size()),
       __func__,
@@ -1772,7 +1769,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     inputBytesProcessed(args);
   }
 
-  if (isCompilationSkipped()) {
+  if (isExprEval()) {
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
@@ -2184,7 +2181,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   // When compilation is skipped, avoid serializing cubin because it doesn't
   // exist. The remaining fields are also not necessary in this case.
-  if (isCompilationSkipped()) {
+  if (isExprEval()) {
     return serde::CreateFusionExecutorDirect(builder);
   }
 
@@ -2338,11 +2335,11 @@ void FusionExecutor::deserialize(
 
   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
   // skip compilation?
-  bool is_expression_evaluated = std::all_of(
+  bool is_expr_eval = std::all_of(
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-  if (is_expression_evaluated) {
+  });
+  if (is_expr_eval) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
     return;
@@ -2407,7 +2404,7 @@ void FusionExecutor::deserialize(
       buffer->compiled_kernel(), compile_params);
 
   NVF_ERROR(
-      hasCompiledKernel() && !isCompilationSkipped(),
+      hasCompiledKernel() && !isExprEval(),
       "Failed to deserialize FusionExecutor");
 }
 

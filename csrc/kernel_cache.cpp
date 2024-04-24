@@ -1216,7 +1216,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) &&
-      executor.isCompiled()) {
+      executor.hasCompiledKernel()) {
     debug() << "\nRun kernel:\n";
     if (sg) {
       auto local_fusion = segmented_fusion_->makeFusion(sg).second;
@@ -1395,9 +1395,6 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
-  NVF_ERROR(
-      executors_.at(group_id).isCompiled() ||
-      executors_.at(group_id).isCompilationSkipped());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
