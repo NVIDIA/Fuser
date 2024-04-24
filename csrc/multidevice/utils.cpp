@@ -246,7 +246,11 @@ void insertReshardings(Fusion* fusion) {
 
     auto inputs = getTvsWithDifferentSharding(
         output, ir_utils::filterByType<TensorView>(expr->inputs()));
-
+    // TODO: We can either reshard the inputs of a resharding expression or
+    // the outputs. Currently, we reshard the outputs when there is only one
+    // input, otherwise we reshard the inputs. This heuristic should be smarter
+    // and attempt to minimize communication.  
+    
     // Insert resharding set after the expr when there is only one input.
     // input [expr] output [set] new_output
     if (!inputs.empty() && expr->inputs().size() == 1) {
