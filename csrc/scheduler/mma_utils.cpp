@@ -1042,8 +1042,8 @@ inline void resolveTvToMatmulDomainsMapping(
     const ComputeAtMap& ca_map) {
   for (const auto tv : tensors) {
     // This ensures all inputs are added to the deps_map.
-    // There could be inputs such as a bias with 0-dim.
-    // Which would otherwise skipped.
+    // There could be inputs such as a zero-dimensional bias which
+    // would otherwise be skipped.
     deps_map[tv] = {};
     for (const auto domain : tv->getLeafDomain()) {
       if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
