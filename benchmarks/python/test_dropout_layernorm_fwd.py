@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, compute_total_iobytes
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -14,12 +14,15 @@ def dropout_layernorm_fwd_fusion(
 ) -> None:
     """
     Forward pass fusion definition for computing:
-        output = layernorm (input + dropout (input, p=dropout_p))
+        output = layernorm (input2 + dropout (input1, p=dropout_p))
 
-    Fusion inputs: input, weights, bias
+    Fusion inputs: input1, input2, weights, bias
     Fusion outputs: output, mean, invstd, dropout_mask
     """
     T2 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
+    )
+    T3 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
     T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
@@ -34,12 +37,13 @@ def dropout_layernorm_fwd_fusion(
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
+        T3 = fd.ops.cast(T3, dtype=DataType.Float)
 
     # Dropout + Add
     T13 = fd.ops.mul(T2, T11)
     S14 = fd.define_scalar(1 / (1 - dropout_p), dtype=DataType.Double)
     T15 = fd.ops.mul(T13, S14)
-    T16 = fd.ops.add(T2, T15)
+    T16 = fd.ops.add(T3, T15)
     # Layernorm
     T17, T18 = fd.ops.var_mean(T16, dims=[1], correction=0, keepdim=False)
     V21 = fd.define_vector([T2.size(0), 1], dtype=DataType.Int)
@@ -65,9 +69,37 @@ def dropout_layernorm_fwd_fusion(
     fd.add_output(T10)
 
 
+def dropout_layernorm_fwd(
+    inputs: list,
+):  # [in_tensor1, in_tensor2, weights, bias, dropout_p]
+    return torch.nn.functional.layer_norm(
+        inputs[1] + torch.nn.functional.dropout(inputs[0], p=inputs[-1]),
+        normalized_shape=inputs[0].shape[1:],
+        weight=inputs[2],
+        bias=inputs[3],
+    )
+
+
+def dropout_layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Manual IOByte computation is required since nvFuser outputs differ from baseline outputs (output).
+    nvf_inp_out = {
+        # Inputs
+        "input1": (size, dtype),
+        "input2": (size, dtype),
+        "weights": (size[1], dtype),
+        "bias": (size[1], dtype),
+        # Outputs
+        "mean": (size[0], torch.float),
+        "invstd": (size[0], torch.float),
+        "outputs": (size, dtype),
+        "dropout_mask": (size, torch.bool),
+    }
+    return compute_total_iobytes(nvf_inp_out)
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_dropout_layernorm_fwd_benchmark(
+def test_dropout_layernorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -77,29 +109,78 @@ def test_dropout_layernorm_fwd_benchmark(
 ):
     clear_cuda_cache()
     inputs = [
-        torch.randn(*size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype),
         torch.ones(size[1], device="cuda", dtype=dtype),
         torch.zeros(size[1], device="cuda", dtype=dtype),
     ]
-    # dropout_p = 0.0 in fwd benchmark for validating the dropout mask
-    dropout_p = 0.0
-    dropout_mask = torch.lt(torch.rand(*size, device="cuda"), 1 - dropout_p)
+
+    dropout_p = 0.2
     with FusionDefinition() as fd:
         dropout_layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p)
+
     if not disable_validation:
+        # For validating use a fusion definition with dropout_p=0.0
+        with FusionDefinition() as val_fd:
+            dropout_layernorm_fwd_fusion(
+                val_fd, torch_dtype_to_nvfuser_dtype(dtype), dropout_p=0.0, eps=eps
+            )
+
+        dropout_mask = torch.ones(size, dtype=torch.bool, device="cuda")
+
         # dropout + add
-        x = inputs[0] + 1 / (1 - dropout_p) * dropout_mask * inputs[0]
+        x = inputs[1] + torch.nn.functional.dropout(inputs[0], p=0.0)
         # layernorm
         eager_output = torch.nn.functional.layer_norm(
             x.to(torch.float),
             inputs[0].shape[1:],
-            weight=inputs[1].to(torch.float),
-            bias=inputs[2].to(torch.float),
+            weight=inputs[2].to(torch.float),
+            bias=inputs[3].to(torch.float),
         )
+
         # mean and invstd are computed for the output of dropout + add
-        mean = x.to(torch.float).mean(dim=-1)
-        variance = x.to(torch.float).var(dim=-1, unbiased=False)
+        mean = x.to(torch.double).mean(dim=-1)
+        variance = x.to(torch.double).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
-        fd.validate(inputs, [eager_output.to(dtype), mean, invstd, dropout_mask])
+
+        val_fd.validate(
+            inputs,
+            [
+                eager_output.to(dtype),
+                mean.to(torch.float),
+                invstd.to(torch.float),
+                dropout_mask,
+            ],
+        )
+
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_dropout_layernorm_fwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    dropout_p = 0.2
+    inputs = [
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.ones(size[1], device="cuda", dtype=dtype),
+        torch.zeros(size[1], device="cuda", dtype=dtype),
+        dropout_p,
+    ]
+
+    # Manually compute IOBytes: See PR #1725
+    run_benchmark(
+        benchmark,
+        torch.compile(dropout_layernorm_fwd) if compile else dropout_layernorm_fwd,
+        inputs,
+        iobytes=dropout_layernorm_fwd_iobytes(size, dtype),
+    )
