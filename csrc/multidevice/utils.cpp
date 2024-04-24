@@ -84,7 +84,8 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
   for (IterDomain* out_root : output->getRootDomain()) {
     IterDomain* in_root = c2p_map.at(out_root);
-    // Ignore sharded reductions on the output
+    // Ignore sharded broadcast domains and
+    // sharded reductions on the output
     // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
     // since they don't affect allocation.
     if (in_root->isDeviceDim() && !in_root->isBroadcast() &&
@@ -249,7 +250,7 @@ void insertReshardings(Fusion* fusion) {
     // Insert resharding set after the expr when there is only one input.
     // input [expr] output [set] new_output
     if (!inputs.empty() && expr->inputs().size() == 1) {
-      auto input = *inputs.begin();
+      TensorView* input = inputs.front();
       TensorView* new_output = set(output);
       auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           output, new_output);
