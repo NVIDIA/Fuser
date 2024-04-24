@@ -237,7 +237,7 @@ class NVFBenchmark:
         elapsed_cuda_time = (
             sum(
                 [
-                    event.self_cuda_time_total
+                    event.self_device_time_total
                     for event in prof_averages
                     if event.device_type == DeviceType.CUDA
                 ]
