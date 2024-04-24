@@ -1893,23 +1893,62 @@ void IndexLowering::handle(const PadOp* pad) {
     }
   }
 
-  const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
-
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Val>(true);
-  for (auto padded_axis : pad->getPaddedAxes()) {
-    auto producer_idx = producer_root_indices.at(padded_axis);
-    auto producer_root_id = producer_doms.at(padded_axis);
-    NVF_ERROR(!producer_root_id->maybePartial());
-    pred = SimplifyingIrBuilder::logicalAndExpr(
-        pred,
-        // idx >= 0 && idx < extent
-        SimplifyingIrBuilder::logicalAndExpr(
-            SimplifyingIrBuilder::geExpr(
-                producer_idx, GpuLower::current()->kernel()->zeroVal()),
-            SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->getMaybeExpandedExtent())));
+  //
+  // Producer dim index is always zero in the IdModel-based indexing
+  // when the producer dim is broadcast. The padding predicate won't
+  // work as all the accesses would just get a true predicate. Using
+  // the consumer indexing works. Overriding could be another
+  // workaround.
+  Val* pred = nullptr;
+  if (tensor_indexer_.get() != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
+    std::cerr << "Using the new indexer for PadOp: " << pad->toString();
+    auto consumer_root_indices = tensor_indexer_->getPerDimIndex(
+        consumer_tv,
+        consumer_tv->getRFactorDomain(),
+        consumer_tv->definition(),
+        for_loops_);
+    pred = IrBuilder::create<Val>(true);
+    for (auto padded_axis : pad->getPaddedAxes()) {
+      auto consumer_idx = consumer_root_indices.at(padded_axis);
+      auto consumer_root_id = consumer_tv->getRFactorDomain().at(padded_axis);
+      NVF_ERROR(!consumer_root_id->maybePartial());
+      const auto& pad_widths = pad->getPadWidths(padded_axis);
+      pred = SimplifyingIrBuilder::logicalAndExpr(
+          pred,
+          // idx >= left_pad && idx < extent
+          SimplifyingIrBuilder::logicalAndExpr(
+              SimplifyingIrBuilder::geExpr(
+                  consumer_idx, pad_widths.first),
+              SimplifyingIrBuilder::ltExpr(
+                  consumer_idx,
+                  SimplifyingIrBuilder::subExpr(
+                      consumer_root_id->getMaybeExpandedExtent(),
+                      pad_widths.second))));
+    }
+  } else {
+    const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
+        producer_tv,
+        consumer_tv,
+        for_loops_,
+        getRotatedLoop(),
+        tensor_indexer_.get(), override_index);
+
+    pred = IrBuilder::create<Val>(true);
+    for (auto padded_axis : pad->getPaddedAxes()) {
+      auto producer_idx = producer_root_indices.at(padded_axis);
+      auto producer_root_id = producer_doms.at(padded_axis);
+      NVF_ERROR(!producer_root_id->maybePartial());
+      pred = SimplifyingIrBuilder::logicalAndExpr(
+          pred,
+          // idx >= 0 && idx < extent
+          SimplifyingIrBuilder::logicalAndExpr(
+              SimplifyingIrBuilder::geExpr(
+                  producer_idx, GpuLower::current()->kernel()->zeroVal()),
+              SimplifyingIrBuilder::ltExpr(
+                  producer_idx, producer_root_id->getMaybeExpandedExtent())));
+    }
   }
 
   pushBack(IrBuilder::create<TernaryOp>(

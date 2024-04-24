@@ -42,13 +42,19 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops);
 
+  // TODO: Drop tv
+  std::vector<Val*> getPerDimIndex(
+      TensorView* tv,
+      const std::vector<IterDomain*>& index_domains,
+      const Expr* expr,
+      const std::optional<std::vector<kir::ForLoop*>>& loops);
+
   IndexingInfo getIndex(
       TensorView* tv,
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& loops,
       const std::vector<IterDomain*>& index_domains,
-      const ValGraph& traversal_graph,
-      bool predicate) const;
+      const ValGraph& traversal_graph) const;
 
   static bool isSupported(Fusion* fusion);
 
@@ -74,8 +80,7 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& for_loops,
       const std::vector<IterDomain*>& loop_domains,
-      const ValGraph& traversal_graph,
-      bool predicate) const;
+      const ValGraph& traversal_graph) const;
 
  private:
   const IdModel& id_model_;

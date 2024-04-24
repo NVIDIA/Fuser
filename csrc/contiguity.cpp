@@ -632,6 +632,9 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
 }
 
 void ContigIDs::handle(Merge* merge) {
+  if (getenv("DISABLE_CONTIG_INDEXING")) {
+    return;
+  }
   // If output is not consistently ordered or doesn't solely consume all
   // allocation domains in its dependencies, then it can't be a contiguously
   // indexable iterdomain.

@@ -277,7 +277,6 @@ getAllocationDomainOfTransposedSmemTensor(
 
 std::pair<std::vector<IterDomain*>, std::vector<Val*>> getIndexDomains(
     TensorView* tv,
-    const Expr* expr,
     const IdModel& id_model) {
   // TODO: Contig merged indexing
 
@@ -508,7 +507,6 @@ ExprGroups getExprsBetween(
 }
 
 ExprGroups getIndexingTraversalPath(
-    TensorView* tv,
     const Expr* expr,
     const std::vector<IterDomain*>& from_domains,
     const std::vector<IterDomain*>& to_domains,
@@ -979,8 +977,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& loop_domains,
-    const ValGraph& traversal_graph,
-    bool predicate) const {
+    const ValGraph& traversal_graph) const {
   // loop_index_map_ is a map on the loop graph. For index
   // propagation, need a map for the exact graph
 
@@ -1044,9 +1041,6 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
           tv, ir_utils::getTvOutput(expr), for_loop, loop_index);
     }
 
-    if (predicate && for_loop != nullptr && predicateAtEnd(for_loop)) {
-    }
-
     if (initial_index_map.find(exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as exact_group is
       // actually an almost-exact group. It should be just size-1
@@ -1096,13 +1090,13 @@ Val* TensorIndexer::getIndex(
             << (as_consumer ? "consumer" : "producer") << " in "
             << expr->toString() << std::endl;
 
-  const auto [index_domains, strides] = getIndexDomains(tv, expr, id_model_);
+  const auto [index_domains, strides] = getIndexDomains(tv, id_model_);
 
   VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
 
   const auto& index_info =
-      getIndex(tv, expr, for_loops, index_domains, traversal_graph, false);
+      getIndex(tv, expr, for_loops, index_domains, traversal_graph);
   const auto& index_map = index_info.index_map;
 
   Val* index = tv->fusion()->zeroVal();
@@ -1135,6 +1129,50 @@ Val* TensorIndexer::getIndex(
   VERBOSE() << "Final index: " << index->toInlineString() << std::endl;
 
   return index;
+}
+
+// TODO: Drop the tv parameter. It's only for double buffering, which
+// I believe should be done as a separate step after indexing
+std::vector<Val*> TensorIndexer::getPerDimIndex(
+    TensorView* tv,
+    const std::vector<IterDomain*>& index_domains,
+    const Expr* expr,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+  const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+
+  VERBOSE() << "getPerDimIndex of " << toDelimitedString(index_domains)
+            << " in " << expr->toString() << std::endl;
+
+  const auto& index_info =
+      getIndex(tv, expr, for_loops, index_domains, traversal_graph);
+
+  const auto& index_map = index_info.index_map;
+
+  std::vector<Val*> indices;
+  indices.reserve(index_domains.size());
+
+  for (const auto i : c10::irange(index_domains.size())) {
+    auto index_domain = index_domains.at(i);
+
+    if (index_domain->isBroadcast() ||
+        index_domain->isReduction()) {
+      indices.push_back(index_domain->fusion()->zeroVal());
+      continue;
+    }
+
+    auto idx_it = index_map.find(traversal_graph.toGroup(index_domain));
+    NVF_ERROR(
+        idx_it != index_map.end(),
+        "Index not found for ",
+        index_domain->toString());
+    Val* idx = idx_it->second;
+    VERBOSE() << "Index of " << index_domain->toString() << ": "
+              << idx->toInlineString() << std::endl;
+
+    indices.push_back(idx);
+  }
+
+  return indices;
 }
 
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
@@ -1256,8 +1294,7 @@ IndexingInfo TensorIndexer::getIndex(
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& index_domains,
-    const ValGraph& traversal_graph,
-    bool predicate) const {
+    const ValGraph& traversal_graph) const {
   // Step 1: Find loop domains (same as indexing)
   // Step 2: Find rfactor domains
   // Step 3: Find the path from the loop domains to the rfactor
@@ -1275,10 +1312,10 @@ IndexingInfo TensorIndexer::getIndex(
             << std::endl;
 
   auto traversal_path = getIndexingTraversalPath(
-      tv, expr, loop_domains, index_domains, traversal_graph);
+      expr, loop_domains, index_domains, traversal_graph);
 
   const auto initial_index_map = getInitialIndexMap(
-      tv, expr, for_loops, loop_domains, traversal_graph, predicate);
+      tv, expr, for_loops, loop_domains, traversal_graph);
 
   IdGraphIndexCompute index_compute(traversal_graph, initial_index_map);
 
@@ -1376,7 +1413,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
             << std::endl;
 
   const auto& index_info =
-      getIndex(tv, expr, for_loops, predicate_domains, traversal_graph, true);
+      getIndex(tv, expr, for_loops, predicate_domains, traversal_graph);
   const auto& index_map = index_info.index_map;
 
   const auto& replacement_map_start = getPredicateIndexReplacementMap(

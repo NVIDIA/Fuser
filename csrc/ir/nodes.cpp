@@ -3111,6 +3111,10 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
+  if (getenv("DISABLE_UNSWITCH") && t == ParallelType::Unswitch) {
+    return;
+  }
+
   // assert check that we only parallelize a leaf domain.
   // leaf domains are domains that are not used by any other domains.
   if (t != ParallelType::Serial) {

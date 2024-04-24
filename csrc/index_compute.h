@@ -554,6 +554,7 @@ class Index {
       const TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      TensorIndexer* tensor_indexer,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   //! Take a consumer tensorview and loop nest and generates predicates

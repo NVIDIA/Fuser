@@ -1971,10 +1971,28 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    TensorIndexer* tensor_indexer,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (tensor_indexer != nullptr &&
+      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
+    std::cerr << "Using the new indexer for getProducerPerDimLogicalIndex: "
+              << producer_tv->toString() << std::endl;
+    auto x = tensor_indexer->getPerDimIndex(
+        producer_tv,
+        producer_tv->getMaybeRFactorDomain(),
+        consumer_tv->definition(),
+        loops);
+    std::cerr << "Producer per dim index:\n";
+    for (const auto& y : x) {
+      std::cerr << y->toInlineString() << "\n";
+    }
+    std::cerr << std::endl;
+    return x;
+  } else {
+    auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
