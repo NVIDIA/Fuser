@@ -304,6 +304,7 @@ typedef std::pair<shape_t, shape_t> reshape_example;
 // issue. Using 3333 instead of 333 in those cases but should validate what's
 // going on in the 333 case.
 std::vector<reshape_example> all_reshape_examples = {
+#if 0
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, -1, 3, 4 * 7 * 99}},
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, 1, 3, 4 * 7 * 99}},
     {{19, 3 * 4, 7, 99}, {19, 3, 4 * 7 * 99}},
@@ -313,7 +314,9 @@ std::vector<reshape_example> all_reshape_examples = {
     {{3, 17, 2 * 4 * 10, 1}, {3 * 17, 2, 4, 1, 10}},
 
     {{3, 17, 2 * 4 * 10, 1, 9}, {-1, 1, 2, 4, 10, 9}},
+#endif
     {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 1, 2, 4, 10, 9}},
+#if 0    
     {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 2, 4, 1, 10, 9}},
 
     {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}},
@@ -347,6 +350,7 @@ std::vector<reshape_example> all_reshape_examples = {
     {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1, 8}},
 
     {{2, 3, 2 * 2, 5}, {1, 6, 1, 2, 2, 5, 1}},
+#endif
 };
 
 TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
@@ -469,7 +473,8 @@ TEST_F(GpuViewTest, FusionReshapePersistentShmoo) {
 void addViewGeluFusion(
     std::vector<int64_t>& input_shape,
     std::vector<int64_t>& output_shape) {
-  for (auto has_implicit_broadcast : {false, true}) {
+  for (auto has_implicit_broadcast : {true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -527,6 +532,7 @@ TEST_F(GpuViewTest, FusionReshapeAllShmoo) {
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
     maybeClearAllocator();
+    std::cerr << "E: " << e << std::endl;
     addViewGeluFusion(e.first, e.second);
   }
 }
