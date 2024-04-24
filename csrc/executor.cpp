@@ -1646,7 +1646,7 @@ static void fill_gpu_ptr(
 #undef TMD_ARRAY_REF
 
   // These are the three offsets we need to copy into.
-  std::byte* offsets[3] = {
+  std::array<std::byte*, 3> offsets = {
       entry.args[idx].data(), // data ptr
       entry.args[idx].data() + sizeof(void*), // shape array
       entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
