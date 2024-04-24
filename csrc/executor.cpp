@@ -2182,12 +2182,11 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   // When compilation is skipped, avoid serializing cubin because it doesn't
   // exist. The remaining fields are also not necessary in this case.
   if (isCompilationSkipped()) {
-    return serde::CreateFusionExecutorDirect(builder, isCompilationSkipped());
+    return serde::CreateFusionExecutorDirect(builder);
   }
 
   return serde::CreateFusionExecutorDirect(
       builder,
-      isCompilationSkipped(),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
@@ -2336,7 +2335,11 @@ void FusionExecutor::deserialize(
 
   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
   // skip compilation?
-  if (buffer->is_compilation_skipped()) {
+  bool is_expression_evaluated = std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+  });
+  if (is_expression_evaluated) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     NVF_ERROR(!isCompiled(), "Failed to deserialize FusionExecutor");
     return;

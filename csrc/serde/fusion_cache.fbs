@@ -345,7 +345,6 @@ table CudaKernel {
 
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
-  is_compilation_skipped : bool;
   device_smem_limit: long;
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
