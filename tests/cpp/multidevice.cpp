@@ -34,6 +34,9 @@ MultiDeviceTest::~MultiDeviceTest() {
 }
 
 void MultiDeviceTest::SetUp() {
+  // Set the same random seed for all processes.
+  NVFuserTest::SetUp();
+
   if (!disable_skip && !communicator->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
