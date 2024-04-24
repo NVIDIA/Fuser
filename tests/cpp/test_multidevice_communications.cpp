@@ -40,6 +40,8 @@ CommunicationTest::CommunicationTest() {
 }
 
 void CommunicationTest::SetUp() {
+  MultiDeviceTest::SetUp();
+
   if (!communicator->isBackendAvailable(GetParam())) {
     GTEST_SKIP() << "Backend not available";
   }
