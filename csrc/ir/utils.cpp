@@ -1367,10 +1367,10 @@ void verifyMmaOpForEvaluation(
       tv_a->nDims() == tv_b->nDims(),
       "Either both or none of A and B should be batch");
   // Verify that the broadcasted size is 3.
-  NVF_ERROR(
-      tv_a->nDims() == 3,
-      "MmaOp::evaluate is not implemented for size: ",
-      tv_a->nDims());
+  // NVF_ERROR(
+  //     tv_a->nDims() == 3,
+  //     "MmaOp::evaluate is not implemented for size: ",
+  //     tv_a->nDims());
 
   NVF_ERROR(
       in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
@@ -1381,7 +1381,9 @@ void verifyMmaOpForEvaluation(
 
   NVF_ERROR(
       tv_a->getRootDomain().back()->isBroadcast() ||
-          tv_a->getRootDomain()[1]->isBroadcast(),
+          tv_a->getRootDomain()
+              .at(tv_a->getRootDomain().size() - 2)
+              ->isBroadcast(),
       "Expected middle/last dimension to be broadcasted for first operand.");
 
   NVF_ERROR(
@@ -1460,9 +1462,9 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
   matmul_inp->mma_dims_pos = getMmaDimsPositions(mma);
 
-  NVF_ERROR(
-      std::get<(size_t)MatmulDomain::M>(matmul_inp->mma_dims_pos) == 0,
-      "Expected M to be the first dimension.");
+  // NVF_ERROR(
+  //     std::get<(size_t)MatmulDomain::M>(matmul_inp->mma_dims_pos) == 0,
+  //     "Expected M to be the first dimension.");
 
   if (!has_bias) {
     return true;

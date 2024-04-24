@@ -193,7 +193,9 @@ std::string isMatmulFusionDefinitionSupported(
         mma_details.n_axes.size() != expected_axes_numbers ||
         mma_details.k_axes.size() != expected_axes_numbers ||
         mma_details.batch_axes.size() > expected_axes_numbers) {
-      return "MmaOp has unsupported number of one of M/N/K/Batch axes";
+      if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+        return "MmaOp has unsupported number of one of M/N/K/Batch axes";
+      }
     }
 
     if (!mma_output->hasReduction()) {
