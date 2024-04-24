@@ -186,6 +186,18 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
         ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
   }
 }
+
+void updateExprList(
+    std::vector<Expr*>& exprs,
+    std::unordered_map<Expr*, Expr*>& expr_map) {
+  for (const auto& [old_expr, new_expr] : expr_map) {
+    auto it = find(exprs.begin(), exprs.end(), old_expr);
+    if (it != exprs.end()) {
+      exprs[it - exprs.begin()] = new_expr;
+    }
+  }
+}
+
 } // namespace
 
 void propagateShardings(Fusion* fusion) {
@@ -217,13 +229,8 @@ void insertReshardings(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   auto exprs = fusion->exprs();
-  // Replacing expression inputs creates a new expression. Map the old
-  // expression to new expression, so that we can continue iterating.
-  std::unordered_map<Expr*, Expr*> replacement_map = {};
-  for (auto expr : exprs) {
-    if (replacement_map.find(expr) != replacement_map.end()) {
-      expr = replacement_map[expr];
-    }
+  for (auto i : c10::irange(exprs.size())) {
+    auto expr = exprs[i];
     if (isLowerableToCommunication(expr)) {
       continue;
     }
@@ -246,7 +253,7 @@ void insertReshardings(Fusion* fusion) {
       TensorView* new_output = set(output);
       auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           output, new_output);
-      replacement_map.merge(new_output_map);
+      updateExprList(exprs, new_output_map);
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
       shardAllLike(output, {new_output});
@@ -270,18 +277,14 @@ void insertReshardings(Fusion* fusion) {
 }
 
 void insertShardedAxisReordering(Fusion* fusion) {
-  auto exprs = fusion->exprs();
   std::vector<Expr*> reshard_exprs;
-  std::unordered_map<Expr*, Expr*> replacement_map = {};
-  for (auto expr : exprs) {
+  for (auto expr : fusion->exprs()) {
     if (isResharding(expr)) {
       reshard_exprs.push_back(expr);
     }
   }
-  for (auto expr : reshard_exprs) {
-    if (replacement_map.find(expr) != replacement_map.end()) {
-      expr = replacement_map[expr];
-    }
+  for (auto i : c10::irange(reshard_exprs.size())) {
+    auto expr = reshard_exprs[i];
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported : ",
@@ -319,7 +322,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
       TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
       auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           output, new_output);
-      replacement_map.merge(new_output_map);
+      updateExprList(reshard_exprs, new_output_map);
 
       // Propagate shardings from input and manually apply sharding deletions.
       shardAllLike(input, {input_permute, output_permute, new_output});
@@ -379,7 +382,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
           permute(output_permute, {{0, sharding_axis_after_permute}});
       auto new_output_map = ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           output, new_output);
-      replacement_map.merge(new_output_map);
+      updateExprList(reshard_exprs, new_output_map);
 
       // Propagate shardings from input and manually apply sharding additions.
       shardAllLike(input, {input_permute, output_permute, new_output});

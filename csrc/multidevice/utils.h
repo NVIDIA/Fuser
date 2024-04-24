@@ -86,7 +86,8 @@ void unshard(TensorView*);
 void propagateShardings(Fusion* fusion);
 
 // Runs through the fusion and inserts a resharding Set Op before or after
-// any resharding Expr that is not directly lowerable to a series of communications
+// any resharding Expr that is not directly lowerable to a series of
+// communications
 void insertReshardings(Fusion* fusion);
 
 // This can only run after the insertResharding pass.
