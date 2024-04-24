@@ -238,7 +238,11 @@ class NVFBenchmark:
             sum(
                 [
                     # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
-                    (event.self_device_time_total if hasattr(event, 'self_device_time_total') else event.self_cuda_time_total)
+                    (
+                        event.self_device_time_total
+                        if hasattr(event, "self_device_time_total")
+                        else event.self_cuda_time_total
+                    )
                     for event in prof_averages
                     if event.device_type == DeviceType.CUDA
                 ]
