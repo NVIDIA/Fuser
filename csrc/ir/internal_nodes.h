@@ -2282,6 +2282,10 @@ class NVF_API MatmulOp : public Expr {
   Val* inB() const {
     return input(1);
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

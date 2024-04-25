@@ -2706,33 +2706,31 @@ static TensorView* newForMatmul(
     auto higher_batch_ndims = higher_dim_domain.size() - 2;
     auto lower_batch_ndims = lower_dim_domain.size() - 2;
     
-    
-    auto batch_ndims = std::abs(higher_batch_ndims - 2);
+    auto batch_ndims = higher_batch_ndims - 2;
     auto non_common_batch_ndims = lower_batch_ndims > 0 ? higher_batch_ndims - lower_batch_ndims : higher_batch_ndims;
 
-    // Add the first abs(ndims_a - ndims_b - 2) to the new domain
     for (auto inx: c10::irange(batch_ndims)) {
       if (inx < non_common_batch_ndims) {
-        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]));
+        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
       }
       // Check for common extents here
-      if (higher_dim_domain[inx]->extent() != 1){
-        NVF_ERROR(higher_dim_domain[inx]->extent() == lower_dim_domain[inx - non_common_batch_ndims]->extent());
-        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]));
+      if (higher_dim_domain[inx]->extent()->isOneInt()){
+        new_domain.push_back(IterDomainBuilder(lower_dim_domain[inx - non_common_batch_ndims]).resetSchedulingParams().build());
       } else {
-        new_domain.push_back(IterDomainBuilder(lower_dim_domain[inx - non_common_batch_ndims]));
+        NVF_ERROR(higher_dim_domain[inx]->extent() == lower_dim_domain[inx - non_common_batch_ndims]->extent());
+        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
       }
     }
   }
   
   // Add M domain to output if present
   if (orig_domain_a.size() > 1) {
-    new_domain.push_back(IterDomainBuilder(orig_domain_a[-2]));
+    new_domain.push_back(IterDomainBuilder(orig_domain_a[-2]).resetSchedulingParams().build());
   }
 
   // Add N domain to output if present
   if (orig_domain_b.size() > 1) {
-    new_domain.push_back(IterDomainBuilder(orig_domain_b[-1]));
+    new_domain.push_back(IterDomainBuilder(orig_domain_b[-1]).resetSchedulingParams().build());
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
