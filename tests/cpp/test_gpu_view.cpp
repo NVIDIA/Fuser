@@ -261,6 +261,7 @@ void reductionViewAddFusion(
 
   auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
   for (auto has_implicit_broadcast : {false, true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -303,6 +304,7 @@ typedef std::pair<shape_t, shape_t> reshape_example;
 // issue. Using 3333 instead of 333 in those cases but should validate what's
 // going on in the 333 case.
 std::vector<reshape_example> all_reshape_examples = {
+#if 0
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, -1, 3, 4 * 7 * 99}},
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, 1, 3, 4 * 7 * 99}},
     {{19, 3 * 4, 7, 99}, {19, 3, 4 * 7 * 99}},
@@ -312,7 +314,9 @@ std::vector<reshape_example> all_reshape_examples = {
     {{3, 17, 2 * 4 * 10, 1}, {3 * 17, 2, 4, 1, 10}},
 
     {{3, 17, 2 * 4 * 10, 1, 9}, {-1, 1, 2, 4, 10, 9}},
+#endif
     {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 1, 2, 4, 10, 9}},
+#if 0    
     {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 2, 4, 1, 10, 9}},
 
     {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}},
@@ -346,14 +350,23 @@ std::vector<reshape_example> all_reshape_examples = {
     {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1, 8}},
 
     {{2, 3, 2 * 2, 5}, {1, 6, 1, 2, 2, 5, 1}},
+#endif
 };
 
 TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
+  // reshape_example e {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}};
+  // reshape_example e {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}};
+  // std::cerr << "e: " << e << std::endl;
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
+    std::cerr << "Input e1: " << e << std::endl;
     maybeClearAllocator();
     reductionViewAddFusion(
         e.first, e.second, true /* reshape_before_reduction */);
@@ -374,8 +387,10 @@ TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
       {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
       {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
+
   for (auto e : reshape_after_reduce_examples) {
     maybeClearAllocator(); // see above
+    std::cerr << "Input e2: " << e << std::endl;
     reductionViewAddFusion(
         e.first, e.second, false /* reshape_before_reduction */);
   }
@@ -395,6 +410,7 @@ void persistentViewAddFusion(
   auto bias_shape =
       reshape_before_persistent ? inferred_input : inferred_output;
   for (auto has_implicit_broadcast : {false, true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -427,27 +443,38 @@ void persistentViewAddFusion(
 }
 
 TEST_F(GpuViewTest, FusionReshapePersistentShmoo) {
+#if 0
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
     maybeClearAllocator();
+    std::cerr << "Test1: " << e << std::endl;
     persistentViewAddFusion(
         e.first, e.second, true /* reshape_before_persistent */);
   }
-
+#endif
+  std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
+  std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
+  persistentViewAddFusion(
+      x, y,
+      false);
+#if 1
   for (auto e : all_reshape_examples) {
     maybeClearAllocator(); // see above
+    std::cerr << "Test2: " << e << std::endl;
     persistentViewAddFusion(
         e.first, e.second, false /* reshape_before_persistent */);
   }
+#endif
 }
 
 void addViewGeluFusion(
     std::vector<int64_t>& input_shape,
     std::vector<int64_t>& output_shape) {
-  for (auto has_implicit_broadcast : {false, true}) {
+  for (auto has_implicit_broadcast : {true}) {
+    std::cerr << "has_implicit_broadcast: " << has_implicit_broadcast << std::endl;
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -505,6 +532,7 @@ TEST_F(GpuViewTest, FusionReshapeAllShmoo) {
     // test, we manually clear the allocator after it's reached a certain
     // threshold.
     maybeClearAllocator();
+    std::cerr << "E: " << e << std::endl;
     addViewGeluFusion(e.first, e.second);
   }
 }

@@ -803,6 +803,12 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+
+  if (getenv("DISABLE_CONTIG_INDEXING")) {
+    std::cerr << "Disabling contig indexing\n";
+    contig_ids_.clear();
+  }
+    
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
