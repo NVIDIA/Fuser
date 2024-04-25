@@ -1074,16 +1074,25 @@ ProblemIterDomainsOpt getProblemIterDomains(
   const auto& leaf_domains = props.out->getLeafDomain();
   const auto concrete =
       TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
-  if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
-    std::stringstream ss;
-    ss << "Failed to find the minimum number of MMA input candidates, expected "
-       << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
-    return ss.str();
+  // For the aten path we may not have a m or n dim.
+  if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+    if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
+      std::stringstream ss;
+      ss << "Failed to find the minimum number of MMA input candidates, expected "
+         << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
+      return ss.str();
+    }
   }
 
-  // M,N are inner most concrete iter domains
-  m = concrete.rbegin()[1];
-  n = concrete.rbegin()[0];
+  if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+    // M,N are inner most concrete iter domains
+    m = concrete.rbegin()[1];
+    n = concrete.rbegin()[0];
+  } else {
+    // {m, n, k}
+    m = leaf_domains.rbegin()[2];
+    n = leaf_domains.rbegin()[1];
+  }
 
   // K is a reduction domain, search for the inner most reduction domain
   for (auto iter_domain = leaf_domains.rbegin();
@@ -1239,9 +1248,16 @@ RolesMapOpt getTensorsRoles(
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (has_m && has_k && !has_n) {
-        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
-        continue;
+      if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+        if (has_m && has_k && !has_n) {
+          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          continue;
+        }
+      } else {
+        if (has_k && !has_n) {
+          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          continue;
+        }
       }
       if (has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);

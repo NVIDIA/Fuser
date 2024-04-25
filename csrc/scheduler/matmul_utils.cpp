@@ -193,6 +193,7 @@ std::string isMatmulFusionDefinitionSupported(
         mma_details.n_axes.size() != expected_axes_numbers ||
         mma_details.k_axes.size() != expected_axes_numbers ||
         mma_details.batch_axes.size() > expected_axes_numbers) {
+      // For the aten path we don't need to have a m or k dim.    
       if (isOptionDisabled(DisableOption::MatmulExprEval)) {
         return "MmaOp has unsupported number of one of M/N/K/Batch axes";
       }
