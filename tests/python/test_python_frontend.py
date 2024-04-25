@@ -2434,7 +2434,7 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(16, 8, m, k, device="cuda", dtype=torch.float16),
             torch.randn(n, k, device="cuda", dtype=torch.float16),
         ]
-        
+
         inputs_k_nk = [
             torch.randn(k, device="cuda", dtype=torch.float16),
             torch.randn(n, k, device="cuda", dtype=torch.float16),
@@ -2455,11 +2455,25 @@ class TestNvFuserFrontend(TestCase):
                 t_out = fd.ops.linear(t0, t1)
             fd.add_output(t_out)
 
-        # in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn,inputs_m1m2mk_nk ]
-        in_tensors = [inputs_k_nk]
-        # use_bias = [None, bias0d, bias1d, bias2d]
-        use_bias = [bias1d]
-        for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
+        in_tensors = [
+            inputs_mk_nk,
+            inputs_mk_kn,
+            inputs_km_nk,
+            inputs_km_kn,
+            # A[D1, D2, M, K]@B[N, K]
+            inputs_m1m2mk_nk,
+            # A[K]@B[N,K]
+            inputs_k_nk,
+        ]
+        use_bias = [None, bias0d, bias1d, bias2d]
+
+        combinations = [
+            [t, bs]
+            for [t, bs] in list(itertools.product(in_tensors, use_bias))
+            if not(bs is bias2d and t is inputs_k_nk)
+        ]
+
+        for [inp, wt], use_bias in combinations:
             with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
                 input_tensors = (
                     (inp, wt, use_bias) if use_bias is not None else (inp, wt)

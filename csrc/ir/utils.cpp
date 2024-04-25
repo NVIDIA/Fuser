@@ -1462,6 +1462,11 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
 
   if (mul_alpha == nullptr) { // Alpha is not present
     mma = dynamic_cast<MmaOp*>(mma_branch_root_op->input(0)->definition());
+    // there could be a possible squeeze after mma so ...
+    auto *maybeSqueeze = mma_branch_root_op->input(0)->definition();
+    if (mma == nullptr ){
+      mma = dynamic_cast<MmaOp*>(maybeSqueeze->input(0)->definition());
+    }
   } else {
     NVF_ERROR(
         mul_alpha->getBinaryOpType() == BinaryOpType::Mul,

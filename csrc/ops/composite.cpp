@@ -121,6 +121,11 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
       "data types of inputs to matmul don't match");
 
   auto* output = fusedMultiplySum(tv0b, tv1b, {-1});
+  if (a->nDims() < 2) {
+    std::vector<int64_t> _dims = {0};
+    output = squeeze(output, _dims);
+  }
+
   if (bias) {
     NVF_CHECK(
         (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");

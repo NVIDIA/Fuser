@@ -1294,6 +1294,7 @@ RolesMapOpt getTensorsRoles(
 
       bool has_m = (end != std::find(begin, end, MatmulDomain::M));
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
+      bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
       // NOTE: depending on fusion definition k domain may appear in the output:
       //  - for mma_output == fusion output k domain is present
@@ -1302,8 +1303,14 @@ RolesMapOpt getTensorsRoles(
 
       // NOTE: the core fusion output tensors are the ones with m and n
       //  domains
-      if (has_m && has_n) {
-        storage.push_back(entry.first);
+      if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+        if (has_m && has_n) {
+          storage.push_back(entry.first);
+        }
+      } else {
+        if ((has_m && has_n) || ((has_m || has_n) && !has_k)) {
+          storage.push_back(entry.first);
+        }
       }
     }
 
