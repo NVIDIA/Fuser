@@ -187,6 +187,10 @@ class NVF_API IterDomain : public Val {
     return getIterType() == IterType::Reduction;
   }
 
+  bool isFold() const {
+    return getIterType() == IterType::Fold;
+  }
+
   bool isIteration() const {
     return getIterType() == IterType::Iteration;
   }

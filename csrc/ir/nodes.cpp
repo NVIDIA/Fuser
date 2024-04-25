@@ -2043,6 +2043,133 @@ Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
+BeginFoldOp::BeginFoldOp(
+    IrBuilderPasskey passkey,
+    const std::vector<TensorView*>& out_prev_folds,
+    const std::vector<TensorView*>& out_next_elements,
+    const std::vector<TensorView*>& inputs,
+    const std::vector<Val*>& inits)
+    : Expr(passkey) {
+  NVF_CHECK(!out_prev_folds.empty());
+
+  size_t num_tensors = out_prev_folds.size();
+  NVF_CHECK(out_next_elements.size() == num_tensors);
+  NVF_CHECK(inputs.size() == num_tensors);
+  NVF_CHECK(inits.size() == num_tensors);
+
+  int64_t ndims = inputs.front()->nDims();
+
+  std::vector<bool> is_dim_folded(ndims, false);
+  for (int64_t d : c10::irange(ndims)) {
+    is_dim_folded[d] = out_prev_folds.front()->axis(d)->isFold();
+  }
+
+  for (size_t i : c10::irange(num_tensors)) {
+    const DataType dtype = inputs.at(i)->dtype();
+    NVF_CHECK(out_prev_folds.at(i)->dtype() == dtype);
+    NVF_CHECK(out_next_elements.at(i)->dtype() == dtype);
+    NVF_CHECK(inits.at(i)->dtype() == dtype);
+
+    NVF_CHECK(out_prev_folds.at(i)->nDims() == ndims);
+    NVF_CHECK(out_next_elements.at(i)->nDims() == ndims);
+    NVF_CHECK(inputs.at(i)->nDims() == ndims);
+    if (auto init_tv = dynamic_cast<TensorView*>(inits.at(i))) {
+      NVF_CHECK(init_tv->nDims() == ndims);
+    }
+
+    // Fold dims should match in all outputs
+    for (int64_t d : c10::irange(ndims)) {
+      NVF_CHECK(out_prev_folds.at(i)->axis(d)->isFold() == is_dim_folded[d]);
+      NVF_CHECK(out_next_elements.at(i)->axis(d)->isFold() == is_dim_folded[d]);
+    }
+  }
+
+  for (TensorView* v : out_prev_folds) {
+    addOutput(v);
+  }
+  for (TensorView* v : out_next_elements) {
+    addOutput(v);
+  }
+  for (TensorView* v : inputs) {
+    addInput(v);
+  }
+  for (Val* v : inits) {
+    addInput(v);
+  }
+}
+
+void BeginFoldOp::completeFold(
+    const std::vector<TensorView*>& combined_tensors) {
+  NVF_CHECK(
+      attributes().empty(),
+      "BeginFoldOp::completeFold should only be called once");
+  NVF_CHECK(
+      combined_tensors.size() == numTensors(),
+      "Expected ",
+      numTensors(),
+      " tensors but found ",
+      combined_tensors.size());
+  for (TensorView* t : combined_tensors) {
+    addAttribute(t);
+  }
+}
+
+std::string BeginFoldOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(prev_fold_tensors={";
+  bool first = true;
+  for (int64_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << prevFoldTensor(i)->toString();
+  }
+  ss << "}\n";
+  indent(ss, indent_size) << " next_element_tensors={";
+  first = true;
+  for (int64_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << nextElementTensor(i)->toString();
+  }
+  ss << "}\n";
+  indent(ss, indent_size) << "   = beginFold( { ";
+  first = true;
+  for (int64_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << inputTensor(i)->toString();
+  }
+  ss << " }, initial values = {";
+  first = true;
+  for (int64_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << initVal(i)->toString();
+  }
+  return ss.str();
+}
+
+std::string BeginFoldOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BeginFoldOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(false, "BeginFoldOp cannot be evaluated directly.");
+  return {};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BeginFoldOp)
+
 //==============================================================================================================================
 
 MmaOp::MmaOp(

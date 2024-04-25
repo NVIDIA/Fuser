@@ -1356,6 +1356,63 @@ class GroupedWelfordOp : public Expr {
   }
 };
 
+//! This note represents the beginning of a "fold group".
+class NVF_API BeginFoldOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  BeginFoldOp(
+      IrBuilderPasskey,
+      const std::vector<TensorView*>& out_prev_folds,
+      const std::vector<TensorView*>& out_next_elements,
+      const std::vector<TensorView*>& inputs,
+      const std::vector<Val*>& inits);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BeginFoldOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  size_t numTensors() const {
+    return inputs().size() / 2;
+  }
+
+  TensorView* prevFoldTensor(size_t n) const {
+    return output(n)->as<TensorView>();
+  }
+
+  TensorView* nextElementTensor(size_t n) const {
+    return output(numTensors() + n)->as<TensorView>();
+  }
+
+  TensorView* inputTensor(size_t n) const {
+    return input(n)->as<TensorView>();
+  }
+  Val* initVal(size_t n) const {
+    return input(numTensors() + n);
+  }
+
+  //! This should be called once the prev fold tensors and next element tensors
+  //! are combined using some expressions. Pass the outputs here to complete the
+  //! loop.
+  void completeFold(const std::vector<TensorView*>& combined_tensors);
+
+  //! This is a getter for the tensors given to completeFold
+  TensorView* combinedTensor(size_t n) const {
+    NVF_CHECK(
+        !attributes().empty(),
+        "combinedTensor should not be called before completeFold");
+    return attributeVal(n)->as<TensorView>();
+  }
+};
+
 //! Fused Matmul operation
 class NVF_API MmaOp : public Expr {
  public:
