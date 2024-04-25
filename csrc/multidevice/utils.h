@@ -85,12 +85,12 @@ void unshard(TensorView*);
 // the multidevice shcheduling hasn't been applied.
 void propagateShardings(Fusion* fusion);
 
-// Runs through the fusion and inserts a resharding Set Op before or after
+// Runs through the fusion and inserts a resharding Set Op after
 // any resharding Expr that is not directly lowerable to a series of
 // communications
 void insertReshardings(Fusion* fusion);
 
-// This can only run after the insertResharding pass.
+// This can only run after the insertResharding passes.
 // Assumes all resharding ops are either a set or reduction.
 // For each resharding operation that requires communication
 // over a noncontiguous slices of the tensor, this pass

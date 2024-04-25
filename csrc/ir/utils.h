@@ -250,10 +250,8 @@ NVF_API Expr* replaceValInExprInputs(
     Val* substitute);
 
 //! Replace old_val with new_val in all active uses as well as in fusion
-//! outputs. Returns a map from Expr to new Expr affected by the replacement.
-std::unordered_map<Expr*, Expr*> replaceValInAllExprInputsAndFusionOutputs(
-    Val* old_val,
-    Val* new_val);
+//! outputs.
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val);
 
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an
