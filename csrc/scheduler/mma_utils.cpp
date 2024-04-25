@@ -1248,21 +1248,28 @@ RolesMapOpt getTensorsRoles(
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (isOptionDisabled(DisableOption::MatmulExprEval)) {
-        if (has_m && has_k && !has_n) {
-          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
-          continue;
-        }
-      } else {
-        if (has_k && !has_n) {
-          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
-          continue;
-        }
+      if (has_m && has_k && !has_n) {
+        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+        continue;
       }
       if (has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
+
+      if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
+        if (has_k && !has_n &&
+            roles_map.find(MatmulRole::INPUT_A) == roles_map.end()) {
+          roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+          continue;
+        }
+        if (has_k && !has_m &&
+            roles_map.find(MatmulRole::INPUT_B) == roles_map.end()) {
+          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          continue;
+        }
+      }
+
       // Bias vectors are assigned to INPUT_C role
       if (!has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);

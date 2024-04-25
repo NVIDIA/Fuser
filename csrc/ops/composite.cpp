@@ -124,6 +124,9 @@ TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
   if (a->nDims() < 2) {
     std::vector<int64_t> _dims = {0};
     output = squeeze(output, _dims);
+  } if (b->nDims() < 2){
+    std::vector<int64_t> _dims = {-1};
+    output = squeeze(output, _dims);
   }
 
   if (bias) {

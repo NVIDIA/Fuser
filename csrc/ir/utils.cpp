@@ -1307,6 +1307,7 @@ MmaOpDetails getMmaOpDetails(
       in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
   details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
 
+  // For the aten evaluation path we just need one of them
   if (isOptionDisabled(DisableOption::MatmulExprEval)) {
     NVF_ERROR(
         !details.m_axes.empty(),
@@ -1314,7 +1315,12 @@ MmaOpDetails getMmaOpDetails(
     NVF_ERROR(
         !details.n_axes.empty(),
         "MmaOp inputs must define at least a single N dimension");
+  } else {
+    NVF_ERROR(
+        !(details.m_axes.empty() && details.n_axes.empty()),
+        "MmaOp inputs must define at least a single M dimension");
   }
+
   NVF_ERROR(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
@@ -1463,8 +1469,8 @@ bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
   if (mul_alpha == nullptr) { // Alpha is not present
     mma = dynamic_cast<MmaOp*>(mma_branch_root_op->input(0)->definition());
     // there could be a possible squeeze after mma so ...
-    auto *maybeSqueeze = mma_branch_root_op->input(0)->definition();
-    if (mma == nullptr ){
+    auto* maybeSqueeze = mma_branch_root_op->input(0)->definition();
+    if (mma == nullptr) {
       mma = dynamic_cast<MmaOp*>(maybeSqueeze->input(0)->definition());
     }
   } else {

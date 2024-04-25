@@ -35,9 +35,6 @@ void validateValWithConcreteValue(
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
         (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
-    if (t.dim() != expect_dim){
-      std::cout << "printing to help set brk pt " << std::endl;
-    }
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",

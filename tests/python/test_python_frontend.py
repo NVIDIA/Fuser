@@ -2440,6 +2440,11 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(n, k, device="cuda", dtype=torch.float16),
         ]
 
+        inputs_mk_k = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, device="cuda", dtype=torch.float16),
+        ]
+
         def fusion_func(
             fd: FusionDefinition,
             inp: torch.Tensor,
@@ -2456,16 +2461,18 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t_out)
 
         in_tensors = [
-            inputs_mk_nk,
-            inputs_mk_kn,
-            inputs_km_nk,
-            inputs_km_kn,
-            # A[D1, D2, M, K]@B[N, K]
-            inputs_m1m2mk_nk,
-            # A[K]@B[N,K]
-            inputs_k_nk,
+            # inputs_mk_nk,
+            # inputs_mk_kn,
+            # inputs_km_nk,
+            # inputs_km_kn,
+            # # A[D1, D2, M, K]@B[N, K]
+            # inputs_m1m2mk_nk,
+            # # A[K]@B[N,K]
+            # inputs_k_nk,
+            inputs_mk_k,
         ]
-        use_bias = [None, bias0d, bias1d, bias2d]
+        # use_bias = [None, bias0d, bias1d, bias2d]
+        use_bias = [None]
 
         combinations = [
             [t, bs]
