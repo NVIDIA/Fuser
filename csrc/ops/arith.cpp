@@ -2684,4 +2684,73 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
+namespace {
+
+//! Create new output for matmul
+static TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b
+) {
+  auto orig_domain_a = tv_a->getMaybeRFactorDomain();
+  auto orig_domain_b = tv_b->getMaybeRFactorDomain();
+  auto ndims_a = orig_domain_a.size();
+  auto ndims_b = orig_domain_b.size();
+
+  NVF_ERROR(ndims_a>=1 && ndims_b>= 1);
+
+  std::vector<IterDomain*> new_domain;
+
+  if (ndims_a > 2 || ndims_b > 2) {
+    auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;
+    auto lower_dim_domain = ndims_a >= ndims_b ? orig_domain_b : orig_domain_a;
+    auto higher_batch_ndims = higher_dim_domain.size() - 2;
+    auto lower_batch_ndims = lower_dim_domain.size() - 2;
+    
+    
+    auto batch_ndims = std::abs(higher_batch_ndims - 2);
+    auto non_common_batch_ndims = lower_batch_ndims > 0 ? higher_batch_ndims - lower_batch_ndims : higher_batch_ndims;
+
+    // Add the first abs(ndims_a - ndims_b - 2) to the new domain
+    for (auto inx: c10::irange(batch_ndims)) {
+      if (inx < non_common_batch_ndims) {
+        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]));
+      }
+      // Check for common extents here
+      if (higher_dim_domain[inx]->extent() != 1){
+        NVF_ERROR(higher_dim_domain[inx]->extent() == lower_dim_domain[inx - non_common_batch_ndims]->extent());
+        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]));
+      } else {
+        new_domain.push_back(IterDomainBuilder(lower_dim_domain[inx - non_common_batch_ndims]));
+      }
+    }
+  }
+  
+  // Add M domain to output if present
+  if (orig_domain_a.size() > 1) {
+    new_domain.push_back(IterDomainBuilder(orig_domain_a[-2]));
+  }
+
+  // Add N domain to output if present
+  if (orig_domain_b.size() > 1) {
+    new_domain.push_back(IterDomainBuilder(orig_domain_b[-1]));
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
+
+  return IrBuilder::create<TensorView>(td, *tv_a->getDataType());
+}
+
+} // namespace
+
+TensorView* eagerMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b) {
+
+  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
+  TensorView* out = newForMatmul(tv_a, tv_b);
+  IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
+  return out;
+}
+
 } // namespace nvfuser
