@@ -297,8 +297,8 @@ void propagateShardings(Fusion* fusion) {
 }
 
 void insertReshardings(Fusion* fusion) {
-  // reshardAfter implements heuristic of whether to insert resharding before or
-  // after.
+  // reshardAfter selects whether insertReshardingAfter or
+  // insertReshardingBefore is used.
   insertReshardingsAfter(fusion);
   insertReshardingBefore(fusion);
 }
