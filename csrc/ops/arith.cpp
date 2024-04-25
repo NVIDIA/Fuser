@@ -1458,7 +1458,7 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
-FoldGroup::FoldGroup(
+FoldGroup FoldGroup::makeFoldGroup(
     const std::vector<TensorView*>& input_tvs,
     const std::vector<Val*>& init_vals,
     const std::vector<int64_t>& axes) {
@@ -1469,52 +1469,65 @@ FoldGroup::FoldGroup(
   // create outputs, both with the same domain
   std::vector<TensorView*> prev_folds;
   std::vector<TensorView*> next_elements;
+  prev_folds.reserve(input_tvs.size());
+  next_elements.reserve(input_tvs.size());
   for (TensorView* tv : input_tvs) {
     auto orig_domain = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     std::set<int64_t> axes_set(axes.begin(), axes.end());
 
-    std::vector<IterDomain*> new_domain;
+    std::vector<IterDomain*> new_root;
+    new_root.reserve(orig_domain.size());
 
     NVF_ERROR(
         (*(axes_set.rbegin())) < orig_domain.size(),
-        "Error setting up reduction, reduction axis (",
+        "Error setting up fold, fold axis (",
         *(axes_set.rbegin()),
         ") is outside nDims (",
         orig_domain.size(),
-        "). Keep in mind reductions are relative to r-factor domains, not leaf domains.");
+        "). Keep in mind fold are relative to r-factor domains, ",
+        "not leaf domains.");
 
     auto axis_iter = axes_set.begin();
     for (const auto dim : c10::irange(orig_domain.size())) {
-      bool isReduction = false;
+      bool isFold = false;
       if (axis_iter != axes_set.end() && *axis_iter == dim) {
-        isReduction = true;
+        isFold = true;
         axis_iter++;
       }
 
       const IterDomain* id = orig_domain[dim];
 
       NVF_CHECK(
-          !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-          "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+          !(isFold && id->isBroadcast() && !id->isImplicitBroadcast()),
+          "Cannot fold an axis that is marked as broadcasted ",
+          "as it has an undetermined size. Tried to fold ID = ",
           id,
           " of tensor ",
           tv);
 
-      new_domain.push_back(
+      new_root.push_back(
           IterDomainBuilder(id)
               // If the domain is being reduced, but it's coming in as an
               // expanded extent, we need to realize the expand.
-              .extent(
-                  isReduction && id->hasExpandedExtent() ? id->expandedExtent()
-                                                         : id->extent())
+              .extent(isFold ? id->getMaybeExpandedExtent() : id->extent())
+              .expanded_extent(
+                  !isFold && id->hasExpandedExtent() ? id->expandedExtent()
+                                                     : nullptr)
               .resetSchedulingParams()
-              .iter_type(isReduction ? IterType::Reduction : id->getIterType())
+              .iter_type(isFold ? IterType::Fold : id->getIterType())
               .build());
     }
+
+    prev_folds.push_back(IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
+    next_elements.push_back(IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
   }
 
-  begin_op_ = IrBuilder::create<BeginFoldOp>(
+  auto begin_op = IrBuilder::create<BeginFoldOp>(
       prev_folds, next_elements, input_tvs, init_vals);
+
+  return FoldGroup(begin_op);
 }
 
 std::vector<TensorView*> FoldGroup::finalizeReduction(

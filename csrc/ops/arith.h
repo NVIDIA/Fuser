@@ -613,7 +613,7 @@ class NVF_API FoldGroup {
  public:
   FoldGroup(BeginFoldOp* begin_op) : begin_op_(begin_op) {}
 
-  FoldGroup(
+  static FoldGroup makeFoldGroup(
       const std::vector<TensorView*>& input_tvs,
       const std::vector<Val*>& init_vals,
       const std::vector<int64_t>& axes);
@@ -623,7 +623,7 @@ class NVF_API FoldGroup {
   }
 
   TensorView* nextElementTensor(int64_t n = 0) {
-    return begin_op_->prevFoldTensor(n);
+    return begin_op_->nextElementTensor(n);
   }
 
   std::vector<TensorView*> finalizeReduction(

@@ -2135,7 +2135,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << nextElementTensor(i)->toString();
   }
-  ss << "}\n";
+  ss << "})\n";
   indent(ss, indent_size) << "   = beginFold( { ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
@@ -2154,6 +2154,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << initVal(i)->toString();
   }
+  ss << " });\n";
   return ss.str();
 }
 

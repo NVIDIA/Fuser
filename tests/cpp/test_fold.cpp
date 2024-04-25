@@ -29,8 +29,11 @@ TEST_F(FoldTest, CreateNodes) {
   TensorView* inp = makeSymbolicTensor(2);
   fusion.addInput(inp);
 
-  FoldGroup g({inp}, {fusion.zeroVal()}, {1});
+  FoldGroup g =
+      FoldGroup::makeFoldGroup({inp}, {fusion.zeroVal(inp->dtype())}, {1});
   TensorView* comb = add(g.prevFoldTensor(), g.nextElementTensor());
+
+  fusion.printMath(false);
 
   // finalizeReduction returns a std::vector<TensorView*>
   TensorView* s =
