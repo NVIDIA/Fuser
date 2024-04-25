@@ -1296,11 +1296,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   TransformPropagator propagator(reference_tv);
   MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
-  // Parallelization
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(1)->parallelize(ParallelType::TIDx);
-  tv3->axis(2)->parallelize(ParallelType::Bulk);
-
+  // Parallelization Schema
   tv3b->axis(0)->parallelize(ParallelType::BIDx);
   tv3b->axis(1)->parallelize(ParallelType::Unroll);
   tv3b->axis(2)->parallelize(ParallelType::TIDx);
@@ -1309,6 +1305,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
+  // TMA Tensors
   tv1a->axis(0)->parallelize(ParallelType::BIDx);
   tv1a->axis(1)->parallelize(ParallelType::TIDx);
   tv1a->axis(2)->parallelize(ParallelType::Bulk);
@@ -1316,6 +1313,10 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   tv0a->axis(0)->parallelize(ParallelType::BIDx);
   tv0a->axis(1)->parallelize(ParallelType::TIDx);
   tv0a->axis(2)->parallelize(ParallelType::Bulk);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
 
   // ComputeAt
   inlineMost();
@@ -1329,6 +1330,120 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim1, dim2, dim3}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1, dim2, dim3}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = fe.runFusion({at_tv0, at_tv1});
+
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
+TEST_F(Tutorial, PointwiseTMA) {
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // Create cache_tvs
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv2b = tv2->cacheBefore();
+
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+
+  auto reference_tv = tv2;
+
+  // Create tma domain
+  //   root domain: [I0, I1]
+
+  constexpr int64_t num_threads = 128;
+  constexpr int64_t vectorization = 2;
+  constexpr int64_t tma_tile = num_threads * vectorization;
+  constexpr int64_t num_stages = 2;
+  constexpr int64_t num_ctas_for_hopper = 132;
+
+  // After TMA domain creation
+  //         split: [I0, I2, 256]
+  reference_tv->split(-1, tma_tile);
+  //         split: [I0, I3, 128, 2]
+  reference_tv->split(-1, vectorization);
+  //         split: [I4, 2, I3, 128, 2]
+  reference_tv->split(0, num_stages);
+  //         split: [I5, 132, 2, I3, 128, 2]
+  reference_tv->split(0, num_ctas_for_hopper);
+  //         reorder: [I5, I3, 132, 2, 128, 2]
+  reference_tv->reorder({{3, 1}, {1, 2}, {2, 3}});
+
+  // Transform Operations between cache operations and output reference
+  TransformPropagator propagator(reference_tv);
+  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+
+  reference_tv->axis(2)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  // Vectorization for writing results to gmem
+  reference_tv->axis(-2)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Apply bulk type to TMA
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv0a->axis(-2)->parallelize(ParallelType::Bulk);
+  tv0a->axis(-3)->parallelize(ParallelType::Bulk);
+
+  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-2)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-3)->parallelize(ParallelType::Bulk);
+
+  // ComputeAt
+  auto all_tvs_except_cache = ir_utils::allTvsExcept(fusion.get(),
+                                                     {tv0a, tv1a, tv2b});
+
+  // Write (height, width) tile from shared memory to global memory
+  inlineSelectedAt(
+    {tv0a},
+    tv2b,
+    2);
+
+  // Write (height, width) tile from shared memory to global memory
+  inlineSelectedAt(
+    {tv1a},
+    tv2b,
+    2);
+
+  // Vectorization
+  inlineSelectedAt(
+    {tv2b},
+    tv2,
+    -2);
+
+  // Inline all operations except caching
+  inlineSelectedAt({all_tvs_except_cache.begin(), all_tvs_except_cache.end()},
+                   reference_tv,
+                   /*reference_pos=*/-1,
+                   /*best_effort=*/true);
+
+  if (verbose_) {
+    fusion->printMath();
+    fusion->printKernel();
+  }
+
+  constexpr int dim0 = 16384, dim1 = 16384;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
 
   // Compile with FusionExecutor directly to avoid scheduling
   FusionExecutor fe;
