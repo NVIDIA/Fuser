@@ -1649,7 +1649,8 @@ void FusionExecutor::recompileKernel(
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(), "Cannot get dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1663,7 +1664,8 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 
 int64_t FusionExecutor::getStaticSmemSize() {
   NVF_ERROR(
-      hasCompiledKernel(), "Cannot get static smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1704,7 +1706,8 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      hasCompiledKernel(), "Cannot set dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -2338,7 +2341,7 @@ void FusionExecutor::deserialize(
   bool is_expr_eval = std::all_of(
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-  });
+      });
   if (is_expr_eval) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
@@ -2403,9 +2406,7 @@ void FusionExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(
-      hasCompiledKernel() && !isExprEval(),
-      "Failed to deserialize FusionExecutor");
+  NVF_ERROR(hasCompiledKernel(), "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
