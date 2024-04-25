@@ -1408,32 +1408,24 @@ TEST_F(Tutorial, PointwiseTMA) {
   tv1a->axis(-3)->parallelize(ParallelType::Bulk);
 
   // ComputeAt
-  auto all_tvs_except_cache = ir_utils::allTvsExcept(fusion.get(),
-                                                     {tv0a, tv1a, tv2b});
+  auto all_tvs_except_cache =
+      ir_utils::allTvsExcept(fusion.get(), {tv0a, tv1a, tv2b});
 
   // Write (height, width) tile from shared memory to global memory
-  inlineSelectedAt(
-    {tv0a},
-    tv2b,
-    2);
+  inlineSelectedAt({tv0a}, tv2b, 2);
 
   // Write (height, width) tile from shared memory to global memory
-  inlineSelectedAt(
-    {tv1a},
-    tv2b,
-    2);
+  inlineSelectedAt({tv1a}, tv2b, 2);
 
   // Vectorization
-  inlineSelectedAt(
-    {tv2b},
-    tv2,
-    -2);
+  inlineSelectedAt({tv2b}, tv2, -2);
 
   // Inline all operations except caching
-  inlineSelectedAt({all_tvs_except_cache.begin(), all_tvs_except_cache.end()},
-                   reference_tv,
-                   /*reference_pos=*/-1,
-                   /*best_effort=*/true);
+  inlineSelectedAt(
+      {all_tvs_except_cache.begin(), all_tvs_except_cache.end()},
+      reference_tv,
+      /*reference_pos=*/-1,
+      /*best_effort=*/true);
 
   if (verbose_) {
     fusion->printMath();
