@@ -19,21 +19,6 @@
 
 namespace nvfuser {
 
-
-class GlobalContext : public testing::Environment {
-  public:
-    void SetUp() override {
-        if (getNvFuserEnv("OVERLAP_USE_STREAMS")) {
-            // call getStreamFromPool to trigger the lazy init
-            c10::cuda::getStreamFromPool(/* high priority */true);
-        }
-    }
-    void TearDown() override {}
-};
-
-auto global_context = static_cast<GlobalContext*>(
-    testing::AddGlobalTestEnvironment(new GlobalContext));
-
 enum class ComputeMode {
     Pytorch,
     nvFuserFusionExecutor,
@@ -54,59 +39,102 @@ std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
   return out;
 }
 
+int parseEnvVariable(const char* env_name) {
+    const std::string prefix = "NVFUSER_OVERLAP_";
+    auto prefixed_name = prefix + env_name;
+    auto env = std::getenv(prefixed_name.c_str());
+    if (!env) {
+        return 0;
+    }
+    return std::atoi(env);
+}
+
+struct OverlapTestParams {
+    // network backend
+    CommunicatorBackend backend_type;
+
+    // tensors sizes
+    int64_t B;
+    int64_t C;
+
+    // optimization parameters
+    int64_t tile_size;
+    bool use_different_streams;
+    bool wait_at_backend_creation;
+    bool do_interleave;
+
+    // compute params
+    int n_iterations;
+    ComputeMode compute_mode;
+
+    void parseEnv() {
+        backend_type = parseEnvVariable("USE_UCC")? CommunicatorBackend::ucc : CommunicatorBackend::nccl;
+        B = parseEnvVariable("B")? std::pow(2, parseEnvVariable("B")): std::pow(2,4);
+        C = parseEnvVariable("C")? std::pow(2, parseEnvVariable("C")): std::pow(2,5);
+        do_interleave = !parseEnvVariable("NOT_INTERLEAVE");
+        tile_size = (!do_interleave)? B
+                    : (parseEnvVariable("TILE_SIZE")?
+                        parseEnvVariable("TILE_SIZE")
+                        : 1);
+
+        use_different_streams = parseEnvVariable("USE_STREAMS");
+        wait_at_backend_creation = parseEnvVariable("WAIT_BACKEND_CREATION");
+        n_iterations = parseEnvVariable("N_ITERATIONS")?
+                                parseEnvVariable("N_ITERATIONS")
+                                : 1;
+        compute_mode = parseEnvVariable("COMPUTE_PYTORCH")? ComputeMode::Pytorch : ComputeMode::nvFuserFusionExecutor;
+    }
+};
+
+std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
+    std::string indent = "  ";
+    out << "params:{\n"
+        << indent << "backend_type=" << params.backend_type << "\n"
+        << indent << "B=" << params.B << "\n"
+        << indent << "C=" << params.C << "\n"
+        << indent << "tile_size=" << params.tile_size << "\n"
+        << indent << "use_different_streams=" << params.use_different_streams << "\n"
+        << indent << "wait_at_backend_creation=" << params.wait_at_backend_creation << "\n"
+        << indent << "do_interleave=" << params.do_interleave << "\n"
+        << indent << "n_iterations=" << params.n_iterations << "\n"
+        << indent << "compute_mode=" << params.compute_mode << "\n"
+        << "}";
+    return out;
+}
+
 class OverlapTest : public MultiDeviceTest {
   protected:
+    OverlapTestParams params;
     void SetUp() override {
         MultiDeviceTest::SetUp();
+
+        params.parseEnv();
+        if (!communicator->deviceId()) {
+            std::cout << params << std::endl;
+        }
+
         // Setup the world communicator. We use one device per rank
         num_devices = communicator->size();
         my_device_index = communicator->deviceId();
         std::vector<int64_t> devices(num_devices);
         std::iota(devices.begin(), devices.end(), 0);
-        CommunicatorBackend b = getNvFuserEnv("OVERLAP_USE_UCC")? CommunicatorBackend::ucc : CommunicatorBackend::nccl;
-        wait_at_backend_creation = getNvFuserEnv("OVERLAP_WAIT_BACKEND_CREATION");
         world_communicator = communicator->getBackendForTeam(
-            devices, /* backend */b, /*use cache*/true, /*wait*/ wait_at_backend_creation);
+            devices, /* backend */params.backend_type, /*use cache*/true, /*wait*/ params.wait_at_backend_creation);
 
         // Define the constants
         A = num_devices;
-        B = getNvFuserEnv("OVERLAP_B")? std::pow(2,std::atoi(getNvFuserEnv("OVERLAP_B"))): std::pow(2,4);
-        C = getNvFuserEnv("OVERLAP_C")? std::pow(2,std::atoi(getNvFuserEnv("OVERLAP_C"))): std::pow(2,16);
-        unsharded_sizes = {A, B, C};
+        unsharded_sizes = {A, params.B, params.C};
 
-        tile_size = getNvFuserEnv("OVERLAP_NOT_INTERLEAVE")? B
-                    : getNvFuserEnv("OVERLAP_TILE_SIZE")?
-                        std::atoi(getNvFuserEnv("OVERLAP_TILE_SIZE"))
-                        : 1;
-        NVF_ERROR(B % tile_size == 0);
-        number_of_tiles = B / tile_size;
+        NVF_ERROR(params.B % params.tile_size == 0);
+        number_of_tiles = params.B / params.tile_size;
 
-
-        use_different_streams = getNvFuserEnv("OVERLAP_USE_STREAMS")?
-                                true
-                                : false;
-        n_iterations = getNvFuserEnv("OVERLAP_N_ITERATIONS")?
-                                std::atoi(getNvFuserEnv("OVERLAP_N_ITERATIONS"))
-                                : 1;
-        compute_mode = getNvFuserEnv("OVERLAP_COMPUTE_PYTORCH")? ComputeMode::Pytorch : ComputeMode::nvFuserFusionExecutor;
-        std::cout << "Using Streams: "<<use_different_streams << "\n"
-                  << "Wait at backend creation=" << wait_at_backend_creation << "\n"
-                  << "n_iterations=" << n_iterations << "\n"
-                  << "compute_mode=" << compute_mode << "\n"
-                  << "Used Backend: " << b << "\n"
-                  << "B="<<B << "\n"
-                  << "C="<<C << "\n"
-                  << "Interleave: " << (getNvFuserEnv("OVERLAP_NOT_INTERLEAVE")? "0":"1") << "\n"
-                  << "tile_size=" <<tile_size << "\n"
-                  <<std::endl;
-
-        if (compute_mode == ComputeMode::nvFuserFusionExecutor) {
+        if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
             fusion = std::make_unique<Fusion>();
             FusionGuard fg(fusion.get());
 
-            TensorView* tv = makeConcreteTensor({A,tile_size,C});
+            TensorView* tv = makeConcreteTensor({A,params.tile_size,params.C});
             fusion->addInput(tv);
-            for (auto _=0; _<n_iterations; _++) {
+            for (auto _=0; _<params.n_iterations; _++) {
                 tv = add(tv, tv);
                 tv = mul(tv,tv);
                 tv = sub(tv,tv);
@@ -121,40 +149,29 @@ class OverlapTest : public MultiDeviceTest {
 
             fe = std::make_unique<FusionExecutor>();
         }
+        if (params.use_different_streams) {
+            // call getStreamFromPool to trigger the lazy init
+            c10::cuda::getStreamFromPool(/* high priority */true, my_device_index);
+        }
     }
-
-    // network backend
     int64_t num_devices;
     int64_t my_device_index;
     c10::intrusive_ptr<c10d::Backend> world_communicator;
 
-    // tensors sizes
     int64_t A;
-    int64_t B;
-    int64_t C;
-    std::vector<int64_t> unsharded_sizes;
-
-    // optimization parameters
-    int64_t tile_size;
     int64_t number_of_tiles;
-    bool use_different_streams;
-    bool wait_at_backend_creation;
-
-    // compute params
-    int n_iterations;
-    ComputeMode compute_mode;
-
+    std::vector<int64_t> unsharded_sizes;
     std::unique_ptr<Fusion> fusion;
     std::unique_ptr<FusionExecutor> fe;
 
     c10::IValue get_slice(c10::IValue t, int64_t i, int64_t j) {
         return t.toTensor().index({at::indexing::Slice(i, i+1),
-                        at::indexing::Slice(j*tile_size, (j+1)*tile_size),
+                        at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size),
                         "..."});
     }
 
     void compute_ATen (at::Tensor& t, at::Tensor& output) {
-        for (auto _=0; _<n_iterations; _++) {
+        for (auto _=0; _<params.n_iterations; _++) {
             at::add_out(output, t, t);
             at::mul_out(output, output, output);
             at::sub_out(output, output, output);
@@ -162,7 +179,7 @@ class OverlapTest : public MultiDeviceTest {
     }
 
     void compute(std::vector<c10::IValue>& t, std::vector<at::Tensor>& output) {
-        switch (compute_mode)
+        switch (params.compute_mode)
         {
         case ComputeMode::Pytorch:
             compute_ATen(t.at(0).toTensor(), output.at(0));
@@ -207,7 +224,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
 
     std::vector<std::vector<at::Tensor>> tv1_slices;
     for (int _=0; _<number_of_tiles; _++) {
-        tv1_slices.push_back({at::empty({1,tile_size,C}, options)});
+        tv1_slices.push_back({at::empty({1,params.tile_size,params.C}, options)});
     }
 
     // Allocate ouput global buffer for tv2 for the data to be allgathered
@@ -222,12 +239,12 @@ TEST_F(OverlapTest, SimpleComputeComm) {
         tv2_slices.push_back({std::move(tv2_j_slices)});
     }
 
-    if (compute_mode == ComputeMode::nvFuserFusionExecutor) {
+    if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
         fe->compileFusion(fusion.get(), tv0_slices.at(0));
     }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
-        if (use_different_streams) {
+        if (params.use_different_streams) {
             setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         }
         // local compute
@@ -262,28 +279,28 @@ TEST_F(OverlapTest, DummyExample) {
     // define the unsharded inputs for validation
     auto options =
         at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-    std::vector<c10::IValue> input = {at::randn({1,tile_size,C}, options)};
-    std::vector<at::Tensor> output = {at::empty({1,tile_size,C}, options)};
+    std::vector<c10::IValue> input = {at::randn({1,params.tile_size,params.C}, options)};
+    std::vector<at::Tensor> output = {at::empty({1,params.tile_size,params.C}, options)};
     std::vector<at::Tensor> tmp_dst_buffers;
     for (int i=0; i<num_devices; i++) {
-        tmp_dst_buffers.push_back({at::empty({1,tile_size,C}, options)});
+        tmp_dst_buffers.push_back({at::empty({1,params.tile_size,params.C}, options)});
     }
     std::vector<std::vector<at::Tensor>> dst_buffers = {std::move(tmp_dst_buffers)};
 
-    if (!getNvFuserEnv("OVERLAP_NO_COMPUTE")) {
+    if (!parseEnvVariable("NO_COMPUTE")) {
         fe->compileFusion(fusion.get(), input);
     }
 
     for (int i=0; i<16; i++) {
-        if (use_different_streams) {
+        if (params.use_different_streams) {
             setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         }
 
-        if (!getNvFuserEnv("OVERLAP_NO_COMPUTE") && (i>0 || !getNvFuserEnv("OVERLAP_COMM_FIRST"))) {
+        if (!parseEnvVariable("NO_COMPUTE") && (i>0 || !parseEnvVariable("COMM_FIRST"))) {
             fe->runFusion(input, output);
         }
 
-        if (!getNvFuserEnv("OVERLAP_NO_COMM")) {
+        if (!parseEnvVariable("NO_COMM")) {
             world_communicator->allgather(dst_buffers, output);
         }
     }
