@@ -240,7 +240,15 @@ c10d::Backend* Communicator::getBackendForTeam(
         team_rank,
         static_cast<int64_t>(team.size()));
     if (block_during_backend_creation) {
-      backends_.at(team_key)->barrier()->wait();
+      auto work_request = backends_.at(team_key)->barrier();
+      work_request->wait();
+      // if (b == CommunicatorBackend::nccl) {
+      //   auto nccl_work_request = dynamic_cast<c10d::ProcessGroupNCCL::WorkNCCL*>(work_request.get());
+      //   NVF_ERROR(nccl_work_request);
+      //   while (!nccl_work_request->isCompleted()) {}
+      // } else {
+        while (!work_request->isCompleted()) {}
+      // }
     }
 #else
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
