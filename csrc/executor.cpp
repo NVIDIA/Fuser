@@ -1886,7 +1886,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   // Initialize the executor entry if not initlized
-  bool entry_initialized = false;
   if (!executor_entry->init) {
     initializeExecutorEntry(
         *executor_entry,
@@ -1895,7 +1894,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         compile_params,
         outputs,
         kernel()->indexType());
-    entry_initialized = true;
   }
 
   recompileKernel(executor_entry->launch_params, compile_params);
@@ -2001,7 +1999,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
-  if (entry_initialized) {
+  if (executor_entry->args.empty()) {
     computeArgs(*executor_entry, expr_eval, kernel());
   }
 
