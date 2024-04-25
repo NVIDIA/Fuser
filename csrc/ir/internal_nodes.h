@@ -1384,18 +1384,18 @@ class NVF_API BeginFoldOp : public Expr {
     return inputs().size() / 2;
   }
 
-  TensorView* prevFoldTensor(size_t n) const {
+  TensorView* prevFoldTensor(size_t n = 0) const {
     return output(n)->as<TensorView>();
   }
 
-  TensorView* nextElementTensor(size_t n) const {
+  TensorView* nextElementTensor(size_t n = 0) const {
     return output(numTensors() + n)->as<TensorView>();
   }
 
-  TensorView* inputTensor(size_t n) const {
+  TensorView* inputTensor(size_t n = 0) const {
     return input(n)->as<TensorView>();
   }
-  Val* initVal(size_t n) const {
+  Val* initVal(size_t n = 0) const {
     return input(numTensors() + n);
   }
 
@@ -1405,7 +1405,7 @@ class NVF_API BeginFoldOp : public Expr {
   void completeFold(const std::vector<TensorView*>& combined_tensors);
 
   //! This is a getter for the tensors given to completeFold
-  TensorView* combinedTensor(size_t n) const {
+  TensorView* combinedTensor(size_t n = 0) const {
     NVF_CHECK(
         !attributes().empty(),
         "combinedTensor should not be called before completeFold");

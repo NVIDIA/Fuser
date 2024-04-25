@@ -797,6 +797,8 @@ static const char* iter_type2string(IterType t) {
       return "i";
     case IterType::Reduction:
       return "r";
+    case IterType::Fold:
+      return "f";
     case IterType::Broadcast:
       return "b";
     case IterType::Gather:

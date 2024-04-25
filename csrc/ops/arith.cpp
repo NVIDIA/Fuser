@@ -1458,6 +1458,76 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
+FoldGroup::FoldGroup(
+    const std::vector<TensorView*>& input_tvs,
+    const std::vector<Val*>& init_vals,
+    const std::vector<int64_t>& axes) {
+  NVF_CHECK(!input_tvs.empty());
+  NVF_CHECK(!axes.empty(), "No fold axes provided");
+  NVF_CHECK(input_tvs.size() == init_vals.size());
+
+  // create outputs, both with the same domain
+  std::vector<TensorView*> prev_folds;
+  std::vector<TensorView*> next_elements;
+  for (TensorView* tv : input_tvs) {
+    auto orig_domain = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    std::set<int64_t> axes_set(axes.begin(), axes.end());
+
+    std::vector<IterDomain*> new_domain;
+
+    NVF_ERROR(
+        (*(axes_set.rbegin())) < orig_domain.size(),
+        "Error setting up reduction, reduction axis (",
+        *(axes_set.rbegin()),
+        ") is outside nDims (",
+        orig_domain.size(),
+        "). Keep in mind reductions are relative to r-factor domains, not leaf domains.");
+
+    auto axis_iter = axes_set.begin();
+    for (const auto dim : c10::irange(orig_domain.size())) {
+      bool isReduction = false;
+      if (axis_iter != axes_set.end() && *axis_iter == dim) {
+        isReduction = true;
+        axis_iter++;
+      }
+
+      const IterDomain* id = orig_domain[dim];
+
+      NVF_CHECK(
+          !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
+          "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+          id,
+          " of tensor ",
+          tv);
+
+      new_domain.push_back(
+          IterDomainBuilder(id)
+              // If the domain is being reduced, but it's coming in as an
+              // expanded extent, we need to realize the expand.
+              .extent(
+                  isReduction && id->hasExpandedExtent() ? id->expandedExtent()
+                                                         : id->extent())
+              .resetSchedulingParams()
+              .iter_type(isReduction ? IterType::Reduction : id->getIterType())
+              .build());
+    }
+  }
+
+  begin_op_ = IrBuilder::create<BeginFoldOp>(
+      prev_folds, next_elements, input_tvs, init_vals);
+}
+
+std::vector<TensorView*> FoldGroup::finalizeReduction(
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative) {
+  // Convert all IterType::Fold axes to IterType::Reduction
+
+  // TODO: set flags for associative and commutative in the finalize op
+
+  return {};
+}
+
 TensorView* broadcast(
     TensorView* inp,
     const std::vector<bool>& is_broadcast_dim) {

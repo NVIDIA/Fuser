@@ -124,6 +124,7 @@ Val* newScalar(ValType vtype, DataType dtype) {
 
 IterType promoteIterType(IterType type1, IterType type2) {
   // Iteration: Default
+  // Fold: Propagated regardless of other type
   // Reduction: Should not appear here
   // Broadcast: Propagated only if type1 and type2 are Broadcast
   // Gather: Converted to Iteration
@@ -138,6 +139,10 @@ IterType promoteIterType(IterType type1, IterType type2) {
       type2 != IterType::Reduction && type2 != IterType::Stride,
       "Invalid IterType: ",
       type2);
+
+  if (type1 == IterType::Fold || type2 == IterType::Fold) {
+    return IterType::Fold;
+  }
 
   // Do not propagate Gather and VectorComponent
   if (type1 == IterType::Gather || type1 == IterType::VectorComponent ||

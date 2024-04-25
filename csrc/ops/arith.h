@@ -609,6 +609,55 @@ NVF_API TensorView* min(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
+class NVF_API FoldGroup {
+ public:
+  FoldGroup(BeginFoldOp* begin_op) : begin_op_(begin_op) {}
+
+  FoldGroup(
+      const std::vector<TensorView*>& input_tvs,
+      const std::vector<Val*>& init_vals,
+      const std::vector<int64_t>& axes);
+
+  TensorView* prevFoldTensor(int64_t n = 0) {
+    return begin_op_->prevFoldTensor(n);
+  }
+
+  TensorView* nextElementTensor(int64_t n = 0) {
+    return begin_op_->prevFoldTensor(n);
+  }
+
+  std::vector<TensorView*> finalizeReduction(
+      const std::vector<TensorView*>& combined_tvs,
+      bool associative = false,
+      bool commutative = false);
+
+  TensorView* finalizeReduction(
+      TensorView* combined_tv,
+      bool associative = false,
+      bool commutative = false) {
+    return finalizeReduction(
+               std::vector<TensorView*>{combined_tv}, associative, commutative)
+        .at(0);
+  }
+
+  std::vector<TensorView*> finalizeScan(
+      const std::vector<TensorView*>& combined_tvs,
+      bool associative = false,
+      bool commutative = false);
+
+  TensorView* finalizeScan(
+      TensorView* combined_tv,
+      bool associative = false,
+      bool commutative = false) {
+    return finalizeScan(
+               std::vector<TensorView*>{combined_tv}, associative, commutative)
+        .at(0);
+  }
+
+ private:
+  BeginFoldOp* begin_op_ = nullptr;
+};
+
 // COMPOUND OPERATIONS
 // add_alpha
 NVF_API Val* add_alpha(Val* v1, Val* v2, Val* s);
