@@ -4456,4 +4456,37 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
+MatmulOp::MatmulOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MatmulOp)
+
+std::string MatmulOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = matmul(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "       " << inB()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MatmulOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> MatmulOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = ee.evaluate(inputs.at(0), known_values).as<at::Tensor>();
+  const auto b = ee.evaluate(inputs.at(1), known_values).as<at::Tensor>();
+  return {at::matmul(a, b)};
+}
+
 } // namespace nvfuser
