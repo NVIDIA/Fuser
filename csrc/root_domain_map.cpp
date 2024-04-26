@@ -133,6 +133,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // 3. Squeeze and unsqueeze
     // 4. Broadcast and non broadcast
     // 5. Symbolic ID with different extent from other ID
+    // 5. Fold ID with something other than Fold ID
 
     // Condition 1: when the producer ID is the dim of a select-like op
     if (producer_id == indexed_producer_id) {
@@ -201,6 +202,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     if (!map_symbolic_ &&
         (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
         (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+      itc++;
+      itp++;
+      continue;
+    }
+
+    // Condition 6
+    if (producer_id->isFold() != consumer_id->isFold()) {
       itc++;
       itp++;
       continue;
@@ -423,6 +431,13 @@ void UnmappableReductionDomains::handle(WelfordOp* op) {
   handleReductionOutput(op->outAvg()->as<TensorView>());
   handleReductionOutput(op->outVar()->as<TensorView>());
   handleReductionOutput(op->outN()->as<TensorView>());
+}
+
+void UnmappableReductionDomains::handle(FinalizeReductionOp* op) {
+  // Builds a map from reduction domains to consumer domains.
+  for (Val* outp : op->outputs()) {
+    handleReductionOutput(outp->as<TensorView>());
+  }
 }
 
 bool UnmappableReductionDomains::isReductionOutputMapped(
@@ -1068,6 +1083,20 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
         " of ",
         out_td);
     root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
+  }
+}
+
+void ComputeAtRootDomainMapBuilder::handle(FinalizeReductionOp* op) {
+  for (size_t i : c10::irange(op->numTensors())) {
+    const TensorDomain* in_td = op->input(i)->as<TensorView>()->domain();
+    const TensorDomain* out_td = op->output(i)->as<TensorView>()->domain();
+    const std::vector<IterDomain*>& in_root =
+        op->input(i)->as<TensorView>()->getMaybeRFactorDomain();
+    const std::vector<IterDomain*>& out_root =
+        op->output(i)->as<TensorView>()->getMaybeRFactorDomain();
+    for (size_t j : c10::irange(in_root.size())) {
+      setMaybeMapped(in_td, in_root.at(j), out_td, out_root.at(j));
+    }
   }
 }
 
