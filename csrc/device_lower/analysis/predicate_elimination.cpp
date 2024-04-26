@@ -210,6 +210,15 @@ class PredicateChcker : public IterVisitor {
       return false;
     }
 
+    if (expr->fusion()->hasManaged("don't predicate")) {
+      const auto& dont_predicate =
+          expr->fusion()->getManaged<std::unordered_set<Expr*>>(
+              "don't predicate");
+      if (dont_predicate.count(expr) > 0) {
+        return false;
+      }
+    }
+
     PredicateChcker checker(pred_elimination);
     checker.dispatch(expr);
     return checker.needs_predicate_;

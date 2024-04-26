@@ -1061,6 +1061,60 @@ TEST_F(TMAMiscTest, Repro1977) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TMAMiscTest, LoadStrongCorrectness) {
+  // See doc/reading/tma-modeling-in-depth.md
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Double;
+
+  auto tv0 = makeContigConcreteTensor({32}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 16);
+    tv->split(0, 1);
+    tv->split(1, 2);
+    // [2, 1, 2, 16]
+  }
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+
+  // Use a hacky way to get the "raw data" in smem, including valid items and
+  // holes, from the smem buffer.
+  tv2->commitLeafToRFactor();
+  fusion.manage(
+      "don't predicate", std::unordered_set<Expr*>{tv2->definition()});
+
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::arange(1, 33, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 1);
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  auto expect = at::zeros({2, 1, 2, 16}, options);
+  expect.flatten(0, 2).select(0, 0) = at::arange(1, 17, options);
+  expect.flatten(0, 2).select(0, 2) = at::arange(17, 33, options);
+
+  // TODO: remove the line below. The line below is here only to make the test
+  // pass. The result is actually wrong.
+  expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
+
+  EXPECT_TRUE(at::equal(cg_outputs[0], expect));
+}
+
 // Testing invalid cases are correctly detected and reported.
 
 // It is not required to run compile-time invalid case tests on Hopper or newer
