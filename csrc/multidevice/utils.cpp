@@ -21,7 +21,7 @@
 namespace nvfuser {
 
 NVF_API bool distributedEnabled() {
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
   return true;
 #else
   return false;

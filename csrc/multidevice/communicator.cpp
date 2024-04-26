@@ -10,7 +10,7 @@
 #include <netdb.h>
 #include <map>
 
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
 #ifdef USE_C10D_GLOO
 #include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
@@ -132,7 +132,7 @@ inline std::string getTeamKey(const Team& team, CommunicatorBackend backend) {
       });
 }
 
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
 // creates and return a process group backend
 c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
@@ -187,7 +187,7 @@ Communicator::Communicator(
     return;
   }
 
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
   c10d::TCPStoreOptions store_opts;
   {
     char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
@@ -222,7 +222,7 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(team.begin(), team.end(), deviceId());
     NVF_ERROR(

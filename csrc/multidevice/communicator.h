@@ -13,7 +13,7 @@
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#ifdef NVFUSER_DISTRIBUTED
+#ifdef USE_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
