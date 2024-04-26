@@ -99,16 +99,30 @@ class CancelSplitCat {
   // Returns 0 because `slice`'s dimension 0 is the outer dimension.
 
   // Example 4:
-  //   t = reshape(slice, {6}, {2, 3})
+  //   t = reshape(slice, {6}, {2, 3})  // inner split by 3
   //   out = cat({t, ...}, 0}
   //
-  // Returns 0 because `out`'s dimension 0 is the outer dimension.
+  // Returns 0 because `t` is an inner split and `out`'s dimension 0 is the
+  // outer dimension. See #2142 for why checking the split is inner/outer.
   //
   // Example 5:
+  //   t = reshape(slice, {6}, {2, 3})  // outer split by 2
+  //   out = cat({t, ...}, 0}
+  //
+  // Returns -1 because `t` is an outer split. See #2142 for why checking the
+  // split is inner/outer.
+  //
+  // Example 6:
   //   t = reshape(slice, {6}, {2, 3})
   //   out = cat({t, ...}, 1}
   //
-  // Returns -1 because `out`'s dimension 1 is the inner dimension.
+  // Returns -1 because `out`'s dimension 1 is the inner dimension. Consider
+  //   in = arange(12)  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  //   x, y = in.split([6, 6]) # [0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]
+  //   x = x.view([2, 3])  # [[0, 1, 2], [3, 4, 5]]
+  //   y = y.view([2, 3])  # [[6, 7, 8], [9, 10, 11]]
+  //   out = cat([x, y], axis=1)  # [[0, 1, 2, 6, 7, 8], [3, 4, 5, 9, 10, 11]]
+  // It's impossible to set strides to make `out` a view of `in`.
   int64_t computeCatAxisAfterZipping(
       const std::vector<IterDomain*>& slice_rfactor,
       IterDomain* cat_id);
@@ -307,7 +321,13 @@ int64_t CancelSplitCat::computeCatAxisAfterZipping(
       Expr* def = defining_group->front();
 
       if (Split* split = dynamic_cast<Split*>(def)) {
-        if (exact_graph.toGroup(split->outer()) == cat_group) {
+        // Check `split` is an inner split to avoid #2142. If we allow an outer
+        // split, `replayExprWithNewInputs` will incorrectly use the same split
+        // factor as the extent of the horizontally merged dimension. We could
+        // instead make `replayExprWithNewInputs` smarter, but I haven't given
+        // that alternative enough thought.
+        if (exact_graph.toGroup(split->outer()) == cat_group &&
+            split->innerSplit()) {
           return exact_graph.toGroup(split->in());
         }
         return nullptr;
