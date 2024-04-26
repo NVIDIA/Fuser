@@ -1398,19 +1398,6 @@ class NVF_API BeginFoldOp : public Expr {
   Val* initVal(size_t n = 0) const {
     return input(numTensors() + n);
   }
-
-  //! This should be called once the prev fold tensors and next element tensors
-  //! are combined using some expressions. Pass the outputs here to complete the
-  //! loop.
-  void completeFold(const std::vector<TensorView*>& combined_tensors);
-
-  //! This is a getter for the tensors given to completeFold
-  TensorView* combinedTensor(size_t n = 0) const {
-    NVF_CHECK(
-        !attributes().empty(),
-        "combinedTensor should not be called before completeFold");
-    return attributeVal(n)->as<TensorView>();
-  }
 };
 
 //! This node represents the end of a "fold group" that outputs a reduction.
@@ -1422,7 +1409,6 @@ class NVF_API FinalizeReductionOp : public Expr {
       IrBuilderPasskey,
       const std::vector<TensorView*>& outputs,
       const std::vector<TensorView*>& combined_tensors,
-      BeginFoldOp* begin_op,
       bool associative,
       bool commutative);
 
@@ -1442,6 +1428,8 @@ class NVF_API FinalizeReductionOp : public Expr {
     return inputs().size();
   }
 
+  //! This traverses backward to find the BeginFoldOp at the beginning of this
+  //! fold group. It is an error if other than one such op is found.
   BeginFoldOp* beginFoldOp() const;
 
   bool isAssociative() const {
@@ -1450,11 +1438,6 @@ class NVF_API FinalizeReductionOp : public Expr {
 
   bool isCommutative() const {
     return attribute<bool>(1);
-  }
-
-  //! Returns accumulation tensors representing the intermediate reduction
-  TensorView* prevFoldTensor(size_t n = 0) const {
-    return attributeVal(n + 2)->as<TensorView>();
   }
 };
 

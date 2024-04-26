@@ -1558,7 +1558,7 @@ std::vector<TensorView*> FoldGroup::finalizeReduction(
   }
 
   IrBuilder::create<FinalizeReductionOp>(
-      out_tvs, combined_tvs, begin_op_, associative, commutative);
+      out_tvs, combined_tvs, associative, commutative);
 
   return out_tvs;
 }

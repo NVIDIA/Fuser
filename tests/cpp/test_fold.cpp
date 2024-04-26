@@ -9,6 +9,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <executor.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
@@ -22,11 +24,11 @@ namespace nvfuser {
 
 using FoldTest = NVFuserTest;
 
-TEST_F(FoldTest, CreateNodes) {
+TEST_F(FoldTest, Sum) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* inp = makeSymbolicTensor(2);
+  TensorView* inp = makeConcreteTensor({8, 8});
   fusion.addInput(inp);
 
   FoldGroup g =
@@ -38,6 +40,16 @@ TEST_F(FoldTest, CreateNodes) {
   fusion.addOutput(out_sum);
 
   fusion.printMath();
+
+  EXPECT_TRUE(out_sum->definition()->isA<FinalizeReductionOp>());
+  EXPECT_EQ(
+      out_sum->definition()->as<FinalizeReductionOp>()->beginFoldOp(),
+      g.beginOp());
+
+  inlineMost();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
 }
 
 } // namespace nvfuser

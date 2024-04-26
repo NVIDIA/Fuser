@@ -654,6 +654,10 @@ class NVF_API FoldGroup {
         .at(0);
   }
 
+  BeginFoldOp* beginOp() const {
+    return begin_op_;
+  }
+
  private:
   BeginFoldOp* begin_op_ = nullptr;
 };

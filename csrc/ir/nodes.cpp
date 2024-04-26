@@ -2098,22 +2098,6 @@ BeginFoldOp::BeginFoldOp(
   }
 }
 
-void BeginFoldOp::completeFold(
-    const std::vector<TensorView*>& combined_tensors) {
-  NVF_CHECK(
-      attributes().empty(),
-      "BeginFoldOp::completeFold should only be called once");
-  NVF_CHECK(
-      combined_tensors.size() == numTensors(),
-      "Expected ",
-      numTensors(),
-      " tensors but found ",
-      combined_tensors.size());
-  for (TensorView* t : combined_tensors) {
-    addAttribute(t);
-  }
-}
-
 std::string BeginFoldOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "{prev={ ";
@@ -2175,11 +2159,9 @@ FinalizeReductionOp::FinalizeReductionOp(
     IrBuilderPasskey passkey,
     const std::vector<TensorView*>& outputs,
     const std::vector<TensorView*>& combined_tensors,
-    BeginFoldOp* begin_op,
     bool associative,
     bool commutative)
     : Expr(passkey) {
-  begin_op->completeFold(combined_tensors);
   NVF_CHECK(
       combined_tensors.size() == outputs.size(),
       "Expected ",
@@ -2192,17 +2174,46 @@ FinalizeReductionOp::FinalizeReductionOp(
   }
   addDataAttribute(associative);
   addDataAttribute(commutative);
-  for (size_t i : c10::irange(combined_tensors.size())) {
-    addAttribute(begin_op->prevFoldTensor(i));
-  }
   for (TensorView* v : outputs) {
     addOutput(v);
   }
 }
 
 BeginFoldOp* FinalizeReductionOp::beginFoldOp() const {
-  NVF_ERROR(numTensors() > 0);
-  return prevFoldTensor(0)->definition()->as<BeginFoldOp>();
+  BeginFoldOp* begin_fold_op = nullptr;
+  std::stack<TensorView*> to_check;
+  for (size_t i : c10::irange(numTensors())) {
+    to_check.push(input(i)->as<TensorView>());
+  }
+  while (!to_check.empty()) {
+    TensorView* tv = to_check.top();
+    to_check.pop();
+    bool has_fold = false;
+    for (auto id : tv->getLeafDomain()) {
+      if (id->isFold()) {
+        has_fold = true;
+        break;
+      }
+    }
+    if (!has_fold) {
+      continue;
+    }
+    if (auto bfo = dynamic_cast<BeginFoldOp*>(tv->definition())) {
+      NVF_CHECK(begin_fold_op == nullptr || begin_fold_op == bfo);
+      begin_fold_op = bfo;
+    } else if (tv->definition() != nullptr) {
+      for (Val* inp : tv->definition()->inputs()) {
+        if (auto inp_tv = dynamic_cast<TensorView*>(inp)) {
+          to_check.push(inp_tv);
+        }
+      }
+    }
+  }
+  NVF_CHECK(
+      begin_fold_op != nullptr,
+      "Could not find beginning of fold group containing ",
+      toString());
+  return begin_fold_op;
 }
 
 std::string FinalizeReductionOp::toString(int indent_size) const {

@@ -148,6 +148,8 @@ bool isTvOp(const Expr* expr) {
           GroupedReductionOp,
           WelfordOp,
           GroupedWelfordOp,
+          BeginFoldOp,
+          FinalizeReductionOp,
           LoadStoreOp,
           MmaOp,
           BroadcastOp,
