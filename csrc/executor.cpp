@@ -1626,7 +1626,7 @@ void FusionExecutor::initializeExecutorEntry(
 ///                      computing how large the arrays to copy are.
 static void fillTensorArgMetadata(
     FusionExecutor::ExecutorEntry& entry,
-    const PolymorphicValue& tmd,
+    const PolymorphicValue& tensor_metadata,
     size_t idx,
     size_t idx_type_size) {
   void* data = tmd->*&TensorMetaData::data;
@@ -1649,7 +1649,7 @@ static void fillTensorArgMetadata(
   std::array<std::byte*, 3> offsets = {
       entry.args[idx].data(), // data ptr
       entry.args[idx].data() + sizeof(void*), // shape array
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
+      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,  // strides
   };
 
   memcpy(offsets[0], &data, sizeof(void*));
