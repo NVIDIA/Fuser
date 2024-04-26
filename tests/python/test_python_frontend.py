@@ -2461,23 +2461,30 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t_out)
 
         in_tensors = [
-            # inputs_mk_nk,
-            # inputs_mk_kn,
-            # inputs_km_nk,
-            # inputs_km_kn,
-            # # A[D1, D2, M, K]@B[N, K]
-            # inputs_m1m2mk_nk,
-            # # A[K]@B[N,K]
-            # inputs_k_nk,
+            inputs_mk_nk,
+            inputs_mk_kn,
+            inputs_km_nk,
+            inputs_km_kn,
+            # A[D1, D2, M, K]@B[N, K]
+            inputs_m1m2mk_nk,
+            # A[K]@B[N,K]
+            inputs_k_nk,
             inputs_mk_k,
         ]
-        # use_bias = [None, bias0d, bias1d, bias2d]
-        use_bias = [None]
+        use_bias = [None, bias0d, bias1d, bias2d]
+
+        def filter_fn(input, bias):
+            if bias is bias2d and input is inputs_k_nk:
+                return False
+            if bias is not None and input is inputs_mk_k:
+                return False
+            return True
+
 
         combinations = [
             [t, bs]
             for [t, bs] in list(itertools.product(in_tensors, use_bias))
-            if not(bs is bias2d and t is inputs_k_nk)
+            if filter_fn(t, bs)
         ]
 
         for [inp, wt], use_bias in combinations:

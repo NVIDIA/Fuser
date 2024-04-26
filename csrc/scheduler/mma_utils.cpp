@@ -1239,6 +1239,11 @@ RolesMapOpt getTensorsRoles(
 
   const auto findInputRolesByDomains = [](const DependenciesMap& deps_map,
                                           RolesMap& roles_map) {
+    TensorView* hasOnlyK = nullptr;
+    TensorView* hasMK = nullptr;
+    TensorView* hasNK = nullptr;
+    // TensorView* noK = nullptr;
+
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1248,24 +1253,71 @@ RolesMapOpt getTensorsRoles(
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (has_m && has_k && !has_n) {
-        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
-        continue;
-      }
-      if (has_n && has_k && !has_m) {
-        roles_map[MatmulRole::INPUT_B].push_back(entry.first);
-        continue;
+      if (has_m && !has_n && has_k) {
+        hasMK = entry.first;
       }
 
-      if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-        if (has_k && !has_n &&
-            roles_map.find(MatmulRole::INPUT_A) == roles_map.end()) {
+      if (!has_m && has_n && has_k) {
+        hasNK = entry.first;
+      }
+
+      if (has_k && !has_m && !has_n) {
+        hasOnlyK = entry.first;
+      }
+
+      // if (!has_k) {
+      //   noK = entry.first;
+      // }
+    }
+
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto begin = domains.begin();
+      const auto end = domains.end();
+
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
+      bool has_k = (end != std::find(begin, end, MatmulDomain::K));
+
+      if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+        if (has_m && has_k && !has_n) {
+          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          continue;
+        }
+        if (has_n && has_k && !has_m) {
           roles_map[MatmulRole::INPUT_B].push_back(entry.first);
           continue;
         }
-        if (has_k && !has_m &&
-            roles_map.find(MatmulRole::INPUT_B) == roles_map.end()) {
-          roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+      }
+
+      if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
+        if (has_k && !has_n) {
+          // This could be A or it 1-D B or 1-D A.
+          if (has_m) {
+            // 2D A
+            roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          } else if (entry.first == hasOnlyK && hasMK != nullptr) {
+            // 1D B
+            roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+          } else if (entry.first == hasOnlyK && hasNK != nullptr) {
+            // 1D A
+            roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          }
+          continue;
+        }
+        if (has_k && !has_m) {
+          // This could be B or 1-D A or 1-D B
+          if (has_n) {
+            // 2D B
+            roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+          }
+          if (entry.first == hasOnlyK && hasMK != nullptr) {
+            // 1D B
+            roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+          } else if (entry.first == hasOnlyK && hasNK != nullptr) {
+            // 1D A
+            roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+          }
           continue;
         }
       }
