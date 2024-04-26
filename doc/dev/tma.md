@@ -458,7 +458,7 @@ T3[I0, I1, I2, I3] contiguity: T, T, T, T
 
 Schedule:
 
-![Example 1: Broadcast + binary Op](tma/example2.svg)
+![Example 2: Broadcast + binary Op](tma/example2.svg)
 
 #### Example 3: bank-conflict-free transpose
 
@@ -477,4 +477,4 @@ T1[I1, I0] contiguity: T, T
 
 Schedule:
 
-![Example 2: Bank-conflict-free transpose](tma/example3.svg)
+![Example 3: Bank-conflict-free transpose](tma/example3.svg)
