@@ -1626,7 +1626,7 @@ void FusionExecutor::initializeExecutorEntry(
 ///                      computing how large the arrays to copy are.
 static void fill_gpu_ptr(
     FusionExecutor::ExecutorEntry& entry,
-    const PolymorphicValue& tmd,
+    const PolymorphicValue& tensor_metadata,
     size_t idx,
     size_t idx_type_size) {
   void* data = tmd->*&TensorMetaData::data;
