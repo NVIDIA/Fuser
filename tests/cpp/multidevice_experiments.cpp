@@ -116,6 +116,8 @@ class OverlapTest : public MultiDeviceTest {
             std::cout << params << std::endl;
         }
 
+        options = at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+
         // Setup the world communicator. We use one device per rank
         num_devices = communicator->size();
         my_device_index = communicator->deviceId();
@@ -123,7 +125,17 @@ class OverlapTest : public MultiDeviceTest {
         std::iota(devices.begin(), devices.end(), 0);
         for (int i=0; i<params.nbr_of_backends; i++) {
             world_communicators.push_back(communicator->getBackendForTeam(
-                devices, /* backend */params.backend_type, /*use cache*/false, /*wait*/ params.wait_at_backend_creation));
+                devices, /* backend */params.backend_type, /*use cache*/false));
+        }
+
+        if (params.wait_at_backend_creation) {
+            auto a = at::empty({1}, options);
+            std::vector<at::Tensor> A = {a};
+            for (auto& backend: world_communicators) {
+                auto work_request = backend->allreduce(A);
+                work_request->wait();
+                while (!work_request->isCompleted()) {}
+            }
         }
 
         // Define the constants
@@ -174,6 +186,7 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> unsharded_sizes;
     std::unique_ptr<Fusion> fusion;
     std::unique_ptr<FusionExecutor> fe;
+    at::TensorOptions options;
 
     c10::IValue get_slice(c10::IValue t, int64_t i, int64_t j) {
         return t.toTensor().index({at::indexing::Slice(i, i+1),
@@ -223,8 +236,6 @@ This program should in principle achieve overlap between comms and compute
 TEST_F(OverlapTest, SimpleComputeComm) {
     // Input set-up
     // define the unsharded inputs for validation
-    auto options =
-        at::TensorOptions().dtype(at::kFloat).device(communicator->device());
     auto tv0_unsharded = at::randn(unsharded_sizes, options);
     // Index into the unsharded inputs to get the local input tv0
     // We prepare the inputs slices, because profiling shows that slicing sometimes result in a copy instead of a view

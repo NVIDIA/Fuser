@@ -218,8 +218,7 @@ Communicator::Communicator(
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
-      bool use_cache,
-      bool block_during_backend_creation) {
+    bool use_cache) {
   CommunicatorBackend b = getBackend(backend);
   std::string team_key = getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
@@ -240,17 +239,6 @@ c10d::Backend* Communicator::getBackendForTeam(
         c10::make_intrusive<c10d::PrefixStore>(std::to_string(backend_running_counter_++), store_),
         team_rank,
         static_cast<int64_t>(team.size()));
-    if (block_during_backend_creation) {
-      auto work_request = backends_.at(team_key)->barrier();
-      work_request->wait();
-      // if (b == CommunicatorBackend::nccl) {
-      //   auto nccl_work_request = dynamic_cast<c10d::ProcessGroupNCCL::WorkNCCL*>(work_request.get());
-      //   NVF_ERROR(nccl_work_request);
-      //   while (!nccl_work_request->isCompleted()) {}
-      // } else {
-        while (!work_request->isCompleted()) {}
-      // }
-    }
 #else
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif

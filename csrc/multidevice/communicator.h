@@ -89,8 +89,7 @@ class Communicator {
   c10d::Backend* getBackendForTeam(
       const Team& team,
       std::optional<CommunicatorBackend> backend,
-      bool use_cache = true,
-      bool block_during_backend_creation = false);
+      bool use_cache = true);
 
   // returns the device associated with the current process
   auto device() const {
