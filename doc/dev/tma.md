@@ -224,7 +224,6 @@ The Figure 9 below shows some valid schedule on the shared memory tensor:
 
 ![Figure 9: Some valid smem schedule](tma/valid-smem-contig.svg)
 
-
 These examples can also be found in unit tests `TMADocTest.Figure9*`.
 
 Example (a) is valid because it flipped the order of `I8` and `I7` to make `I7` inner,
@@ -321,7 +320,6 @@ The above procedure creates a periodic pattern with period `N/16` unit rows.
 Within each period, the above procedure can be achieved with a single xor operation:
 assuming `i` is the row index and `j` is the column index,
 we can just do `(i, j) -> (i, i ^ j)`.
-
 
 <details>
 
@@ -435,4 +433,48 @@ or something else?).
 We do have the flexibility to arbitrarily transform and parallelize the non-tile branch,
 and scheduling this is very similar to how we schedule other fusions.
 
+### Code walk-through
+
+Please go to [test_tutorial.cpp](../../tests/cpp/test_tutorial.cpp) and search `TEST_F(Tutorial, BasicTMA)`.
+
 ### Examples
+
+#### Example 2: broadcast kernel with discontiguous input
+
+Fusion:
+
+```
+inputs:
+T0[I1, I2, I3] contiguity: T, T, T
+T1[I0, I1, I2, I3] contiguity: T, F, T, T
+
+math:
+T2[b, I1, I2, I3] = broadcast(T0[I1, I2, I3])
+T3[I0, I1, I2, I3] = T1[I0, I1, I2, I3] + T2[b, I1, I2, I3]
+
+outputs:
+T3[I0, I1, I2, I3] contiguity: T, T, T, T
+```
+
+Schedule:
+
+![Example 2: Broadcast + binary Op](tma/example2.svg)
+
+#### Example 3: bank-conflict-free transpose
+
+Fusion:
+
+```
+inputs:
+T0[I0, I1] contiguity: T, T
+
+math:
+T1[I1, I0] = transpose(T0[I0, I1])
+
+outputs:
+T1[I1, I0] contiguity: T, T
+```
+
+Schedule:
+
+![Example 3: Bank-conflict-free transpose](tma/example3.svg)
