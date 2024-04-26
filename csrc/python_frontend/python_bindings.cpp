@@ -1153,6 +1153,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
+  nvf_ops.def(
+      "linear",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor arg2,
+         std::optional<Tensor> bias = std::nullopt) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.linear");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+
+        if (bias.has_value()) {
+          fd->defineRecord(
+              new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                  {fd->recordingState(arg1()),
+                   fd->recordingState(arg2()),
+                   fd->recordingState(bias.value()())},
+                  {fd->recordingState(output())},
+                  ("ops.linear"),
+                  serde::RecordType::Ternary_TV,
+                  static_cast<
+                      TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                      linear)));
+        } else {
+          fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+              {fd->recordingState(arg1()), fd->recordingState(arg2())},
+              {fd->recordingState(output())},
+              ("ops.linear"),
+              serde::RecordType::Binary_TV,
+              static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
+        }
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      py::return_value_policy::reference);
+
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \

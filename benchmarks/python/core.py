@@ -8,6 +8,7 @@ import torch
 from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
+import numpy as np
 
 
 def get_device_properties() -> Tuple[int, float]:
@@ -146,6 +147,23 @@ def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
 
 
+def compute_total_iobytes(
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+):
+    """
+    Compute IObytes for baselines from given description:
+    Tensor_props has entries of the form: {'tensor_id': (size: tuple, dtype: torch.dtype)}
+    """
+    iobytes = 0
+    for _, tensor_prop in tensor_props.items():
+        size, dtype = tensor_prop[0], tensor_prop[1]
+        if isinstance(size, tuple):
+            iobytes += np.prod(size) * dtype.itemsize
+        else:
+            iobytes += size * dtype.itemsize
+    return int(iobytes)
+
+
 class NVFBenchmark:
     """
     A wrapper class around pytest-benchmark to support
@@ -219,7 +237,12 @@ class NVFBenchmark:
         elapsed_cuda_time = (
             sum(
                 [
-                    event.self_cuda_time_total
+                    # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
+                    (
+                        event.self_device_time_total
+                        if hasattr(event, "self_device_time_total")
+                        else event.self_cuda_time_total
+                    )
                     for event in prof_averages
                     if event.device_type == DeviceType.CUDA
                 ]
