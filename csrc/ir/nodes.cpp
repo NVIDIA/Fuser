@@ -2116,7 +2116,7 @@ void BeginFoldOp::completeFold(
 
 std::string BeginFoldOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "(prev_fold_tensors={";
+  indent(ss, indent_size) << "(accum={ ";
   bool first = true;
   for (int64_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2125,8 +2125,8 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << prevFoldTensor(i)->toString();
   }
-  ss << "}\n";
-  indent(ss, indent_size) << " next_element_tensors={";
+  ss << " }\n";
+  indent(ss, indent_size) << " next={ ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2135,7 +2135,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << nextElementTensor(i)->toString();
   }
-  ss << "})\n";
+  ss << " })\n";
   indent(ss, indent_size) << "   = beginFold( { ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
