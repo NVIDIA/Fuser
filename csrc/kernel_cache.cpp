@@ -1626,7 +1626,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       std::make_unique<FusionHeuristics>(num_groups);
 
   // We make a mutable copy of args so that we can use it in an ArgumentManager
-  KernelArgumentHolder mut_args(args);
+  KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
       mut_args, runtime_workspace_, segmented_fusion_->inputs());
 
