@@ -15,6 +15,8 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1900,6 +1902,11 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
 TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+  // To verify input caching condition in this test, disable aliasing as that
+  // will skip compilation and no kernel will exist.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

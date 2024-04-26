@@ -216,7 +216,6 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   lowered_->run();
   const auto kernel = lowered_->kernel();
-  fusion_ = lowered_->kernel();
   createKernelId(
       ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
@@ -257,6 +256,16 @@ void FusionExecutor::compileFusion(
 
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
+
+  bool is_expr_eval = std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
+
+  if (is_expr_eval) {
+    fusion_ = std::make_unique<Fusion>(*fusion);
+    return;
+  }
 
   for (auto out : fusion->outputs()) {
     const auto maybe_rfactor_domain =
@@ -340,7 +349,6 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
@@ -1287,7 +1295,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (isCompiled()) {
+  if (hasCompiledKernel()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -1398,7 +1406,7 @@ std::vector<at::Tensor> allocOutputSpace(
 }
 
 void FusionExecutor::setUsedTVs() {
-  auto used_vals = fusion_->usedMathVals();
+  auto used_vals = fusion()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
@@ -1629,7 +1637,7 @@ static void fillTensorArgMetadata(
     const PolymorphicValue& tensor_metadata,
     size_t idx,
     size_t idx_type_size) {
-  void* data = tmd->*&TensorMetaData::data;
+  void* data = tensor_metadata->*&TensorMetaData::data;
   // g++ has trouble inferring the types of more complicated fields through our
   // *& operators. Creating an `auto` alias as a temporary resolves this
   // problem.
@@ -1640,16 +1648,16 @@ static void fillTensorArgMetadata(
     fld_aref_;                                    \
   })
   const c10::IntArrayRef& shape =
-      TMD_ARRAY_REF(tmd, TensorMetaData::logical_size);
+      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::logical_size);
   const c10::IntArrayRef& strides =
-      TMD_ARRAY_REF(tmd, TensorMetaData::alloc_stride);
+      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::alloc_stride);
 #undef TMD_ARRAY_REF
 
   // These are the three offsets we need to copy into.
   std::array<std::byte*, 3> offsets = {
       entry.args[idx].data(), // data ptr
       entry.args[idx].data() + sizeof(void*), // shape array
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,  // strides
+      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size, // strides
   };
 
   memcpy(offsets[0], &data, sizeof(void*));
@@ -1773,7 +1781,8 @@ void FusionExecutor::recompileKernel(
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   NVF_ERROR(
-      isCompiled(), "Cannot get dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1787,7 +1796,8 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 
 int64_t FusionExecutor::getStaticSmemSize() {
   NVF_ERROR(
-      isCompiled(), "Cannot get static smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1803,7 +1813,7 @@ int64_t FusionExecutor::getStaticSmemSize() {
 void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
   // If specified, check that dynamic smem size matches what the scheduler
   // expects
-  int64_t expected_dynamic_smem_size = fusion_->expectedDynamicSmemBytes();
+  int64_t expected_dynamic_smem_size = fusion()->expectedDynamicSmemBytes();
   if (expected_dynamic_smem_size >= 0) {
     NVF_ERROR(
         dynamic_smem_size == expected_dynamic_smem_size,
@@ -1828,7 +1838,8 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   NVF_ERROR(
-      isCompiled(), "Cannot set dynamic smem size unless kernel is compiled");
+      hasCompiledKernel(),
+      "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -1845,13 +1856,63 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
+    KernelArgumentHolder& args,
+    std::vector<at::Tensor> outputs,
+    ExpressionEvaluator& expr_eval) {
+  // TODO: Add relevant profiling code.
+  if (outputs.empty()) {
+    for (const auto& out_val : fusion()->outputs()) {
+      auto out_tensor =
+          expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      outputs.emplace_back(out_tensor);
+    }
+  }
+  args.push(outputs);
+  return outputs;
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+
   NVF_ERROR(isCompiled());
+  NVF_ERROR(
+      outputs.empty() || (outputs.size() == fusion()->outputs().size()),
+      __func__,
+      " provided number of outputs does not match fusion output");
+
+  // Bind fusion inputs
+  ExpressionEvaluator expr_eval;
+  const auto& inputs = fusion()->inputs();
+  for (const auto i : c10::irange(inputs.size())) {
+    expr_eval.bind(inputs[i], *args[i]);
+  }
+
+  const bool measure_kernel_time = measure_kernel_time_ ||
+      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+
+  // It's important to determine the input bytes processed prior
+  // to pushing the outputs into the arg struct.  Otherwise,
+  // the outputs will also be included with inputs when determining
+  // the input bytes accessed.
+  if (measure_kernel_time) {
+    inputBytesProcessed(args);
+  }
+
+  if (isExprEval()) {
+    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    if (measure_kernel_time) {
+      outputBytesProcessed(outputs);
+    }
+    return outputs;
+  }
+
+  NVF_ERROR(hasCompiledKernel());
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
@@ -1879,12 +1940,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
 
-  ExpressionEvaluator expr_eval;
-  const std::vector<Val*>& inputs = kernel()->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
-  }
-
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
     initializeExecutorEntry(
@@ -1904,28 +1959,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  // It's important to determine the input bytes processed prior
-  // to pushing the outputs into the arg struct.  Otherwise,
-  // the outputs will also be included with inputs when determining
-  // the input bytes accessed.
-  if (measure_kernel_time) {
-    inputBytesProcessed(args);
-  }
-
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, options_.device, expr_eval);
-  } else {
-    // TODO: Use validateKernelOutputs
-    NVF_ERROR(
-        outputs.size() == fusion_->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
+        fusion(), executor_entry->outputs, options_.device, expr_eval);
   }
   args.push(outputs);
 
@@ -2267,6 +2304,12 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
+  // When compilation is skipped, avoid serializing cubin because it doesn't
+  // exist. The remaining fields are also not necessary in this case.
+  if (isExprEval()) {
+    return serde::CreateFusionExecutorDirect(builder);
+  }
+
   return serde::CreateFusionExecutorDirect(
       builder,
       device_smem_limit_,
@@ -2414,6 +2457,19 @@ void FusionExecutor::deserialize(
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+
+  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
+  // skip compilation?
+  bool is_expr_eval = std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
+  if (is_expr_eval) {
+    fusion_ = std::make_unique<Fusion>(*fusion);
+    NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
+    return;
+  }
+
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),
       "Expected given fusion_id to match serde fusion_id.");
@@ -2454,7 +2510,6 @@ void FusionExecutor::deserialize(
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(
       heuristic,
       buffer->fusion_id(),
@@ -2473,7 +2528,7 @@ void FusionExecutor::deserialize(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
-  NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
+  NVF_ERROR(hasCompiledKernel(), "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
@@ -2508,11 +2563,11 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   NVF_ERROR(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
-  NVF_ERROR(fusion_ != nullptr, "Fusion is not initialized.");
+  NVF_ERROR(lowered_ != nullptr, "Lowered kernel is not initialized.");
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
-    auto out_val = fusion_->outputs().at(buffer->tv());
+    auto out_val = kernel()->outputs().at(buffer->tv());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
   } else {
