@@ -840,14 +840,6 @@ int64_t getVectorizationFactor(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
 
-    // Handle misaligned inputs or outputs. Usually tensors are fully aligned at
-    // 16 bytes, but this is not the case when a tensor is sliced then passed to
-    // nvfuser.
-    max_vec_size = std::min(
-        max_vec_size,
-        scheduler_utils::maxVectorizationWidth(
-            (int64_t)runtime_info.ptrOf(inp_or_out) / dtype_size));
-
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
     NVF_ERROR(alignment_size % dtype_size == 0);
