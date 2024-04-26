@@ -966,7 +966,7 @@ at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
-    const ExpressionEvaluator& ee) {
+    ExpressionEvaluator& ee) {
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
