@@ -2725,18 +2725,19 @@ static TensorView* newForMatmul(
   
   // Add M domain to output if present
   if (orig_domain_a.size() > 1) {
-    new_domain.push_back(IterDomainBuilder(orig_domain_a[-2]).resetSchedulingParams().build());
+    const IterDomain* m_id = orig_domain_a[ndims_a-2];
+    new_domain.push_back(IterDomainBuilder(m_id).resetSchedulingParams().build());
   }
 
   // Add N domain to output if present
   if (orig_domain_b.size() > 1) {
-    new_domain.push_back(IterDomainBuilder(orig_domain_b[-1]).resetSchedulingParams().build());
+    new_domain.push_back(IterDomainBuilder(orig_domain_b[ndims_b-1]).resetSchedulingParams().build());
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
 
-  return IrBuilder::create<TensorView>(td, *tv_a->getDataType());
+  return IrBuilder::create<TensorView>(td, tv_a->dtype());
 }
 
 } // namespace
