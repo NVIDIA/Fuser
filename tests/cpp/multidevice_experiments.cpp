@@ -52,6 +52,7 @@ int parseEnvVariable(const char* env_name) {
 struct OverlapTestParams {
     // network backend
     CommunicatorBackend backend_type;
+    int nbr_of_backends;
 
     // tensors sizes
     int64_t B;
@@ -83,6 +84,7 @@ struct OverlapTestParams {
                                 parseEnvVariable("N_ITERATIONS")
                                 : 1;
         compute_mode = parseEnvVariable("COMPUTE_PYTORCH")? ComputeMode::Pytorch : ComputeMode::nvFuserFusionExecutor;
+        nbr_of_backends = parseEnvVariable("NBR_BACKENDS")? parseEnvVariable("NBR_BACKENDS") : 1;
     }
 };
 
@@ -98,6 +100,7 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
         << indent << "do_interleave=" << params.do_interleave << "\n"
         << indent << "n_iterations=" << params.n_iterations << "\n"
         << indent << "compute_mode=" << params.compute_mode << "\n"
+        << indent << "nbr_of_backends=" << params.nbr_of_backends << "\n"
         << "}";
     return out;
 }
@@ -118,8 +121,10 @@ class OverlapTest : public MultiDeviceTest {
         my_device_index = communicator->deviceId();
         std::vector<int64_t> devices(num_devices);
         std::iota(devices.begin(), devices.end(), 0);
-        world_communicator = communicator->getBackendForTeam(
-            devices, /* backend */params.backend_type, /*use cache*/true, /*wait*/ params.wait_at_backend_creation);
+        for (int i=0; i<params.nbr_of_backends; i++) {
+            world_communicators.push_back(communicator->getBackendForTeam(
+                devices, /* backend */params.backend_type, /*use cache*/false, /*wait*/ params.wait_at_backend_creation));
+        }
 
         // Define the constants
         A = num_devices;
@@ -156,7 +161,13 @@ class OverlapTest : public MultiDeviceTest {
     }
     int64_t num_devices;
     int64_t my_device_index;
-    c10::intrusive_ptr<c10d::Backend> world_communicator;
+    std::vector<c10::intrusive_ptr<c10d::Backend>> world_communicators;
+    int communicator_running_counter = 0;
+    c10::intrusive_ptr<c10d::Backend> getWorldCommunicator() {
+        auto& ret = world_communicators.at(communicator_running_counter);
+        communicator_running_counter = (communicator_running_counter+1) % world_communicators.size();
+        return ret;
+    }
 
     int64_t A;
     int64_t number_of_tiles;
@@ -251,7 +262,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
         compute(tv0_slices.at(j), tv1_slices.at(j));
 
         // communication
-        auto req_handle = world_communicator->allgather(tv2_slices.at(j), tv1_slices.at(j));
+        auto req_handle = getWorldCommunicator()->allgather(tv2_slices.at(j), tv1_slices.at(j));
         // req_handle->wait();
     }
 
@@ -301,7 +312,7 @@ TEST_F(OverlapTest, DummyExample) {
         }
 
         if (!parseEnvVariable("NO_COMM")) {
-            world_communicator->allgather(dst_buffers, output);
+            getWorldCommunicator()->allgather(dst_buffers, output);
         }
     }
 }

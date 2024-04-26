@@ -1,0 +1,51 @@
+#!/bin/bash
+# TEST_UNIT=DummyExample
+TEST_UNIT=SimpleComputeComm
+
+WORKING_DIR="/opt/pytorch/Fuser"
+DIRECTORY="${WORKING_DIR}/nsight/profiles/${TEST_UNIT}_$(date '+%Y-%m-%d_%H-%M-%S')"
+
+mkdir -p ${DIRECTORY}
+
+
+for WAIT_BACKEND_CREATION in "1"
+do
+    for N_ITERATIONS in "1"
+    do
+        for USE_STREAMS in "0" "1"
+        do
+            for C in "4"
+            do
+                for USE_UCC in "0" "1"
+                do
+                    for COMPUTE_PYTORCH in "0" "1"
+                    do
+                        for NBR_BACKENDS in "1" "2"
+                        do
+                            for RECORD_STREAMS in "1"
+                            do
+                                if [ "$RECORD_STREAMS" -eq 0 ]; then
+                                    RECORD_STREAMS_CMD=" -x TORCH_NCCL_AVOID_RECORD_STREAMS"
+                                fi
+                                CMD="nsys profile --wait="primary" -t cublas,cuda,nvtx,ucx -o ${DIRECTORY}/overlap_${TEST_UNIT}_C=${C}_USE_UCC=${USE_UCC}_N_ITERATIONS=${N_ITERATIONS}_USE_STREAMS=${USE_STREAMS}_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}"_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}_NBR_BACKENDS=${NBR_BACKENDS}_RECORD_STREAMS=${RECORD_STREAMS}
+                                CMD="${CMD} mpirun -np 8\
+                                    -x NVFUSER_OVERLAP_N_ITERATIONS=${N_ITERATIONS}\
+                                    -x NVFUSER_OVERLAP_USE_STREAMS=${USE_STREAMS}\
+                                    -x NVFUSER_OVERLAP_C=${C}\
+                                    -x NVFUSER_OVERLAP_USE_UCC=${USE_UCC}\
+                                    -x NVFUSER_OVERLAP_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}\
+                                    -x NVFUSER_OVERLAP_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}\
+                                    -x NVFUSER_OVERLAP_NBR_BACKENDS=${NBR_BACKENDS}\
+                                    ${RECORD_STREAMS_CMD}\
+                                    "
+                                CMD="${CMD} $BUILD_DIRECTORY/test_multidevice --gtest_filter=OverlapTest.${TEST_UNIT}"
+                                echo $CMD
+                                $CMD
+                            done
+                        done
+                    done
+                done
+            done
+        done
+    done
+done
