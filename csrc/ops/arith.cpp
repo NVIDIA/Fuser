@@ -1520,6 +1520,11 @@ FoldGroup FoldGroup::makeFoldGroup(
 
     prev_folds.push_back(IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
+    // Clone each IterDomain so that there are different IterDomains in each
+    // output TensorView
+    for (auto i : c10::irange(new_root.size())) {
+      new_root[i] = IrBuilder::create<IterDomain>(new_root[i]);
+    }
     next_elements.push_back(IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
   }
