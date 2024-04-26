@@ -698,6 +698,8 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 }
 
 TEST_F(Tutorial, BasicTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
   // This tutorial uses copy kernels to demonstrate how to schedule TMA. Please
   // note that this is not a guide on how to use TMA to achieve SOL. Instead, it
   // is a demonstration on the degree of freedoms we have in a TMA schedule and
