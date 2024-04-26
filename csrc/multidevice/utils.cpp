@@ -192,7 +192,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
 // the outputs. Currently, we reshard the outputs when there is only one
 // input, otherwise we reshard the inputs. This heuristic should be smarter
 // and attempt to minimize communication.
-bool reshardAfter(Expr* expr) {
+bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1;
 }
 
@@ -200,7 +200,7 @@ void insertReshardingBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || reshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
       continue;
     }
     NVF_ERROR(
@@ -239,7 +239,7 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !reshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
     NVF_ERROR(
@@ -297,7 +297,7 @@ void propagateShardings(Fusion* fusion) {
 }
 
 void insertReshardings(Fusion* fusion) {
-  // reshardAfter selects whether insertReshardingAfter or
+  // shouldReshardAfter selects whether insertReshardingAfter or
   // insertReshardingBefore is used.
   insertReshardingsAfter(fusion);
   insertReshardingBefore(fusion);

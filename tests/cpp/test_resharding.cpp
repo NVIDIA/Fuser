@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <executor_kernel_arg.h>
@@ -280,7 +281,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   EXPECT_TRUE(expr->isA<LoadStoreOp>());
   EXPECT_EQ(expr->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
   std::vector<TensorView*> tvs = {expr->inputs()[0]->as<TensorView>()};
-  EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
+  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), ::testing::IsEmpty());
 }
 
 TEST_F(ReshardingTest, InsertShardedAxisReordering) {
@@ -308,12 +309,12 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       num_inner_reshardings++;
     }
   }
-  EXPECT_TRUE(num_inner_reshardings > 0);
+  EXPECT_GT(num_inner_reshardings, 0);
 
   insertShardedAxisReordering(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
-      EXPECT_TRUE(!isInnerResharding(expr));
+      EXPECT_FALSE(isInnerResharding(expr));
     }
   }
 }
