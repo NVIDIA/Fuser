@@ -176,13 +176,13 @@ void Val::mutatorDispatch(T mutator, Val* val) {
   switch (*(val->getValType())) {
 #define M(e)                            \
   case ValType::e:                      \
-    ptr(handler)->mutate(val->as<e>()); \
+    ptr(mutator)->mutate(val->as<e>()); \
     return;
     DISPATCH_FOR_ALL_VALS(M)
 #undef M
 #define M(e)                                 \
   case ValType::e:                           \
-    ptr(handler)->mutate(val->as<kir::e>()); \
+    ptr(mutator)->mutate(val->as<kir::e>()); \
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
@@ -298,34 +298,21 @@ void OptInDispatch::unhandled(Statement* stmt) {
   }
 }
 
-// Vals
 #define M(e)                                        \
   void OptOutConstDispatch::handle(const e* stmt) { \
     unhandled(stmt);                                \
   }
 M(Val)
 DISPATCH_FOR_ALL_VALS(M)
-#undef M
-#define M(e)                                             \
-  void OptOutConstDispatch::handle(const kir::e* stmt) { \
-    unhandled(stmt);                                     \
-  }
-DISPATCH_FOR_ALL_KIR_VALS(M)
-M(assoc_comm::FlattenedAssocCommOp)
-#undef M
-
-// Exprs
-#define M(e)                                        \
-  void OptOutConstDispatch::handle(const e* stmt) { \
-    unhandled(stmt);                                \
-  }
 DISPATCH_FOR_ALL_EXPRS(M)
+M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 #define M(e)                                             \
   void OptOutConstDispatch::handle(const kir::e* stmt) { \
     unhandled(stmt);                                     \
   }
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
+DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
 
 void OptOutDispatch::unhandled(Statement*) {}
@@ -337,26 +324,14 @@ void OptOutDispatch::unhandled(Statement*) {}
   }
 M(Val)
 DISPATCH_FOR_ALL_VALS(M)
+DISPATCH_FOR_ALL_EXPRS(M)
+M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 #define M(e)                                  \
   void OptOutDispatch::handle(kir::e* stmt) { \
     unhandled(stmt);                          \
   }
 DISPATCH_FOR_ALL_KIR_VALS(M)
-#undef M
-
-// Exprs
-#define M(e)                                  \
-  void OptOutConstDispatch::handle(e* stmt) { \
-    unhandled(stmt);                          \
-  }
-DISPATCH_FOR_ALL_EXPRS(M)
-M(assoc_comm::FlattenedAssocCommOp)
-#undef M
-#define M(e)                                       \
-  void OptOutConstDispatch::handle(kir::e* stmt) { \
-    unhandled(stmt);                               \
-  }
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 

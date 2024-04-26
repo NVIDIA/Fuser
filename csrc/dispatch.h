@@ -190,6 +190,7 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
   virtual void dispatch(Val*);
 
 #define M(e) virtual void handle(e* stmt);
+  M(Val);
   DISPATCH_FOR_ALL_VALS(M)
   DISPATCH_FOR_ALL_EXPRS(M)
   M(assoc_comm::FlattenedAssocCommOp);
