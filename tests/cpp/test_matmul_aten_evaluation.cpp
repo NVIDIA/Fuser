@@ -393,4 +393,39 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
+
+// fd.ops.matmul (a, b) where a = [M,K], b = [K,N]
+TEST_F(MatmulATenEvaluationTest, MatmulNode) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t m = 32, n = 64, k = 128;
+  std::vector<int64_t> a_shape{m, k}, b_shape{k, n}, out_shape{m, n};
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  auto tv2 = eagerMatmul(tv0, tv1);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({t0, t1});
+
+  const std::vector<FusionExecutor>& executors = fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
+  // Verify that the io_alias_ set has the correct entry
+  kir::Kernel* kernel = executors.front().kernel();
+  EXPECT_EQ(
+      kernel->getOutputAlias(kernel->outputs()[0]).type,
+      AllocationType::Evaluate);
+
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
 } // namespace nvfuser

@@ -8,7 +8,7 @@
 
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/no_op.h>
+#include <scheduler/expr_eval_sched.h>
 #include <scheduler/registry_utils.h>
 
 namespace nvfuser {
@@ -29,7 +29,7 @@ ExprEvalScheduler::ExprEvalScheduler(
 //! Check if the no-op heuristics apply in given fusion
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check if the fusion has matmul node and accept
-  if (fusion->outputs().size() == 1 && fusion->outputs().front()->isA<MatmulOp>()) {
+  if (fusion->outputs().size() == 1 && fusion->outputs().front()->definition()->isA<MatmulOp>()) {
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
