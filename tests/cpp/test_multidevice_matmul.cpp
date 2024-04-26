@@ -194,7 +194,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 256, N = 64, K = 64;
+  int M = 128, N = 64, K = 128;
   int Ko = num_devices, Ki = K / Ko;
   std::vector<int> a_shape = {Ko, Ki, M};
   std::vector<int> b_shape = {Ko, Ki, N};
@@ -245,7 +245,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   FusionGuard fg(fusion.get());
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
-  int M = 256, N = 128, K = 64;
+  int M = 128, N = 64, K = 128;
   int Ko = num_devices, Ki = K / Ko;
   int Mo = num_devices, Mi = M / Mo;
   std::vector<int> a_shape = {Ko, Ki, M};
