@@ -2116,7 +2116,7 @@ void BeginFoldOp::completeFold(
 
 std::string BeginFoldOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "(accum={ ";
+  indent(ss, indent_size) << "{prev={ ";
   bool first = true;
   for (int64_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2125,7 +2125,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << prevFoldTensor(i)->toString();
   }
-  ss << " }\n";
+  ss << " },\n";
   indent(ss, indent_size) << " next={ ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
@@ -2135,7 +2135,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << nextElementTensor(i)->toString();
   }
-  ss << " })\n";
+  ss << " } }\n";
   indent(ss, indent_size) << "   = beginFold( { ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
@@ -2145,7 +2145,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << inputTensor(i)->toString();
   }
-  ss << " }, initial values = {";
+  ss << " }, initial values = { ";
   first = true;
   for (int64_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2154,7 +2154,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << initVal(i)->toString();
   }
-  ss << " });\n";
+  ss << " } );\n";
   return ss.str();
 }
 
@@ -2170,6 +2170,78 @@ std::vector<PolymorphicValue> BeginFoldOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BeginFoldOp)
+
+FinalizeReductionOp::FinalizeReductionOp(
+    IrBuilderPasskey passkey,
+    const std::vector<TensorView*>& outputs,
+    const std::vector<TensorView*>& combined_tensors,
+    BeginFoldOp* begin_op,
+    bool associative,
+    bool commutative)
+    : Expr(passkey) {
+  begin_op->completeFold(combined_tensors);
+  NVF_CHECK(
+      combined_tensors.size() == outputs.size(),
+      "Expected ",
+      combined_tensors.size(),
+      " output tensors but found ",
+      outputs.size());
+
+  for (size_t i : c10::irange(combined_tensors.size())) {
+    addInput(combined_tensors.at(i));
+  }
+  addDataAttribute(associative);
+  addDataAttribute(commutative);
+  for (size_t i : c10::irange(combined_tensors.size())) {
+    addAttribute(begin_op->prevFoldTensor(i));
+  }
+  for (TensorView* v : outputs) {
+    addOutput(v);
+  }
+}
+
+BeginFoldOp* FinalizeReductionOp::beginFoldOp() const {
+  NVF_ERROR(numTensors() > 0);
+  return prevFoldTensor(0)->definition()->as<BeginFoldOp>();
+}
+
+std::string FinalizeReductionOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "{ ";
+  bool first = true;
+  for (int64_t i : c10::irange(outputs().size())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << output(i)->toString();
+  }
+  ss << " }\n";
+  indent(ss, indent_size) << "   = finalizeReduction( { ";
+  first = true;
+  for (int64_t i : c10::irange(inputs().size())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << input(i)->toString();
+  }
+  ss << " } );\n";
+  return ss.str();
+}
+
+std::string FinalizeReductionOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> FinalizeReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(false, "FinalizeReductionOp cannot be evaluated directly.");
+  return {};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(FinalizeReductionOp)
 
 //==============================================================================================================================
 

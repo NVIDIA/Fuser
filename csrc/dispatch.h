@@ -90,6 +90,8 @@ class ReductionOp;
 class GroupedReductionOp;
 class WelfordOp;
 class GroupedWelfordOp;
+class BeginFoldOp;
+class FinalizeReductionOp;
 class LoadStoreOp;
 class MmaOp;
 class BroadcastOp;
@@ -192,6 +194,8 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const GroupedReductionOp* stmt);
   virtual void handle(const WelfordOp* stmt);
   virtual void handle(const GroupedWelfordOp* stmt);
+  virtual void handle(const BeginFoldOp* stmt);
+  virtual void handle(const FinalizeReductionOp* stmt);
   virtual void handle(const LoadStoreOp* stmt);
   virtual void handle(const MmaOp* stmt);
   virtual void handle(const BroadcastOp* stmt);
@@ -283,6 +287,8 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(GroupedReductionOp* stmt);
   virtual void handle(WelfordOp* stmt);
   virtual void handle(GroupedWelfordOp* stmt);
+  virtual void handle(BeginFoldOp* stmt);
+  virtual void handle(FinalizeReductionOp* stmt);
   virtual void handle(LoadStoreOp* stmt);
   virtual void handle(MmaOp* stmt);
   virtual void handle(BroadcastOp* stmt);

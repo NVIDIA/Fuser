@@ -31,15 +31,11 @@ TEST_F(FoldTest, CreateNodes) {
 
   FoldGroup g =
       FoldGroup::makeFoldGroup({inp}, {fusion.zeroVal(inp->dtype())}, {1});
-  TensorView* comb = add(g.prevFoldTensor(), g.nextElementTensor());
+  TensorView* combined = add(g.prevFoldTensor(), g.nextElementTensor());
+  TensorView* out_sum =
+      g.finalizeReduction(combined, /*associative=*/true, /*commutative=*/true);
 
-  fusion.printMath(false);
-
-  // finalizeReduction returns a std::vector<TensorView*>
-  TensorView* s =
-      g.finalizeReduction(comb, /*associative=*/true, /*commutative=*/true);
-
-  fusion.addOutput(s);
+  fusion.addOutput(out_sum);
 
   fusion.printMath();
 }

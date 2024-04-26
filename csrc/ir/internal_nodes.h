@@ -1356,7 +1356,7 @@ class GroupedWelfordOp : public Expr {
   }
 };
 
-//! This note represents the beginning of a "fold group".
+//! This node represents the beginning of a "fold group".
 class NVF_API BeginFoldOp : public Expr {
  public:
   using Expr::Expr;
@@ -1410,6 +1410,51 @@ class NVF_API BeginFoldOp : public Expr {
         !attributes().empty(),
         "combinedTensor should not be called before completeFold");
     return attributeVal(n)->as<TensorView>();
+  }
+};
+
+//! This node represents the end of a "fold group" that outputs a reduction.
+class NVF_API FinalizeReductionOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  FinalizeReductionOp(
+      IrBuilderPasskey,
+      const std::vector<TensorView*>& outputs,
+      const std::vector<TensorView*>& combined_tensors,
+      BeginFoldOp* begin_op,
+      bool associative,
+      bool commutative);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FinalizeReductionOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  size_t numTensors() const {
+    return inputs().size();
+  }
+
+  BeginFoldOp* beginFoldOp() const;
+
+  bool isAssociative() const {
+    return attribute<bool>(0);
+  }
+
+  bool isCommutative() const {
+    return attribute<bool>(1);
+  }
+
+  //! Returns accumulation tensors representing the intermediate reduction
+  TensorView* prevFoldTensor(size_t n = 0) const {
+    return attributeVal(n + 2)->as<TensorView>();
   }
 };
 

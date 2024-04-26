@@ -1534,11 +1534,28 @@ std::vector<TensorView*> FoldGroup::finalizeReduction(
     const std::vector<TensorView*>& combined_tvs,
     bool associative,
     bool commutative) {
-  // Convert all IterType::Fold axes to IterType::Reduction
+  std::vector<TensorView*> out_tvs;
+  out_tvs.reserve(combined_tvs.size());
+  for (TensorView* tv : combined_tvs) {
+    std::vector<IterDomain*> out_root;
+    out_root.reserve(tv->getMaybeRFactorDomain().size());
 
-  // TODO: set flags for associative and commutative in the finalize op
+    for (IterDomain* id : tv->getMaybeRFactorDomain()) {
+      // Convert all IterType::Fold axes to IterType::Reduction
+      out_root.push_back(
+          IterDomainBuilder(id)
+              .iter_type(id->isFold() ? IterType::Reduction : id->getIterType())
+              .build());
+    }
 
-  return {};
+    out_tvs.push_back(IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(out_root), tv->dtype()));
+  }
+
+  IrBuilder::create<FinalizeReductionOp>(
+      out_tvs, combined_tvs, begin_op_, associative, commutative);
+
+  return out_tvs;
 }
 
 TensorView* broadcast(
