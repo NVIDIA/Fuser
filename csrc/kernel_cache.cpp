@@ -1628,7 +1628,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   // We make a mutable copy of args so that we can use it in an ArgumentManager
   KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
-      mut_args, runtime_workspace_, segmented_fusion_->inputs());
+      mutable_args, runtime_workspace_, segmented_fusion_->inputs());
 
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
