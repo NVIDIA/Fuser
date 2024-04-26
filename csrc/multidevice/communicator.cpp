@@ -178,7 +178,8 @@ Communicator::Communicator(
       local_size_(0),
       master_port_(0),
       ucc_available_(false),
-      nccl_available_(false) {
+      nccl_available_(false),
+      backend_running_counter_(0) {
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -236,7 +237,7 @@ c10d::Backend* Communicator::getBackendForTeam(
     // create the team and cache it
     backends_[team_key] = createBackend(
         b,
-        c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+        c10::make_intrusive<c10d::PrefixStore>(std::to_string(backend_running_counter_++), store_),
         team_rank,
         static_cast<int64_t>(team.size()));
     if (block_during_backend_creation) {
