@@ -1624,7 +1624,7 @@ void FusionExecutor::initializeExecutorEntry(
 ///            entry.
 /// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
 ///                      computing how large the arrays to copy are.
-static void fill_gpu_ptr(
+static void fillTensorArgMetadata(
     FusionExecutor::ExecutorEntry& entry,
     const PolymorphicValue& tmd,
     size_t idx,
@@ -1730,7 +1730,7 @@ void FusionExecutor::recomputeArgs(
       const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
       const size_t idx_type_size =
           PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
-      fill_gpu_ptr(entry, tmd, p, idx_type_size);
+      fillTensorArgMetadata(entry, tmd, p, idx_type_size);
     } else {
       entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
     }
