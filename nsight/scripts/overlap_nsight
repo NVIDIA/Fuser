@@ -22,12 +22,12 @@ do
                     do
                         for NBR_BACKENDS in "1" "2"
                         do
-                            for RECORD_STREAMS in "1"
+                            for RECORD_STREAMS in "0" "1"
                             do
                                 if [ "$RECORD_STREAMS" -eq 0 ]; then
-                                    RECORD_STREAMS_CMD=" -x TORCH_NCCL_AVOID_RECORD_STREAMS"
+                                    RECORD_STREAMS_CMD=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
                                 fi
-                                CMD="nsys profile --wait="primary" -t cublas,cuda,nvtx,ucx -o ${DIRECTORY}/overlap_${TEST_UNIT}_C=${C}_USE_UCC=${USE_UCC}_N_ITERATIONS=${N_ITERATIONS}_USE_STREAMS=${USE_STREAMS}_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}"_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}_NBR_BACKENDS=${NBR_BACKENDS}_RECORD_STREAMS=${RECORD_STREAMS}
+                                CMD="nsys profile --cudabacktrace=all --wait="primary" -t cublas,cuda,nvtx,ucx -o ${DIRECTORY}/overlap_${TEST_UNIT}_C=${C}_USE_UCC=${USE_UCC}_N_ITERATIONS=${N_ITERATIONS}_USE_STREAMS=${USE_STREAMS}_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}"_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}_NBR_BACKENDS=${NBR_BACKENDS}_RECORD_STREAMS=${RECORD_STREAMS}
                                 CMD="${CMD} mpirun -np 8\
                                     -x NVFUSER_OVERLAP_N_ITERATIONS=${N_ITERATIONS}\
                                     -x NVFUSER_OVERLAP_USE_STREAMS=${USE_STREAMS}\

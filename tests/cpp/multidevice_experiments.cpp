@@ -21,8 +21,7 @@ namespace nvfuser {
 
 enum class ComputeMode {
     Pytorch,
-    nvFuserFusionExecutor,
-    nvFuserFusionExecutorCache
+    nvFuserFusionExecutor
 };
 
 std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
@@ -31,8 +30,6 @@ std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
       return out << "ComputeMode::Pytorch";
     case ComputeMode::nvFuserFusionExecutor:
       return out << "ComputeMode::nvFuserFusionExecutor";
-    case ComputeMode::nvFuserFusionExecutorCache:
-      return out << "ComputeMode::nvFuserFusionExecutorCache";
     default:
       NVF_ERROR(false);
   }
@@ -129,10 +126,10 @@ class OverlapTest : public MultiDeviceTest {
         }
 
         if (params.wait_at_backend_creation) {
-            auto a = at::empty({1}, options);
-            std::vector<at::Tensor> A = {a};
+            auto x = at::empty({1}, options);
+            std::vector<at::Tensor> X = {x};
             for (auto& backend: world_communicators) {
-                auto work_request = backend->allreduce(A);
+                auto work_request = backend->allreduce(X);
                 work_request->wait();
                 while (!work_request->isCompleted()) {}
             }
@@ -140,8 +137,6 @@ class OverlapTest : public MultiDeviceTest {
 
         // Define the constants
         A = num_devices;
-        unsharded_sizes = {A, params.B, params.C};
-
         NVF_ERROR(params.B % params.tile_size == 0);
         number_of_tiles = params.B / params.tile_size;
 
@@ -149,10 +144,10 @@ class OverlapTest : public MultiDeviceTest {
             fusion = std::make_unique<Fusion>();
             FusionGuard fg(fusion.get());
 
-            TensorView* tv = makeConcreteTensor({A,params.tile_size,params.C});
+            TensorView* tv = makeConcreteTensor({params.tile_size,A,params.C});
             fusion->addInput(tv);
             for (auto _=0; _<params.n_iterations; _++) {
-                tv = add(tv, tv);
+                tv = add(tv,tv);
                 tv = mul(tv,tv);
                 tv = sub(tv,tv);
             }
@@ -161,7 +156,7 @@ class OverlapTest : public MultiDeviceTest {
             DeviceMesh mesh(devices);
             for (auto tv: ir_utils::filterByType<TensorView>(fusion->vals())) {
                 tv->setDeviceMesh(mesh);
-                tv->axis(0)->parallelize(ParallelType::DIDx);
+                tv->axis(1)->parallelize(ParallelType::DIDx);
             }
 
             fe = std::make_unique<FusionExecutor>();
@@ -183,14 +178,14 @@ class OverlapTest : public MultiDeviceTest {
 
     int64_t A;
     int64_t number_of_tiles;
-    std::vector<int64_t> unsharded_sizes;
     std::unique_ptr<Fusion> fusion;
     std::unique_ptr<FusionExecutor> fe;
     at::TensorOptions options;
 
     c10::IValue get_slice(c10::IValue t, int64_t i, int64_t j) {
-        return t.toTensor().index({at::indexing::Slice(i, i+1),
+        return t.toTensor().index({
                         at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size),
+                        at::indexing::Slice(i, i+1),
                         "..."});
     }
 
@@ -202,14 +197,16 @@ class OverlapTest : public MultiDeviceTest {
         }
     }
 
-    void compute(std::vector<c10::IValue>& t, std::vector<at::Tensor>& output) {
+    void compute(at::Tensor t, at::Tensor output) {
+        std::vector<c10::IValue> inputs;
         switch (params.compute_mode)
         {
         case ComputeMode::Pytorch:
-            compute_ATen(t.at(0).toTensor(), output.at(0));
+            compute_ATen(t, output);
             break;
         case ComputeMode::nvFuserFusionExecutor:
-            fe->runFusion(t, output);
+            inputs.push_back(t);
+            fe->runFusion(inputs, {output});
             break;
         default:
             NVF_ERROR(false);
@@ -236,33 +233,18 @@ This program should in principle achieve overlap between comms and compute
 TEST_F(OverlapTest, SimpleComputeComm) {
     // Input set-up
     // define the unsharded inputs for validation
+    std::vector<int64_t> unsharded_sizes = {params.B, A, params.C};
+    std::vector<int64_t> sharded_sizes = {params.B, 1, params.C};
     auto tv0_unsharded = at::randn(unsharded_sizes, options);
-    // Index into the unsharded inputs to get the local input tv0
-    // We prepare the inputs slices, because profiling shows that slicing sometimes result in a copy instead of a view
-    std::vector<std::vector<c10::IValue>> tv0_slices;
-    for (auto j: c10::irange(number_of_tiles)) {
-        tv0_slices.push_back({get_slice(tv0_unsharded, my_device_index, j)});
-    }
-
-    std::vector<std::vector<at::Tensor>> tv1_slices;
-    for (int _=0; _<number_of_tiles; _++) {
-        tv1_slices.push_back({at::empty({1,params.tile_size,params.C}, options)});
-    }
-
-    // Allocate ouput global buffer for tv2 for the data to be allgathered
-    auto tv2_buf = at::empty(unsharded_sizes, options);
-    // Setup the recv buffer slices. c10d needs the destinations buffers to be in a certain format
-    std::vector<std::vector<std::vector<at::Tensor>>> tv2_slices;
-    for (auto j: c10::irange(number_of_tiles)) {
-        std::vector<at::Tensor> tv2_j_slices;
-        for (auto i: c10::irange(num_devices)) {
-            tv2_j_slices.push_back(get_slice(tv2_buf, i, j).toTensor());
-        }
-        tv2_slices.push_back({std::move(tv2_j_slices)});
-    }
+    at::Tensor tv0 = at::empty(sharded_sizes, options);
+    tv0.copy_(tv0_unsharded.index({at::indexing::Slice(),
+                        at::indexing::Slice(my_device_index, my_device_index+1), "..."}));
+    auto tv1 = at::empty_like(tv0);
+    auto tv2 = at::empty_like(tv0_unsharded);
 
     if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
-        fe->compileFusion(fusion.get(), tv0_slices.at(0));
+        c10::IValue tv0_ivalue = tv0.index({at::indexing::Slice(0, params.tile_size), "..."});
+        fe->compileFusion(fusion.get(), tv0_ivalue);
     }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(number_of_tiles)) {
@@ -270,11 +252,17 @@ TEST_F(OverlapTest, SimpleComputeComm) {
             setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
         }
         // local compute
-        compute(tv0_slices.at(j), tv1_slices.at(j));
+        compute(tv0.index({at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size), "..."}),
+                tv1.index({at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size), "..."})
+               );
 
         // communication
-        auto req_handle = getWorldCommunicator()->allgather(tv2_slices.at(j), tv1_slices.at(j));
-        // req_handle->wait();
+        for (int k=0; k<params.tile_size; k++) {
+            int index = j*params.tile_size + k;
+            auto dst = tv2.index({at::indexing::Slice(index, index+1), "..."});
+            auto src = tv1.index({at::indexing::Slice(index, index+1), "..."});
+            getWorldCommunicator()->_allgather_base(dst, src);
+        }
     }
 
     // validation
@@ -282,18 +270,10 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     auto tv2_ref = at::empty(unsharded_sizes, options);
     compute_ATen(tv0_unsharded, tv2_ref);
     // compare obtained and expected outputs
-    for (auto i: c10::irange(num_devices)) {
-        for (auto j: c10::irange(number_of_tiles)) {
-            auto expected = get_slice(tv2_ref, i, j).toTensor();
-            auto obtained = tv2_slices.at(j).at(0).at(i);
-            EXPECT_TRUE(torch::allclose(expected, obtained))
-                << "On device " << my_device_index << "\n"
-                << "i=" << i << "\n"
-                << "j=" << j << "\n"
-                << "obtained=" << obtained << "\n"
-                << "expected=" << expected << "\n";
-        }
-    }
+    EXPECT_TRUE(torch::allclose(tv2_ref, tv2))
+        << "On device " << my_device_index << "\n"
+        << "obtained=" << tv2 << "\n"
+        << "expected=" << tv2_ref << "\n";
 }
 
 TEST_F(OverlapTest, DummyExample) {
