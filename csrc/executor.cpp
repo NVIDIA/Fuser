@@ -1649,7 +1649,7 @@ static void fill_gpu_ptr(
   std::array<std::byte*, 3> offsets = {
       entry.args[idx].data(), // data ptr
       entry.args[idx].data() + sizeof(void*), // shape array
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
+      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,  // strides
   };
 
   memcpy(offsets[0], &data, sizeof(void*));
