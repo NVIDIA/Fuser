@@ -1657,7 +1657,8 @@ static void fillTensorArgMetadata(
   std::array<std::byte*, 3> offsets = {
       entry.args[idx].data(), // data ptr
       entry.args[idx].data() + sizeof(void*), // shape array
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size, // strides
+      // strides array:
+      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
   };
 
   memcpy(offsets[0], &data, sizeof(void*));
