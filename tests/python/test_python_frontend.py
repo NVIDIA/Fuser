@@ -2445,6 +2445,11 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(k, device="cuda", dtype=torch.float16),
         ]
 
+        inputs_m1m2mk_k = [
+            torch.randn(16, 8, m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, device="cuda", dtype=torch.float16),
+        ]
+
         def fusion_func(
             fd: FusionDefinition,
             inp: torch.Tensor,
@@ -2470,6 +2475,7 @@ class TestNvFuserFrontend(TestCase):
             # A[K]@B[N,K]
             inputs_k_nk,
             inputs_mk_k,
+            inputs_m1m2mk_k,
         ]
         use_bias = [None, bias0d, bias1d, bias2d]
 
@@ -2477,6 +2483,8 @@ class TestNvFuserFrontend(TestCase):
             if bias is bias2d and input is inputs_k_nk:
                 return False
             if bias is not None and input is inputs_mk_k:
+                return False
+            if bias is not None and input is inputs_m1m2mk_k:
                 return False
             return True
 
