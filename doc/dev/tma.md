@@ -195,6 +195,8 @@ The Figure 8 below shows some invalid schedule on the shared memory tensor:
 
 ![Figure 8: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
 
+These examples can also be found in unit tests `TMADocTest.Figure8*`.
+
 These examples have the same reason for being invalid: The tile in shared memory is not contiguous.
 
 In the example (a), the allocated IterDomains are `[I3, I7, I8, I6]`
@@ -222,6 +224,9 @@ The Figure 9 below shows some valid schedule on the shared memory tensor:
 
 ![Figure 9: Some valid smem schedule](tma/valid-smem-contig.svg)
 
+
+These examples can also be found in unit tests `TMADocTest.Figure9*`.
+
 Example (a) is valid because it flipped the order of `I8` and `I7` to make `I7` inner,
 and the `I5` between `I7` and `I6` is `blockIdx.x` parallelized therefore not allocated.
 
@@ -241,6 +246,8 @@ Especially, as long as we are keeping each tile contiguous in memory, we can vie
 The following Figure 10 shows some additional valid and invalid schedules:
 
 ![Figure 10: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
+
+These examples can also be found in unit tests `TMADocTest.Figure10*`.
 
 In the above figure, example (a) and (b) are valid because the allocation domains satisfy the constraint that they must be a multiple of whole tiles and each tile is contiguous in memory.
 
