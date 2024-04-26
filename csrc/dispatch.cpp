@@ -80,6 +80,7 @@ void Expr::dispatch(T handler, Expr* expr) {
     return;                              \
   }
   DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 #define M(e)                                  \
   if (expr->isStrictlyA<kir::e>()) {          \
@@ -88,10 +89,6 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
-    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
-    return;
-  }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
@@ -141,6 +138,7 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     return;                              \
   }
   DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 #define M(e)                                  \
   if (expr->isStrictlyA<kir::e>()) {          \
@@ -149,10 +147,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-  if (expr->isStrictlyA<assoc_comm::FlattenedAssocCommOp>()) {
-    ptr(handler)->handle(expr->as<assoc_comm::FlattenedAssocCommOp>());
-    return;
-  }
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
@@ -305,13 +299,11 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Val* stmt) {
-  unhandled(stmt);
-}
 #define M(e)                                        \
   void OptOutConstDispatch::handle(const e* stmt) { \
     unhandled(stmt);                                \
   }
+M(Val)
 DISPATCH_FOR_ALL_VALS(M)
 #undef M
 #define M(e)                                             \
@@ -319,6 +311,7 @@ DISPATCH_FOR_ALL_VALS(M)
     unhandled(stmt);                                     \
   }
 DISPATCH_FOR_ALL_KIR_VALS(M)
+M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 
 // Exprs
@@ -334,26 +327,20 @@ DISPATCH_FOR_ALL_EXPRS(M)
   }
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-
-void OptOutConstDispatch::handle(const assoc_comm::FlattenedAssocCommOp* stmt) {
-  unhandled(stmt);
-}
 
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Val* stmt) {
-  unhandled(stmt);
-}
-#define M(e)                                  \
-  void OptOutConstDispatch::handle(e* stmt) { \
-    unhandled(stmt);                          \
+#define M(e)                             \
+  void OptOutDispatch::handle(e* stmt) { \
+    unhandled(stmt);                     \
   }
+M(Val)
 DISPATCH_FOR_ALL_VALS(M)
 #undef M
-#define M(e)                                       \
-  void OptOutConstDispatch::handle(kir::e* stmt) { \
-    unhandled(stmt);                               \
+#define M(e)                                  \
+  void OptOutDispatch::handle(kir::e* stmt) { \
+    unhandled(stmt);                          \
   }
 DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
@@ -364,6 +351,7 @@ DISPATCH_FOR_ALL_KIR_VALS(M)
     unhandled(stmt);                          \
   }
 DISPATCH_FOR_ALL_EXPRS(M)
+M(assoc_comm::FlattenedAssocCommOp)
 #undef M
 #define M(e)                                       \
   void OptOutConstDispatch::handle(kir::e* stmt) { \
@@ -371,8 +359,5 @@ DISPATCH_FOR_ALL_EXPRS(M)
   }
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-void OptOutDispatch::handle(assoc_comm::FlattenedAssocCommOp* stmt) {
-  unhandled(stmt);
-}
 
 } // namespace nvfuser

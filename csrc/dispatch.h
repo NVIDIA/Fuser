@@ -107,17 +107,33 @@ class Val;
   f(Swizzle);                     \
   f(Swizzle2D);                   \
   f(Resize);
-#define DISPATCH_FOR_ALL_KIR_EXPRS(f)                                       \
-  f(Allocate) f(Asm) f(BlockSync) f(GridSync) f(MBarrierInit)               \
-      f(MBarrierInvalidate) f(MBarrierArrive) f(MBarrierArriveExpectTx)     \
-          f(MBarrierWait) f(BlockSerializeWait) f(BlockSerializeRelease)    \
-              f(AsyncWait) f(AsyncCommit) f(ForLoop) f(IfThenElse)          \
-                  f(GridReduction) f(GroupedGridReduction) f(GridBroadcast) \
-                      f(GridWelford) f(GroupedGridWelford)                  \
-                          f(VectorizedWelfordOp) f(AllocateFusedReduction)  \
-                              f(InitMagicZero) f(UpdateMagicZero)           \
-                                  f(GetRNGSeedAndOffsetFromHost)            \
-                                      f(EncodeTensorMapTiled)
+#define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
+  f(Allocate);                        \
+  f(Asm);                             \
+  f(BlockSync);                       \
+  f(GridSync);                        \
+  f(MBarrierInit);                    \
+  f(MBarrierInvalidate);              \
+  f(MBarrierArrive);                  \
+  f(MBarrierArriveExpectTx);          \
+  f(MBarrierWait);                    \
+  f(BlockSerializeWait);              \
+  f(BlockSerializeRelease);           \
+  f(AsyncWait);                       \
+  f(AsyncCommit);                     \
+  f(ForLoop);                         \
+  f(IfThenElse);                      \
+  f(GridReduction);                   \
+  f(GroupedGridReduction);            \
+  f(GridBroadcast);                   \
+  f(GridWelford);                     \
+  f(GroupedGridWelford);              \
+  f(VectorizedWelfordOp);             \
+  f(AllocateFusedReduction);          \
+  f(InitMagicZero);                   \
+  f(UpdateMagicZero);                 \
+  f(GetRNGSeedAndOffsetFromHost);     \
+  f(EncodeTensorMapTiled);
 
 // Forward declarations for all Val and Expr types
 
@@ -151,17 +167,16 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void dispatch(const Expr*);
   virtual void dispatch(const Val*);
 
-  virtual void handle(const Val* stmt);
-
 #define M(e) virtual void handle(const e* stmt);
+  M(Val);
   DISPATCH_FOR_ALL_VALS(M)
   DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp);
 #undef M
 #define M(e) virtual void handle(const kir::e* stmt);
   DISPATCH_FOR_ALL_KIR_VALS(M)
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-  virtual void handle(const assoc_comm::FlattenedAssocCommOp*);
 };
 
 class NVF_API OptOutDispatch : public PolymorphicBase {
@@ -177,12 +192,12 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
 #define M(e) virtual void handle(e* stmt);
   DISPATCH_FOR_ALL_VALS(M)
   DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp);
 #undef M
 #define M(e) virtual void handle(kir::e* stmt);
   DISPATCH_FOR_ALL_KIR_VALS(M)
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-  virtual void handle(assoc_comm::FlattenedAssocCommOp*);
 };
 
 class OptInConstDispatch : public OptOutConstDispatch {
