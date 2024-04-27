@@ -9,11 +9,7 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
-#ifdef USE_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
-#else
-#include <multidevice/c10d_mock.h>
-#endif
 #include <type.h>
 #include <visibility.h>
 

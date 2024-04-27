@@ -14,9 +14,6 @@
 
 namespace nvfuser {
 
-// Returns true iff nvFuser was compiled with distributed APIs enabled.
-NVF_API bool distributedEnabled();
-
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
