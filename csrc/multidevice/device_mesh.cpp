@@ -8,7 +8,15 @@
 
 #include <multidevice/device_mesh.h>
 
+#include <numeric>
+
 namespace nvfuser {
+
+DeviceMesh::DeviceMesh(const int64_t num_devices) {
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  setDevices(devices);
+}
 
 std::string DeviceMesh::toString() const {
   std::stringstream ss;

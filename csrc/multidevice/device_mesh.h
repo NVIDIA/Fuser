@@ -7,6 +7,9 @@
 // clang-format on
 
 #pragma once
+
+#include <vector>
+
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
 #include <visibility.h>
@@ -20,9 +23,11 @@ namespace nvfuser {
 */
 class DeviceMesh final {
  public:
-  DeviceMesh(std::vector<DeviceIdxType> devices = {}) {
+  DeviceMesh(const std::vector<DeviceIdxType>& devices = {}) {
     setDevices(devices);
   }
+
+  explicit DeviceMesh(const int64_t num_devices);
 
   std::string toString() const;
 
@@ -46,7 +51,7 @@ class DeviceMesh final {
   }
 
  private:
-  void setDevices(std::vector<DeviceIdxType> devices) {
+  void setDevices(const std::vector<DeviceIdxType>& devices) {
     vector_ = devices;
     NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),

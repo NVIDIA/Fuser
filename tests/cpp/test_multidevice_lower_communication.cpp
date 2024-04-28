@@ -25,6 +25,10 @@ TEST_F(LowerCommunicationTest, AllGather) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
+  DeviceMesh mesh(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor = at::randn({num_devices, 3}, tensor_options);
