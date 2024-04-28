@@ -16,11 +16,9 @@
 
 namespace nvfuser {
 
-/*
-   The class DeviceMesh represents a set of (unique) devices on which a Pipeline
-   Stage will be executed. For now, we only support flat meshes, but later we
-   will add support for n-dimensional meshes.
-*/
+// The class DeviceMesh represents a set of (unique) devices on which a pipeline
+// stage will be executed. For now, we only support flat meshes, but later we
+// will add support for n-dimensional meshes.
 class DeviceMesh final {
  public:
   DeviceMesh(const std::vector<DeviceIdxType>& devices = {}) {
