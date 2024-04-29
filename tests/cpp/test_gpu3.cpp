@@ -7229,11 +7229,11 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
       NVF_CHECK(
-          persistent_params->shared_mem_persistent_buffer,
+          !persistent_params->smem_persistent_buffers.empty(),
           "Should use shared memory buffer!");
     } else {
       NVF_CHECK(
-          !persistent_params->shared_mem_persistent_buffer,
+          persistent_params->smem_persistent_buffers.empty(),
           "Shouldn't use shared memory buffer!");
     }
 

@@ -233,6 +233,7 @@ struct PersistentKernelProperties {
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  std::vector<TensorView*> persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
     ss << "===== Persistent Kernel Properties ========\n"
@@ -329,5 +330,13 @@ bool isProjectBufferToInputs(
         persistent_buffer_size_info,
     const ScheduleHeuristic sh,
     const bool is_inner_outer_with_outer_bcast = false);
+
+// move persistent buffer marked in rparams->smem_persistent_buffers from
+// register to smem
+void movePersistentBufferToSmem(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& cached_inputs);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

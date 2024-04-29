@@ -1075,7 +1075,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
-      .has_exp_op = has_exp_op};
+      .has_exp_op = has_exp_op,
+      .persistent_buffers = persistent_buffer_info.persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
@@ -1270,6 +1271,44 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   return true;
 }
 
+void movePersistentBufferToSmem(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& cached_inputs) {
+  // Transfer the persistent buffer tensors to shared memory. These tensors are
+  // housed in smem_persistent_buffers. If a candidate tensor is input, move its
+  // associated cached tensors.
+  if (!rparams.smem_persistent_buffers.empty()) {
+    const auto& persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
+      return std::any_of(
+          rparams.smem_persistent_buffers.begin(),
+          rparams.smem_persistent_buffers.end(),
+          [lookup_tv](const auto* tv) {
+            // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
+            // smem_persistent_buffers are from a cloned fusion.
+            return tv->name() == lookup_tv->name();
+          });
+    };
+    for (auto tv : persistent_buffers) {
+      bool use_smem = isSharedMemoryPersistent(tv);
+      // If project to inputs, the buffer inputs are stored in
+      // [smem_persistent_buffers], after projection, the cached input becomes
+      // the new persistent buffer.
+      if (!use_smem && rparams.project_persistent_buffers &&
+          std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+              cached_inputs.end()) {
+        auto input_tv = ir_utils::producerTvsOf(tv).at(0);
+        use_smem = isSharedMemoryPersistent(input_tv);
+      }
+      if (use_smem) {
+        tv->setMemoryType(MemoryType::Shared);
+      }
+    }
+  }
+}
+
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,
@@ -1301,14 +1340,9 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Use shared memory to store persistent buffers
-  if (rparams.shared_mem_persistent_buffer) {
-    const auto& persistent_buffers =
-        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-    for (auto tv : persistent_buffers) {
-      tv->setMemoryType(MemoryType::Shared);
-    }
-  }
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem
+  movePersistentBufferToSmem(fusion, rparams, cached_inputs);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }

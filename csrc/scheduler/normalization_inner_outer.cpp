@@ -412,7 +412,7 @@ std::vector<TensorView*> sortPersistentBuffers(
 // is slower than registers, we should move the buffers that are
 // less frequently accessed to shared memory.
 struct PersistentBufferStorageParams {
-  std::vector<TensorView*> smem_persistent_tvs;
+  std::vector<TensorView*> smem_persistent_buffers;
   int64_t smem_buffer_size = -1;
   int64_t regs_buffer_size = -1;
   int64_t smem_overhead = -1;
@@ -528,7 +528,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.smem_persistent_tvs.emplace_back(sorted_candidate_tvs[i]);
+      buffer_params.smem_persistent_buffers.emplace_back(
+          sorted_candidate_tvs[i]);
     }
     buffer_params.regs_buffer_size -= acc_regs_buffer_size;
     buffer_params.smem_buffer_size = acc_smem_buffer_size;
@@ -686,7 +687,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const bool project_to_input,
     const PrimDataType index_type) {
   auto rparams = std::make_shared<ReductionParams>();
-  rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
   // Parameters for inner reduction:
@@ -908,7 +908,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  if (rparams->shared_mem_persistent_buffer) {
+  if (!rparams->smem_persistent_buffers.empty()) {
     rparams->tag =
         "InnerOuter Register and Shared Memory Persistent Heuristic.\n";
   } else {
@@ -1013,9 +1013,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   // save persistent tvs should use shared memory, to avoid calling
   // getPersistentBufferStorageParams again during the scheduling.
-  if (rparams->shared_mem_persistent_buffer) {
-    rparams->smem_persistent_tvs = buffer_params.smem_persistent_tvs;
-  }
+  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
 
   return rparams;
 }
@@ -1177,38 +1175,10 @@ void scheduleInnerOuterPersistentKernel(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Transfer the persistent buffer tensors to shared memory. These tensors are
-  // housed in smem_persistent_tvs. If a candidate tensor is input, move its
-  // associated cached tensors.
-  if (rparams.shared_mem_persistent_buffer) {
-    const auto& persistent_buffers =
-        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-    auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
-      return std::any_of(
-          rparams.smem_persistent_tvs.begin(),
-          rparams.smem_persistent_tvs.end(),
-          [lookup_tv](const auto* tv) {
-            // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
-            // smem_persistent_tvs are from a cloned fusion.
-            return tv->name() == lookup_tv->name();
-          });
-    };
-    for (auto tv : persistent_buffers) {
-      bool use_smem = isSharedMemoryPersistent(tv);
-      // If project to inputs, the buffer inputs are stored in
-      // [smem_persistent_tvs], after projection, the cached input becomes the
-      // new persistent buffer.
-      if (!use_smem && rparams.project_persistent_buffers &&
-          std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
-              cached_inputs.end()) {
-        auto input_tv = ir_utils::producerTvsOf(tv).at(0);
-        use_smem = isSharedMemoryPersistent(input_tv);
-      }
-      if (use_smem) {
-        tv->setMemoryType(MemoryType::Shared);
-      }
-    }
-  }
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem
+  normalization_scheduler_utils::movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs);
 
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 

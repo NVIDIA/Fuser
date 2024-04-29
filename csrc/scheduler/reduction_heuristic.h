@@ -135,13 +135,7 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
-  // If false, only register is used to store persistent buffers.
-  // If true, shared memory is used to store all or some of the persistent
-  // buffers. When there is only one persistent buffer, it is stored in shared
-  // memory. When there are multiple persistent buffers, the buffers stored in
-  // shared memory are marked in [smem_persistent_tvs]. Other persistent buffers
-  // are still stored in registers.
-
+  // vector stores buffer should be moved to shared memory.
   // TODO: For innerOuterPersistentHeuristic, only the persistent tensors in the
   // original fusion definition may be moved to shared memory, the intermediate
   // persistent tensors which are creased by the scheduler to store the partial
@@ -149,8 +143,7 @@ class ReductionParams : public HeuristicParams {
   // frequently accessed by both read and write. The code can be extended to
   // allow the move of these intermediate persistent tensors to shared memory
   // when the shared memory is much larger than the register file.
-  bool shared_mem_persistent_buffer = false;
-  std::vector<TensorView*> smem_persistent_tvs;
+  std::vector<TensorView*> smem_persistent_buffers;
 
  public:
   using HeuristicParams::HeuristicParams;
@@ -196,8 +189,7 @@ class ReductionParams : public HeuristicParams {
         other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other.vectorization_factor_outer == vectorization_factor_outer &&
         other.vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write &&
-        other.shared_mem_persistent_buffer == shared_mem_persistent_buffer;
+            vectorization_factor_tmp_gmem_write;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();

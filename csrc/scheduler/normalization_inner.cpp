@@ -548,7 +548,6 @@ void innerPersistentHeuristicSharedMemory(
     const PersistentKernelProperties& properties,
     std::shared_ptr<ReductionParams> rparams) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  rparams->shared_mem_persistent_buffer = true;
   // Inner reduction domain
   // This heuristic is only used for cases with large total_reduction_numel.
   // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
@@ -1099,6 +1098,9 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   // specific heuristics for different cases
   if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
+    // all persistent buffers are moved to shared memory
+    // TODO: allow only part of the buffers to be moved to shared memory
+    rparams->smem_persistent_buffers = prop.persistent_buffers;
     innerPersistentHeuristicSharedMemory(prop, rparams);
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
