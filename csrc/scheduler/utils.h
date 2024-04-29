@@ -96,13 +96,13 @@ inline int64_t safeDiv(const int64_t x, const int64_t y) {
 // `to_split` matters. All given dimensions are numbers before any split.
 NVF_API void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split, // (dim, size)
-    std::vector<size_t>& to_update);
+    std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
+    std::vector<int64_t>& to_update);
 
 NVF_API inline void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split) { // (dim, size)
-  std::vector<size_t> unused;
+    std::vector<std::pair<int64_t, int64_t>> to_split) { // (dim, size)
+  std::vector<int64_t> unused;
   splitDims(tv, std::move(to_split), unused);
 }
 
@@ -112,25 +112,25 @@ NVF_API inline void splitDims(
 // merge.
 // NOTE: merged is done as the entries in the order of `to_merge`, assuming an
 // order from inner to outer
-NVF_API std::optional<size_t> mergeDims(
+NVF_API std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge,
-    std::vector<size_t>& to_update);
+    std::vector<int64_t> to_merge,
+    std::vector<int64_t>& to_update);
 
-inline std::optional<size_t> mergeDims(
+inline std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge) {
-  std::vector<size_t> unused;
+    std::vector<int64_t> to_merge) {
+  std::vector<int64_t> unused;
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
 // Merge all reduction to the right side and returns total number of
 // reduction axes.
-size_t mergeReduction(TensorView* tv);
+int64_t mergeReduction(TensorView* tv);
 
 // merge all non-reduction axes to the left side and returns total number of
 // iteration axes.
-size_t mergeNonReduction(TensorView* tv);
+int64_t mergeNonReduction(TensorView* tv);
 
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
@@ -270,8 +270,9 @@ std::pair<bool, bool> canonicalDimReduction(
     TensorView* tv,
     bool schedule_3D = false);
 
-// Return a list of tensor views that are outputs of reduction operations. If
-// multiple outputs of an expression are found, only include one in the list
+// Return a list of tensor views that are outputs of reduction operations,
+// excluding resharding reduce expressions. If multiple outputs of an expression
+// are found, only include one in the list
 NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 
 // Returns a list of TensorViews that are the consumer tv for a view operation.
@@ -363,7 +364,7 @@ struct DisjointRFactorSetInfo {
   // Unique ID associated to the disjoint view group the rfactor id belongs to
   // in disjoint_sets_of_ref. It's straight forward to map from
   // disjoint_sets_of_ref to the vector, but not the other way around.
-  std::vector<int> disjoint_set_ids;
+  std::vector<int64_t> disjoint_set_ids;
 
   // TensorView reference the above vectors are relative to.
   TensorView* ref;
@@ -387,7 +388,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int, int>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -404,7 +405,7 @@ struct BroadcastMultiple {
 };
 
 struct BroadcastMultipleInformation {
-  std::vector<int> view_disjoint_set_ids;
+  std::vector<int64_t> view_disjoint_set_ids;
   std::vector<BroadcastMultiple> broadcast_multiples;
 };
 
@@ -427,12 +428,12 @@ struct BroadcastMultipleInformation {
 NVF_API BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int, int>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
 //!  a connection with `from_tv` on the fusion graph.
-void transformPropagateToAllFrom(TensorView* from_tv, int pos);
+void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos);
 
 //! A type of custom transform propagator that propagates iterdomain
 //!  transforms from a source tv to all tvs that are selected
@@ -468,7 +469,7 @@ struct BoundedDirectionalTransformPropagator {
     //!  type propagation, see comment on
     //!  scheduler_utils::parallelizeAllLike.
     //! Only used if propagate_parallel_type==true.
-    int parallel_propagation_pos = -1;
+    int64_t parallel_propagation_pos = -1;
 
     //! Setter for enabling parallel type
     //!  propagation. see comment on the variable.
@@ -476,7 +477,7 @@ struct BoundedDirectionalTransformPropagator {
     //! \param up_to_pos, sets the parallel type
     //!  propagation boundary. see comment on
     //!  scheduler_utils::parallelizeAllLike.
-    Options propagateParallelType(int up_to_pos = -1) {
+    Options propagateParallelType(int64_t up_to_pos = -1) {
       propagate_parallel_type = true;
       parallel_propagation_pos = up_to_pos;
       return *this;
@@ -495,7 +496,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  of boundary tensorviews in `to` and producers of `from`.
   NVF_API static void backward(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> to,
       std::optional<Options> options = std::nullopt);
 
@@ -504,7 +505,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  of boundary tensorviews in `to` and consumers of `from`.
   static void forward(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> to,
       std::optional<Options> options = std::nullopt);
 
@@ -515,7 +516,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  either a producer or a consumer of tensorview `from`.
   static void bothWays(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
       std::optional<Options> options = std::nullopt);
@@ -528,7 +529,7 @@ struct BoundedDirectionalTransformPropagator {
   //! a producer or a consumer of from_tv.
   static void propagate(
       TensorView* from_tv,
-      int pos,
+      int64_t pos,
       std::unordered_set<TensorView*> included_tvs,
       Options options);
 };
@@ -558,7 +559,7 @@ NVF_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
 // e.g.
 // [1, 0, 0] pos 2 would return false
 // [1, 0, 0] pos 1 would return true
-NVF_API bool breakIsDisjoint(std::vector<int> group_ids, int pos);
+NVF_API bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
 // Generates an old to new map to reorder tv's domain as the rfactor order.
 // Priority is given to inner most dimensions for example:
@@ -566,12 +567,14 @@ NVF_API bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 // domain [i0*i2, i1]
 // will produce the map {{0, 1}, {1, 0}}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-NVF_API std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
+NVF_API std::unordered_map<int64_t, int64_t> domainReorderAsRfactorMap(
+    TensorView* tv);
 
 // Generates an old to new map to reorder tv's domain as the rfactor order.
 // This only handles the simple case where allocation is a permutation of
 // rfactor domain, otherwise, the function returns an empty container.
-std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv);
+std::unordered_map<int64_t, int64_t> maybeRfactorReorderAsAllocationMap(
+    TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false

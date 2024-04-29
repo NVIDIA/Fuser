@@ -17,7 +17,7 @@
 
 namespace nvfuser {
 
-unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
+int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
   // Double-buffering prefetches the next subregion of the tensor by
   // doubling the allocation. The subregion is defined by the axes
   // at the CA position till the inner-most position. There must be
@@ -35,20 +35,20 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
         return axis->getParallelType() == ParallelType::Unroll;
       });
 
-  const int first_unroll_pos =
-      (int)std::distance(tv->getLeafDomain().begin(), first_unroll_it);
+  const int64_t first_unroll_pos =
+      (int64_t)std::distance(tv->getLeafDomain().begin(), first_unroll_it);
 
-  const int unroll_or_ca_pos =
-      std::min((int)tv->getComputeAtPosition(), first_unroll_pos);
+  const int64_t unroll_or_ca_pos =
+      std::min(tv->getComputeAtPosition(), first_unroll_pos);
 
   NVF_ERROR(
       unroll_or_ca_pos > 0,
       "Invalid tensor to double-buffer. Valid double buffer axis not found due to Unroll. ",
       tv->toString());
 
-  int valid_pos = -1;
+  int64_t valid_pos = -1;
   // Skip parallelized or broadcast axes
-  for (int i = unroll_or_ca_pos - 1; i >= 0; --i) {
+  for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
     auto pt = tv->axis(i)->getParallelType();
     if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
       valid_pos = i;
@@ -65,7 +65,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
 }
 
 IterDomain* getDoubleBufferAxis(const TensorView* tv) {
-  return tv->axis((int)getDoubleBufferAxisPosition(tv));
+  return tv->axis(getDoubleBufferAxisPosition(tv));
 }
 
 void validateDoubleBufferedTensor(const TensorView* tv) {
@@ -573,6 +573,16 @@ class DoubleBufferInserter : private kir::ExprMutator {
     //   is more conceptual at the moment, aka low priority.
     if (has_cpasync) {
       insertCpAsyncCommitWaitInMainLoop(main_loop, loads);
+
+      // The main loop will generate some async loads from invalid regions.
+      // These populate the current cp.async group and they fill the smem with
+      // zero. Subsequent code might assume an empty cp.async group (for example
+      // an unparallelized batch matmul), or might re-use memory (WAW
+      // hazard, see https://github.com/NVIDIA/Fuser/issues/2000). For safety,
+      // we drain the group after the loops by waiting on these transfers.
+      auto cp_async_wait_all =
+          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, 0);
+      registerInsertAfter(double_buffer_loop, cp_async_wait_all);
     }
 
     if (requireEpilogue(loads)) {

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
@@ -22,10 +25,14 @@ def reduction_fusion(
     fd.add_output(T2)
 
 
+def reduction_fwd_fn(inputs: list):  # in_tensor, reduction_axis
+    return torch.sum(inputs[0], dim=inputs[1])
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_reduction_benchmark(
+def test_reduction_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -46,3 +53,25 @@ def test_reduction_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_reduction_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+    compile: bool,
+):
+    clear_cuda_cache()
+
+    input = torch.randn(*size, degvice="cuda", dtype=dtype)
+    # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
+    run_benchmark(
+        benchmark,
+        torch.compile(reduction_fwd_fn) if compile else reduction_fwd_fn,
+        [input, reduction_axis],
+    )

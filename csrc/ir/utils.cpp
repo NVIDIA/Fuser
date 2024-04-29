@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <scheduler/mma_utils.h>
 
 #include <limits>
 #include <set>
@@ -21,9 +22,9 @@ namespace nvfuser::ir_utils {
 
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims) {
+    int64_t ndims) {
   NVF_CHECK(
-      new2old_in.size() == ndims,
+      (int64_t)new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
@@ -39,9 +40,7 @@ std::vector<int64_t> normalizeNew2Old(
       std::none_of(
           new2old.begin(),
           new2old.end(),
-          [ndims](int64_t entry) {
-            return entry < 0 || (unsigned int)entry >= ndims;
-          }),
+          [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
       "New2Old axes are not within the number of dimensions of the provided domain.\t",
       new2old);
 
@@ -55,25 +54,25 @@ std::vector<int64_t> normalizeNew2Old(
 
   // Error out if duplicate values are found.
   NVF_CHECK(
-      new2old.size() == ndims && old_pos_set.size() == new2old.size(),
+      (int64_t)new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
   // END VALIDATION CHECKS
   return new2old;
 }
 
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims) {
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims) {
   // adjust based on negative values (any negative values gets nDims added to
   // it)
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
   std::transform(
       old2new_in.begin(),
       old2new_in.end(),
       std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
+      [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+        return std::unordered_map<int64_t, int64_t>::value_type({
             entry.first < 0 ? entry.first + ndims : entry.first,
             entry.second < 0 ? entry.second + ndims : entry.second,
         });
@@ -85,29 +84,29 @@ std::vector<int> normalizeOld2New(
       std::none_of(
           old2new.begin(),
           old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
+          [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+            return entry.first < 0 || entry.first >= ndims ||
+                entry.second < 0 || entry.second >= ndims;
           }),
       "Reorder axes are not within the number of dimensions of the provided domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
-  std::set<int> old_pos_set;
+  std::set<int64_t> old_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.first;
       });
 
-  std::set<int> new_pos_set;
+  std::set<int64_t> new_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.second;
       });
 
@@ -119,27 +118,27 @@ std::vector<int> normalizeOld2New(
 
   // END VALIDATION CHECKS
 
-  std::vector<int> new2old(ndims, -1);
+  std::vector<int64_t> new2old(ndims, -1);
 
   // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
+  for (std::pair<int64_t, int64_t> elem : old2new) {
+    int64_t old_pos = elem.first;
+    int64_t new_pos = elem.second;
     new2old[new_pos] = old_pos;
   }
 
   // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
+  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
   old_positions.erase(-1);
 
   // All available new positions
-  std::set<int> all_positions;
+  std::set<int64_t> all_positions;
   for (auto i : c10::irange(ndims)) {
-    all_positions.insert((int)i);
+    all_positions.insert((int64_t)i);
   }
 
   // Check what positions haven't been specified.
-  std::set<int> positions_left;
+  std::set<int64_t> positions_left;
   std::set_difference(
       all_positions.begin(),
       all_positions.end(),
@@ -152,9 +151,10 @@ std::vector<int> normalizeOld2New(
   // new2old[new_position] = old_position
   auto it = positions_left.begin(); // old positions left
   std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+      new2old.begin(),
+      new2old.end(),
+      new2old.begin(),
+      [&it](int64_t i) -> int64_t { return i == -1 ? *it++ : i; });
 
   return new2old;
 }
@@ -249,9 +249,9 @@ Expr* transferDefinitionToNewOutputs(
   return mutator.mutateExprOutputsOnly(expr);
 }
 
-TensorView* rfactorHelper(
+TensorView* rFactorHelper(
     TensorView* reduction_tv,
-    const std::vector<int>& axes) {
+    const std::vector<int64_t>& axes) {
   NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
@@ -1308,6 +1308,214 @@ MmaOpDetails getMmaOpDetails(
       details.k_axes);
 
   return details;
+}
+
+namespace {
+// Returns the position of M,N,K axis in mma operands.
+std::tuple<int, int, int> getMmaDimsPositions(MmaOp* mma) {
+  auto mma_domains = mma_utils::getProblemIterDomains(mma->fusion());
+  NVF_ERROR(mma_domains.isValid(), mma_domains.getErrorMsg());
+
+  const auto domains_data = mma_domains.getData();
+  const auto m_id = domains_data[(size_t)MatmulDomain::M];
+  const auto n_id = domains_data[(size_t)MatmulDomain::N];
+  const auto k_id = domains_data[(size_t)MatmulDomain::K];
+
+  int m_pos = -1;
+  int n_pos = -1;
+  int k_pos = -1;
+
+  auto out_tv = mma->out()->as<TensorView>();
+  int ndims = (int)out_tv->nDims();
+
+  for (auto idx : c10::irange(ndims)) {
+    auto id = out_tv->axis(idx);
+    // Categorize each original iterdomain position
+    if (m_id->sameAs(id)) {
+      m_pos = idx;
+    } else if (n_id->sameAs(id)) {
+      n_pos = idx;
+    } else if (k_id->sameAs(id)) {
+      k_pos = idx;
+    }
+  }
+
+  NVF_ERROR(
+      m_pos != -1 && n_pos != -1 && k_pos != -1,
+      "Valid index not found for all problem iterdomains.")
+  return {m_pos, n_pos, k_pos};
+}
+} // namespace
+
+// Verifies the assumptions made when evaluating a fusion containing MmaOp:
+// 1. MmaOp is preceded by a broadcast.
+// 2. The inputs to MmaOp are broadcasted as the last dim for the first operand
+// and the first dim for the second operand.
+// The inputs of MmaOp will be [M, K, 1] x [1, K, N].
+// Additionally, the inputs to the MmaOp should be of `expected_input_dtype`.
+// This is the same as the output dtype of the final castOp.
+void verifyMmaOpForEvaluation(
+    MmaOp* mma_op,
+    const DataType expected_input_dtype) {
+  const Val* in_a = mma_op->inA();
+  const Val* in_b = mma_op->inB();
+
+  const auto tv_a = in_a->as<TensorView>();
+  const auto tv_b = in_b->as<TensorView>();
+
+  NVF_ERROR(
+      tv_a->nDims() == tv_b->nDims(),
+      "Either both or none of A and B should be batch");
+  // Verify that the broadcasted size is 3.
+  NVF_ERROR(
+      tv_a->nDims() == 3,
+      "MmaOp::evaluate is not implemented for size: ",
+      tv_a->nDims());
+
+  NVF_ERROR(
+      in_a->definition() != nullptr && in_a->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+  NVF_ERROR(
+      in_b->definition() != nullptr && in_b->definition()->isA<BroadcastOp>(),
+      "Currently, MmaOp::evaluate assumes the preceding op to be a broadcast.");
+
+  NVF_ERROR(
+      tv_a->getRootDomain().back()->isBroadcast() ||
+          tv_a->getRootDomain()[1]->isBroadcast(),
+      "Expected middle/last dimension to be broadcasted for first operand.");
+
+  NVF_ERROR(
+      tv_b->getRootDomain().front()->isBroadcast(),
+      "Expected first dimension to be broadcasted for second operand.");
+
+  // ATen preserves the dtype of MmaOp inputs whereas MmaOp generates float
+  // outputs. To preserve numerical equivalence and precision, the output of
+  // ATen matmul should be the same as MmaOp out `eventually`.
+  // See https://github.com/NVIDIA/Fuser/pull/1874#discussion_r1516991574
+  // Supported cases:
+  //  1. MmaOp->out() and MmaOp->input() are the same dtype.
+  //  2. MmaOp->out() is followed by a CastOp() to the MmaOp->input() dtype.
+  // NOTE: Currently MmaOp only accepts Half and BFloat16 so case (1) does not
+  // occur.
+
+  NVF_ERROR(
+      *(tv_a->getDataType()) == *(tv_b->getDataType()),
+      "MmaOp inputs should be of the same dtype.")
+  NVF_ERROR(
+      *(tv_a->getDataType()) == expected_input_dtype,
+      "MmaOp inputs should be the same dtype as the output dtype of the final castOp.");
+}
+
+// Possible combinations:
+// 1. A x B + C
+// 2. alpha * A x B + C
+// 3. A x B + beta * C
+// 4. alpha * A x B  + beta * C
+// 5. A x B
+// 6. alpha * A x B
+// Note: We assume the first operand to be the MmaOp output
+bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp) {
+  // Check if there may be a bias present.
+  bool has_bias = true;
+  auto* binary = dynamic_cast<BinaryOp*>(cast_op->input(0)->definition());
+  if (binary == nullptr) {
+    // Bias is not present
+    has_bias = false;
+  } else if (binary->getBinaryOpType() != BinaryOpType::Add) {
+    return false;
+  }
+
+  // Check for alpha in first input: alpha * (MmaOp(A, B))
+  MmaOp* mma = nullptr;
+  auto* mma_branch_root_op = has_bias ? (Expr*)binary : (Expr*)cast_op;
+
+  auto* mul_alpha =
+      dynamic_cast<BinaryOp*>(mma_branch_root_op->input(0)->definition());
+
+  if (mul_alpha == nullptr) { // Alpha is not present
+    mma = dynamic_cast<MmaOp*>(mma_branch_root_op->input(0)->definition());
+  } else {
+    NVF_ERROR(
+        mul_alpha->getBinaryOpType() == BinaryOpType::Mul,
+        "Unrecognized pattern.");
+    matmul_inp->alpha = mul_alpha->input(0);
+    mma = dynamic_cast<MmaOp*>(mul_alpha->input(1)->definition());
+    if (!matmul_inp->alpha->isScalar()) { // Swap alpha and mma
+      matmul_inp->alpha = mul_alpha->input(1);
+      mma = dynamic_cast<MmaOp*>(mul_alpha->input(0)->definition());
+    }
+  }
+
+  if (mma == nullptr) {
+    return false;
+  }
+
+  DataType final_out_dtype = cast_op->out()->getDataType().value();
+
+  // Verify assumptions for MmaOp hold. Assign the values to Mma operands.
+  MmaOpUtils::verifyMmaOpForEvaluation(mma, final_out_dtype);
+
+  // Get the non-broadcasted values to avoid inferring squeeze dimensions.
+  matmul_inp->mma_lhs = mma->inA()->definition()->input(0);
+  matmul_inp->mma_rhs = mma->inB()->definition()->input(0);
+  matmul_inp->mma_dims_pos = getMmaDimsPositions(mma);
+
+  NVF_ERROR(
+      std::get<(size_t)MatmulDomain::M>(matmul_inp->mma_dims_pos) == 0,
+      "Expected M to be the first dimension.");
+
+  if (!has_bias) {
+    return true;
+  }
+
+  // Based on the presence of beta parameter, the expected ops are:
+  // CastOp(bias, fp32) -> Broadcast (Optional) -> Mul (if beta is present)
+  // -> Add
+
+  // Check for beta parameter
+  auto* mul_beta = dynamic_cast<BinaryOp*>(binary->input(1)->definition());
+  if (mul_beta == nullptr) { // Case 1: bias
+    matmul_inp->bias = binary->input(1); // Broadcasted bias tensor in fp32
+  } else { // Case 2: beta * bias
+    NVF_ERROR(
+        mul_beta->getBinaryOpType() == BinaryOpType::Mul,
+        "Unrecognized pattern.");
+    matmul_inp->beta = mul_beta->input(0);
+    matmul_inp->bias = mul_beta->input(1);
+    if (!matmul_inp->beta->isScalar()) {
+      // bias * beta
+      std::swap(matmul_inp->beta, matmul_inp->bias);
+    }
+  }
+
+  auto bias_ndims = matmul_inp->bias->as<TensorView>()->nDims();
+  auto inp_ndims = matmul_inp->mma_lhs->as<TensorView>()->nDims();
+
+  NVF_ERROR(
+      (bias_ndims == inp_ndims - 1) || (bias_ndims == inp_ndims),
+      "Bias should be 1D / 2D tensor.");
+
+  // Check if bias was broadcasted
+  auto* bcast = dynamic_cast<BroadcastOp*>(matmul_inp->bias->definition());
+  if (bcast != nullptr) {
+    // Bias of shape [M, 1] / [1, N]
+    matmul_inp->bias_bcast_flags = bcast->getBroadcastDimFlags();
+    matmul_inp->bias = bcast->input(0); // Bias tensor in fp32
+  }
+
+  auto* bias_cast = dynamic_cast<UnaryOp*>(matmul_inp->bias->definition());
+
+  // The bias tensor and matmul inputs should be of the same dtype.
+  NVF_ERROR(
+      bias_cast == nullptr || bias_cast->getUnaryOpType() == UnaryOpType::Cast,
+      "Expected the bias tensor to be casted to Float.");
+  NVF_ERROR(
+      *(bias_cast->input(0)->getDataType()) == final_out_dtype,
+      "Bias should be originally of the same type as the final output dtype.");
+
+  matmul_inp->bias = bias_cast->input(0);
+
+  return true;
 }
 
 } // namespace nvfuser::MmaOpUtils

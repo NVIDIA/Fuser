@@ -59,7 +59,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
       ParallelTypeBitmap sync_pattern;
       auto out = rop->out()->as<TensorView>();
       NVF_ERROR(out != nullptr);
-      for (int i : c10::irange((int)out->nDims())) {
+      for (int64_t i : c10::irange(out->nDims())) {
         IterDomain* ax = out->axis(i);
         if (!ax->isReduction()) {
           continue;
@@ -127,7 +127,8 @@ class GridSerializationSyncInserter : kir::ExprMutator {
     kir::Allocate* alloc = lower_utils::allocGlobalBufferForGridComm(
         lower_utils::getGridSyncBufferSize(cur_expr_sync_pattern_.value()),
         DataType::Int,
-        true);
+        /*zero_init=*/true,
+        /*resets_to_zero=*/true);
     auto wait = IrBuilder::create<kir::BlockSerializeWait>(
         cur_expr_sync_pattern_.value(), alloc->buffer());
     registerInsertBefore(cur_top_level_expr_, alloc);

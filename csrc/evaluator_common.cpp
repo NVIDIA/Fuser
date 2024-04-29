@@ -125,6 +125,14 @@ PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   initializeIntegerMachine();
 }
 
+PrecomputedValues::~PrecomputedValues() {
+  // Reset evaluator index to -1
+  // so we can create other PrecomputedValues objects.
+  for (Val* v : symbols()) {
+    v->setEvaluatorIndex(-1);
+  }
+}
+
 void PrecomputedValues::bindParallelExtents(
     const ParallelExtentMap& parallel_extents,
     const LaunchParams& launch_constraint) {
@@ -156,8 +164,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   if (hasValidValues()) {
     invalidate();
   }
+  bindValues(fusion_->inputs(), args);
+}
 
-  const auto& inputs = fusion_->inputs();
+void PrecomputedValues::bindValues(
+    const std::vector<Val*>& inputs,
+    const KernelArgumentHolder& args) {
   NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 

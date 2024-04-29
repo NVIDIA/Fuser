@@ -697,4 +697,557 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   }
 }
 
+TEST_F(Tutorial, BasicTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // This tutorial uses copy kernels to demonstrate how to schedule TMA. Please
+  // note that this is not a guide on how to use TMA to achieve SOL. Instead, it
+  // is a demonstration on the degree of freedoms we have in a TMA schedule and
+  // how a schedule is translated into generated code in the kernel. I also want
+  // the readers to focus on the schedule of TMA. How the other part of the
+  // kernel is scheduled is not important here, and indeed, I just randomly
+  // picked one schedule for it without any meaning. For an example about TMA
+  // load, please focus on the schedule of the shared memory tensor. For an
+  // example about TMA store, please focus on the allocation domain of the
+  // shared memory tensor and the fusion output.
+
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  {
+    // Example 1:
+    // Similar to how we generally schedule pointwise fusion, in this example,
+    // we treat the fusion as 1D and uses 1D TMA to load data to shared memory.
+    // We use one TMA instruction to load the entire CTA tile.
+    // CTA tile size = TMA tile size = 256
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA load, both the shared memory layout and the loop nest and
+    // parallelization of TMA are specified by the consumer: smem_cache
+
+    // Step 1: define TMA domain
+    // Because we want to treat the entire tensor as 1D, we define the TMA
+    // domain as [I0*I1*I2]
+    smem_cache->merge(0);
+    smem_cache->merge(0);
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    smem_cache->split(0, 256);
+    // [I0*I1*I2/256, 256]
+    // partitioned IterDomain: I0*I1*I2
+    // coordinate IterDomain: I0*I1*I2/256
+    // box IterDomain: 256
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain, which is already
+    // in good shape for this case.
+
+    // Step 5: schedule the consumer tensor
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    // [BIDx, Bulk]
+
+    // Schedule the smem->gmem part
+    output->merge(0);
+    output->merge(0);
+    output->split(0, 256);
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(1)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes
+      //
+      // if (threadIdx.x == 0) {
+      //   Hopper::cpAsyncBulkTensorTileG2S(
+      //       coordinate = {256 * blockIdx.x},
+      //       smem_addr = toSmem(T2));
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+
+  {
+    // Example 2:
+    // Similar to example 1, we treat the fusion as 1D and uses 1D TMA to load
+    // data to shared memory. But this time, instead of using 1 TMA instruction
+    // to load the entire CTA tile, we use 4 TMA instructions. We use a for loop
+    // to launch these 4 instructions
+    // CTA tile size = 4 * TMA tile size = 1024
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA load, both the shared memory layout and the loop nest and
+    // parallelization of TMA are specified by the consumer: smem_cache
+
+    // Step 1: define TMA domain
+    // Because we want to treat the entire tensor as 1D, we define the TMA
+    // domain as [I0*I1*I2]
+    smem_cache->merge(0);
+    smem_cache->merge(0);
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    smem_cache->split(0, 256);
+    // [I0*I1*I2/256, 256]
+    // partitioned IterDomain: I0*I1*I2
+    // coordinate IterDomain: I0*I1*I2/256
+    // box IterDomain: 256
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain, which is already
+    // in good shape for this case.
+
+    // Step 5: schedule the consumer tensor
+    smem_cache->split(0, 4);
+    // [I0*I1*I2/256/4, 4, 256]
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    // [BIDx, Serial, Bulk]
+
+    // Schedule the smem->gmem part
+    output->merge(0);
+    output->merge(0);
+    output->split(0, 256);
+    output->split(0, 4);
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(2)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes
+      //
+      // for (nvfuser_index_t i8 = 0; i8 < 4; ++i8) {
+      //   if (threadIdx.x == 0) {
+      //     Hopper::cpAsyncBulkTensorTileG2S(
+      //         coordinate = {1024 * blockIdx.x + 256 * i8},
+      //         smem_addr = (toSmem(T2) + 1024 * i8));
+      //   }
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+
+  {
+    // Example 3:
+    // Similar to example 2, we treat the fusion as 1D and uses 1D TMA to load
+    // data to shared memory, and we use 4 TMA instructions to load the entire
+    // CTA tile. However, instead of using a for loop to launch these 4
+    // instructions, we parallelize these 4 instructions to TIDx.
+    // CTA tile size = 4 * TMA tile size = 1024
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA load, both the shared memory layout and the loop nest and
+    // parallelization of TMA are specified by the consumer: smem_cache
+
+    // Step 1: define TMA domain
+    // Because we want to treat the entire tensor as 1D, we define the TMA
+    // domain as [I0*I1*I2]
+    smem_cache->merge(0);
+    smem_cache->merge(0);
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    smem_cache->split(0, 256);
+    // [I0*I1*I2/256, 256]
+    // partitioned IterDomain: I0*I1*I2
+    // coordinate IterDomain: I0*I1*I2/256
+    // box IterDomain: 256
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain, which is already
+    // in good shape for this case.
+
+    // Step 5: schedule the consumer tensor
+    smem_cache->split(0, 4);
+    // [I0*I1*I2/256/4, 4, 256]
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(1)->parallelize(ParallelType::TIDx);
+    smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    // [BIDx, TIDx, Bulk]
+
+    // Schedule the smem->gmem part
+    output->merge(0);
+    output->merge(0);
+    output->split(0, 256);
+    output->split(0, 4);
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(2)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes
+      //
+      // if (threadIdx.x < 4) {
+      //   Hopper::cpAsyncBulkTensorTileG2S(
+      //       coordinate = {1024 * blockIdx.x + 256 * threadIdx.x},
+      //       smem_addr = (toSmem(T2) + 1024 * threadIdx.x));
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+
+  {
+    // Example 4: Similar to example 3, except that we are using TMA for store
+    // instead of load.
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA store, the loop nest and parallelization is specified in the
+    // consumer `output`, and the shared memory layout is specified in the
+    // allocation dimain of `smem_cache`.
+
+    // Step 1: define TMA domain
+    // Because we want to treat the entire tensor as 1D, we define the TMA
+    // domain as [I0*I1*I2]
+    output->merge(0);
+    output->merge(0);
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    output->split(0, 256);
+    // [I0*I1*I2/256, 256]
+    // partitioned IterDomain: I0*I1*I2
+    // coordinate IterDomain: I0*I1*I2/256
+    // box IterDomain: 256
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain, which is already
+    // in good shape for this case.
+
+    // Step 5: schedule the consumer tensor
+    output->split(0, 4);
+    // [I0*I1*I2/256/4, 4, 256]
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(1)->parallelize(ParallelType::TIDx);
+    output->axis(2)->parallelize(ParallelType::Bulk);
+    // [BIDx, TIDx, Bulk]
+
+    // Schedule the smem->gmem part
+    smem_cache->merge(0);
+    smem_cache->merge(0);
+    smem_cache->split(0, 256);
+    smem_cache->split(0, 4);
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(2)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes
+      //
+      // if (threadIdx.x < 4) {
+      //   Hopper::cpAsyncBulkTensorTileS2G(
+      //       coordinate = {1024 * blockIdx.x + 256 * threadIdx.x},
+      //       smem_addr = (toSmem(T2) + 1024 * threadIdx.x));
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+
+  {
+    // Example 5: Still the same copy kernel of 3D tensor, but this time, we
+    // want to do tiling on the inner two dimensions. The first dimension is
+    // treated as a "batch" dimension. We use CTA tile (64, 64), and TMA tile
+    // (32, 32), so we need 4 TMA instructions to load the entire CTA tile.
+    // We want to use two threads, and each thread issue two TMA instructions.
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA load, both the shared memory layout and the loop nest and
+    // parallelization of TMA are specified by the consumer: smem_cache
+
+    // Step 1: define TMA domain
+    // For this case, we want to treat all three dimensions separately.
+    // TMA domain: [I0, I1, I2]
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    smem_cache->split(2, 32);
+    smem_cache->split(1, 32);
+    // [I0, I1/32, 32, I2/32', 32']
+    // Box dimensions defined by partitioning: I1 and I2
+    //   partitioned IterDomain: I1, I2
+    //   coordinate IterDomain: I1/32, I2/32'
+    //   box IterDomain: 32, 32'
+    // Box dimension defined by compositing: I0
+    //   coordinate IterDomain: I0
+    //   box IterDomain: no box IterDomain, so implicit size 1
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain. The default
+    // value does not work for this case, because this way, tile will not be
+    // contiguous in shared memory.
+    // [I0, I1/32, 32, I2/32', 32']
+    smem_cache->split(3, 2);
+    smem_cache->split(1, 2);
+    // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
+    smem_cache->reorder({{3, -2}, {2, -4}});
+    // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
+    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+
+    // Step 5: schedule the consumer tensor
+    // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(1)->parallelize(ParallelType::BIDy);
+    smem_cache->axis(2)->parallelize(ParallelType::BIDz);
+    smem_cache->axis(3)->parallelize(ParallelType::TIDx);
+    smem_cache->axis(5)->parallelize(ParallelType::Bulk);
+    smem_cache->axis(6)->parallelize(ParallelType::Bulk);
+    // [BIDx, BIDy, BIDz, TIDx, Serial, Bulk, Bulk]
+
+    // Schedule the smem->gmem part
+    output->split(2, 32);
+    output->split(1, 32);
+    output->split(3, 2);
+    output->split(1, 2);
+    output->reorder({{3, -2}, {2, -4}});
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(1)->parallelize(ParallelType::BIDy);
+    output->axis(2)->parallelize(ParallelType::BIDz);
+    output->merge(3);
+    output->axis(3)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes.Also note that coordinate is in column major, so inner dims
+      // goes first
+      //
+      // for (nvfuser_index_t i13 = 0; i13 < 2; ++i13) {
+      //   if (threadIdx.x < 2) {
+      //     Hopper::cpAsyncBulkTensorTileG2S(
+      //         coordinate =
+      //             {64 * blockIdx.z + 32 * i13,
+      //              64 * blockIdx.y + 32 * threadIdx.x,
+      //              blockIdx.x},
+      //         smem_addr = toSmem(T2) + 8192 * threadIdx.x + 4096 * i13);
+      //   }
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+
+  {
+    // Example 6: Similar to example 5, but we are using TMA for store instead
+    // of load.
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto input = makeContigTensor(3);
+    fusion.addInput(input);
+    auto output = set(input);
+    fusion.addOutput(output);
+
+    TensorView* smem_cache =
+        output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    smem_cache->setMemoryType(MemoryType::Shared);
+
+    // For TMA store, the loop nest and parallelization is specified in the
+    // consumer `output`, and the shared memory layout is specified in the
+    // allocation dimain of `smem_cache`.
+
+    // Step 1: define TMA domain
+    // For this case, we want to treat all three dimensions separately.
+    // TMA domain: [I0, I1, I2]
+    // Note that the TMA domain only exist in people's mind, there is no need to
+    // set anything here.
+
+    // Step 2: define box
+    output->split(2, 32);
+    output->split(1, 32);
+    // [I0, I1/32, 32, I2/32', 32']
+    // Box dimensions defined by partitioning: I1 and I2
+    //   partitioned IterDomain: I1, I2
+    //   coordinate IterDomain: I1/32, I2/32'
+    //   box IterDomain: 32, 32'
+    // Box dimension defined by compositing: I0
+    //   coordinate IterDomain: I0
+    //   box IterDomain: no box IterDomain, so implicit size 1
+
+    // Step 3: define tile
+    // We use dense tile here, so tile == box. Nothing to do here.
+
+    // Step 4: schedule the shared memory tensor
+    // By default, the allocation domain is the rFactor domain. The default
+    // value does not work for this case, because this way, tile will not be
+    // contiguous in shared memory.
+    // [I0, I1, I2]
+    smem_cache->split(2, 32);
+    smem_cache->split(1, 32);
+    // [I0, I1/32, 32, I2/32', 32']
+    smem_cache->split(3, 2);
+    smem_cache->split(1, 2);
+    // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
+    smem_cache->reorder({{3, -2}, {2, -4}});
+    // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
+    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+
+    // Step 5: schedule the consumer tensor.
+    // Because we are not inlining anything in this example, we do not care
+    // about the order of IterDomains.
+    // [I0, I1/32, 32, I2/32', 32']
+    output->split(3, 2);
+    output->split(1, 2);
+    // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
+    output->axis(0)->parallelize(ParallelType::BIDx);
+    output->axis(1)->parallelize(ParallelType::BIDy);
+    output->axis(2)->parallelize(ParallelType::TIDx);
+    output->axis(3)->parallelize(ParallelType::Bulk);
+    output->axis(4)->parallelize(ParallelType::BIDz);
+    output->axis(6)->parallelize(ParallelType::Bulk);
+    // [BIDx, BIDy, TIDx, Bulk, BIDz, Serial, Bulk]
+
+    // Schedule the gmem->smem part
+    smem_cache->merge(-2);
+    smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    smem_cache->axis(1)->parallelize(ParallelType::BIDy);
+    smem_cache->axis(2)->parallelize(ParallelType::BIDz);
+    smem_cache->axis(-1)->parallelize(ParallelType::TIDx);
+
+    if (verbose_) {
+      fusion.print();
+      fusion.printKernel();
+      // TMA will be generated like:
+      // Note that the coordinate is in number of items, smem address is in
+      // bytes.Also note that coordinate is in column major, so inner dims
+      // goes first
+      //
+      // for (nvfuser_index_t i19 = 0; i19 < 2; ++i19) {
+      //   if (threadIdx.x < 2) {
+      //     Hopper::cpAsyncBulkTensorTileS2G(
+      //         coordinate =
+      //             {64 * blockIdx.z + 32 * i19,
+      //              64 * blockIdx.y + 32 * threadIdx.x,
+      //              blockIdx.x},
+      //         smem_addr = toSmem(T2) + 8192 * threadIdx.x + 4096 * i19);
+      //   }
+      // }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    std::vector<int64_t> shape(3, 300);
+    auto t = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t}, {}, index32bit);
+    std::vector<at::Tensor> outputs = fe.runFusion({t});
+    ASSERT_TRUE(at::equal(t, outputs[0]));
+  }
+}
+
 } // namespace nvfuser

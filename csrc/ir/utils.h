@@ -58,6 +58,36 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b);
 
+void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
+
+struct MatmulInputs {
+  Val* mma_lhs = nullptr;
+  Val* mma_rhs = nullptr;
+  Val* bias = nullptr;
+  Val* alpha = nullptr;
+  Val* beta = nullptr;
+  // Ordering of dimensions M,N,K in MmaOp's output TensorView's root domain.
+  // Determined based on position of iterdomains.
+  // For addmm/matmul ([M,K] x [K,N]): M=0, N=2, K=1
+  // For linear ([M,K] x [N,K]): M=0, N=1, K=2
+  // mma_dims_pos = {m_pos, n_pos, k_pos}
+  std::tuple<int, int, int> mma_dims_pos = {};
+  // The elements denote if the corresponding iterdomain in the bias was a new
+  // broadcast dimension. This is used to broadcast the bias for matmul/addmm
+  // during evaluation.
+  std::vector<bool> bias_bcast_flags = {};
+};
+
+//! Matches the following matmul patterns.
+//! Matmul: A x B, alpha * A x B
+//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
+//!   alpha * A x B  + beta * C
+//! Linear: A x B / A x B + C
+//! Assumptions:
+//! 1. For simplicity, we assume the MmaOp to be in the first operand.
+//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
+bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
+
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {
@@ -191,7 +221,7 @@ auto filterByType(const ContainerType& inputs) {
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims);
+    int64_t ndims);
 
 //! Returns a list of new-to-old mappings.
 //!
@@ -206,9 +236,9 @@ std::vector<int64_t> normalizeNew2Old(
 //!
 //!   {{0, -1}} -> [N-1, ...., 0]
 //!   Swaps the first and last axes.
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims);
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims);
 
 //! Replaces reference Val with substitute in all Expr inputs and attributes.
 //! Warning: Invalidates provided Expr.
@@ -247,9 +277,9 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-NVF_API TensorView* rfactorHelper(
+NVF_API TensorView* rFactorHelper(
     TensorView* red_tv,
-    const std::vector<int>& axes);
+    const std::vector<int64_t>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.

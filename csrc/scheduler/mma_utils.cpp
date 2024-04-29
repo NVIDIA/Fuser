@@ -37,7 +37,7 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
 }
 
 //! Return sizes of smem_a, smem_b, smem_c in bytes
-std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
+std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
     const MatmulParams::DoubleBufferOptions& double_buffer_options,
     const MmaDataTypes& data_types) {
@@ -45,24 +45,22 @@ std::tuple<size_t, size_t, size_t> computeSharedMemorySizes(
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
 
-  int ab_factor = double_buffer_options.double_buffer_smem_write
+  int64_t ab_factor = double_buffer_options.double_buffer_smem_write
       ? double_buffer_options.smem_double_buffer_stage
       : 1;
 
   // see scheduleContiguousVectorLoad
-  const int vector_word = 8;
-  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+  const int64_t vector_word = 8;
+  const int64_t round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
       properties->warpSize * vector_word;
-  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
-  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
-  const size_t smem_a =
-      (size_t)(ceilDiv(mk, round_to_factor) * round_to_factor * ab_factor) *
-      dataTypeSize(data_types[0]);
-  const size_t smem_b =
-      (size_t)(ceilDiv(nk, round_to_factor) * round_to_factor * ab_factor) *
-      dataTypeSize(data_types[1]);
-  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
-      dataTypeSize(data_types[2]);
+  const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
+      ab_factor * dataTypeSize(data_types[0]);
+  const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
+      ab_factor * dataTypeSize(data_types[1]);
+  const int64_t smem_c =
+      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSize(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
 }
@@ -179,7 +177,16 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const int smem_double_buffer_stage,
     const RolesMap& roles_map,
     const bool ignore_occupancy_drop) {
-  const auto data_types = getMmaDataTypes(roles_map);
+  auto data_types = getMmaDataTypes(roles_map);
+  // getMmaDataTypes provides the dtypes of INPUT_A, INPUT_B, and OUTPUT_D.
+  // These are the problem types that indicate the gmem IO. We use smem to load
+  // INPUT_A and INPUT_B, but instead of OUTPUT_D which is the result of the
+  // epilogue, we store mma_result which is the _input_ to the epilogue. In
+  // cases where the epilogue contains a cast back down to reduced precision, we
+  // will still use Float for the epilogue smem. If we support Double or
+  // Complex in the future then we might need a better way to determine this
+  // data type.
+  data_types[2] = DataType::Float;
 
   // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
   //   - they are marked for re-use using promoteReuse
@@ -267,7 +274,7 @@ void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
       cta_tile.k % warp_tile.k == 0,
       "Number of warp on k dimension need to be integer");
 
-  int num_warp_k = cta_tile.k / warp_tile.k;
+  int64_t num_warp_k = cta_tile.k / warp_tile.k;
 
   //        -2  -1
   //[...    M,   N]
@@ -302,10 +309,10 @@ void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
 void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
-    int vector_word,
+    int64_t vector_word,
     bool vectorize) {
   auto warp_dims = tile.cta_tile / tile.warp_tile;
-  int num_of_thread = warp_dims.m * warp_dims.n * warp_dims.k * 32;
+  int64_t num_of_thread = warp_dims.m * warp_dims.n * warp_dims.k * 32;
 
   tv->split(-1, num_of_thread * vector_word);
   tv->split(-1, vector_word);
@@ -335,7 +342,7 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
-void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
+void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
   NVF_CHECK(
       tv->getLeafDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
@@ -349,7 +356,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
     // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split((int)(idx - tile_dimension_size), (int)tile_sizes.at(idx));
+    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
   }
 
   // The transformation happened should look like:
@@ -358,7 +365,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
 
   // Re-order the tiles so that all the outer tiles are
   //  on the left of all the inner tiles
-  std::unordered_map<int, int> reorder_map_old_to_new;
+  std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
 
   // Number of tiled inner dimensions after we split.
   const auto split_tile_dimension_size = 2 * tile_dimension_size;
@@ -416,11 +423,11 @@ std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
 } // namespace
 
 void orderTiledConcreteIdAsRoot(TensorView* tv) {
-  auto ndims = tv->nDims();
+  int64_t ndims = tv->nDims();
 
   // Keep track of the left most position where we will
   //  be reordering the axes.
-  auto leftmost_pos = ndims;
+  int64_t leftmost_pos = ndims;
 
   // Pull the root id's of the given tv.
   std::unordered_set<IterDomain*> maybe_rfactor_id_set{
@@ -431,11 +438,11 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   // Note: Currently don't really see a case where this function
   //  should be called on a reduction output tv, but adding them
   //  here for completeness.
-  std::deque<int> broadcast_or_reduction_pos;
+  std::deque<int64_t> broadcast_or_reduction_pos;
 
   // Map the root id's to their innermost concrete id's
   //  on the leaf.
-  std::unordered_map<IterDomain*, int> root_id_to_inner_leaf_pos;
+  std::unordered_map<IterDomain*, int64_t> root_id_to_inner_leaf_pos;
 
   // Try to re-order inner iterdomains from the innermost
   //  position backward. This utility only tries to re-order
@@ -450,12 +457,12 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  neither an inner tile nor reduction/broadcast is found, and would
   //  not re-order any iterdomain beyond that point to keep the
   //  outer loop structure unchanged.
-  for (int64_t i = static_cast<int64_t>(ndims) - 1; i >= 0; i--) {
-    auto leaf_id = tv->axis((int)i);
+  for (int64_t i = ndims - 1; i >= 0; i--) {
+    auto leaf_id = tv->axis(i);
     if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
       // Register this reduction or broadcast axis
       //  to reorder.
-      broadcast_or_reduction_pos.push_front((int)i);
+      broadcast_or_reduction_pos.push_front(i);
       leftmost_pos = i;
       continue;
     }
@@ -484,8 +491,8 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // pointer to the current target postion after
   //  repordering
-  int current_pos = (int)leftmost_pos;
-  std::unordered_map<int, int> reorder_map_old_to_new;
+  int64_t current_pos = (int64_t)leftmost_pos;
+  std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
 
   // first place all the broadcast and reduction on the left:
   for (auto original_broadcast_or_reduction_pos : broadcast_or_reduction_pos) {
@@ -506,7 +513,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Validate that we have processed all inner ids or broadcast/reduction
   //  ids we have registered.
-  NVF_ERROR(current_pos == (int)ndims, "Inconsistent ordering logic");
+  NVF_ERROR(current_pos == ndims, "Inconsistent ordering logic");
 
   // Apply the new order:
   tv->reorder(reorder_map_old_to_new);
@@ -568,15 +575,15 @@ bool canValidateIsInnerDim(
 
 void checkDimSize(
     TensorView* tv,
-    std::vector<int> axis,
-    std::vector<int> expect) {
+    std::vector<int64_t> axis,
+    std::vector<int64_t> expect) {
   NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
   for (auto axis_index : c10::irange(axis.size())) {
     NVF_ERROR(
-        ((axis[axis_index] + static_cast<int>(tv->nDims())) >= 0) &&
-            (axis[axis_index] < (int)tv->nDims()),
+        ((axis[axis_index] + tv->nDims()) >= 0) &&
+            (axis[axis_index] < tv->nDims()),
         "CheckDimSize: axis position out of bound ",
         axis[axis_index],
         " ",
@@ -598,8 +605,8 @@ void checkDimSize(
   }
 }
 
-static void setWarpMapped(TensorView* tv, int number_of_dims) {
-  for (int id : c10::irange(number_of_dims)) {
+static void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
+  for (int64_t id : c10::irange(number_of_dims)) {
     tv->axis(-id - 1)->toMmaSwizzled();
   }
 }
@@ -963,9 +970,9 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
   auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
-  std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
+  std::vector<int64_t> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
-  int ndims = (int)tv->nDims();
+  int64_t ndims = tv->nDims();
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
@@ -990,16 +997,16 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Ordering map from old position to new position
   //  that we wil build using the position vectors.
-  std::unordered_map<int, int> order_map;
+  std::unordered_map<int64_t, int64_t> order_map;
 
   // Running position counter keeping track of the
   //  current insert position in order_map.
-  int current_pos = 0;
+  int64_t current_pos = 0;
 
   // Utility to insert the ordered pos sequences to
   //  the ordering map.
   auto insert_to_order_map =
-      [&order_map, &current_pos](const std::vector<int>& original_pos) {
+      [&order_map, &current_pos](const std::vector<int64_t>& original_pos) {
         for (auto pos : original_pos) {
           order_map[pos] = current_pos++;
         }
@@ -1031,6 +1038,10 @@ inline void resolveTvToMatmulDomainsMapping(
     IterDomain* k,
     const ComputeAtMap& ca_map) {
   for (const auto tv : tensors) {
+    // This ensures all inputs are added to the deps_map.
+    // There could be inputs such as a zero-dimensional bias which
+    // would otherwise be skipped.
+    deps_map[tv] = {};
     for (const auto domain : tv->getLeafDomain()) {
       if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
         deps_map[tv].push_back(MatmulDomain::M);
@@ -1233,12 +1244,8 @@ RolesMapOpt getTensorsRoles(
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      if (has_m && has_n && !has_k) {
-        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
-        continue;
-      }
       // Bias vectors are assigned to INPUT_C role
-      if (has_m && !has_n && !has_k) {
+      if (!has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
@@ -1357,7 +1364,7 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // and has one broadcast dim.
   auto dims = bcast_out->domain()->nDims();
   if (!((dims == 3 || dims == 4) &&
-        bcast_out->domain()->noBroadcasts().size() == dims - 1)) {
+        (int64_t)bcast_out->domain()->noBroadcasts().size() == dims - 1)) {
     return false;
   }
 
@@ -1509,6 +1516,20 @@ void CombineMulSum::replaceWithMmaOp() {
   generateMulSumCanidates();
   addMMAOp(fusion_, mul_sum_props_);
   return;
+}
+
+char dtypeToChar(const DataType& dtype) {
+  if (dtype == DataType::Half) {
+    return 'H';
+  } else if (dtype == DataType::BFloat16) {
+    return 'T';
+  } else if (dtype == DataType::Float) {
+    return 'S';
+  } else if (dtype == DataType::Double) {
+    return 'D';
+  }
+  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  return 0;
 }
 
 } // namespace mma_utils

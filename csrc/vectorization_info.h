@@ -17,7 +17,7 @@ struct VectorizedSetInfo {
   //! Consumer of a vectorized set
   TensorView* consumer_tv = nullptr;
   //! Number of elements to vectorize
-  int word_size = -1;
+  int64_t word_size = -1;
   //! Vectorized domain
   IterDomain* vectorized_leaf_id = nullptr;
   //! Right-most allocation dependent domain of the leaf domain for consumer

@@ -622,7 +622,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
   std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
     std::vector<IterDomain*> merged_root_domains;
-    std::vector<int> index_root_domain;
+    std::vector<int64_t> index_root_domain;
     std::vector<IterDomain*> intermediate_domains = root_domain_;
     auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain_.begin(), root_domain_.end()}, {ld});
@@ -653,9 +653,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     size_t n_elements = merged_root_domains.size();
     NVF_ERROR(n_elements, "The number of merged root domains should > 0");
-    std::vector<int> indices(n_elements);
+    std::vector<int64_t> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
-    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
+    std::sort(indices.begin(), indices.end(), [&](int64_t a, int64_t b) {
       return index_root_domain.at(a) < index_root_domain.at(b);
     });
     std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
@@ -670,11 +670,11 @@ class ConcretizedBroadcastRedundantWriteRemover {
   std::vector<Val*> getIndexOfBroadcastRootDomains(
       const std::vector<IterDomain*>& merged_root_domains,
       ParallelType pt) {
-    const int ndim = (int)merged_root_domains.size();
+    const int64_t ndim = (int64_t)merged_root_domains.size();
     // get the stride if we index the leaf domain using its root domains
     std::vector<Val*> root_stride(ndim);
     root_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
-    for (int i = ndim - 2; i >= 0; i--) {
+    for (int64_t i = ndim - 2; i >= 0; i--) {
       auto pre_crd = merged_root_domains.at(i + 1);
       Val* pre_extent = pre_crd->isBroadcast()
           ? concretized_broadcast_root_domains_.at(pre_crd)->extent()
@@ -686,7 +686,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     Val* remaining_index = NamedScalar::getParallelIndex(pt);
     std::vector<Val*> index_broadcast_root_domains;
     index_broadcast_root_domains.reserve(ndim);
-    for (int i = 0; i < ndim; i++) {
+    for (int64_t i = 0; i < ndim; i++) {
       Val* root_index_at_i =
           IrBuilder::divExpr(remaining_index, root_stride.at(i));
       remaining_index = IrBuilder::modExpr(remaining_index, root_stride.at(i));
@@ -815,9 +815,10 @@ bool ThreadPredicateMap::update(
 Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
+  DEBUG_PRINT_SCOPE_NAME("ThreadPredicateMap::getPredicate", tv, mask);
   NVF_ERROR(find(tv) != end(), "Couldn't find ", tv);
   auto pred_info = getPredicateInfo(tv);
-  return getPredicateFromPredicateInfo(pred_info, mask);
+  RECORD_AND_RETURN(getPredicateFromPredicateInfo(pred_info, mask));
 }
 
 ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(

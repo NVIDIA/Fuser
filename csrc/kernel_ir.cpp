@@ -135,6 +135,7 @@ Allocate::Allocate(
     MemoryType memory_type,
     std::vector<Val*> shape,
     bool zero_init,
+    bool resets_to_zero,
     Allocate* alias)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -178,6 +179,7 @@ Allocate::Allocate(
   addAttribute(buffer);
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
+  addDataAttribute(resets_to_zero);
   addAttribute(alias);
   // Always initialize shared memory address to nullptr
   addAttribute(nullptr);
@@ -192,13 +194,15 @@ Allocate::Allocate(
     Val* buffer,
     MemoryType memory_type,
     Val* size,
-    bool zero_init)
+    bool zero_init,
+    bool resets_to_zero)
     : Allocate(
           passkey,
           buffer,
           memory_type,
           size == nullptr ? std::vector<Val*>{} : std::vector<Val*>{size},
-          zero_init) {}
+          zero_init,
+          resets_to_zero) {}
 
 std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
@@ -206,9 +210,9 @@ std::string Allocate::toString(int indent_size) const {
   ss << " = ALLOCATE("
      << "buffer=" << buffer()->toString() << ", "
      << "mem_type=" << memoryType() << ", "
-     << "size=" << size()->toInlineString();
-  ss << ", "
-     << "zero_init=" << boolLiteral(zeroInit()) << ")\n";
+     << "size=" << size()->toInlineString() << ", "
+     << "zero_init=" << boolLiteral(zeroInit()) << ", "
+     << "resets_to_zero=" << boolLiteral(resetsToZero()) << ")\n";
   if (alias() != nullptr) {
     indent(ss, indent_size) << kTab << ".alias=";
     ss << alias()->buffer()->toString() << "\n";
@@ -1444,41 +1448,43 @@ GroupedGridWelford::GroupedGridWelford(
   addDataAttribute(use_outer_opt);
 }
 
-int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
-    const {
+int64_t GroupedGridWelford::getSmemBufferSize(
+    int64_t bdimx,
+    int64_t bdimy,
+    int64_t bdimz) const {
   auto out_tv = ir_utils::getTvOutput(this);
   auto kernel = dynamic_cast<kir::Kernel*>(container());
   NVF_ERROR(kernel != nullptr);
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz *
-        (int)dataTypeSize(out_tv->getDataType().value()) * 2 +
+    return bdimx * bdimy * bdimz * dataTypeSize(out_tv->getDataType().value()) *
+        2 +
         bdimx * bdimy * bdimz *
-        (int)dataTypeSize(DataType::Index, kernel->indexType());
+        dataTypeSize(DataType::Index, kernel->indexType());
   }
 
   // In the outer-reduction version, the size is blockDim.x * NumberOfWarps *
   // GroupCount
 
-  int group_count = 1;
+  int64_t group_count = 1;
   for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
-      auto extent_int = axis->extent()->value();
-      group_count *= (int)extent_int;
+      auto extent_int = axis->extent()->value().as<int64_t>();
+      group_count *= extent_int;
     }
   }
 
   NVF_ERROR(group_count > 1);
 
-  int num_warps = bdimx * bdimy / 32;
+  int64_t num_warps = bdimx * bdimy / 32;
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
-  int buf_size_for_avg_var = bdimx * num_warps * group_count *
-      (int)dataTypeSize(out_tv->getDataType().value());
-  int buf_size_for_N =
-      num_warps * (int)dataTypeSize(DataType::Index, kernel->indexType());
+  int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
+      dataTypeSize(out_tv->getDataType().value());
+  int64_t buf_size_for_N =
+      num_warps * dataTypeSize(DataType::Index, kernel->indexType());
 
   return buf_size_for_avg_var * 2 + buf_size_for_N;
 }

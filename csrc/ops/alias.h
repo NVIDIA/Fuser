@@ -67,7 +67,7 @@ NVF_API TensorView* squeeze(
     const std::vector<bool>& to_squeeze,
     bool squeeze_expanded = false);
 
-NVF_API TensorView* unsqueeze(TensorView* x, int dim);
+NVF_API TensorView* unsqueeze(TensorView* x, int64_t dim);
 
 //! Permute a tensor as specified by axis mappings.
 //!
@@ -85,10 +85,10 @@ NVF_API TensorView* permute(
 //! Same as above, but with the TensorView::reorder-like API.
 NVF_API TensorView* permute(
     TensorView* x,
-    const std::unordered_map<int, int>& old2new);
+    const std::unordered_map<int64_t, int64_t>& old2new);
 NVF_API TensorView* permute(
     TensorView* x,
-    const std::initializer_list<std::pair<const int, int>>& new2old);
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
 
 //! Transpose a tensor by swapping the two dimensions.
 NVF_API TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);

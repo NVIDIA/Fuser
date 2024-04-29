@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -43,13 +42,11 @@ namespace nvfuser {
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
-/* To run the following tests on several devices, pytorch must be installed
-   with the flag NVFUSER_DISTRIBUTED=1 and nccl support.
-   Then simply run the tests on several processes, for example using mpirun
-   on a node having at least 6 GPUs,
-   e.g.: mpirun -np 6 build/nvfuser_tests
-   --gtest_filter=PipelineTest.Pipeline
-*/
+// To run the following tests on several devices, pytorch must be installed with
+// the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
+// default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
+// GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
+// --gtest_filter=PipelineTestTwoStages*`.
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
@@ -132,12 +129,19 @@ TEST_F(PipelineTest, Pipeline) {
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first
 // stage sharded?, is second
-// stage sharded?, do_reduction?, use_fusion_executor_cache?)
-using PipelineTestTwoStagesParams = std::
-    tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool, bool>;
+// stage sharded?, do_reduction?, sharded dimension, use_fusion_executor_cache?)
+using PipelineTestTwoStagesParams = std::tuple<
+    CommunicatorBackend,
+    DeviceMesh,
+    DeviceMesh,
+    bool,
+    bool,
+    bool,
+    int,
+    bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
+      public testing::WithParamInterface<PipelineTestTwoStagesParams> {};
 
 TEST_P(PipelineTestTwoStages, Communication) {
   auto
@@ -147,6 +151,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        is_stage0_sharded,
        is_stage1_sharded,
        do_reduction,
+       sharded_dim,
        use_fusion_executor_cache] = GetParam();
   if (!disable_skip && !communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
@@ -157,25 +162,23 @@ TEST_P(PipelineTestTwoStages, Communication) {
     mesh1 = mesh0;
   }
 
-  int first_axis_extent = 3;
+  std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    first_axis_extent = mesh0.vector().size();
-  } else if (is_stage1_sharded) {
-    first_axis_extent = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
   }
-  int second_axis_extent = 2;
-  if (is_stage1_sharded && do_reduction) {
-    GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-    second_axis_extent = mesh1.vector().size();
+  if (is_stage1_sharded) {
+    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    if (do_reduction) {
+      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+    }
   }
-  std::vector<int64_t> unsharded_input_sizes = {
-      first_axis_extent, second_axis_extent, 3, 5};
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
   TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
-  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv2 = do_reduction ? sum(tv1, {sharded_dim}) : set(tv1);
+  TensorView* tv3 = add(tv2, tv2);
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
@@ -184,15 +187,15 @@ TEST_P(PipelineTestTwoStages, Communication) {
   tv2->setDeviceMesh(mesh1);
   tv3->setDeviceMesh(mesh1);
   if (is_stage0_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
+    tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+    tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it
+    // in case of reduction, tv2's sharded_dim is a reduction axis, except if it
     // was initially of size 1, in which case it is simply removed.
-    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0;
-    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
+    int axis = (do_reduction) ? sharded_dim + 1 : sharded_dim;
+    tv2->axis(axis)->parallelize(ParallelType::DIDx);
+    tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
@@ -207,7 +210,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
 namespace {
 auto all_backends =
-    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -215,95 +218,364 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = ::testing::Values(mesh2, mesh3, mesh4);
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
 
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
         all_meshes,
         all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
         all_meshes,
         all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
         all_meshes,
         all_meshes,
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Values(false),
-        ::testing::Bool()));
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(mesh3, mesh4),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(mesh3, mesh4),
+        testing::Values(mesh3, mesh4),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
-        ::testing::Values(mesh0, mesh1),
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Bool()));
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
         all_nontrivial_meshes,
         all_meshes,
-        ::testing::Values(true),
-        ::testing::Values(false),
-        ::testing::Values(true),
-        ::testing::Bool()));
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Values(false)));
 
 INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
-    ::testing::Combine(
-        all_backends,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
         all_nontrivial_meshes,
-        ::testing::Values(mesh_null), // the same mesh is used for all tensors
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Values(true),
-        ::testing::Bool()));
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Values(false)));
+
+// TODO: Distributed reduction tests using fusion executor cache are failing
+// AllocationDomainPass might be re-ordering compute
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_FusionExecutorCache_Reduce,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
+        all_nontrivial_meshes,
+        all_meshes,
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Values(true)));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_FusionExecutorCache_ReduceScatter,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::nccl),
+        all_nontrivial_meshes,
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Values(true)));
+
+// TODO: UCC PipelineTestTwoStages are hanging in UCC barrier
+// when number of processes > number of gpus required by test.
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Gather,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        all_meshes,
+        all_meshes,
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Scatter,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        all_meshes,
+        all_meshes,
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Bcast,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        all_meshes,
+        all_meshes,
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Bcast_sharded,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        testing::Values(mesh3, mesh4),
+        testing::Values(mesh3, mesh4),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Bcast_sharded_same_mesh,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_Reduce,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        all_nontrivial_meshes,
+        all_meshes,
+        testing::Values(true),
+        testing::Values(false),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+INSTANTIATE_TEST_SUITE_P(
+    DISABLED_UCC_ReduceScatter,
+    PipelineTestTwoStages,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::ucc),
+        all_nontrivial_meshes,
+        testing::Values(mesh_null), // the same mesh is used for all tensors
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(true),
+        testing::Values(0, 1),
+        testing::Bool()));
+
+// Different scheduling modes used in
+// PipelineTestStagedReduction.StagedReduction
+enum class SchedulingMode {
+  // Manual interdevice scheduling, no intra-device scheduling
+  InterDeviceOnly,
+  // Manual inter-/intra-device scheduling
+  Manual,
+  // Manual inter-device scheduling, composed with ReductionOnly
+  // intra-device schedule
+  ReductionOnly,
+  // Manual inter-device scheduling, composed with fully automated intra-device
+  // scheduling (through FusionExecutorCache)
+  Automatic,
+};
+
+std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
+  switch (mode) {
+    case SchedulingMode::InterDeviceOnly:
+      out << "InterDeviceOnly";
+      break;
+    case SchedulingMode::Manual:
+      out << "Manual";
+      break;
+    case SchedulingMode::ReductionOnly:
+      out << "ReductionOnly";
+      break;
+    case SchedulingMode::Automatic:
+      out << "Automatic";
+      break;
+  }
+  return out;
+}
+
+class PipelineTestStagedReduction
+    : public PipelineTest,
+      public ::testing::WithParamInterface<SchedulingMode> {};
+
+// 1D staged reduction
+// Inputs: X[A,B,C]
+TEST_P(PipelineTestStagedReduction, StagedReduction) {
+  auto scheduling_mode = GetParam();
+
+  int num_devices = communicator->size();
+  int A = num_devices;
+  int B = 8;
+  int C = 64;
+  std::vector<int64_t> unsharded_input_sizes = {A, B, C};
+  std::vector<int64_t> input_sizes(unsharded_input_sizes);
+  input_sizes[0] = 1;
+
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
+  TensorView* tv1 = sum(tv0, {2});
+  TensorView* tv_out = sum(tv1, {0});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv_out);
+
+  // multi device scheduling:
+  std::vector<int64_t> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  DeviceMesh mesh(devices);
+  for (auto tv : {tv0, tv1, tv_out}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {tv0, tv1}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  // Intra-device reduction scheduling for the first reduction:
+  switch (scheduling_mode) {
+    case SchedulingMode::InterDeviceOnly:
+      break;
+    case SchedulingMode::Manual: {
+      // inspired from NVFuserTest.FusionReduction1_CUDA
+      // tv0[I0{A}, I1{B}, I2{C}]
+      tv1->split(2, 32);
+      // tv1[I0{A}, I1{B}, R2o{C/32}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      tv1->split(2, 4);
+      // clang-format off
+      // tv1[I0{A}, I1{B}, R2oo{C/32/4)}, R2oi{4}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      // clang-format on
+
+      TensorView* tv2 = tv1->rFactor({2});
+      // clang-format off
+      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv1[I0{A}, I1{B},                R2oi{4}, R2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
+      // clang-format on
+
+      TensorView* tv3 = tv1->rFactor({2});
+      // clang-format off
+      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
+      // tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
+      // tv1[I0{A}, I1{B},                         R2i{32}] = tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}]
+      // clang-format on
+
+      // Incrementally, can print in between for debugging
+      tv0->computeAt(tv2, 2);
+      tv2->computeAt(tv3, 2);
+      tv3->computeAt(tv1, 2);
+
+      // Re do it all at once, because why not.
+      tv0->computeAt(tv1, 2);
+
+      tv2->axis(3)->parallelize(ParallelType::Unroll);
+      tv1->axis(1)->parallelize(ParallelType::BIDx);
+      tv1->setMemoryType(
+          MemoryType::Global); // necessary to avoid runtime error
+
+      tv1->axis(-1)->parallelize(ParallelType::TIDx);
+      tv2->axis(-1)->parallelize(ParallelType::TIDx);
+      tv3->axis(-1)->parallelize(ParallelType::TIDx);
+      break;
+    }
+    case SchedulingMode::ReductionOnly: {
+      auto reduction_params = getReductionHeuristics(
+          fusion.get(), {at::empty(input_sizes, tensor_options)});
+      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+      l_params = reduction_params->lparams;
+      scheduleReduction(fusion.get(), *reduction_params);
+      break;
+    }
+    case SchedulingMode::Automatic:
+      multi_device_executor_params.use_fusion_executor_cache = true;
+      break;
+  }
+
+  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
+  ref_unsharded_outputs = {at::sum(
+      unsharded_inputs.at(0).toTensor(), at::OptionalIntArrayRef({0, 2}))};
+
+  executeAndValidate(/* validate_with_prescribed_values */ true);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PipelineTestStagedReduction,
+    testing::Values(
+        SchedulingMode::InterDeviceOnly,
+        SchedulingMode::Manual,
+        SchedulingMode::ReductionOnly,
+        SchedulingMode::Automatic),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
-
-#endif

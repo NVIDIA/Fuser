@@ -322,7 +322,8 @@ class NVF_API UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
+      std::unordered_map<const Val*, PolymorphicValue>& known_values)
+      const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1448,10 +1449,6 @@ class NVF_API MmaOp : public Expr {
     return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override;
-
  private:
   // Predefined idexes of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
@@ -2128,18 +2125,18 @@ class PadOp : public Expr {
 
   //! Return axes that are actually paded, i.e., those that have
   //! non-zero pad widths
-  std::vector<int> getPaddedAxes() const;
+  std::vector<int64_t> getPaddedAxes() const;
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int axis) const;
+  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
-  int getPadWidthInputOffset() const {
+  int64_t getPadWidthInputOffset() const {
     return 2;
   }
 

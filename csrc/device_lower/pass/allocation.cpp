@@ -47,7 +47,7 @@ class AllocationInserter : public kir::ExprMutator {
     Expr* alloc_place_before = nullptr;
 
     // The allocation position relative to buffer
-    size_t alloc_pos = 0;
+    int64_t alloc_pos = 0;
 
     // The buffer this allocation is for
     TensorView* buffer = nullptr;
@@ -121,12 +121,12 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i :
          c10::irange(info.alloc_pos, info.buffer->nDims())) {
-      if (info.buffer->axis((int)axis_i)->isReduction() ||
-          info.buffer->axis((int)axis_i)->isBroadcast()) {
+      if (info.buffer->axis(axis_i)->isReduction() ||
+          info.buffer->axis(axis_i)->isBroadcast()) {
         continue;
       }
       auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
+          info.buffer->axis(axis_i), IdMappingMode::LOOP);
       init_dims.push_back(concrete_id);
     }
     Expr* init_expr = IrBuilder::create<LoadStoreOp>(
@@ -334,7 +334,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
-      const auto local_id = info.buffer->axis((int)axis_i);
+      const auto local_id = info.buffer->axis(axis_i);
 
       // Don't use reduction/stride/broadcast/device axis in the
       // allocation computation
@@ -344,7 +344,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
+          info.buffer->axis(axis_i), IdMappingMode::LOOP);
       const bool is_block_dim =
           isParallelTypeBlockDim(concrete_id->getParallelType());
       const bool is_thread_dim =
@@ -363,7 +363,7 @@ class AllocationInserter : public kir::ExprMutator {
               (memory_type == MemoryType::Global && is_thread))) {
           continue;
         }
-        alloc_domains.push_back(info.buffer->axis((int)axis_i));
+        alloc_domains.push_back(info.buffer->axis(axis_i));
       } else {
         if (
             // If shared memory, don't use any IDs bound to a grid dimension
@@ -373,12 +373,12 @@ class AllocationInserter : public kir::ExprMutator {
             (memory_type == MemoryType::Local && is_thread)) {
           continue;
         }
-        alloc_domains.push_back(info.buffer->axis((int)axis_i));
+        alloc_domains.push_back(info.buffer->axis(axis_i));
       }
 
       auto extent = concrete_id->extent();
 
-      if (gpu_lower->haloInfo()->getExtent(info.buffer->axis((int)axis_i)) !=
+      if (gpu_lower->haloInfo()->getExtent(info.buffer->axis(axis_i)) !=
           nullptr) {
         has_halo = true;
       }
@@ -560,16 +560,24 @@ class AllocationInserter : public kir::ExprMutator {
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
       auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          mbarrier, expr->container()->oneVal(DataType::UInt32));
+          mbarrier,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32,
+              lower_utils::getNumThreadsInTensorView(
+                  expr->output(0)->as<TensorView>()))));
+      auto sync_init = IrBuilder::create<kir::BlockSync>();
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+      auto sync_inval = IrBuilder::create<kir::BlockSync>();
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
       kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(expr, mbarrier_alloc, expr_scope);
       registerInsertBefore(expr, mbarrier_init, expr_scope);
+      registerInsertBefore(expr, sync_init, expr_scope);
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
+      registerInsertAfter(expr, sync_inval, expr_scope);
       GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
     }
   }

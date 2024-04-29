@@ -206,7 +206,7 @@ class BufferReuseDebugPrinter {
   enum class DebugLineType { EXPR, START_BLOCK, END_BLOCK };
 
   struct ExprInfo {
-    int lineno = 0;
+    int64_t lineno = 0;
     DebugLineType line_type = DebugLineType::EXPR;
   };
 
@@ -239,7 +239,7 @@ class BufferReuseDebugPrinter {
     return os_.str();
   }
 
-  void pushBack(int lineno, Expr* expr) {
+  void pushBack(int64_t lineno, Expr* expr) {
     makeExprEntry(lineno, expr);
   }
 
@@ -252,7 +252,7 @@ class BufferReuseDebugPrinter {
   }
 
  private:
-  void makeExprEntry(int lineno, Expr* expr) {
+  void makeExprEntry(int64_t lineno, Expr* expr) {
     auto debug_entry_ptr = std::make_unique<DebugEntry>();
     debug_entry_ptr->first.lineno = lineno;
     debug_entry_ptr->second = expr;
@@ -349,13 +349,13 @@ class BufferLiveInterval {
     }
   }
 
-  void markWrite(int pos) {
+  void markWrite(int64_t pos) {
     if (first_write_pos_ == -1) {
       first_write_pos_ = pos;
     }
   }
 
-  void markRead(int pos) {
+  void markRead(int64_t pos) {
     last_read_pos_ = pos;
     NVF_ERROR(
         first_write_pos_ > 0,
@@ -389,9 +389,9 @@ class BufferLiveInterval {
   }
 
  private:
-  int first_write_pos_ = -1;
-  int last_read_pos_ = -1;
-  std::vector<int> all_read_pos_;
+  int64_t first_write_pos_ = -1;
+  int64_t last_read_pos_ = -1;
+  std::vector<int64_t> all_read_pos_;
 };
 
 using BufferLiveIntervalPtrList = std::vector<BufferLiveInterval*>;
@@ -399,8 +399,8 @@ using BufferLiveIntervalPtrList = std::vector<BufferLiveInterval*>;
 //! Thin struct to keep track of loops. The actual loop body is
 //!  considered live in [start_pos, end_pos)
 struct ScopeInfo {
-  int start_pos = -1;
-  int end_pos = -1;
+  int64_t start_pos = -1;
+  int64_t end_pos = -1;
 
   // nullptr means it's global scope
   kir::ForLoop* loop = nullptr;
@@ -413,12 +413,12 @@ class ScopeMap;
 class ExprPosMap {
  public:
   //! Get the position of an expr
-  int get(const Expr* expr) const {
+  int64_t get(const Expr* expr) const {
     return expr_pos_map_.at(expr);
   }
 
   //! Get the current position
-  int getCurrentPos() const {
+  int64_t getCurrentPos() const {
     return current_pos_;
   }
 
@@ -442,10 +442,10 @@ class ExprPosMap {
 
  private:
   //! Position counter. The first expression is assigned position 1
-  int current_pos_ = 0;
+  int64_t current_pos_ = 0;
 
   //! Keep track of the positions of expressions
-  std::unordered_map<const Expr*, int> expr_pos_map_;
+  std::unordered_map<const Expr*, int64_t> expr_pos_map_;
 };
 
 // Create ScopeInfo for each loop
@@ -525,7 +525,7 @@ class ScopeMap : private kir::IrVisitor {
     return it->second;
   }
 
-  int getExprPos(const Expr* expr) const {
+  int64_t getExprPos(const Expr* expr) const {
     return expr_pos_map_.get(expr);
   }
 
@@ -568,7 +568,7 @@ struct AllocationInfo {
   std::string size_expr;
   ScopeInfo* loop_info = nullptr;
   bool can_use_inner_alias = true;
-  int alloc_pos = -1;
+  int64_t alloc_pos = -1;
   std::unique_ptr<std::vector<AllocationInfo*>> inner_alias_list_ = nullptr;
   std::unique_ptr<BufferLiveInterval> inner_live_interval = nullptr;
   std::unique_ptr<BufferLiveIntervalPtrList> inner_subscribed_intevals =
@@ -581,7 +581,7 @@ struct AllocationInfo {
 
   //! Get the last outer read position of either this allocation, or any
   //! allocation that is aliased to this allocation.
-  int getAliasedOuterLastRead() const {
+  int64_t getAliasedOuterLastRead() const {
     auto last_outer_read = outer_live_interval->lastRead();
     for (auto aliasing : outer_aliased_by) {
       last_outer_read =
@@ -1216,8 +1216,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
               if (!reuse_tv_vectorized) {
                 return false;
               }
-              int this_tv_alignment = va.at(this_tv);
-              int reuse_tv_alignment = va.at(reuse_tv);
+              int64_t this_tv_alignment = va.at(this_tv);
+              int64_t reuse_tv_alignment = va.at(reuse_tv);
               if (this_tv_alignment > reuse_tv_alignment) {
                 return false;
               }
@@ -1458,6 +1458,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
         old_alloc->memoryType(),
         old_alloc->shape(),
         old_alloc->zeroInit(),
+        /*reset_to_zero=*/false,
         alloc_expr_to);
 
     registerReplace(old_alloc, new_alloc);
@@ -1691,7 +1692,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  int lastAliasedRead(AllocationInfo* alloc_info) {
+  int64_t lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
     NVF_CHECK(
         it != last_aliased_read_.end(),
@@ -1825,20 +1826,21 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   const AllocationInfoMap& allocation_info_map_;
 
-  int position_ = -1;
+  int64_t position_ = -1;
 
   // This records the actual last read position of an AllocationInfo, computed
   // as the maximum last outer read position of all Allocations that alias it.
-  std::unordered_map<AllocationInfo*, int> last_aliased_read_;
+  std::unordered_map<AllocationInfo*, int64_t> last_aliased_read_;
 
   // This holds all positions which are the first write positions for some
   // allocation. At these positions we should queue up allocations for assigning
   // addresses.
-  std::unordered_map<int, std::vector<AllocationInfo*>> first_write_positions_;
+  std::unordered_map<int64_t, std::vector<AllocationInfo*>>
+      first_write_positions_;
 
   // This holds all positions which are the last read positions for some
   // allocation. These are points at which we can try to reclaim memory.
-  std::unordered_set<int> last_read_positions_;
+  std::unordered_set<int64_t> last_read_positions_;
 
   // Stack of allocations "below" the current eligible address. At any given
   // time, all memory above the last allocation in this vector is guaranteed to
@@ -1880,7 +1882,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       }
       auto last_read = alloc_info->getAliasedOuterLastRead();
 
-      std::optional<int> nearest_first_write = std::nullopt;
+      std::optional<int64_t> nearest_first_write = std::nullopt;
 
       for (const auto& other : allocation_info_map.allAllocationInfos()) {
         if (other->alias_to || other->mem_type != MemoryType::Shared) {
@@ -1933,7 +1935,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   //! a sync exists. This function finds any sync intervals having "position" as
   //! the last read, and adds the other end of the interval to
   //! upcoming_first_writes_.
-  void processLastReads(int position) {
+  void processLastReads(int64_t position) {
     NVF_ERROR(
         position == ++last_processed_position_,
         "Expr position skipped visited out of order. Previous position was ",
@@ -1962,7 +1964,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   //! need to insert a sync just before this position. In that case, we register
   //! a new sync for insertion. This function returns a bool indicating whether
   //! a new sync was inserted.
-  bool processFirstWrites(Expr* expr, int position) {
+  bool processFirstWrites(Expr* expr, int64_t position) {
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
@@ -2025,11 +2027,11 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   // This holds intervals in which we need to ensure a sync exists. All
   // threads in a block should arrive at the start of each interval before any
   // thread proceeds past the end of the interval.
-  std::unordered_multimap<int, int> sync_intervals_;
+  std::unordered_multimap<int64_t, int64_t> sync_intervals_;
 
   // These are the upper endpoints of needed sync intervals for which we've
   // already passed over the lower endpoint.
-  std::unordered_set<int> upcoming_first_writes_;
+  std::unordered_set<int64_t> upcoming_first_writes_;
 
   // Holds all new syncs we have inserted
   std::unordered_set<Expr*> inserted_syncs_;

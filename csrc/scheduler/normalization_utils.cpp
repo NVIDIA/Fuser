@@ -612,7 +612,7 @@ bool isReductionIterationAxisMatched(
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
   for (const auto i : c10::irange(reference_tv->nDims())) {
-    auto id = reference_tv->axis((int)i);
+    auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
             id->getIterType() == IterType::Reduction,
@@ -627,7 +627,7 @@ bool isReductionIterationAxisMatched(
   for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,
@@ -642,7 +642,7 @@ bool isReductionIterationAxisMatched(
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,
@@ -845,15 +845,22 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   return available_persistent_buffer_size;
 }
 
-// Returns true if the gains of reducing buffer size is larger than the pains of
-// recalculations. We don't know the real answer until we run it.
-bool projectBufferToInputs(
+// Returns true if persistent buffers are projected to inputs, meaning the
+// inputs are cached instead of the persistent buffers.
+bool isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const bool is_inner_reduction) {
+  // don't project if there are view ops and no buffer can be projected
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  if (!can_project) {
+    return false;
+  }
+
   // don't project if can't reduce buffer size
   if (persistent_buffer_size_info.projected_persistent_buffer_size >=
       persistent_buffer_size_info.persistent_buffer_size) {
@@ -861,7 +868,9 @@ bool projectBufferToInputs(
   }
 
   // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers
+  // memory to store the buffers. Even after projecting, may still not have
+  // enough register or shared memory, then canScheduleRunTime will return
+  // false.
   int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
       runtime_info, persistent_buffer_info.persistent_buffers);
   if (max_available_buffer <
@@ -993,19 +1002,16 @@ PersistentKernelProperties getPersistentKernelProperties(
   // which requires more advanced analysis is batch norm backwards.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
   bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
-  bool project_persistent_buffers = can_project &&
-      projectBufferToInputs(fusion,
-                            runtime_info,
-                            persistent_buffer_info,
-                            persistent_buffer_size_info,
-                            is_inner_reduction);
+  bool project_persistent_buffers = isProjectBufferToInputs(
+      fusion,
+      runtime_info,
+      persistent_buffer_info,
+      persistent_buffer_size_info,
+      is_inner_reduction);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;

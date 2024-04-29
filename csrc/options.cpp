@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
+      {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
@@ -157,9 +158,9 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
-      {"matmul_expr_eval", EnableOption::MatmulExprEval},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
   };
 
@@ -178,6 +179,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
        DisableOption::GroupedGridWelfordOuterOpt},
       {"index_hoist", DisableOption::IndexHoist},
       {"magic_zero", DisableOption::MagicZero},
+      {"matmul_expr_eval", DisableOption::MatmulExprEval},
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
       {"parallel_serde", DisableOption::ParallelSerde},
@@ -216,13 +218,18 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-thread_local DebugDumpOptions active_dump_options;
+// These may need to be thread local, or their modifications may need to
+// be protected by mutual exclusion for thread safety. At this
+// moment, the correctness of modifying option values has to be
+// guaranteed by the modifying code.
 
-thread_local EnableOptions active_enable_options;
+DebugDumpOptions active_dump_options;
 
-thread_local DisableOptions active_disable_options;
+EnableOptions active_enable_options;
 
-thread_local ProfilerOptions active_profiler_options;
+DisableOptions active_disable_options;
+
+ProfilerOptions active_profiler_options;
 
 } // namespace
 

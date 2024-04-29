@@ -21,7 +21,9 @@
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
+#include <exceptions.h>
 #include <executor_params.h>
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -81,7 +83,7 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
-  const std::pair<int, int>& minDeviceVersion() const {
+  const auto& minDeviceVersion() const {
     return min_device_version_;
   }
 
@@ -238,6 +240,31 @@ class GpuLower : public NonCopyable {
     return passes_;
   }
 
+  // Register a boolean Val as a predicate to validate at the run time. Optional
+  // validation error messages can be given as args.
+  template <typename... Args>
+  void validate(Val* validation_condition, Args... args) {
+    auto sv = simplifyExpr(validation_condition);
+    if (sv->isTrue()) {
+      // If validation_condition is simplified to true, we know that the
+      // condition is always true regardless of the runtime values of the
+      // inputs. We can skip the validation. For example, we are not interested
+      // in validating that 3 < 4 or i % 8 < 8 every time we run the kernel.
+      return;
+    }
+    std::string message = to_str(args...);
+    NVF_ERROR(!sv->isFalse(), message);
+    validations_.emplace_back(sv, message);
+  }
+
+  const std::vector<std::pair<const Val*, std::string>>& validations() const {
+    return validations_;
+  }
+
+  std::vector<std::pair<const Val*, std::string>>& validations() {
+    return validations_;
+  }
+
  private:
   void analysis(Fusion* fusion);
 
@@ -260,7 +287,7 @@ class GpuLower : public NonCopyable {
   // would be safer to wrap all of these in unique pointers and remove the build
   // interface and default constructor. That way they couldn't be accessed
   // without being initialized.
-  std::pair<int, int> min_device_version_;
+  std::pair<int64_t, int64_t> min_device_version_;
   std::string min_device_version_reason_;
   std::shared_ptr<const ConcretizedBroadcastDomains>
       concretized_broadcast_domains_;
@@ -284,7 +311,7 @@ class GpuLower : public NonCopyable {
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
   // std::unordered_map<TensorView*, VectorizationInfo> vectorized_accesses_;
-  std::unordered_map<TensorView*, int> vectorized_accesses_;
+  std::unordered_map<TensorView*, int64_t> vectorized_accesses_;
   // Info on each vectorized set op
   std::vector<VectorizedSetInfo> vectorized_set_info_;
 
@@ -292,8 +319,13 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // keep track of the mbarrier used for each load/store operation
+  // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // Keep track of validations needed at runtime. For example, a pair of
+  //! "extent mod split_factor == 0" and an error message for divisibility check
+  //! for vectorization.
+  std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
 };

@@ -98,7 +98,7 @@ NVF_API TensorView* binaryOp(
 // of size-1 dimension is automatically converted to squeeze.
 NVF_API TensorView* reductionOp(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* v1,
     bool keep_dim = false,
@@ -108,7 +108,7 @@ NVF_API TensorView* reductionOp(
 // reduction into squeeze and don't convert size-0 reduction into full.
 NVF_API TensorView* reductionOpRaw(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* v1,
     bool keep_dim = false,
@@ -134,7 +134,7 @@ class WelfordResult {
 //! ops are added.
 NVF_API WelfordResult Welford(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
@@ -145,7 +145,7 @@ NVF_API WelfordResult Welford(
 //! squeeze/full.
 WelfordResult WelfordRaw(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
@@ -157,7 +157,8 @@ NVF_API TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* rand_like(
     TensorView*,
     Val* philox_seed,
@@ -176,7 +177,8 @@ NVF_API TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* randn_like(
     TensorView*,
     Val* philox_seed,
@@ -191,27 +193,36 @@ NVF_API TensorView* uniform(
     Val* high,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 NVF_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
     Val* std,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 
 // TENSOR FACTORIES
 NVF_API TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype);
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 NVF_API TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
-NVF_API TensorView* zeros(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* zeros(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* zeros_like(TensorView*);
 Val* zeros_like(Val*);
-NVF_API TensorView* ones(const std::vector<Val*>& shape, DataType dtype);
+NVF_API TensorView* ones(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    bool maybe_symbolic = true);
 NVF_API TensorView* ones_like(TensorView*);
 Val* ones_like(Val*);
 NVF_API TensorView* iota(
@@ -576,25 +587,25 @@ TensorView* complex(TensorView* v1, TensorView* v2);
 // REDUCTION OPERATIONS
 NVF_API TensorView* sum(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
 NVF_API TensorView* prod(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
 NVF_API TensorView* max(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
 NVF_API TensorView* min(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
@@ -783,7 +794,7 @@ TensorView* viewAsScalar(TensorView* inp);
 NVF_API TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init = nullptr);
 
 // Create a tensor view from the given value. The given value can be a single

@@ -797,8 +797,16 @@ def index_select_error_generator(
     a = make_arg(input_shape)
 
     # dim, exception type, exception string
-    positive_axis = (2, RuntimeError, "index_select on invalid axis")
-    negative_axis = (-3, RuntimeError, "index_select on invalid axis")
+    positive_axis = (
+        2,
+        RuntimeError,
+        "Tried to access out of boundary index 2. total index: 2",
+    )
+    negative_axis = (
+        -3,
+        RuntimeError,
+        "Tried to access out of boundary index -1. total index: 2",
+    )
 
     error_cases = [
         positive_axis,
@@ -1423,7 +1431,7 @@ def tensor_size_error_generator(
             "dim": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1431,7 +1439,7 @@ def tensor_size_error_generator(
             "dim": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
@@ -1458,7 +1466,7 @@ def vector_at_error_generator(
             "index": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1466,7 +1474,7 @@ def vector_at_error_generator(
             "index": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
@@ -1478,3 +1486,38 @@ def vector_at_error_generator(
         yield SampleInput(
             make_arg(error_case["tensor_shape"]), index=error_case["index"]
         ), error_type, error_msg
+
+
+def matmul_or_linear_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    def multiply_range(maximum, step):
+        assert maximum % step == 0
+        num_steps = int(math.log(maximum, step))
+        return tuple(
+            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
+        )
+
+    is_linear = op.name == "linear"
+
+    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
+    # Use a Cartesian product to create a wide range of matrix shapes
+    # I'll stop at 512 as possible numerical difference may show up.
+    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
+    for M, N, K in itertools.product(M, N, K):
+        lhs_shape = (M, K)
+        rhs_shape = (N, K) if is_linear else (K, N)
+        yield (
+            SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,)))
+            if is_linear
+            else SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))
+        )

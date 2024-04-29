@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def gelu_bwd_reduction_fusion(
@@ -53,10 +57,25 @@ def gelu_bwd_reduction_fusion(
     fd.add_output(T21)
 
 
+def gelu_bwd_reduction_torch(
+    inputs: list,
+):  # [output, grad_out, in_tensor, reduction_axis]
+    eager_output, grad_out, in_tensor, reduction_axis = inputs
+    eager_output.backward(grad_out, retain_graph=True)
+    return in_tensor.grad.sum(reduction_axis)
+
+
+def gelu_bwd_reduction_iobytes(size: tuple, dtype: torch.dtype, reduction_axis: int):
+    # Total IO bytes = in_tensor + grad_out + bias + grad_input
+    return int(
+        dtype.itemsize * (2 * np.prod(size) + size[1] + size[1 - reduction_axis])
+    )
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_gelu_bwd_reduction_benchmark(
+def test_gelu_bwd_reduction_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -84,3 +103,29 @@ def test_gelu_bwd_reduction_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("reduction_axis", [0, 1])
+def test_gelu_bwd_reduction_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+    compile: bool,
+):
+    clear_cuda_cache()
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.ones(size[-1], device="cuda", dtype=dtype)
+    grads = torch.randn(size, device="cuda", dtype=dtype)
+    eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
+    run_benchmark(
+        benchmark,
+        torch.compile(gelu_bwd_reduction_torch)
+        if compile
+        else gelu_bwd_reduction_torch,
+        [eager_output, grads, inputs, reduction_axis],
+        iobytes=gelu_bwd_reduction_iobytes(size, dtype, reduction_axis),
+    )

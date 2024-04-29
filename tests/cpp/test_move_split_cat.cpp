@@ -457,6 +457,31 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
 }
 
+TEST_F(MoveSplitCatTest, OuterSplit) {
+  // A simplified reproducer for #2142.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* merged = makeContigConcreteTensor({4, 6});
+  fusion->addInput(merged);
+
+  TensorView* s0 = slice(merged, {0, 0}, {2, 6});
+  TensorView* s1 = slice(merged, {2, 0}, {4, 6});
+  s0 = reshape(s0, {2, 6}, {4, 3});
+  s1 = reshape(s1, {2, 6}, {4, 3});
+  merged = cat({s0, s1}, /*dim=*/0);
+  fusion->addOutput(merged);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({4, 6}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+}
+
 TEST_F(MoveSplitCatTest, MultiplePairs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -484,8 +509,8 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
   // the outer dimension is split and catted.
   s0 = slice(merged, {0, 0}, {3, 4});
   s1 = slice(merged, {3, 0}, {6, 4});
-  s0 = reshape(s0, {3, 4}, {6, 2});
-  s1 = reshape(s1, {3, 4}, {6, 2});
+  s0 = reshape(s0, {3, 4}, {12});
+  s1 = reshape(s1, {3, 4}, {12});
   merged = cat({s0, s1}, /*dim=*/0);
 
   fusion->addOutput(merged);

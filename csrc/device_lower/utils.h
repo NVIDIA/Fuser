@@ -257,7 +257,8 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map);
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init);
+    bool zero_init,
+    bool resets_to_zero = false);
 
 struct BasicAllocInfo {
   // The for loop that the initialization of this allocation must be
@@ -276,7 +277,7 @@ struct BasicAllocInfo {
   // The allocation position relative to buffer IDs, it could be outside the
   // compute at position if it's shared memory with a compute at inside an
   // unswitch
-  size_t alloc_pos = 0;
+  int64_t alloc_pos = 0;
 };
 
 // Fill the above allocation struct based on provided information. id_map is
@@ -311,6 +312,12 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 //! The fusion outputs to be computed through expression evaluator are
 //! filtered out.
 std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
+
+//! Get the number of threads in a tensor view. Note that this function
+//! only cares about the given tensor view itself, not the entire fusion.
+//! That is, for example, if the tensor view is [TIDx{3}], but the entire
+//! fusion has blockDim.x = 128, this function will return 3 instead of 128.
+Val* getNumThreadsInTensorView(TensorView* tv);
 
 } // namespace lower_utils
 

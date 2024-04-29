@@ -22,7 +22,7 @@
 
 namespace nvfuser {
 
-class AllocationDomainTest : public NVFuserTest {};
+using AllocationDomainTest = NVFuserTest;
 
 using ::testing::ElementsAre;
 
@@ -46,8 +46,8 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
   auto bc = fusion.bankConflictInfo();
   ASSERT_TRUE(bc.size() == 1);
   auto [read, write] = bc.at(tv1);
-  ASSERT_EQ(read, std::vector<int>{32});
-  ASSERT_EQ(write, std::vector<int>{32});
+  ASSERT_EQ(read, std::vector<int64_t>{32});
+  ASSERT_EQ(write, std::vector<int64_t>{32});
 
   std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
   tv1->setAllocationDomain(tv1_transposed, true);
@@ -1118,7 +1118,7 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
       << "alias.";
 }
 
-TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
+TEST_F(AllocationDomainTest, ContiguityIssue1021) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1144,7 +1144,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
+TEST_F(AllocationDomainTest, ContiguityForBroadcast) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1170,7 +1170,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
   testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
+TEST_F(AllocationDomainTest, ContiguityForExplicitBroadcast) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1341,7 +1341,7 @@ TEST_F(AllocationDomainTest, EmptyAllocationDomainApi) {
   tv0->setAllocationDomain({}, true);
 }
 
-TEST_F(NVFuserTest, ReductionSchedulerIssue1895) {
+TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   long x = 2L, y = 8L, z = 8L, w = 16L, h = 512L;
@@ -1384,7 +1384,7 @@ TEST_F(NVFuserTest, ReductionSchedulerIssue1895) {
       executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, ReductionVectorization) {
+TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   long x = 2L, y = 2L, z = 2L;

@@ -514,8 +514,8 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
       reduction_scheduler_utils::sortAndRFactor(reduction_tv);
 
   // Make sure the vectorized domain placed at the innermost position
-  int vec_id_cur_pos = -1;
-  std::unordered_map<int, int> vec_reorder_map;
+  int64_t vec_id_cur_pos = -1;
+  std::unordered_map<int64_t, int64_t> vec_reorder_map;
   for (const auto i : c10::irange(reduction_tv_rf->nDims())) {
     auto id = reduction_tv_rf->axis(i);
     if (id->getParallelType() == ParallelType::Vectorize) {
@@ -612,7 +612,7 @@ void grid_persistent_reduction_outer_norm_like(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   auto tv0 = makeContigTensor(4, dtype);
   fusion.addInput(tv0);
@@ -711,7 +711,7 @@ void grid_persistent_welford_outer_norm_like(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   auto tv0 = makeContigTensor(4, dtype);
   fusion.addInput(tv0);
@@ -990,7 +990,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   // grad_output
   auto tv0 = makeContigTensor(4, dtype);
@@ -1370,7 +1370,7 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   auto inp = makeContigTensor(4, dtype);
   fusion.addInput(inp);
@@ -1527,7 +1527,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   auto inp = makeContigTensor(4, dtype);
   fusion.addInput(inp);
@@ -1842,7 +1842,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   FusionGuard fg(&fusion);
 
   std::vector<bool> bcast_pattern{true, true, true, false};
-  std::vector<int> reduction_dims{2, 1, 0};
+  std::vector<int64_t> reduction_dims{2, 1, 0};
 
   // grad_output
   auto tv0 = makeContigTensor(4, dtype);

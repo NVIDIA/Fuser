@@ -253,18 +253,18 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     ExpressionEvaluator expr_eval;
 
     for (const auto i : c10::irange(before_shape.size())) {
-      expr_eval.bind(tv0->axis((int)i)->extent(), before_shape.at(i));
+      expr_eval.bind(tv0->axis(i)->extent(), before_shape.at(i));
     }
 
     for (const auto i : c10::irange(after_shape.size())) {
-      expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
+      expr_eval.bind(tv2->axis(i)->extent(), after_shape.at(i));
       // We must bind tv1's extents, since they cannot be inferred until after
       // concretization. Because tv2 is a dynamic reshape both its IterDomains
       // are Symbolic, which means both of tv3's IterDomains are also Symbolic.
       // tv1 has both IterDomains of type Iteration, but it since we add tv3 to
       // it to get tv4, we do not know whether this will resolve broadcasts from
       // tv3 or not until concretization.
-      expr_eval.bind(tv1->axis((int)i)->extent(), after_shape.at(i));
+      expr_eval.bind(tv1->axis(i)->extent(), after_shape.at(i));
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
@@ -364,7 +364,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     for (const auto i : c10::irange(reshape_list.size())) {
       const auto& shape = reshape_list.at(i);
       for (const auto j : c10::irange(shape.size())) {
-        expr_eval.bind(reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
+        expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
 
@@ -443,8 +443,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (const auto i : c10::irange(ref_transform.shapes.size())) {
       const auto& shape = ref_transform.shapes.at(i);
       for (const auto j : c10::irange(shape.size())) {
-        ref_expr_eval.bind(
-            reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
+        ref_expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
 
@@ -458,8 +457,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       for (const auto i : c10::irange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
         for (const auto j : c10::irange(shape.size())) {
-          expr_eval.bind(
-              reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
+          expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
 
@@ -480,8 +478,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       for (const auto i : c10::irange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
         for (const auto j : c10::irange(shape.size())) {
-          expr_eval.bind(
-              reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
+          expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
 

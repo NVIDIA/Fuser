@@ -47,6 +47,28 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
+// Matmul function which takes in tensors with the shapes
+// A[M,K] B[K,N], but the tensors may have different layouts
+// via strides. All restrictions from the matmul APIs also
+// apply here.
+TensorView* matmul(TensorView* a, TensorView* b);
+// This second matmul function is not exposed via
+// the Python interface, but it does the guts of the work and
+// can be used to create mamtuls without a cast operation following it.
+TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
+
+// Linear functions which takes in two tensors of shapes A[M,K] and
+// B[N,K]. Takes in a options bias of shape [N] and performs
+// out = A * B_Transpose + bias. The output dtype matches the dtype
+// ofthe inputs which should match.
+TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
+// This is an implementation detail to reflect when linear is called
+// without a bias. This calls the above function. We use this function
+// since it simplifies creating a Python API which takes optional arguments.
+// Other options include using lambdas or creating a new RecordFunctor for
+// Linear.
+TensorView* linear(TensorView* a, TensorView* b);
+
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
 TensorView* softplus(TensorView* x, Val* beta, Val* threshold);

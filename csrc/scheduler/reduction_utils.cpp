@@ -12,6 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -30,15 +31,24 @@ TensorView* scheduleReductionTV(
   // Inner here though is only relative to the other axis. When
   // rparams.fastest_dim == false, the reduction axis is logically outside the
   // iteration axis.
-  const int iter_axis = 0;
+  // Multidevice scheduling: we assume only the outermost domain can be
+  // parallelized with DIDx at this point and in that case this reduction
+  // scheduler only schedules the remaining domains while leaving the DIDx
+  // domain unchanged.
+  const bool has_outermost_dim_sharded = isSharded(reduction_tv);
+  NVF_ERROR(
+      !has_outermost_dim_sharded || !rparams.schedule_3D,
+      "Mixing interdevice and 3D schedule is not supported");
+  const int iter_axis = has_outermost_dim_sharded ? 1 : 0;
   const int outer_reduce_axis = rparams.schedule_3D ? 1 : 0;
-  const int inner_reduce_axis = rparams.schedule_3D ? 2 : has_iter_axis ? 1 : 0;
+  const int inner_reduce_axis =
+      rparams.schedule_3D ? 2 : has_outermost_dim_sharded + has_iter_axis;
 
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
 
   NVF_ERROR(
-      (int)reduction_tv->nDims() >
+      reduction_tv->nDims() >
           std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
       "Issue in scheduling reduction tv, expecting >",
       std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
@@ -61,43 +71,43 @@ TensorView* scheduleReductionTV(
       !(rparams.unroll_factor_iter_dom > 1 && !has_iter_axis),
       "Unrolling on iter domain requires an iter domain.");
 
-  auto vectorize = [&reduction_tv](int axis, int64_t factor) {
+  auto vectorize = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
   };
 
-  auto inner_parallel = [&reduction_tv](int axis, ParallelType ptype) {
+  auto inner_parallel = [&reduction_tv](int64_t axis, ParallelType ptype) {
     reduction_tv->split(axis, NamedScalar::getParallelDim(ptype));
     reduction_tv->axis(axis + 1)->parallelize(ptype);
   };
 
   auto inner_parallel_static =
-      [&reduction_tv](int axis, ParallelType ptype, int64_t factor) {
+      [&reduction_tv](int64_t axis, ParallelType ptype, int64_t factor) {
         reduction_tv->split(axis, factor);
         reduction_tv->axis(axis + 1)->parallelize(ptype);
       };
 
-  auto inner_unswitch = [&reduction_tv](int axis) {
+  auto inner_unswitch = [&reduction_tv](int64_t axis) {
     reduction_tv->split(axis, 1);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
   };
 
-  auto inner_unroll = [&reduction_tv](int axis, int64_t factor) {
+  auto inner_unroll = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
   };
 
-  auto outer_parallel = [&reduction_tv](int axis, ParallelType ptype) {
+  auto outer_parallel = [&reduction_tv](int64_t axis, ParallelType ptype) {
     reduction_tv->split(axis, NamedScalar::getParallelDim(ptype), false);
     reduction_tv->axis(axis)->parallelize(ptype);
   };
 
-  auto outer_unswitch = [&reduction_tv](int axis) {
+  auto outer_unswitch = [&reduction_tv](int64_t axis) {
     reduction_tv->split(axis, 1, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unswitch);
   };
 
-  auto outer_unroll = [&reduction_tv](int axis, int64_t factor) {
+  auto outer_unroll = [&reduction_tv](int64_t axis, int64_t factor) {
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
@@ -108,7 +118,7 @@ TensorView* scheduleReductionTV(
     inner_parallel_static(
         reduction_axis,
         rparams.block_dim_inner_reduction,
-        (int)rparams.lparams.bdimy());
+        rparams.lparams.bdimy());
     reduction_tv->split(
         reduction_axis, rparams.batches_per_block_inner_reduction);
     reduction_tv->axis(reduction_axis)
@@ -147,7 +157,7 @@ TensorView* scheduleReductionTV(
 
     if (!rparams.vectorize_inner_reduction &&
         rparams.unroll_factor_inner_reduction > 1) {
-      outer_unroll(outer_i++, (int)rparams.unroll_factor_inner_reduction);
+      outer_unroll(outer_i++, rparams.unroll_factor_inner_reduction);
     }
 
     if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
@@ -272,9 +282,9 @@ TensorView* scheduleReductionTV(
   // domain placed at the innermost position.
   // TODO: Why isn't this the case by default?
   if (is_outer_grid_persistence) {
-    int vec_id_cur_pos = -1;
-    std::unordered_map<int, int> vec_reorder_map;
-    for (const auto i : c10::irange((int)reduction_rf_tv->nDims())) {
+    int64_t vec_id_cur_pos = -1;
+    std::unordered_map<int64_t, int64_t> vec_reorder_map;
+    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -295,14 +305,14 @@ TensorView* scheduleReductionTV(
 //        axis rS2 and rS3, then your `non_broadcast_axes` should be {1, 2}.
 // Output: the raw positions (counting broadcasts). In the above example, the
 //         output should be {2, 3}.
-std::vector<int> addBackBroadcasts(
+std::vector<int64_t> addBackBroadcasts(
     TensorView* tv,
-    const std::unordered_set<int>& non_broadcast_axes) {
+    const std::unordered_set<int64_t>& non_broadcast_axes) {
   // convert non-broadcast positions to raw positions
-  std::vector<int> axes;
-  int non_broadcast_pos = 0;
+  std::vector<int64_t> axes;
+  int64_t non_broadcast_pos = 0;
   for (const auto i : c10::irange(tv->nDims())) {
-    if (tv->axis((int)i)->isBroadcast()) {
+    if (tv->axis(i)->isBroadcast()) {
       continue;
     }
     if (non_broadcast_axes.count(non_broadcast_pos)) {
@@ -407,14 +417,14 @@ void propagateRFactor(
   // pattern equivalence but have different number of broadcasts, so the
   // position in the reference tensor is not necessary the same as the
   // position in other reduction TVs.
-  std::unordered_set<int> non_broadcast_rfactor_axes_ir;
-  int non_broadcast_pos_ir = 0;
+  std::unordered_set<int64_t> non_broadcast_rfactor_axes_ir;
+  int64_t non_broadcast_pos_ir = 0;
   for (const auto i : c10::irange(reference_tv->nDims())) {
-    if (reference_tv->axis((int)i)->isBroadcast()) {
+    if (reference_tv->axis(i)->isBroadcast()) {
       continue;
     }
-    if (reference_tv->axis((int)i)->isReduction() &&
-        reference_tv->axis((int)i)->isRFactorProduct()) {
+    if (reference_tv->axis(i)->isReduction() &&
+        reference_tv->axis(i)->isRFactorProduct()) {
       non_broadcast_rfactor_axes_ir.insert(non_broadcast_pos_ir);
     }
     non_broadcast_pos_ir++;
@@ -426,7 +436,7 @@ void propagateRFactor(
       // This should come in already rfactored
       continue;
     } else {
-      ir_utils::rfactorHelper(
+      ir_utils::rFactorHelper(
           reduction_tv_,
           reduction_scheduler_utils::addBackBroadcasts(
               reduction_tv_, non_broadcast_rfactor_axes_ir));
@@ -517,22 +527,22 @@ void propagateParallelization(
     for (auto tv : rfactor_and_reduction_tvs) {
       if (are_unrolled.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
-          auto id = tv->axis((int)i);
+          auto id = tv->axis(i);
           if (use_grouped_reduction &&
               std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
                   reduction_tvs.end() &&
               id->getParallelType() == ParallelType::Vectorize) {
-            tv->axis((int)i)->parallelize(ParallelType::Group);
+            tv->axis(i)->parallelize(ParallelType::Group);
             for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-              sibling->axis((int)i)->parallelize(ParallelType::Group);
+              sibling->axis(i)->parallelize(ParallelType::Group);
             }
           } else if (
               id->getParallelType() == ParallelType::Unroll ||
               id->getParallelType() == ParallelType::Vectorize ||
               id->getParallelType() == ParallelType::MisalignedVectorize) {
-            tv->axis((int)i)->parallelize(ParallelType::Serial);
+            tv->axis(i)->parallelize(ParallelType::Serial);
             for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-              sibling->axis((int)i)->parallelize(ParallelType::Serial);
+              sibling->axis(i)->parallelize(ParallelType::Serial);
             }
           }
         }
@@ -616,6 +626,12 @@ int idPos(const IterDomain* id) {
   }
   inner_most--;
 
+  // Iter and device (outer)
+  if (!id->isReduction() && id->isDeviceDim()) {
+    return outer_most;
+  }
+  outer_most++;
+
   // Iter and block (outer)
   if (!id->isReduction() && id->isBlockDim()) {
     return outer_most;
@@ -654,12 +670,12 @@ struct id_lt {
 TensorView* sortAndRFactor(TensorView* reference_tv) {
   auto domain = reference_tv->getLeafDomain();
   std::sort(domain.begin(), domain.end(), id_lt());
-  std::unordered_map<int, int> reorder_map;
-  std::unordered_map<IterDomain*, int> domain_pos;
-  for (int axis_i = 0; axis_i < (int)domain.size(); axis_i++) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  std::unordered_map<IterDomain*, int64_t> domain_pos;
+  for (int64_t axis_i = 0; axis_i < (int64_t)domain.size(); axis_i++) {
     domain_pos[domain[axis_i]] = axis_i;
   }
-  for (int old_i = 0; old_i < (int)reference_tv->nDims(); old_i++) {
+  for (int64_t old_i = 0; old_i < reference_tv->nDims(); old_i++) {
     auto new_i_it = domain_pos.find(reference_tv->axis(old_i));
     NVF_ERROR(
         new_i_it != domain_pos.end(),
@@ -669,10 +685,10 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   reference_tv->reorder(reorder_map);
 
-  std::vector<int> rfactor_axes;
-  std::vector<int> rfactor_axes_no_unswitch;
+  std::vector<int64_t> rfactor_axes;
+  std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
-  for (int axis_i = 0; axis_i < (int)reference_tv->nDims(); axis_i++) {
+  for (int64_t axis_i = 0; axis_i < reference_tv->nDims(); axis_i++) {
     auto id = reference_tv->axis(axis_i);
     if (!id->isReduction()) {
       continue;
@@ -694,10 +710,10 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
 
   if (reduction_dims == rfactor_axes.size()) {
-    return ir_utils::rfactorHelper(reference_tv, rfactor_axes_no_unswitch);
+    return ir_utils::rFactorHelper(reference_tv, rfactor_axes_no_unswitch);
   }
 
-  return ir_utils::rfactorHelper(reference_tv, rfactor_axes);
+  return ir_utils::rFactorHelper(reference_tv, rfactor_axes);
 }
 
 namespace {

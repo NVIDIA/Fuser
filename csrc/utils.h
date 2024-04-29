@@ -469,6 +469,12 @@ class DebugPrintScope {
 
 #define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
 
+#define DEBUG_LOG(...)                                    \
+  if (_debug_print_scope) {                               \
+    debug() << "[" << __FILE__ << ":" << __LINE__ << "] " \
+            << to_str("", ##__VA_ARGS__) << std::endl;    \
+  }
+
 // Record the return value and return it.
 #define RECORD_AND_RETURN(ret)                              \
   if (_debug_print_scope) {                                 \
@@ -480,6 +486,7 @@ class DebugPrintScope {
 
 #define DEBUG_PRINT_SCOPE_NAME(name, ...)
 #define DEBUG_PRINT_SCOPE(...)
+#define DEBUG_LOG(...)
 #define RECORD_AND_RETURN(ret) return ret
 
 #endif
@@ -545,5 +552,18 @@ V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
 }
 
 size_t deviceAvailableSharedMemory();
+
+inline int64_t wrapDim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  NVF_CHECK(
+      dim >= 0 && dim < ndim,
+      "Tried to access out of boundary index ",
+      dim,
+      ". total index: ",
+      ndim);
+  return dim;
+}
 
 } // namespace nvfuser
