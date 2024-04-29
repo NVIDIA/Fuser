@@ -1372,7 +1372,7 @@ TEST_F(Tutorial, PointwiseTMA) {
   constexpr int64_t num_threads = 128;
   constexpr int64_t vectorization = 2;
   constexpr int64_t tma_tile = num_threads * vectorization;
-  constexpr int64_t num_stages = 2;
+  constexpr int64_t num_stages = 4;
   constexpr int64_t num_ctas_for_hopper = 132;
 
   // After TMA domain creation
@@ -1380,21 +1380,22 @@ TEST_F(Tutorial, PointwiseTMA) {
   reference_tv->split(-1, tma_tile);
   //         split: [I0, I3, 128, 2]
   reference_tv->split(-1, vectorization);
-  //         split: [I4, 2, I3, 128, 2]
+  //         split: [I4, 4, I3, 128, 2]
   reference_tv->split(0, num_stages);
-  //         split: [I5, 132, 2, I3, 128, 2]
+  //         split: [I5, 132, 4, I3, 128, 2]
   reference_tv->split(0, num_ctas_for_hopper);
-  //         reorder: [I5, I3, 132, 2, 128, 2]
-  reference_tv->reorder({{3, 1}, {1, 2}, {2, 3}});
+  //         reorder: [I5, 132, I3, 4, 128, 2]
+  reference_tv->reorder({{3, 2}, {2, 3}});
 
   // Transform Operations between cache operations and output reference
   TransformPropagator propagator(reference_tv);
   MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
-  reference_tv->axis(2)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(1)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
   // Vectorization for writing results to gmem
+  reference_tv->axis(-3)->parallelize(ParallelType::Unroll);
   reference_tv->axis(-2)->parallelize(ParallelType::TIDx);
   reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
 
