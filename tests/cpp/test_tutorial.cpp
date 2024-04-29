@@ -1346,7 +1346,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
-TEST_F(Tutorial, PointwiseTMA) {
+TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   CompileParams index32bit{DataType::Int32, 255, false};
 
   auto fusion = std::make_unique<Fusion>();
