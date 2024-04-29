@@ -3808,6 +3808,26 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    # A simple pointwise fusion, but passed misaligned input
+    def test_misaligned_add(self):
+        inputs = [
+            torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
+            torch.ones(2**20, device="cuda"),
+        ]
+        print(inputs[0].data_ptr(), inputs[0].data_ptr() % 16)
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_scalar(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+
+            fd.add_output(t2)
+
+        # Fails because vectorization 4 is set but only 1 supported
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()
