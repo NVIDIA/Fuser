@@ -233,7 +233,7 @@ char* getNvFuserEnv(const char* env_name) {
   return nullptr;
 }
 
-size_t deviceAvailableSharedMemory() {
+size_t deviceAvailableSharedMemoryBytes() {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;

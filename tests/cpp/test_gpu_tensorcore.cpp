@@ -73,7 +73,7 @@ using namespace at::indexing;
   {                                                                       \
     int64_t estim = mma_utils::computeExpectedSharedMemoryUsage(          \
         params, data_types, true, true);                                  \
-    int64_t avail = (int64_t)deviceAvailableSharedMemory();               \
+    int64_t avail = (int64_t)deviceAvailableSharedMemoryBytes();          \
     if (avail < estim) {                                                  \
       GTEST_SKIP() << "Insufficient shared memory to run test (" << estim \
                    << "B required but only " << avail << "B available)."; \

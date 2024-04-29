@@ -94,7 +94,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
     bool ignore_occupancy_drop) {
-  const size_t shared_memory_available = deviceAvailableSharedMemory();
+  const size_t shared_memory_available = deviceAvailableSharedMemoryBytes();
 
   // We clip smem_double_buffer_stage to 1 since we will always load operands
   // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
