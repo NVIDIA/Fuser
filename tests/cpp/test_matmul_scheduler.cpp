@@ -2250,6 +2250,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 
 // Test matmul with sizes that are not divisible by 8 and with misaligned inputs
 TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // TODO: parametrized test instead of nested loops (still use a loop over
   // sizes and re-use FusionExecutorCache)
   for (auto layout : kAllSupportedMmaLayout) {
