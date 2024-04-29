@@ -2691,21 +2691,22 @@ static TensorView* newForMatmul(
     TensorView* tv_a,
     TensorView* tv_b
 ) {
-  auto orig_domain_a = tv_a->getMaybeRFactorDomain();
-  auto orig_domain_b = tv_b->getMaybeRFactorDomain();
+  auto orig_domain_a = TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
+  auto orig_domain_b = TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
   NVF_ERROR(ndims_a>=1 && ndims_b>= 1);
 
   std::vector<IterDomain*> new_domain;
+  auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;
+  auto lower_dim_domain = ndims_a >= ndims_b ? orig_domain_b : orig_domain_a;
+  
+  new_domain.reserve(higher_dim_domain.size());
 
   if (ndims_a > 2 || ndims_b > 2) {
-    auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;
-    auto lower_dim_domain = ndims_a >= ndims_b ? orig_domain_b : orig_domain_a;
     auto higher_batch_ndims = higher_dim_domain.size() - 2;
     auto lower_batch_ndims = lower_dim_domain.size() - 2;
-    
     auto batch_ndims = higher_batch_ndims - 2;
     auto non_common_batch_ndims = lower_batch_ndims > 0 ? higher_batch_ndims - lower_batch_ndims : higher_batch_ndims;
 
@@ -2723,15 +2724,19 @@ static TensorView* newForMatmul(
     }
   }
   
-  // Add M domain to output if present
+  // Add M domain to output domain if present
   if (orig_domain_a.size() > 1) {
     const IterDomain* m_id = orig_domain_a[ndims_a-2];
     new_domain.push_back(IterDomainBuilder(m_id).resetSchedulingParams().build());
   }
 
-  // Add N domain to output if present
+  // const IterDomain* k_id = orig_domain_a[ndims_a-1];
+  //   new_domain.push_back(IterDomainBuilder(k_id).resetSchedulingParams().iter_type(IterType::Reduction).build());
+  
+  // Add N domain to output domain if present
   if (orig_domain_b.size() > 1) {
-    new_domain.push_back(IterDomainBuilder(orig_domain_b[ndims_b-1]).resetSchedulingParams().build());
+    const IterDomain* n_id = orig_domain_b[ndims_b-1];
+    new_domain.push_back(IterDomainBuilder(n_id).resetSchedulingParams().build());
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
@@ -2748,6 +2753,7 @@ TensorView* eagerMatmul(
 
   NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
   TensorView* out = newForMatmul(tv_a, tv_b);
+  // TensorView* out = newForMma(tv_a, tv_b, {1});
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
 }
