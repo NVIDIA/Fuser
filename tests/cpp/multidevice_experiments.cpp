@@ -149,7 +149,6 @@ class OverlapTest : public MultiDeviceTest {
             for (auto _=0; _<params.n_iterations; _++) {
                 tv = add(tv,tv);
                 tv = mul(tv,tv);
-                tv = sub(tv,tv);
             }
             fusion->addOutput(tv);
 
@@ -193,7 +192,6 @@ class OverlapTest : public MultiDeviceTest {
         for (auto _=0; _<params.n_iterations; _++) {
             at::add_out(output, t, t);
             at::mul_out(output, output, output);
-            at::sub_out(output, output, output);
         }
     }
 

@@ -12,22 +12,19 @@ for WAIT_BACKEND_CREATION in "1"
 do
     for N_ITERATIONS in "1"
     do
-        for USE_STREAMS in "0" "1"
+        for USE_STREAMS in "1"
         do
-            for C in "4"
+            for C in "10"
             do
-                for USE_UCC in "0" "1"
+                for USE_UCC in "0"
                 do
-                    for COMPUTE_PYTORCH in "0" "1"
+                    for COMPUTE_PYTORCH in "0"
                     do
-                        for NBR_BACKENDS in "1" "2"
+                        for NBR_BACKENDS in "2"
                         do
-                            for RECORD_STREAMS in "0" "1"
+                            for TL in "CUDA" # "NCCL" #"UCP"
                             do
-                                if [ "$RECORD_STREAMS" -eq 0 ]; then
-                                    RECORD_STREAMS_CMD=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
-                                fi
-                                CMD="nsys profile --cudabacktrace=all --wait="primary" -t cublas,cuda,nvtx,ucx -o ${DIRECTORY}/overlap_${TEST_UNIT}_C=${C}_USE_UCC=${USE_UCC}_N_ITERATIONS=${N_ITERATIONS}_USE_STREAMS=${USE_STREAMS}_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}"_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}_NBR_BACKENDS=${NBR_BACKENDS}_RECORD_STREAMS=${RECORD_STREAMS}
+                                CMD="nsys profile --cudabacktrace=all --wait="primary" -t cublas,cuda,nvtx,ucx -o ${DIRECTORY}/overlap_${TEST_UNIT}_C=${C}_USE_UCC=${USE_UCC}_TL=${TL}_N_ITERATIONS=${N_ITERATIONS}_USE_STREAMS=${USE_STREAMS}_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}"_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}_NBR_BACKENDS=${NBR_BACKENDS}
                                 CMD="${CMD} mpirun -np 8\
                                     -x NVFUSER_OVERLAP_N_ITERATIONS=${N_ITERATIONS}\
                                     -x NVFUSER_OVERLAP_USE_STREAMS=${USE_STREAMS}\
@@ -36,7 +33,8 @@ do
                                     -x NVFUSER_OVERLAP_WAIT_BACKEND_CREATION=${WAIT_BACKEND_CREATION}\
                                     -x NVFUSER_OVERLAP_COMPUTE_PYTORCH=${COMPUTE_PYTORCH}\
                                     -x NVFUSER_OVERLAP_NBR_BACKENDS=${NBR_BACKENDS}\
-                                    ${RECORD_STREAMS_CMD}\
+                                    -x UCC_TL_${TL}_TUNE=inf\
+                                    -x UCC_COLL_TRACE=info\
                                     "
                                 CMD="${CMD} $BUILD_DIRECTORY/test_multidevice --gtest_filter=OverlapTest.${TEST_UNIT}"
                                 echo $CMD
