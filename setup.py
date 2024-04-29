@@ -299,7 +299,9 @@ def cmake(install_prefix: str = "./nvfuser"):
 
     logger.setLevel(logger_level)
 
-    assert get_pytorch_use_distributed(), "nvFuser requires PyTorch to be built with USE_DISTRIBUTED on."
+    assert (
+        get_pytorch_use_distributed()
+    ), "nvFuser requires PyTorch to be built with USE_DISTRIBUTED on."
 
     # generate cmake directory
     cmd_str = [
