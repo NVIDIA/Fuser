@@ -28,12 +28,12 @@ class IrBuilder {
   //! constructor and registering with the container
   template <class T, class... Args>
   static T* create(Args&&... args) {
-    auto container = FusionGuard::getCurFusion();
-    // return create<T>(container, std::forward<Args>(args)...);
-    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
+    Fusion* fusion = FusionGuard::getCurFusion();
+    // return create<T>(fusion, std::forward<Args>(args)...);
+    NVF_ERROR(fusion != nullptr, "Need an active container to build IR.");
+    T* node = new T(IrBuilderPasskey(fusion), std::forward<Args>(args)...);
 
-    container->registerStmt(IrBuilderPasskey(container), node);
+    fusion->registerStmt(IrBuilderPasskey(fusion), node);
 
     return node;
   }

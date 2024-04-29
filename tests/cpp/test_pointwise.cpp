@@ -146,6 +146,65 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
   }
 }
 
+// Test that vectorization is properly computed when base pointer is not aligned
+// at 16 bytes. This can happen if a tensor is sliced then passed as input.
+// See https://github.com/NVIDIA/Fuser/pull/2118
+TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(5)
+                        .contiguity({false, true, false, true, true})
+                        .build();
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  std::vector<std::tuple<int, int, int, int, int>> sizes_strides_align_and_vec{
+      {4, 4, 4, 4, 4},
+      {4, 4, 4, 2, 2},
+      {4, 4, 4, 1, 1},
+      {4, 4, 2, 4, 2},
+      {4, 4, 2, 1, 1},
+      {4, 2, 4, 4, 2},
+      {4, 2, 4, 1, 1},
+      {2, 4, 4, 4, 2},
+      {2, 4, 4, 1, 1},
+      {2, 2, 2, 4, 2},
+      {2, 2, 2, 1, 1}};
+
+  for (auto tup : sizes_strides_align_and_vec) {
+    auto size = std::get<0>(tup);
+    auto stride1 = std::get<1>(tup);
+    auto stride2 = std::get<2>(tup);
+    auto align = std::get<3>(tup);
+    auto vec = std::get<4>(tup);
+    std::vector<int64_t> shape = {4, 4, 12345, size, 3};
+    std::vector<int64_t> stride = {
+        stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
+    // Create a strided input that is misaligned by "align" elements
+    //  First, find required size of align=0 tensor. Allocate this much plus
+    //  align elements. Then slice and view as aligned tensor.
+    int64_t alloc_size = 1l;
+    for (auto i : c10::irange(shape.size())) {
+      alloc_size += (shape.at(i) - 1) * stride.at(i);
+    }
+    alloc_size += align;
+    at::Tensor flat = at::randn({alloc_size}, options);
+    at::Tensor t0 = flat.as_strided(shape, stride, /*storage_offset=*/align);
+    auto cg_outputs = fec.runFusionWithInputs({t0});
+    EXPECT_EQ(getVecSizeForPointwise(fec), (size_t)vec);
+    testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  }
+}
+
 TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
