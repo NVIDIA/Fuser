@@ -1259,7 +1259,12 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   constexpr at::ScalarType dtype = at::ScalarType::Float;
 
   auto tv0 = makeContigTensor(3, aten_to_data_type(dtype));
-  auto tv1 = makeContigTensor(4, aten_to_data_type(dtype));
+  auto tv1 = TensorViewBuilder()
+                 .ndims(4)
+                 .shape({-1, -1, -1, -1})
+                 .contiguity({true, false, true, true})
+                 .dtype(aten_to_data_type(dtype))
+                 .build();
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = broadcast(tv0, {true, false, false, false});
