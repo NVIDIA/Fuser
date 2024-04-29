@@ -123,6 +123,12 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
+  //! Computes fusion outputs through expression evaluator.
+  std::vector<at::Tensor> evaluateFusionOutputs(
+      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs,
+      ExpressionEvaluator& expr_eval);
+
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -164,11 +170,21 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
+  // Function to query whether compilation was attempted for a `FusionExecutor`
+  bool isCompiled() const {
+    // Check at most one of fusion_ and lowered_ is null.
+    NVF_ERROR(!(fusion_ && lowered_));
+    return fusion_ || lowered_;
+  };
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool isCompiled() const {
+  bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
+      NVF_ERROR(
+          !fusion_,
+          "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
@@ -197,6 +213,13 @@ class FusionExecutor : public NonCopyable {
   kir::Kernel* kernel() const {
     NVF_ERROR(lowered_);
     return lowered_->kernel();
+  }
+
+  Fusion* fusion() const {
+    NVF_ERROR(
+        (lowered_ && !fusion_) || (!lowered_ && fusion_),
+        "Expected one and only one of fusion_ and lowered_ to be initialized.");
+    return lowered_ ? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -538,8 +561,9 @@ class FusionExecutor : public NonCopyable {
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
-  // Copy of lowered_->kernel()
-  Fusion* fusion_ = nullptr;
+
+  // Initialized for non-compiled fusions
+  std::unique_ptr<Fusion> fusion_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
