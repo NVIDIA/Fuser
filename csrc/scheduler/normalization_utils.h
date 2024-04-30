@@ -338,7 +338,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const ScheduleHeuristic sh,
-    const bool is_inner_outer_with_outer_bcast = false);
+    const bool check_projected_buffer_size = true);
 
 // move persistent buffer marked in rparams->smem_persistent_buffers from
 // register to smem

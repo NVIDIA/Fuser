@@ -856,7 +856,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const ScheduleHeuristic sh,
-    const bool is_inner_outer_with_outer_bcast) {
+    const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
@@ -864,9 +864,10 @@ bool isProjectBufferToInputs(
     return false;
   }
 
-  // don't project if can't reduce buffer size unless it's innerOuter with
-  // outer broadcast where project to inputs reduces gmem access.
-  if (!is_inner_outer_with_outer_bcast &&
+  // Enusre project to inputs can save persistent buffer size,
+  // unless it's innerOuter with outer broadcast where project to inputs reduces
+  // gmem access.
+  if (check_projected_buffer_size &&
       persistent_buffer_size_info.projected_persistent_buffer_size >=
           persistent_buffer_size_info.persistent_buffer_size) {
     return false;
