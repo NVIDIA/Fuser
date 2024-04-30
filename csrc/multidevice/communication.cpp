@@ -27,7 +27,7 @@ void post_common(Communication& self, Communicator& comm) {
 }
 
 inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
-  dst.copy_(src, /*non_blocking=*/true);
+  dst.view_as(src).copy_(src, /*non_blocking=*/true);
 }
 
 template <typename T>
@@ -268,7 +268,11 @@ c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
 
   std::vector<std::vector<at::Tensor>> input_tensors(1);
   // FIXME: use split
-  for (auto i : c10::irange(params_.team.size())) {
+  int64_t team_size = params_.team.size();
+  int64_t scattered_dim_size = input_tensor.size(params_.scattered_axis);
+  NVF_ERROR(
+      scattered_dim_size == team_size, scattered_dim_size, " vs ", team_size);
+  for (auto i : c10::irange(team_size)) {
     input_tensors[0].push_back(
         input_tensor.slice(params_.scattered_axis, i, i + 1));
   }
