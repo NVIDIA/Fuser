@@ -547,7 +547,7 @@ void inferenceAllocationOrder(
   // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
   // option2: wondering if there's something for us to replay a partial map?! i.e. we can replay ref->rfactor --> ref->allocation to tv->rfactor
   for (Val* out_val : fusion->outputs()) {
-    if (skip_set.count(out_val) == 0) {
+    if (skip_set.count(out_val) != 0) {
       continue;
     }
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
