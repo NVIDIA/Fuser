@@ -421,14 +421,6 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
-  //! Check if compilation was skipped (fusion segment marked for EE).
-  bool isExprEval() const {
-    NVF_ERROR(
-        fusion_ == nullptr || !lowered_,
-        "Expected GPU lowering to be skipped.");
-    return fusion_ != nullptr;
-  }
-
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,

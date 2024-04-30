@@ -1772,7 +1772,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     inputBytesProcessed(args);
   }
 
-  if (isExprEval()) {
+  if (!hasCompiledKernel()) {
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
@@ -1780,7 +1780,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     return outputs;
   }
 
-  NVF_ERROR(hasCompiledKernel());
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
@@ -2184,7 +2183,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   // When compilation is skipped, avoid serializing cubin because it doesn't
   // exist. The remaining fields are also not necessary in this case.
-  if (isExprEval()) {
+  if (!hasCompiledKernel()) {
     return serde::CreateFusionExecutorDirect(builder);
   }
 
