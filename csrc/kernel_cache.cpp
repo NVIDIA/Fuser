@@ -779,10 +779,22 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // that whenever we encounter a new set of input shapes we segment and compile
   // a new FusionKernelRuntime.
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    SchedulerRuntimeInfo runtime_info(
+        fusion(),
+        args,
+        /*precomputed_values=*/nullptr,
+        /*all_tvs=*/{},
+        forced_index_type);
+    bool should_not_be_segmented =
+        SchedulerEntry::proposeHeuristics(fusion(), runtime_info).has_value();
     auto reuse_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
-        [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+        [should_not_be_segmented, &args, &new_heuristics, &forced_index_type](
+            auto& kernel_runtime) {
+          if (should_not_be_segmented && kernel_runtime->isSegmented()) {
+            return false;
+          }
           auto maybe_heuristics =
               kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
           if (!maybe_heuristics.has_value()) {
