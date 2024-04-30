@@ -259,7 +259,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
             int index = j*params.tile_size + k;
             auto dst = tv2.index({at::indexing::Slice(index, index+1), "..."});
             auto src = tv1.index({at::indexing::Slice(index, index+1), "..."});
-            getWorldCommunicator()->_allgather_base(dst, src);
+            getWorldCommunicator()->_allgather_base(dst, src)->wait();
         }
     }
 
