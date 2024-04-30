@@ -537,7 +537,7 @@ void inferenceAllocationOrder(
   // return the propagated map
   // return alloc_order_map;
 
-  auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  auto id_model = IdModel(fusion);
 
   // picking a candidate for propagation.
   TensorView* ref = findReference(fusion->inputs());
