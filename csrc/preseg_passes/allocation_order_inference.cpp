@@ -392,6 +392,96 @@ void AllocationOrderInferencer::handle(ReductionOp* op) {
   propagateAllocationOrder(in, out);
 }
 
+
+// TODO: update comment
+// Returns the candidate operand that dominates the allocation order.
+//
+// It scans through each candidate to find the first one that:
+//   1. is a TensorView
+//   2. has the most non_broadcast IterDomains
+//
+// The function returns a nullptr when it encounters a TensorView that does
+// not have an entry in alloc_order_map_, since this means we failed to
+// propagate memory format for an entry, we do NOT want to aggressively insert
+// output memory format.
+//
+// The function is used to resolve allocation order propagation for operator
+// with multiple operands. The operand with the most number of
+// non-broadcast IterDomain will be dominating the output allocation order.
+// The motivation behind it to avoid breaking allocation order propagation
+// from operands produced by broadcast. e.g. When a binary operator could take
+// in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
+// propagate the channels_last allocation order to output.
+//
+// Pre-condition: `candidates` must be the input operands of the same Expr.
+TensorView* findReference(const std::vector<TensorView*>& candidates) {
+  TensorView* src = nullptr;
+  size_t non_bc_high_water_mark = 0;
+
+  // helper utils to count the number of non broadcast / non reduction
+  // iterdomain
+  auto countLoopIterDomains = [](const TensorView* tv) -> size_t {
+    return std::count_if(
+        tv->getMaybeRFactorDomain().begin(),
+        tv->getMaybeRFactorDomain().end(),
+        [&](auto ptr_id) {
+          return !ptr_id->isBroadcast() && !ptr_id->isReduction();
+        });
+  };
+
+  for (auto* tv : candidates) {
+    // check if current entry sets new record for num of non broadcast / non
+    // reduction iterdomain
+    if (size_t non_bc_count = countLoopIterDomains(tv);
+        non_bc_count > non_bc_high_water_mark || src == nullptr) {
+      non_bc_high_water_mark = non_bc_count;
+      src = tv;
+    }
+  }
+
+  return src;
+}
+
+// mapping allocation domain from producer to consumer without reduction
+//
+// e.g.
+//   producer rfactor dom [r0', i0', i1', i2'] @ allocation order {0, 1, 3, 2}
+//    |       alloc dom [r0', i0', i2', i1']
+//    |
+//    Operation
+//    |
+//    v
+//   consumer rfactor dom [..., i0, ..., i1, ..., i2, ...]
+//
+// we construct allocation domain on producer, filtering out reduction, apply
+// root domain map from producer to consumer.
+//   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
+// so the function would return [i0, i2, i1]
+std::vector<IterDomain*> replayAllocationDomain(
+    const IdModel& id_model,
+    TensorView* ref,
+    TensorView* target) {
+  // // constructing alloc_domain for producer from its root domain, while
+  // // filtering out reduction because they won't appear in consumer's domain.
+  // std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
+  //     constructAllocationDomain(producer, alloc_order_map_.at(producer)));
+  // // creating producer to consumer root domain map
+  // std::unordered_map<IterDomain*, IterDomain*> p2c_map =
+  //     PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+  // // map alloc_domain to consumer
+  // std::transform(
+  //     alloc_domain.cbegin(),
+  //     alloc_domain.cend(),
+  //     alloc_domain.begin(),
+  //     [&p2c_map](IterDomain* id) { return p2c_map.at(id); });
+  // return alloc_domain;
+  const DisjointSets<Val*>& val_sets = id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
+
+  // TODO: I don't think I'm doing it right here.
+  std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
+  std::vector<IterDomain*> alloc_domain;
+}
+
 } // namespace
 
 // Note [ Allocation Order Propagation ]
@@ -403,10 +493,10 @@ void AllocationOrderInferencer::handle(ReductionOp* op) {
 //   it as the allocation order of the tensor;
 //   2. Traverse the fusion IR, propagate allocation order and record results in
 //   alloc_order_map.
-std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
-    Fusion* fusion) {
-  std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
-
+void inferenceAllocationOrder(
+    Fusion* fusion,
+    const std::unordered_set<Val*>& skip_set) {
+  // std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
   // // Note: we only consider simple permutation of allocation domain to rfactor
   // // domain.
   // for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -417,52 +507,61 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
   //     alloc_order_map[tv] = permutation.value();
   //   }
   // }
-
+  //
   // // Initialize AllocationOrderInferencer with allocation order of input tensor
   // // views
   // AllocationOrderInferencer infer(alloc_order_map);
   // infer.traverse(fusion);
+  //
+  // return the propagated map
+  // return alloc_order_map;
 
   auto id_model = IdModel(fusion, /*build_graphs=*/false);
-  const DisjointSets<Val*>& val_sets = id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
 
-  TensorView* ref = nullptr;
   // picking a candidate for propagation.
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-  }
+  TensorView* ref = findReference(ir_utils::filterByType<TensorView>(fusion->inputs()));
 
   // propagating the allocation order through graph
   // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
   // option2: wondering if there's something for us to replay a partial map?! i.e. we can replay ref->rfactor --> ref->allocation to tv->rfactor
-
-  // return the propagated map
-  return alloc_order_map;
-}
-
-void AllocationDomainPass::runPass(Fusion* fusion) {
-  std::unordered_map<const TensorView*, AllocationOrder> stride_mapping =
-      inferenceAllocationOrder(fusion);
-
   for (Val* out_val : fusion->outputs()) {
+    if (skip_set.count(out_val) == 0) {
+      continue;
+    }
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
-    // skip:
-    //   1. non-tensor output;
-    //   2. tensor output with allocation specified, assuming everything is
-    //   semantical
-    //   3. tensor output that's aliasing (Does aliased src matter?)
     if (out_tv == nullptr || out_tv->hasAllocation() ||
         fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
-
-    auto mapped_entry = stride_mapping.find(out_tv);
-    if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
-      continue;
-    }
-
-    out_tv->setAllocationDomain(
-        constructAllocationDomain(out_tv, mapped_entry->second), true);
+    replayAllocationDomain(id_model, ref, out_tv);
   }
+}
+
+void AllocationDomainPass::runPass(Fusion* fusion) {
+  // std::unordered_map<const TensorView*, AllocationOrder> stride_mapping =
+  //     inferenceAllocationOrder(fusion);
+
+  // for (Val* out_val : fusion->outputs()) {
+  //   auto* out_tv = dynamic_cast<TensorView*>(out_val);
+  //   // skip:
+  //   //   1. non-tensor output;
+  //   //   2. tensor output with allocation specified, assuming everything is
+  //   //   semantical
+  //   //   3. tensor output that's aliasing (Does aliased src matter?)
+  //   if (out_tv == nullptr || out_tv->hasAllocation() ||
+  //       fusion->getOutputAlias(out_val).type != AllocationType::New) {
+  //     continue;
+  //   }
+
+  //   auto mapped_entry = stride_mapping.find(out_tv);
+  //   if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
+  //     continue;
+  //   }
+
+  //   out_tv->setAllocationDomain(
+  //       constructAllocationDomain(out_tv, mapped_entry->second), true);
+  // }
+  inferenceAllocationOrder(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

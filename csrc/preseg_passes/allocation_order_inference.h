@@ -27,8 +27,9 @@ using AllocationOrder = std::vector<int64_t>;
 // an unordered_map from TensorView to permutation.
 //
 // See details in Note [ Allocation Order Propagation ]
-std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
-    Fusion* fusion);
+void inferenceAllocationOrder(
+    Fusion* fusion,
+    const std::unordered_set<Val*>& skip_set);
 
 // Realize allocation order propagation on fusion inputs to optimize allocation
 // domain of output tensor. This optimization pass currently only applies to
