@@ -431,7 +431,7 @@ TensorView* findReference(const std::vector<Val*>& candidates) {
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
-  for (auto* tv : ir_utils::filterByType<TensorView>(candidates));
+  for (auto* tv : ir_utils::filterByType<TensorView>(candidates)) {
     // check if current entry sets new record for num of non broadcast / non
     // reduction iterdomain
     if (size_t non_bc_count = countLoopIterDomains(tv);

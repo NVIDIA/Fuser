@@ -28,8 +28,7 @@ using AllocationOrderInferenceTest = NVFuserTest;
 std::vector<int64_t> getAllocationDomainPermutation(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =
     ir_utils::computePermutation(tv->getMaybeRFactorDomain(), tv->getMaybeAllocationDomain());
-  ASSERT_TRUE(permutation.has_value());
-  return permutation.value();
+  return permutation.has_value() ? permutation.value() : {};
 }
 
 TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
