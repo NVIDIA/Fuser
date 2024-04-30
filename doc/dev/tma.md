@@ -501,4 +501,4 @@ T1[I1, I0] contiguity: T, T
 
 Schedule:
 
-![Example 3: bank-conflict-free transpose](tma/example3.svg)
+![Example 3: Bank-conflict-free transpose](tma/example3.svg)
