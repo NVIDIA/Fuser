@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/cloner.h>
+#include <ir/printer.h>
 #include <multidevice/communication.h>
 #if defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -40,46 +42,138 @@ inline void assertBuffersHaveSameSize(
   }
 }
 
-inline void post_common(Communication& self, Communicator& comm) {
-  NVF_ERROR(
-      std::find(
-          self.params().team.begin(),
-          self.params().team.end(),
-          comm.deviceId()) != self.params().team.end(),
-      "current device index ",
-      comm.deviceId(),
-      " must be present in the communication's team");
-}
-
 inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
   dst.copy_(src, /* non-blocking */ true);
 }
 
-} // namespace
+inline bool hasRoot(CommunicationType type) {
+  return type == CommunicationType::Gather ||
+      type == CommunicationType::Scatter ||
+      type == CommunicationType::Broadcast ||
+      type == CommunicationType::SendRecv;
+}
 
-Communication::Communication(CommParams params, std::string name, bool has_root)
-    : params_(std::move(params)),
-      collective_type_(std::move(name)),
-      has_root_(has_root) {
-  assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
-  NVF_ERROR(
-      std::unique(params_.team.begin(), params_.team.end()) ==
-          params_.team.end(),
-      "the communication must not involve the same device more than once");
-  NVF_ERROR(!params_.team.empty(), "the team size must be greater than 0");
-  if (has_root_) {
-    auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
-    NVF_ERROR(
-        it != params_.team.end(),
-        "root (device ",
-        params_.root,
-        ") must be present in the communication's team");
-    // pytorch's process group expects the root to be specified
-    // as an integer between 0 and world_size-1. We choose it to be
-    // the device's relative index within the team
-    root_relative_index_ = std::distance(params_.team.begin(), it);
+inline bool isReduction(CommunicationType type) {
+  return type == CommunicationType::Reduce ||
+      type == CommunicationType::Allreduce ||
+      type == CommunicationType::ReduceScatter;
+}
+
+inline std::string typeToString(CommunicationType type) {
+  switch (type) {
+    case CommunicationType::Gather:
+      return "Gather";
+    case CommunicationType::Allgather:
+      return "Allgather";
+    case CommunicationType::Scatter:
+      return "Scatter";
+    case CommunicationType::Reduce:
+      return "Reduce";
+    case CommunicationType::Allreduce:
+      return "Allreduce";
+    case CommunicationType::ReduceScatter:
+      return "ReduceScatter";
+    case CommunicationType::Broadcast:
+      return "Broadcast";
+    case CommunicationType::SendRecv:
+      return "SendRecv";
+    default:
+      NVF_ERROR(false);
+      return "";
   }
 }
+
+inline void assertValid(
+    const CommParams& params,
+    const DeviceIdxType my_device_index) {
+  assertBuffersHaveSameSize(params.src_bufs, params.dst_bufs);
+  NVF_ERROR(
+      std::adjacent_find(params.team.cbegin(), params.team.cend()) ==
+          params.team.cend(),
+      "the communication must not involve the same device more than once");
+  NVF_ERROR(!params.team.empty(), "the team size must be greater than 0");
+  NVF_ERROR(
+      std::find(params.team.begin(), params.team.end(), my_device_index) !=
+          params.team.end(),
+      "current device index ",
+      my_device_index,
+      " must be present in the communication's team");
+  if (hasRoot(params.type)) {
+    auto it = std::find(params.team.begin(), params.team.end(), params.root);
+    NVF_ERROR(
+        it != params.team.end(),
+        "root (device ",
+        params.root,
+        ") must be present in the communication's team");
+  }
+  bool is_root = (my_device_index == params.root);
+  switch (params.type) {
+    case CommunicationType::Gather:
+      assertBufferCount(params.src_bufs, 1);
+      assertBufferCount(params.dst_bufs, is_root ? params.team.size() : 0);
+      break;
+    case CommunicationType::Allgather:
+      assertBufferCount(params.src_bufs, 1);
+      assertBufferCount(params.dst_bufs, params.team.size());
+      break;
+    case CommunicationType::Scatter:
+      assertBufferCount(params.dst_bufs, 1);
+      assertBufferCount(params.src_bufs, is_root ? params.team.size() : 0);
+      break;
+    case CommunicationType::Reduce:
+      assertBufferCount(params.src_bufs, 1);
+      assertBufferCount(params.dst_bufs, is_root ? 1 : 0);
+      break;
+    case CommunicationType::Allreduce:
+      assertBufferCount(params.dst_bufs, 1);
+      assertBufferCount(params.src_bufs, 1);
+      break;
+    case CommunicationType::ReduceScatter:
+      assertBufferCount(params.dst_bufs, 1);
+      assertBufferCount(params.src_bufs, params.team.size());
+      break;
+    case CommunicationType::Broadcast:
+      if (is_root) {
+        assertBufferCount(params.src_bufs, 1);
+        NVF_ERROR(
+            params.dst_bufs.size() < 2, "there must be at most 2 buffer(s)");
+      } else {
+        assertBufferCount(params.src_bufs, 0);
+        assertBufferCount(params.dst_bufs, 1);
+      }
+      break;
+    case CommunicationType::SendRecv:
+      NVF_ERROR(
+          params.team.size() == 1 || params.team.size() == 2,
+          "the team size should be 1 or 2");
+      if (is_root) {
+        assertBufferCount(params.src_bufs, 1);
+        assertBufferCount(params.dst_bufs, (params.team.size() == 1) ? 1 : 0);
+      } else {
+        assertBufferCount(params.src_bufs, 0);
+        assertBufferCount(params.dst_bufs, 1);
+      }
+      break;
+  }
+}
+
+// pytorch's process group expects the root to be specified
+// as an integer between 0 and world_size-1. We choose it to be
+// the device's relative index within the team
+DeviceIdxType getRootRelativeIndex(const CommParams& params) {
+  auto it = std::find(params.team.begin(), params.team.end(), params.root);
+  return std::distance(params.team.begin(), it);
+}
+
+} // namespace
+
+Communication::Communication(IrBuilderPasskey passkey, CommParams params)
+    : Expr(passkey), params_(std::move(params)) {}
+
+Communication::Communication(const Communication* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner), params_(src->params()) {}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
 
 std::string Communication::toString(int indent) const {
   std::stringstream ss;
@@ -87,9 +181,9 @@ std::string Communication::toString(int indent) const {
   std::string indent1 = ext_indent + "  ";
   std::string indent2 = ext_indent + "    ";
 
-  ss << ext_indent << "Communication " << collective_type_ << ": {\n";
+  ss << ext_indent << "Communication " << typeToString(params_.type) << ": {\n";
 
-  if (has_root_) {
+  if (hasRoot(params_.type)) {
     ss << indent1 << "root: " << params_.root << ",\n";
   }
   ss << indent1 << "team: {";
@@ -107,214 +201,132 @@ std::string Communication::toString(int indent) const {
   return ss.str();
 }
 
-Broadcast::Broadcast(CommParams params) : Communication(params, "broadcast") {}
+std::string Communication::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
 
-c10::intrusive_ptr<c10d::Work> Broadcast::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
+// TODO add checking symbolic representation of src and dst buffers
+bool Communication::sameAs(const Statement* other) const {
+  if (other == this) {
+    return true;
+  }
+  if (!other->isA<Communication>()) {
+    return false;
+  }
+  const auto& p1 = this->params();
+  const auto& p2 = other->as<Communication>()->params();
 
-  if (comm.deviceId() == params_.root) {
-    assertBufferCount(params_.src_bufs, 1);
-    if (params_.dst_bufs.size() == 1) {
-      doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
-    } else {
-      assertBufferCount(params_.dst_bufs, 0);
+  return (
+      p1.type == p2.type && (!hasRoot(p1.type) || p1.root == p2.root) &&
+      p1.team == p2.team && (!isReduction(p1.type) || p1.redOp == p2.redOp));
+}
+
+c10::intrusive_ptr<c10d::Work> postCommunication(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10::intrusive_ptr<c10d::Backend> backend) {
+  auto params = communication->params();
+  assertValid(params, my_device_index);
+  bool is_root = (my_device_index == params.root);
+  // This is used to change the representation of the buffers to match c10d
+  // ProcessGroup API
+  std::vector<std::vector<at::Tensor>> buf_list;
+  switch (params.type) {
+    case CommunicationType::Gather: {
+      if (is_root) {
+        buf_list = {params.dst_bufs};
+      }
+      auto work = backend->gather(
+          buf_list,
+          params.src_bufs,
+          {.rootRank = getRootRelativeIndex(params)});
+      return work;
     }
-  } else {
-    assertBufferCount(params_.src_bufs, 0);
-    assertBufferCount(params_.dst_bufs, 1);
-  }
-
-  if (params_.team.size() == 1) {
-    return nullptr;
-  }
-
-  return comm.getBackendForTeam(params_.team, backend)
-      ->broadcast(
-          comm.deviceId() == params_.root ? params_.src_bufs : params_.dst_bufs,
-          {.rootRank = root_relative_index_});
-}
-
-Gather::Gather(CommParams params) : Communication(params, "gather") {
-  assertBufferCount(params_.src_bufs, 1);
-}
-
-c10::intrusive_ptr<c10d::Work> Gather::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d
-  // ProcessGroup API
-  std::vector<std::vector<at::Tensor>> buf_list;
-  if (comm.deviceId() == params_.root) {
-    assertBufferCount(params_.dst_bufs, params_.team.size());
-    buf_list = {std::move(params_.dst_bufs)};
-  } else {
-    assertBufferCount(params_.dst_bufs, 0);
-  }
-  auto work =
-      comm.getBackendForTeam(params_.team, backend)
-          ->gather(
-              buf_list, params_.src_bufs, {.rootRank = root_relative_index_});
-  if (comm.deviceId() == params_.root) {
-    params_.dst_bufs = std::move(buf_list.back());
-  }
-  return work;
-}
-
-Allgather::Allgather(CommParams params)
-    : Communication(params, "allgather", false) {
-  assertBufferCount(params_.src_bufs, 1);
-  assertBufferCount(params_.dst_bufs, params_.team.size());
-}
-
-c10::intrusive_ptr<c10d::Work> Allgather::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d
-  // ProcessGroup API
-  std::vector<std::vector<at::Tensor>> buf_list;
-  buf_list = {std::move(params_.dst_bufs)};
-  auto work = comm.getBackendForTeam(params_.team, backend)
-                  ->allgather(buf_list, params_.src_bufs, {});
-  params_.dst_bufs = std::move(buf_list.back());
-  return work;
-}
-
-Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
-  assertBufferCount(params_.dst_bufs, 1);
-}
-
-c10::intrusive_ptr<c10d::Work> Scatter::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d
-  // ProcessGroup API
-  std::vector<std::vector<at::Tensor>> buf_list;
-  if (comm.deviceId() == params_.root) {
-    assertBufferCount(params_.src_bufs, params_.team.size());
-    buf_list = {std::move(params_.src_bufs)};
-  } else {
-    assertBufferCount(params_.src_bufs, 0);
-  }
-  auto work =
-      comm.getBackendForTeam(params_.team, backend)
-          ->scatter(
-              params_.dst_bufs, buf_list, {.rootRank = root_relative_index_});
-  if (comm.deviceId() == params_.root) {
-    params_.src_bufs = std::move(buf_list.back());
-  }
-  return work;
-}
-
-Reduce::Reduce(CommParams params) : Communication(params, "reduce") {
-  assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
-  assertBufferCount(params_.src_bufs, 1);
-}
-
-c10::intrusive_ptr<c10d::Work> Reduce::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  if (comm.deviceId() == params_.root) {
-    assertBufferCount(params_.dst_bufs, 1);
-  } else {
-    assertBufferCount(params_.dst_bufs, 0);
-  }
-  post_common(*this, comm);
-  auto& buf =
-      (comm.deviceId() == params_.root) ? params_.dst_bufs : params_.src_bufs;
-  c10d::ReduceOptions options = {
-      .reduceOp = params_.redOp, .rootRank = root_relative_index_};
-  auto team_backend = comm.getBackendForTeam(params_.team, backend);
-#if defined(USE_C10D_NCCL)
-  auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
-  if (nccl_backend) {
+    case CommunicationType::Allgather: {
+      // This is used to change the representation of the buffers to match c10d
+      // ProcessGroup API
+      buf_list = {params.dst_bufs};
+      auto work = backend->allgather(buf_list, params.src_bufs, {});
+      return work;
+    }
+    case CommunicationType::Scatter: {
+      // This is used to change the representation of the buffers to match c10d
+      // ProcessGroup API
+      if (is_root) {
+        buf_list = {params.src_bufs};
+      }
+      auto work = backend->scatter(
+          params.dst_bufs,
+          buf_list,
+          {.rootRank = getRootRelativeIndex(params)});
+      return work;
+    }
+    case CommunicationType::Reduce: {
+      auto& buf = (is_root) ? params.dst_bufs : params.src_bufs;
+      c10d::ReduceOptions options = {
+          .reduceOp = params.redOp, .rootRank = getRootRelativeIndex(params)};
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+      auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get());
+      if (nccl_backend) {
 #if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
-    // API change https://github.com/pytorch/pytorch/pull/119421
-    return nccl_backend->_reduce_oop(
-        buf.at(0), params_.src_bufs.at(0), options);
+        // API change https://github.com/pytorch/pytorch/pull/119421
+        return nccl_backend->_reduce_oop(
+            buf.at(0), params.src_bufs.at(0), options);
 #else
-    return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+        return nccl_backend->_reduce_oop(buf, params.src_bufs, options);
 #endif
-  }
+      }
 #endif
-  if (comm.deviceId() == params_.root) {
-    doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
-  }
-  return team_backend->reduce(buf, options);
-}
-
-Allreduce::Allreduce(CommParams params)
-    : Communication(params, "allreduce", false) {
-  assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
-  assertBufferCount(params_.src_bufs, 1);
-  assertBufferCount(params_.dst_bufs, 1);
-}
-
-c10::intrusive_ptr<c10d::Work> Allreduce::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-  doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
-  return comm.getBackendForTeam(params_.team, backend)
-      ->allreduce(params_.dst_bufs, {.reduceOp = params_.redOp});
-}
-
-ReduceScatter::ReduceScatter(CommParams params)
-    : Communication(params, "reduce_scatter", false) {
-  assertBufferCount(params_.src_bufs, params_.team.size());
-  assertBufferCount(params_.dst_bufs, 1);
-}
-
-c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d
-  // ProcessGroup API
-  std::vector<std::vector<at::Tensor>> buf_list = {std::move(params_.src_bufs)};
-  auto work = comm.getBackendForTeam(params_.team, backend)
-                  ->reduce_scatter(
-                      params_.dst_bufs, buf_list, {.reduceOp = params_.redOp});
-  params_.src_bufs = std::move(buf_list.back());
-  return work;
-}
-
-SendRecv::SendRecv(CommParams params) : Communication(params, "send/recv") {
-  assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
-  NVF_ERROR(
-      params_.team.size() == 1 || params_.team.size() == 2,
-      "the team size should be 1 or 2");
-}
-
-c10::intrusive_ptr<c10d::Work> SendRecv::post(
-    Communicator& comm,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
-  if (comm.deviceId() == params_.root) {
-    assertBufferCount(params_.src_bufs, 1);
-    if (params_.team.size() == 1) {
-      assertBufferCount(params_.dst_bufs, 1);
-      doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
-      return nullptr;
-    } else {
-      assertBufferCount(params_.dst_bufs, 0);
+      if (is_root) {
+        doLocalCopy(params.dst_bufs.at(0), params.src_bufs.at(0));
+      }
+      return backend->reduce(buf, options);
     }
-  } else {
-    assertBufferCount(params_.src_bufs, 0);
-    assertBufferCount(params_.dst_bufs, 1);
+    case CommunicationType::Allreduce: {
+      doLocalCopy(params.dst_bufs.at(0), params.src_bufs.at(0));
+      return backend->allreduce(params.dst_bufs, {.reduceOp = params.redOp});
+    }
+    case CommunicationType::ReduceScatter: {
+      // This is used to change the representation of the buffers to match c10d
+      // ProcessGroup API
+      buf_list = {params.src_bufs};
+      auto work = backend->reduce_scatter(
+          params.dst_bufs, buf_list, {.reduceOp = params.redOp});
+      return work;
+    }
+    case CommunicationType::Broadcast: {
+      if (is_root && params.dst_bufs.size() == 1) {
+        doLocalCopy(params.dst_bufs.at(0), params.src_bufs.at(0));
+      }
+      if (params.team.size() == 1) {
+        return nullptr;
+      }
+      return backend->broadcast(
+          is_root ? params.src_bufs : params.dst_bufs,
+          {.rootRank = getRootRelativeIndex(params)});
+    }
+    case CommunicationType::SendRecv: {
+      if (is_root && params.team.size() == 1) {
+        doLocalCopy(params.dst_bufs.at(0), params.src_bufs.at(0));
+        return nullptr;
+      }
+      const DeviceIdxType sender = params.root;
+      const DeviceIdxType receiver =
+          (params.team.at(0) == sender) ? params.team.at(1) : params.team.at(0);
+      std::vector<at::Tensor>& tensor =
+          params.dst_bufs.empty() ? params.src_bufs : params.dst_bufs;
+      if (my_device_index == sender) {
+        return backend->send(tensor, static_cast<int>(receiver), /*tag*/ 0);
+      } else if (my_device_index == receiver) {
+        return backend->recv(tensor, static_cast<int>(sender), /*tag*/ 0);
+      } else {
+        return nullptr;
+      }
+    }
+    default:
+      NVF_ERROR(false, "Wrong communication type: ", typeToString(params.type));
+      return nullptr;
   }
-
-  return comm.sendRecv(
-      (params_.team.at(0) == params_.root) ? params_.team.at(1)
-                                           : params_.team.at(0),
-      params_.root,
-      params_.dst_bufs.empty() ? params_.src_bufs : params_.dst_bufs,
-      backend);
 }
 
 } // namespace nvfuser

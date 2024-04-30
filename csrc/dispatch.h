@@ -106,7 +106,8 @@ class Val;
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
-  f(Resize);
+  f(Resize);                      \
+  f(Communication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \

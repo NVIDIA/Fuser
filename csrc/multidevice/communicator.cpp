@@ -234,24 +234,6 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
   return backends_.at(team_key);
 }
 
-c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
-    DeviceIdxType receiver,
-    DeviceIdxType sender,
-    std::vector<at::Tensor>& tensors,
-    std::optional<CommunicatorBackend> backend,
-    int tag) {
-  NVF_ERROR(
-      deviceId() == sender || deviceId() == receiver,
-      "only sender or receiver should post the sendRecv");
-  NVF_ERROR(sender != receiver, "cannot send to self");
-
-  auto world = getWorld(backend);
-  if (deviceId() == sender) {
-    return world->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
-  }
-  return world->recv(tensors, static_cast<int>(dIdToRank(sender)), tag);
-}
-
 c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(
     std::optional<CommunicatorBackend> backend) {
   std::vector<RankType> all_ranks(size_);
