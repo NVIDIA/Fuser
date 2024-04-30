@@ -2484,6 +2484,7 @@ TEST_F(
           /*ignore_occupancy_drop=*/false);
   scheduleMatmul(&fusion, params);
 
+  // FusionExecutor::compileFusion would fail otherwise.
   SKIP_IF_INSUFFICIENT_SMEM(params, data_types);
 
   at::manual_seed(0);
