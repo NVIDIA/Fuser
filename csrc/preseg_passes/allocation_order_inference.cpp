@@ -407,21 +407,33 @@ std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
     Fusion* fusion) {
   std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
 
-  // Note: we only consider simple permutation of allocation domain to rfactor
-  // domain.
+  // // Note: we only consider simple permutation of allocation domain to rfactor
+  // // domain.
+  // for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+  //   std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
+  //       TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
+  //       TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
+  //   if (permutation.has_value()) {
+  //     alloc_order_map[tv] = permutation.value();
+  //   }
+  // }
+
+  // // Initialize AllocationOrderInferencer with allocation order of input tensor
+  // // views
+  // AllocationOrderInferencer infer(alloc_order_map);
+  // infer.traverse(fusion);
+
+  auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  const DisjointSets<Val*>& val_sets = id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
+
+  TensorView* ref = nullptr;
+  // picking a candidate for propagation.
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
-    if (permutation.has_value()) {
-      alloc_order_map[tv] = permutation.value();
-    }
   }
 
-  // Initialize AllocationOrderInferencer with allocation order of input tensor
-  // views
-  AllocationOrderInferencer infer(alloc_order_map);
-  infer.traverse(fusion);
+  // propagating the allocation order through graph
+  // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
+  // option2: wondering if there's something for us to replay a partial map?! i.e. we can replay ref->rfactor --> ref->allocation to tv->rfactor
 
   // return the propagated map
   return alloc_order_map;
