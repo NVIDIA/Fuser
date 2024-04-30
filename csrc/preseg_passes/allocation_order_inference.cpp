@@ -493,6 +493,7 @@ void replayAllocationDomain(
       if (val_sets.strictAreMapped(ref_id, id)) {
         mapped_ids.push_back(id);
         mapped_id.insert(id);
+        break;
       }
     }
   }
@@ -540,8 +541,10 @@ void inferenceAllocationOrder(
   auto id_model = IdModel(fusion);
 
   // picking a candidate for propagation.
-  TensorView* ref = findReference(fusion->inputs());
-  size_t ref_count = countLoopIterDomains(ref);
+  std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
+  for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    loop_iter_count.emplace_back(tv, countLoopIterDomains(tv);
+  }
 
   // propagating the allocation order through graph
   // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
@@ -555,11 +558,21 @@ void inferenceAllocationOrder(
         fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
-    if (countLoopIterDomains(out_tv) > ref_count) {
-      continue;
+
+    TensorView* ref = nullptr;
+    // skipping cases where output has iter loop count.
+    size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+    for (const auto& iter : loop_iter_count) {
+      // only consider inputs for propagation when output has dependency on.
+      if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark) {
+        // TODO: if loop_iter_count is sorted, we can early return here.
+        ref = iter.first;
+        non_bc_high_water_mark = iter.second;
+      }
     }
-    // TODO: might want to discuss skipping cases where output has higher ranks.
-    replayAllocationDomain(id_model, ref, out_tv);
+    if (ref) {
+      replayAllocationDomain(id_model, ref, out_tv);
+    }
   }
 }
 
