@@ -71,7 +71,7 @@ bool MaxPosCalculator::isAllowedID(
     bool is_vectorize = isParallelTypeVectorize(id->getParallelType()) ||
         id->getParallelType() == ParallelType::Group ||
         (best_effort && id->getParallelType() == ParallelType::Unroll) ||
-	id->getParallelType() == ParallelType::Bulk;
+        id->getParallelType() == ParallelType::Bulk;
     allowed = allowed && !is_vectorize;
   }
 
