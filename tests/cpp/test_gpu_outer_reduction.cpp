@@ -2235,9 +2235,11 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
   const int vect_factor = 8;
   heuristics_params->vectorize_iter_dom = true;
   heuristics_params->unroll_factor_iter_dom = vect_factor;
-  // Enforce grid reduction
+  // Enforce grid reduction, which requires a determined BIDy
   heuristics_params->cross_grid_inner_reduction = true;
   heuristics_params->split_grid_dim_inner_reduction = true;
+  heuristics_params->grid_dim_inner_reduction = ParallelType::BIDy;
+  heuristics_params->lparams.bind(2L, ParallelType::BIDy);
 
   scheduleReduction(&fusion, *heuristics_params);
 
