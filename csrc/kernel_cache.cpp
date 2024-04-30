@@ -779,20 +779,29 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // that whenever we encounter a new set of input shapes we segment and compile
   // a new FusionKernelRuntime.
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
-    SchedulerRuntimeInfo runtime_info(
-        fusion(),
-        args,
-        /*precomputed_values=*/nullptr,
-        /*all_tvs=*/{},
-        forced_index_type);
-    bool should_not_be_segmented =
-        SchedulerEntry::proposeHeuristics(fusion(), runtime_info).has_value();
+    std::optional<bool> should_not_be_segmented = std::nullopt;
     auto reuse_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
-        [should_not_be_segmented, &args, &new_heuristics, &forced_index_type](
+        [&should_not_be_segmented, &args, &new_heuristics, &forced_index_type](
             auto& kernel_runtime) {
-          if (should_not_be_segmented && kernel_runtime->isSegmented()) {
+          if (!should_not_be_segmented.has_value()) {
+            // Use the concretized complete fusion from this runtime to check
+            // whether we can schedule the complete fusion without segmenting.
+            std::unique_ptr<Fusion> conc_fusion = std::make_unique<Fusion>(
+                *(kernel_runtime->fusionSegments()->completeFusion()));
+            SchedulerRuntimeInfo runtime_info(
+                conc_fusion.get(),
+                args,
+                /*precomputed_values=*/nullptr,
+                /*all_tvs=*/{},
+                forced_index_type);
+            should_not_be_segmented = SchedulerEntry::proposeHeuristics(
+                                          conc_fusion.get(), runtime_info)
+                                          .has_value();
+          }
+          if (should_not_be_segmented.value() &&
+              kernel_runtime->isSegmented()) {
             return false;
           }
           auto maybe_heuristics =
