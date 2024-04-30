@@ -1374,7 +1374,7 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   // Create cache_tvs
   auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv2->cacheBefore();
+  auto tv2b = tv2->cacheBefore();
 
   tv0a->setMemoryType(MemoryType::Shared);
   tv1a->setMemoryType(MemoryType::Shared);
@@ -1416,6 +1416,8 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   // Propagate common parallel dimensions
   reference_tv->axis(1)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(reference_tv);
+
+  tv2b->axis(-2)->parallelize(ParallelType::TIDx);
 
   // Vectorization for writing results to gmem
   reference_tv->axis(-3)->parallelize(ParallelType::Unroll);
