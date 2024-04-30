@@ -2305,4 +2305,87 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
   }
 }
 
+// Test that executing with inputs that require segmentation does not cause a
+// second execution to be segmented if it can avoid it.
+TEST_F(OuterReductionTest, KernelReuse) {
+  // DisableOption::KernelReuse would cause this test to pass even if it
+  // shouldn't, so we disable it here.
+  DisableOptionsGuard og;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
+  ASSERT_FALSE(isOptionDisabled(DisableOption::KernelReuse));
+
+  DataType dtype = DataType::Half;
+  int64_t reduction_axis = 0;
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // setup fusion
+  auto grad_output = makeContigTensor(2, dtype);
+  auto output = makeContigTensor(2, dtype);
+  auto input = makeContigTensor(2, dtype);
+  fusion->addInput(grad_output);
+  fusion->addInput(output);
+  fusion->addInput(input);
+
+  if (dtype == DataType::Half) {
+    grad_output = castOp(DataType::Float, grad_output);
+    output = castOp(DataType::Float, output);
+    input = castOp(DataType::Float, input);
+  }
+
+  auto grad_input = softmax_backward(grad_output, output, reduction_axis);
+
+  if (dtype == DataType::Half) {
+    grad_input = castOp(DataType::Half, grad_input);
+  }
+
+  fusion->addOutput(grad_input);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto run = [reduction_axis, &options, &executor_cache](
+                 int64_t reduction_size, int64_t iter_size) {
+    at::Tensor input =
+        (reduction_axis ? at::randn({iter_size, reduction_size}, options)
+                        : at::randn({reduction_size, iter_size}, options));
+
+    at::Tensor grad_output =
+        (reduction_axis ? at::randn({iter_size, reduction_size}, options)
+                        : at::randn({reduction_size, iter_size}, options));
+
+    at::Tensor output =
+        (reduction_axis ? at::randn({iter_size, reduction_size}, options)
+                        : at::randn({reduction_size, iter_size}, options));
+
+    std::vector<c10::IValue> aten_inputs({grad_output, output, input});
+
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  };
+
+  {
+    int64_t reduction_size = 2048;
+    int64_t iter_size = 16384;
+    run(reduction_size, iter_size);
+    auto runtime = executor_cache.getMostRecentKernelRuntime();
+    ASSERT_NE(runtime, nullptr);
+    EXPECT_TRUE(runtime->isSegmented());
+    EXPECT_EQ(executor_cache.getKernelRuntimes().begin()->second.size(), 1);
+  }
+
+  {
+    int64_t reduction_size = 512;
+    int64_t iter_size = 16384;
+    run(reduction_size, iter_size);
+    auto runtime = executor_cache.getMostRecentKernelRuntime();
+    ASSERT_NE(runtime, nullptr);
+    EXPECT_FALSE(runtime->isSegmented());
+    EXPECT_EQ(executor_cache.getKernelRuntimes().begin()->second.size(), 2);
+  }
+}
+
 } // namespace nvfuser
