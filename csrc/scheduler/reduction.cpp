@@ -648,6 +648,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         total_reduction_numel, grdim * bdimy * inner_reduction_unroll_factor);
   };
 
+  // The maximum vectorization factor is set to 4 to leave more factors for
+  // unroll in the reduction dimensions and reduces data movement from register
+  // to smem and gmem in block and grid reductions.
+  const int64_t empirical_max_vect = 4L;
+
   auto is_block_reduction = false;
   bool prioritize_block_reduction = true;
   if (prioritize_block_reduction) {
@@ -662,14 +667,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // to use all the SMs if possible
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
 
+    int64_t max_bdimx = 64L;
     while (gidim > device_multiprocessor_count &&
-           (bdimx * 2 <= 64 || iter_unroll_factor * 2 <= 8)) {
-      if (iter_unroll_factor * 2 <= 4) {
+           (bdimx * 2 <= max_bdimx ||
+            iter_unroll_factor * 2 <= empirical_max_vect)) {
+      if (iter_unroll_factor * 2 <= empirical_max_vect) {
         iter_unroll_factor *= 2;
-      } else if (bdimx * 2 <= 64) {
+      } else if (bdimx * 2 <= max_bdimx) {
         bdimx *= 2;
       } else {
-        iter_unroll_factor *= 2;
+        break;
       }
       gidim /= 2;
     }
@@ -737,12 +744,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // Purely empirically found switch to start vectorization, tuned on H100 and
     // A100. vectorization reduces number of load instructions but also
     // increased reductions each x-dim threads processes. want to start with a
-    // small value and incrase when bdimx is larger than 64. It reduces bdimx
-    // and gdimx to allow more threads and blocks in the reduction dimension.
-    // The maximum value is set to 4 to leave more factors for unroll in the
-    // reduction dimensions and reduces data movement from register to smem and
-    // gmem in block and grid reductions.
-    const int64_t empirical_max_vect = 4L;
+    // small value and incrase when bdimx is larger than 64.
     const int64_t max_vectorize_factor = std::min(
         empirical_max_vect,
         std::min(
