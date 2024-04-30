@@ -531,8 +531,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // for unroll and vectorization. The fused ops can have 48 registers for other
   // purposes. Test shows it leads to 75% occupancy for outer reduction without
   // fused ops and 50% occupancy for gelu backward which fused 21 ops including
-  // the external tanh op. Further tuning of this heuristic can utilize the cost
-  // of the fused ops.
+  // the expensive tanh op. Further tuning of this heuristic can utilize the
+  // cost of the fused ops.
   const int64_t buffer_reg_count = 8L;
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
@@ -675,19 +675,22 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
 
     int64_t threads_per_block = 1024L;
-    bdimy = threads_per_block / bdimx;
-    inner_reduction_unroll_factor = ceilDiv(max_unroll, iter_unroll_factor);
+    bdimy = std::min(threads_per_block / bdimx, total_reduction_numel);
+    inner_reduction_unroll_factor = std::min(
+        rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
 
     // This input size based  adjustment improves performance for outer
     // reduction. For example:
     // 8192 x 2304 on H100, block reduction 22 us, grid reduciton 29 us.
     // 8192 x 3072 on H100, block reduction 24 us, grid reduciton 37 us.
-    float sm_usage_threshold = 0.9f;
+    // The general threshold is set to 0.88 ensure A100 uses at least 96 blocks
+    // and H100 uses at least 118 blocks, based on empirical data.
+    float sm_usage_threshold = 0.88f;
     if (total_iteration_numel <= 3072) {
       if (total_reduction_numel <= 8192) {
-        sm_usage_threshold = 0.5f; // allow block reduction when iter = 2304
+        sm_usage_threshold = 0.5f;
       } else if (total_reduction_numel <= 16384) {
-        sm_usage_threshold = 0.7f; // allow block reduction when iter = 3072
+        sm_usage_threshold = 0.7f;
       }
     }
     is_block_reduction =
@@ -731,20 +734,20 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // Round bdimx to a nice value
     bdimx = scheduler_utils::roundUpPow2(bdimx);
 
-    // Purely empirically found switch to start vectorization, tuned on H100.
-    // vectorization reduces number of load instructions but also increased
-    // reductions each x-dim threads processes. want to start with a small value
-    // and incrase when bdimx is larger than 64. It reduces bdimx and gdimx to
-    // allow more threads and blocks in the reduction dimension. The maximum
-    // value is set to 4 to leave more factors for unroll in the reduction
-    // dimensions, it benefits memory bound kernels. If [buffer_reg_count] is
-    // increased, this vectorization factor limit can be increased.
+    // Purely empirically found switch to start vectorization, tuned on H100 and
+    // A100. vectorization reduces number of load instructions but also
+    // increased reductions each x-dim threads processes. want to start with a
+    // small value and incrase when bdimx is larger than 64. It reduces bdimx
+    // and gdimx to allow more threads and blocks in the reduction dimension.
+    // The maximum value is set to 4 to leave more factors for unroll in the
+    // reduction dimensions and reduces data movement from register to smem and
+    // gmem in block and grid reductions.
     const int64_t empirical_max_vect = 4L;
     const int64_t max_vectorize_factor = std::min(
         empirical_max_vect,
         std::min(
             (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
-    if (total_iteration_numel > 4096) {
+    if (total_iteration_numel > 3072) {
       iter_unroll_factor = bdimx > 64 ? 4L : 2L;
       iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
       iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
