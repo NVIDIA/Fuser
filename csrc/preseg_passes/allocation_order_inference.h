@@ -29,7 +29,7 @@ using AllocationOrder = std::vector<int64_t>;
 // See details in Note [ Allocation Order Propagation ]
 void inferenceAllocationOrder(
     Fusion* fusion,
-    const std::unordered_set<Val*>& skip_set);
+    const std::unordered_set<Val*>& skip_set = {});
 
 // Realize allocation order propagation on fusion inputs to optimize allocation
 // domain of output tensor. This optimization pass currently only applies to
