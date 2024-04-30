@@ -427,11 +427,11 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // propagate the channels_last allocation order to output.
 //
 // Pre-condition: `candidates` must be the input operands of the same Expr.
-TensorView* findReference(std::vector<TensorView*> candidates) {
+TensorView* findReference(const std::vector<Val*>& candidates) {
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
-  for (auto* tv : candidates) {
+  for (auto* tv : ir_utils::filterByType<TensorView>(candidates));
     // check if current entry sets new record for num of non broadcast / non
     // reduction iterdomain
     if (size_t non_bc_count = countLoopIterDomains(tv);
@@ -540,7 +540,7 @@ void inferenceAllocationOrder(
   auto id_model = IdModel(fusion, /*build_graphs=*/false);
 
   // picking a candidate for propagation.
-  TensorView* ref = findReference(ir_utils::filterByType<TensorView>(fusion->inputs()));
+  TensorView* ref = findReference(fusion->inputs());
   size_t ref_count = countLoopIterDomains(ref);
 
   // propagating the allocation order through graph
