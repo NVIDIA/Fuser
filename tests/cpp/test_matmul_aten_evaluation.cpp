@@ -61,7 +61,7 @@ TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -97,7 +97,7 @@ TEST_F(MatmulATenEvaluationTest, TransposeMmaOpAndCast) {
       fec.getMostRecentKernelRuntime()->executors();
   ASSERT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -131,7 +131,7 @@ TEST_F(MatmulATenEvaluationTest, MulSumAndCast) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -171,7 +171,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulWithBias) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -220,7 +220,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlphaBeta) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -269,7 +269,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasBeta) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -315,7 +315,7 @@ TEST_F(MatmulATenEvaluationTest, MatmulBiasAlpha) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -350,7 +350,7 @@ TEST_F(MatmulATenEvaluationTest, Linear) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -389,7 +389,7 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_TRUE(executors.front().isExprEval());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
