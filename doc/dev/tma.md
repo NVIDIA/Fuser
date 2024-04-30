@@ -457,9 +457,9 @@ outputs:
 T2[I0, I1] contiguity: T, T
 ```
 
-schedule:
+Schedule:
 
-![example 1: tma-load-inputs, vectorize-store-output pointwise](tma/example1.svg)
+![Example 1: tma-load-inputs, vectorize-store-output pointwise](tma/example1.svg)
 
 #### Example 2: broadcast kernel with discontiguous input
 
