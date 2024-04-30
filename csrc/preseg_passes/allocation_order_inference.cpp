@@ -555,7 +555,7 @@ void inferenceAllocationOrder(
         fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
-    if (countLoopIterDomains(out_tv) >= ref_count) {
+    if (countLoopIterDomains(out_tv) > ref_count) {
       continue;
     }
     // TODO: might want to discuss skipping cases where output has higher ranks.
