@@ -1251,6 +1251,8 @@ TEST_F(Tutorial, BasicTMA) {
 }
 
 TEST_F(Tutorial, PointwiseBroadcastTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
   CompileParams index32bit{DataType::Int32, 255, false};
 
   auto fusion = std::make_unique<Fusion>();
@@ -1353,6 +1355,8 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 }
 
 TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
   CompileParams index32bit{DataType::Int32, 255, false};
 
   auto fusion = std::make_unique<Fusion>();
