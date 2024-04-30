@@ -312,8 +312,17 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // inputs are cached instead of the persistent buffers. The decision of
 // projection is primarily based on the required sizes of the two cases --
 // projection is done if projecting to the inputs results in a smaller size.
+
+// This function is used by inner persistent and InnerOuter persistent
+// schedulers.
+// TODO: Outer persistent scheduler should also use this function.
 // If the scheduler is innerOuter with outer broadcast, projection is allowed
-// even it leads to a larger buffer size.
+// even it leads to a larger buffer size becuase the scheduled kernel allows the
+// reuse of the outer broadcast Tv when iterating over the outer reduction
+// dimension and leads to higher performance ( TODO: needs re-evaluate, may not
+// true if the buffer size is increased a lot when projecting to inputs). See
+// https://github.com/NVIDIA/Fuser/issues/402
+
 // However, we experimentally found that certain relatively expensive operations
 // should not be projected even when that would require a larger buffer size.
 // Specifically,
