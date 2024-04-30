@@ -1389,20 +1389,20 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
 
   // Step 2: Create Box
   // After TMA domain creation
-  //         split: [I0, I2, 256]
+  //         split: [I0, I3, 256]
   reference_tv->split(-1, tma_tile);
-  //         split: [I4, 4, I2, 256]
+  //         split: [I2, 4, I3, 256]
   reference_tv->split(0, num_stages);
 
   // Step 3: Create Tile
   // Do nothing here because box == tile
 
   // Step 4: Schedule Shared Memory Tensor
-  //         split: [I4, 4, I3, 128, 2]
+  //         split: [I2, 4, I3, 128, 2]
   reference_tv->split(-1, vectorization);
-  //         split: [I5, 132, 4, I3, 128, 2]
+  //         split: [I4, 132, 4, I3, 128, 2]
   reference_tv->split(0, num_ctas_for_hopper);
-  //         reorder: [I5, 132, I3, 4, 128, 2]
+  //         reorder: [I4, 132, I3, 4, 128, 2]
   reference_tv->reorder({{3, 2}, {2, 3}});
 
   // Transform Operations between cache operations and output reference
