@@ -19,7 +19,7 @@ bool isLowerableToCommunication(Expr* expr);
 
 // Lower a PipelineCommunication into a series of Communication, given a
 // device_index.
-std::vector<std::shared_ptr<Communication>> lowerCommunication(
+std::vector<Communication*> lowerCommunication(
     DeviceIdxType device_index,
     Expr* c,
     at::Tensor input_tensor,

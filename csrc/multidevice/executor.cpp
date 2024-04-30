@@ -149,7 +149,7 @@ void MultiDeviceExecutor::postKernel(
   }
 }
 
-void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
+void MultiDeviceExecutor::postResharding(SegmentedGroup* group) {
   // Lower the group into a vector of Communications
   NVF_ERROR(
       group->exprs().size() == 1,
@@ -174,8 +174,9 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
 
   // post and wait communications
-  for (auto& communication : communications) {
-    auto work = communication->post(comm_);
+  for (auto communication : communications) {
+    auto backend = comm_.getBackendForTeam(communication->params().team, std::nullopt);
+    auto work = postCommunication(communication, comm_.deviceId(), backend);
     if (work) {
       work->wait();
     }
@@ -213,7 +214,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     if (!is_resharding_.at(group)) {
       postKernel(group, launch_params);
     } else {
-      postCommunication(group);
+      postResharding(group);
     }
   }
 

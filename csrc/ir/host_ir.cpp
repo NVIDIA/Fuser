@@ -22,7 +22,7 @@ namespace hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey,
                              std::unique_ptr<Fusion> fusion)
-    : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion))
+    : Expr(passkey), fusion_(std::move(fusion))
 {
 
     // NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>());
