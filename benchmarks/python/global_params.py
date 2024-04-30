@@ -73,7 +73,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
         if dim == 2:
             input_ranges = []
 
-            step_size = 256
+            step_size = 1024
             # max_batch_range: set according to max size that fits in GPU memory
             batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
 
