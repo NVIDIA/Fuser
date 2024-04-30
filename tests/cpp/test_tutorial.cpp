@@ -1282,16 +1282,21 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 
   auto reference_tv = tv3;
 
-  // Create tma domain
+  // Step 1: Create tma domain
   //   root domain: [I0, I1, I2, I3]
-  //         merge: [I0, I1, I4]
+  //    TMA domain: [I0, I1, I4]
   reference_tv->merge(-2, -1);
 
-  // After TMA domain creation
-  //         merge: [I10, I4]
-  reference_tv->merge(0, 1);
-  //         split: [I10, I5, 256]
+  // Step 2: Define TMA Box
+  //         split: [I0, I1, I5, 256]
   reference_tv->split(-1, 256);
+
+  // Step 3: Define Tile
+  // Do nothing here because tile == box.
+
+  // Step 4: Schedule Shared Memory Tensor
+  //         merge: [I10, I5, 256]
+  reference_tv->merge(0, 1);
   //         split: [I10, I7, 4, 256]
   reference_tv->split(-2, 4);
   //         merge: [I11, 4, 256]
@@ -1301,7 +1306,8 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   TransformPropagator propagator(reference_tv);
   MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
-  // Parallelization Schema
+  // Define Parallelization Schema
+  // Intermediate Tensors
   tv3b->axis(0)->parallelize(ParallelType::BIDx);
   tv3b->axis(1)->parallelize(ParallelType::Unroll);
   tv3b->axis(2)->parallelize(ParallelType::TIDx);
