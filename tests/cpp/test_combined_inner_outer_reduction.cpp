@@ -1096,13 +1096,24 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
       !heuristic->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
+  auto lparams = heuristic->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   auto t1 = t0.sum({1});
   auto t2 = t1.unsqueeze(-1);
   auto t3 = t0 + t2;
   auto t4 = t0.sum({0});
-  testValidate(&fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {t3, t4},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 } // namespace nvfuser
