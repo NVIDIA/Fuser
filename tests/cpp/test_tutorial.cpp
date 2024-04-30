@@ -1007,7 +1007,7 @@ TEST_F(Tutorial, BasicTMA) {
     output->axis(2)->parallelize(ParallelType::Bulk);
     // [BIDx, TIDx, Bulk]
 
-    // Schedule the smem->gmem part
+    // Schedule the gmem->smem part
     smem_cache->merge(0);
     smem_cache->merge(0);
     smem_cache->split(0, 256);
