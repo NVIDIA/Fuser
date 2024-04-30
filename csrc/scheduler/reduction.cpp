@@ -543,6 +543,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
+
+  // Try to use 4 * SM blocks to sature the SMs but also won't cause a high
+  // inter-block communication cost.
   const int64_t n_waves = 4;
 
   // if data fits in l2 and we need more parallelization in the iter dim,
@@ -650,24 +653,32 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // The maximum vectorization factor is set to 4 to leave more factors for
   // unroll in the reduction dimensions and reduces data movement from register
-  // to smem and gmem in block and grid reductions.
+  // to smem and gmem in block and grid reductions. Try to avoid 8, since 8-way
+  // grouped reduction needs 2 iterations to load 8 x fp32 data from register to
+  // shared memory.
   const int64_t empirical_max_vect = 4L;
+
+  // Leave some serial work on top of unroll to avoid using large unroll for
+  // small reductions
   const int64_t min_serial_top_unroll = 4L;
 
+  // Try to use block reduction, if can't efficiently use a high fraction of SMs
+  // go to grid reduction. Block reduction doesn't require expensive cross-block
+  // communications and leads to better performance if SM usage is high.
   auto is_block_reduction = false;
   bool prioritize_block_reduction = true;
   if (prioritize_block_reduction) {
     // start from a small bdimx to leave a large bdimy for reduction
     bdimx = 8;
-    // start from a large vectorize factor to reduce required blocks
-    // but don't use 8 since 8-way grouped reduction needs 2 iterations
-    // to load 8 x fp32 data from register to shared memory.
+
+    // start from a small vectorization factor to leave more for reduction
+    // unroll
     iter_unroll_factor = 2;
 
-    // calculate the number of blocks needed, adjust vectorization factor
-    // to use all the SMs if possible
+    // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
 
+    // move from gidim to vectorization and bdimx to avoid using multiple waves
     int64_t max_bdimx = 128L;
     while (gidim > device_multiprocessor_count &&
            (bdimx * 2 <= max_bdimx ||
@@ -682,8 +693,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       gidim /= 2;
     }
 
-    // Prioritize unroll, improves perf for cases with small reduction dim
-    // e.g. 16 x 32768
+    // For reduction dim, prioritize unroll, improves perf for cases with small
+    // reduction dim e.g. 16 x 32768
     int64_t max_threads_per_block = 1024L;
     inner_reduction_unroll_factor = std::min(
         rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
@@ -691,7 +702,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         scheduler_utils::safeDiv(rDimAvail(), min_serial_top_unroll),
         max_threads_per_block / bdimx);
 
-    // move from vect to bdimx to avoid small block size
+    // move from vect to bdimx to avoid using a very small block size
     // may happen for case with small reduction dim but large iteration dim
     while (bdimx * bdimy * 2 <= max_threads_per_block &&
            iter_unroll_factor > 1) {
@@ -699,12 +710,17 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       bdimx *= 2;
     }
 
-    // This input size based  adjustment improves performance for outer
-    // reduction. For example:
+    // Block reduction generally requires high SM usage ratio. However, for
+    // small input sizes, the requirement is relaxed to n_waves >= 0.5 or 0.7.
+    // In these scenarios, block reduction outperforms grid reduction due to the
+    // reduction of communication cost, despite using only 50% to 70% of the
+    // SMs. For example:
     // 8192 x 2304 on H100, block reduction 22 us, grid reduciton 29 us.
     // 8192 x 3072 on H100, block reduction 24 us, grid reduciton 37 us.
-    // The general threshold is set to 0.88 ensure A100 uses at least 96 blocks
-    // and H100 uses at least 118 blocks, based on empirical data.
+    // The general threshold is set to 0.88 which ensures A100 uses at least 96
+    // blocks and H100 uses at least 118 blocks, based on empirical data. The
+    // actual threshold depends on the cost of fused ops or ratio between
+    // computation and communication.
     float sm_usage_threshold = 0.88f;
     if (total_iteration_numel <= 3072) {
       if (total_reduction_numel <= 8192) {
@@ -714,10 +730,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       }
     }
     is_block_reduction = gidim <= device_multiprocessor_count &&
-        gidim > (int64_t)(sm_usage_threshold * device_multiprocessor_count);
-
-    std::cout << "block gidim: " << gidim << " max_unroll: " << max_unroll
-              << " is_block_reduction: " << is_block_reduction << std::endl;
+        gidim >
+            (int64_t)(sm_usage_threshold * (float)device_multiprocessor_count);
   }
 
   // grid reduction
