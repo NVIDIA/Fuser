@@ -1292,11 +1292,20 @@ void movePersistentBufferToSmem(
           });
     };
     for (auto tv : persistent_buffers) {
+      // Persistent buffers are categorized into two types:
+      // (1) Cached input tensors.
+      //     For these, [smem_persistent_buffers] holds the original input
+      //     tensors, not the cached.
+      // (2) Intermediate tensors: Other tensors used throughout computation.
+
+      // If a buffer is absent from [smem_persistent_buffers], it may be a
+      // cached input. In such cases, verify if the original input tensor is
+      // stored in [smem_persistent_buffers]. So, we may need to call
+      // isSharedMemoryPersistent() twice, one for the buffer iteself and the
+      // other for the buffer's input tensor if the buffer is a cached input
+      // and it is not in [smem_persistent_buffers].
       bool use_smem = isSharedMemoryPersistent(tv);
-      // If project to inputs, the buffer inputs are stored in
-      // [smem_persistent_buffers], after projection, the cached input becomes
-      // the new persistent buffer.
-      if (!use_smem && rparams.project_persistent_buffers &&
+      if (!use_smem &&
           std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
               cached_inputs.end()) {
         auto input_tv = ir_utils::producerTvsOf(tv).at(0);
