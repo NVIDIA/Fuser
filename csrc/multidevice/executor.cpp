@@ -160,14 +160,18 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
-  auto input_val = expr->inputs().at(0);
-  auto output_val = expr->outputs().at(0);
-  at::Tensor input_tensor, output_tensor;
-  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
+  auto* input_tv = expr->inputs().at(0)->as<TensorView>();
+  at::Tensor input_tensor;
+  if (val_to_IValue_.find(input_tv) != val_to_IValue_.end() &&
+      input_tv->getDeviceMesh().has(comm_.deviceId())) {
+    input_tensor = val_to_IValue_.at(input_tv).toTensor();
   }
-  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
+
+  auto* output_tv = expr->outputs().at(0)->as<TensorView>();
+  at::Tensor output_tensor;
+  if (val_to_IValue_.find(output_tv) != val_to_IValue_.end() &&
+      output_tv->getDeviceMesh().has(comm_.deviceId())) {
+    output_tensor = val_to_IValue_.at(output_tv).toTensor();
   }
 
   auto communications =
