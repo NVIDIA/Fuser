@@ -393,6 +393,18 @@ void AllocationOrderInferencer::handle(ReductionOp* op) {
 }
 
 
+
+// helper utils to count the number of non broadcast / non reduction
+// iterdomain
+size_t countLoopIterDomains(const TensorView* tv) {
+  return std::count_if(
+      tv->getMaybeRFactorDomain().begin(),
+      tv->getMaybeRFactorDomain().end(),
+      [&](auto ptr_id) {
+        return !ptr_id->isBroadcast() && !ptr_id->isReduction();
+      });
+};
+
 // TODO: update comment
 // Returns the candidate operand that dominates the allocation order.
 //
@@ -418,16 +430,6 @@ TensorView* findReference(const std::vector<TensorView*>& candidates) {
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
 
-  // helper utils to count the number of non broadcast / non reduction
-  // iterdomain
-  auto countLoopIterDomains = [](const TensorView* tv) -> size_t {
-    return std::count_if(
-        tv->getMaybeRFactorDomain().begin(),
-        tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) {
-          return !ptr_id->isBroadcast() && !ptr_id->isReduction();
-        });
-  };
 
   for (auto* tv : candidates) {
     // check if current entry sets new record for num of non broadcast / non
@@ -479,7 +481,26 @@ std::vector<IterDomain*> replayAllocationDomain(
 
   // TODO: I don't think I'm doing it right here.
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
-  std::vector<IterDomain*> alloc_domain;
+  std::vector<IterDomain*> mapped_ids;
+  std::unordered_set<IterDomain*> mapped_id;
+  for (auto* ref_id : ref_alloc_domain) {
+    for (auto* id : target->getMaybeRFactorDomain()) {
+      // skip already map id
+      if (mapped_id.count(id) != 0) {
+        continue;
+      }
+      // how do we resolve multiple mapping?
+      if (val_sets.strictAreMapped(ref_id, id)) {
+        mapped_ids.push_back(id);
+        mapped_id.insert(id);
+      }
+    }
+  }
+
+  std::vector<IterDomain*> target_alloc_domain = target->getMaybeRFactorDomain();
+  auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0;});
+  std::copy(mapped_ids.begin(), mapped_ids.end(), iter);
+  target->setAllocationDomain(target_alloc_domain, true);
 }
 
 } // namespace
@@ -520,6 +541,7 @@ void inferenceAllocationOrder(
 
   // picking a candidate for propagation.
   TensorView* ref = findReference(ir_utils::filterByType<TensorView>(fusion->inputs()));
+  size_t ref_count = countLoopIterDomains(ref);
 
   // propagating the allocation order through graph
   // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
@@ -533,6 +555,10 @@ void inferenceAllocationOrder(
         fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
+    if (countLoopIterDomains(out_tv) >= ref_count) {
+      continue;
+    }
+    // TODO: might want to discuss skipping cases where output has higher ranks.
     replayAllocationDomain(id_model, ref, out_tv);
   }
 }
