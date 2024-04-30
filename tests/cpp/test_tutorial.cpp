@@ -1377,7 +1377,8 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
 
   auto reference_tv = tv2;
 
-  // Create tma domain
+  // Step 1: Create tma domain
+  // Use the root domain as TMA domain
   //   root domain: [I0, I1]
 
   constexpr int64_t num_threads = 128;
@@ -1386,13 +1387,19 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   constexpr int64_t num_stages = 4;
   constexpr int64_t num_ctas_for_hopper = 132;
 
+  // Step 2: Create Box
   // After TMA domain creation
   //         split: [I0, I2, 256]
   reference_tv->split(-1, tma_tile);
-  //         split: [I0, I3, 128, 2]
-  reference_tv->split(-1, vectorization);
-  //         split: [I4, 4, I3, 128, 2]
+  //         split: [I4, 4, I2, 256]
   reference_tv->split(0, num_stages);
+
+  // Step 3: Create Tile
+  // Do nothing here because box == tile
+
+  // Step 4: Schedule Shared Memory Tensor
+  //         split: [I4, 4, I3, 128, 2]
+  reference_tv->split(-1, vectorization);
   //         split: [I5, 132, 4, I3, 128, 2]
   reference_tv->split(0, num_ctas_for_hopper);
   //         reorder: [I5, 132, I3, 4, 128, 2]
@@ -1402,6 +1409,7 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   TransformPropagator propagator(reference_tv);
   MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
+  // Propagate common parallel dimensions
   reference_tv->axis(1)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
@@ -1410,7 +1418,7 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   reference_tv->axis(-2)->parallelize(ParallelType::TIDx);
   reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  // Apply bulk type to TMA
+  // Apply bulk type to TMA tensors
   tv0a->axis(-1)->parallelize(ParallelType::Bulk);
   tv0a->axis(-2)->parallelize(ParallelType::Bulk);
   tv0a->axis(-3)->parallelize(ParallelType::Bulk);
