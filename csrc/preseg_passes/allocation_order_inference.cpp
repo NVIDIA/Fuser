@@ -427,10 +427,9 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // propagate the channels_last allocation order to output.
 //
 // Pre-condition: `candidates` must be the input operands of the same Expr.
-TensorView* findReference(const std::vector<TensorView*>& candidates) {
+TensorView* findReference(std::vector<TensorView*> candidates) {
   TensorView* src = nullptr;
   size_t non_bc_high_water_mark = 0;
-
 
   for (auto* tv : candidates) {
     // check if current entry sets new record for num of non broadcast / non
@@ -460,7 +459,7 @@ TensorView* findReference(const std::vector<TensorView*>& candidates) {
 // root domain map from producer to consumer.
 //   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
 // so the function would return [i0, i2, i1]
-std::vector<IterDomain*> replayAllocationDomain(
+void replayAllocationDomain(
     const IdModel& id_model,
     TensorView* ref,
     TensorView* target) {
