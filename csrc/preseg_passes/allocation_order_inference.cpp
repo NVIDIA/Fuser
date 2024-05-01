@@ -514,7 +514,7 @@ void replayAllocationDomain(
   auto mapped_iter = mapped_ids.begin();
   auto unmapped_iter = target_alloc_domain.begin();
   const std::vector<IterDomain*>& alloc_domain = target->getMaybeRFactorDomain();
-  std::vector<IterDomain*> new_alloc_domain(alloc_domain.size(). nullptr);
+  std::vector<IterDomain*> new_alloc_domain(alloc_domain.size(), nullptr);
   for (auto i : c10::irange(alloc_domain.size())) {
     if (alloc_domain[i]->isReduction() && mapped_id.count(alloc_domain[i]) == 0) {
       new_alloc_domain[i] = alloc_domain[i];
