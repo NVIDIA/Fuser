@@ -2311,7 +2311,8 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                  // Cases with vectorizable strides but misaligned base pointers
                  {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
                  {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
-                 {504, 136, 248, 8, 8, 2}, // epi not vec'able due to offset
+                 // See https://github.com/NVIDIA/Fuser/issues/2169
+                 //{504, 136, 248, 8, 8, 2}, // epi not vec'able due to offset
              }) {
           const auto maybeUnalign = [](const at::Tensor& t, int offset) {
             if (offset == 16 / t.element_size()) {

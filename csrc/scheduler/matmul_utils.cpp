@@ -381,13 +381,34 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   MatmulParams::SupportedVectorization supported_vec_size;
   supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
   supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_B);
-  //
-  supported_vec_size.epilogue = 16LL;
+  // Currently we set epilogue to the max vectorization supported by all outputs
+  // and all "C" type input dtypes.
+  // See https://github.com/NVIDIA/Fuser/issues/2169
+  supported_vec_size.epilogue = 16l;
+  // We will write OUTPUT_D role tensors in the default stride order. So
+  // vectorization is based on the inner dimension
   const auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
-  if (it != roles_map.end()) {
-    for (TensorView* tv : it->second) {
+  NVF_ERROR(d_it != roles_map.end(), "Could not find any output D tensors");
+  for (TensorView* tv : d_it->second) {
+    const int64_t N =
+        runtime_info.expressionEvaluator()
+            .evaluate(TensorDomain::noReductions(tv->getRootDomain())
+                          .back()
+                          ->extent())
+            .as<int64_t>();
+    supported_vec_size.epilogue =
+        std::min(supported_vec_size.epilogue, 16l / dataTypeSize(tv->dtype()));
+    supported_vec_size.epilogue = std::min(
+        supported_vec_size.epilogue, scheduler_utils::maxVectorizationWidth(N));
+  }
+  // For INPUT_C role tensors, we do not necessarily know which axis we would
+  // like to vectorize, so we set vectorization based on dtype instead here
+  // until a more complete analysis is implemented.
+  if (const auto c_it = roles_map.find(MatmulRole::INPUT_C);
+      c_it != roles_map.end()) {
+    for (TensorView* tv : c_it->second) {
       supported_vec_size.epilogue = std::min(
-          supported_vec_size.epilogue, 16LL / dataTypeSize(tv->dtype()));
+          supported_vec_size.epilogue, 16l / dataTypeSize(tv->dtype()));
     }
   }
   return supported_vec_size;
