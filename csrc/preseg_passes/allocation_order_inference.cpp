@@ -492,7 +492,6 @@ void replayAllocationDomain(
         // technically we don't need to skip this. But it's giving issues
         break;
       }
-      if (
       // skip already map id
       if (mapped_id.count(id) != 0) {
         continue;
