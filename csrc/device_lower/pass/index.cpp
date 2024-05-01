@@ -1578,6 +1578,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
+  auto layout = *mma->layout();
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
