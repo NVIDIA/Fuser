@@ -9,11 +9,7 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
-#ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
-#else
-#include <multidevice/c10d_mock.h>
-#endif
 #include <type.h>
 #include <visibility.h>
 
@@ -98,7 +94,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class NVF_API Broadcast : public Communication {
+class Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -117,7 +113,7 @@ Requirements:
   - non-roots have one src buffer and no dst buffer
   - all buffers have the same size
 */
-class NVF_API Gather : public Communication {
+class Gather : public Communication {
  public:
   Gather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -134,7 +130,7 @@ Requirements:
   - all device have one src buffer and <team_size> dst buffers
   - all buffers have the same size
 */
-class NVF_API Allgather : public Communication {
+class Allgather : public Communication {
  public:
   Allgather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -152,7 +148,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class NVF_API Scatter : public Communication {
+class Scatter : public Communication {
  public:
   Scatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -169,7 +165,7 @@ Requirements:
   - non-roots have one src buffer and no dst buffer
   - all buffers have the same size
 */
-class NVF_API Reduce : public Communication {
+class Reduce : public Communication {
  public:
   Reduce(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -184,7 +180,7 @@ Requirements:
   - all devices have one src buffer and one dst buffer
   - all buffers have the same size
 */
-class NVF_API Allreduce : public Communication {
+class Allreduce : public Communication {
  public:
   Allreduce(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -199,7 +195,7 @@ Requirements:
   - all devices have <team_size> src buffer and one dst buffer
   - all buffers have the same size
 */
-class NVF_API ReduceScatter : public Communication {
+class ReduceScatter : public Communication {
  public:
   ReduceScatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
@@ -222,7 +218,7 @@ case of a local copy)
   - If team is of size 2, the unique non-root have no src buffer and one dst
 buffer
 */
-class NVF_API SendRecv : public Communication {
+class SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(

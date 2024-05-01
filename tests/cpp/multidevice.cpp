@@ -16,48 +16,52 @@
 
 namespace nvfuser {
 
-auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
-    testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
-
-void MultiDeviceEnvironment::SetUp() {
-  communicator_ = std::make_unique<Communicator>();
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
-    do_barrier_at_test_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip_ = true;
-  }
-}
-
-void MultiDeviceEnvironment::TearDown() {
-  if (communicator_->is_available()) {
-    communicator_->barrier();
-  }
-  communicator_.reset();
-}
-
-void MultiDeviceTest::SetUp() {
-  NVFuserTest::SetUp();
-  communicator = multidevice_env->communicator();
-  debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test =
-      multidevice_env->doBarrierAtTest() && communicator->is_available();
-  disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip && !communicator->is_available()) {
-    GTEST_SKIP() << "This test needs an available communicator.";
-  }
+MultiDeviceTest::MultiDeviceTest() {
+  communicator = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+  debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+  do_barrier_at_test =
+      (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
+       communicator->is_available());
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
-void MultiDeviceTest::TearDown() {
+MultiDeviceTest::~MultiDeviceTest() {
   if (do_barrier_at_test && communicator->is_available()) {
     communicator->barrier();
   }
-  NVFuserTest::TearDown();
+}
+
+void MultiDeviceTest::SetUp() {
+  // Set the same random seed for all processes.
+  NVFuserTest::SetUp();
+
+  if (!disable_skip && !communicator->is_available()) {
+    GTEST_SKIP() << "This test needs an available communicator.";
+  }
+}
+
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    TensorView* tv,
+    DeviceIdxType deviceId) {
+  if (!isSharded(tv)) {
+    return tensor;
+  }
+  auto sharded_dim = getShardedAxis(tv);
+  int i = 0;
+  const auto& devices = tv->getDeviceMesh().vector();
+  auto it = std::find(devices.begin(), devices.end(), deviceId);
+  if (it != devices.end()) {
+    i = std::distance(devices.begin(), it);
+  }
+  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+}
+
+/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
+  static Communicator* communicator = new Communicator();
+  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -150,8 +154,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-void PipelineTest::SetUp() {
-  MultiDeviceTest::SetUp();
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }
