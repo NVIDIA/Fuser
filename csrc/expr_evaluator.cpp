@@ -115,6 +115,8 @@ void ExpressionEvaluator::bind_(
     const auto& t = concrete_value.as<at::Tensor>();
     auto rfactor_domain =
         TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    auto alloc_domain = 
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
     NVF_ERROR(
         t.dim() == (int64_t)rfactor_domain.size(),
         "Expected ",
@@ -125,7 +127,26 @@ void ExpressionEvaluator::bind_(
         t.dim());
     for (auto i : c10::irange(t.dim())) {
       auto id = rfactor_domain[i];
-      if (id->hasExpandedExtent()) {
+      const auto all_exp = DependencyCheck::getAllExprsBetween(
+        {id, id}, {alloc_domain.begin(), alloc_domain.end()});
+
+      // If an rfactor id has been sharded. (Split + DID parallelization)
+      // then bind the rfactor id to the logical (unsharded) extent, not the
+      // input size (sharded)
+      if (!all_exp.empty()) {
+        for (auto exp : all_exp) {
+          // TODO: assert there is no merge
+          if (auto split = dynamic_cast<Split*>(exp)) {
+            auto out = split->outer();
+            // auto in = split->inner();
+            NVF_CHECK(out->isDeviceDim(), "Only allocation splits handled for DeviceDim");
+            // TODO: assert that outer's extent == tv->getDeviceMesh().vector().size()
+            int logical_extent = (int)(t.size(i) * tv->getDeviceMesh().vector().size());
+            bind_(rfactor_domain[i]->extent(), logical_extent, evaluate_validate);
+          }
+        }
+      }
+      else if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
             t.size(i) == 1 || t.stride(i) == 0,

@@ -28,6 +28,7 @@ class ForwardTraverseFromRFactorToAlloc {
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
+    
     auto in = split->in();
     auto inner = split->inner();
     auto outer = split->outer();
@@ -39,6 +40,18 @@ class ForwardTraverseFromRFactorToAlloc {
     }
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
+    // std::cout << "Split " << inner->toString() << " " << outer->toString() << std::endl;
+    // std::cout << "SHARDED In size/ factor " << in_size << " " << factor << std::endl;
+    // A device parallelized outer axis indicates the logical axis was sharded. 
+    // in_size and in_stride refer to sharded sizes, adjust both to refer to unsharded sizes. 
+    // TODO: the logic seems to assume a split is always an inner split? But, sharding
+    // uses an outersplit... 
+    if (outer->isDeviceDim()) {
+      in_size *= factor;
+      factor *= factor;
+    }
+    // std::cout << "UNSHARDED In size/ factor " << in_size << " " << factor << std::endl;
+
     NVF_ERROR(
         in_size % factor == 0,
         "The rFactor domain and allocation domain of fusion input/output ",
@@ -246,7 +259,9 @@ void validateAllocationSizesAndStrides(
           " actual stride: ",
           stride);
     }
-    contiguous_stride = stride * size;
+    // TODO: Not certain how to handle stride when size refers to unsharded tensor.
+    if (!alloc_dom_no_reductions.at(i)->isDeviceDim())
+      contiguous_stride = stride * size;
     contiguity_rev++;
   }
   NVF_ERROR(
@@ -294,6 +309,7 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
 
   // active IDs and their shape and stride
+  // active IDs are initially bound to sharded shape and stride. 
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   NVF_ERROR((int64_t)rfactor.size() == tensor.dim());
   for (int64_t i : c10::irange((int64_t)rfactor.size())) {
@@ -345,6 +361,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
   // If tensor is sharded then logical_size and logical_stride will
   // refer to size and stride of the sharded tensor.
+  // TODO: Is this assumption is correct? Maybe it should be the unsharded data. 
   metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
   if (tv->hasAllocation()) {
@@ -354,6 +371,33 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
     metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
     metadata->alloc_stride_data = std::move(allocation_data.second);
     metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+    if (isSharded(tv)) {
+      // Explicitly update the logical for sharded tensors. 
+      // TODO: All sharded tensors should have their allocation domain explicitly set so that
+      // the logical sizes and strides are calculated correctly. 
+      auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+      std::vector<int64_t> unsharded_size;
+      std::vector<int64_t> unsharded_stride;
+      int factor = 1;
+      // TODO: This is a bit hacky...
+      for (auto i : c10::irange(alloc.size())) {
+        auto id = alloc[i];
+        auto size = metadata->alloc_size_data[i];
+        auto stride = metadata->alloc_stride_data[i];
+        if (id->isDeviceDim()) {
+          factor = tv->getDeviceMesh().vector().size();
+        } else {
+          unsharded_size.push_back(size * factor);
+          unsharded_stride.push_back(stride);
+          factor = 1;
+        }
+      }
+      // TODO: the logical size is unsharded size, but the stride is sharded...
+      metadata->logical_size_data = std::move(unsharded_size);
+      metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+      metadata->logical_stride_data = std::move(unsharded_stride);
+      metadata->logical_stride = std::move(metadata->logical_stride_data);
+    }
   } else {
     metadata->alloc_size = input.sizes();
     metadata->alloc_stride = input.strides();

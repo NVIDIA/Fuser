@@ -13,6 +13,8 @@
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
+#include <csrc/iter_visitor.h>
+
 namespace nvfuser {
 
 using ShardingTest = NVFuserFixtureParamTest<bool>;
@@ -31,7 +33,7 @@ TEST_F(ShardingTest, IsSharded) {
   TensorView* b = makeSymbolicTensor(3);
   b->split(1, 4);
   b->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(b));
+  EXPECT_TRUE(isSharded(b));
 
   TensorView* c = makeSymbolicTensor(3);
   c->axis(0)->parallelize(ParallelType::DIDx);
@@ -65,8 +67,8 @@ TEST_F(ShardingTest, PropagateSharding) {
 
 TEST_P(ShardingTest, ComputeIndex) {
   const bool creates_concrete_tensor = GetParam();
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  Fusion fusion;
+  FusionGuard fg(&fusion);
   DeviceMesh mesh({0, 1, 2});
 
   TensorView* a = creates_concrete_tensor ? makeConcreteTensor({4, 2, 3, 5})
@@ -75,10 +77,10 @@ TEST_P(ShardingTest, ComputeIndex) {
   TensorView* c = add(a, a);
   TensorView* d = permute(a, {{2, 0}});
 
-  fusion->addInput(a);
-  fusion->addOutput(b);
-  fusion->addOutput(c);
-  fusion->addOutput(d);
+  fusion.addInput(a);
+  fusion.addOutput(b);
+  fusion.addOutput(c);
+  fusion.addOutput(d);
 
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
@@ -94,9 +96,48 @@ TEST_P(ShardingTest, ComputeIndex) {
   auto a_tensor = at::randn({4, 2, 1, 5}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {a_tensor});
+  fe.compileFusion(&fusion, {a_tensor});
   auto outputs = fe.runFusion({a_tensor});
-  testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {a_tensor}, __LINE__, __FILE__);
+}
+
+TEST_P(ShardingTest, ShardSplitAxis_Computation) {
+  const bool creates_concrete_tensor = GetParam();
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int num_devices = 2;
+  DeviceMesh mesh({0, 1});
+
+  TensorView* a = creates_concrete_tensor ? makeConcreteTensor({3, 8, 3})
+                                          : makeSymbolicTensor(3);
+  TensorView* b = sum(a, {2});
+  TensorView* c = add(a, a);
+  TensorView* d = permute(a, {{1, 0}});
+
+  fusion.addInput(a);
+  fusion.addOutput(b);
+  fusion.addOutput(c);
+  fusion.addOutput(d);
+
+  std::vector<TensorView*> tvs = {a, b, c};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+    tv->split(1, num_devices, false);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
+  d->setDeviceMesh(mesh);
+  d->split(0, num_devices, false);
+  d->axis(0)->parallelize(ParallelType::DIDx);
+  d->setAllocationDomain(d->getLeafDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a_tensor = at::randn({3, 4, 3}, options); // Input is a sharded tensor
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {a_tensor});
+  auto outputs = fe.runFusion({a_tensor});
+  testValidate(&fusion, outputs, {a_tensor}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
