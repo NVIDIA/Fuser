@@ -484,10 +484,10 @@ void replayAllocationDomain(
   std::vector<IterDomain*> mapped_ids;
   std::unordered_set<IterDomain*> mapped_id;
   for (auto* ref_id : ref_alloc_domain) {
-    // skipping broadcast/reduction domains
-    if (ref_id->isBroadcast() || ref_id->isReduction()) {
-      continue;
-    }
+    // maybe not skipping broadcast/reduction domains
+    // if (ref_id->isBroadcast() || ref_id->isReduction()) {
+    //   continue;
+    // }
 
     for (auto* id : target->getMaybeRFactorDomain()) {
       // skip already map id
@@ -506,7 +506,10 @@ void replayAllocationDomain(
   std::vector<IterDomain*> target_alloc_domain = target->getMaybeRFactorDomain();
   auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0;});
   std::copy(mapped_ids.begin(), mapped_ids.end(), iter);
-  target->setAllocationDomain(target_alloc_domain, true);
+  // skip when it isn't updating.
+  if (target_alloc_domain != target->getMaybeRFactorDomain()) {
+    target->setAllocationDomain(target_alloc_domain, true);
+  }
 }
 
 } // namespace
