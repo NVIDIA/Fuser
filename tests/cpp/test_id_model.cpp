@@ -36,7 +36,9 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   fusion.addOutput(tv2);
 
   EXPECT_THAT(
-      [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
+      [&]() {
+        IdModel id_model(&fusion, /*validate=*/true, /*build_graphs=*/true);
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("!hasSelfMapping")));
 }
@@ -57,7 +59,11 @@ TEST_F(IdModelTest, PerTensorSelfMapping) {
   TensorView* y1 = transpose(x1, 0, 1);
   fusion.addOutput(y1);
 
-  IdModel id_model(&fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  IdModel id_model(
+      &fusion,
+      /*validate=*/true,
+      /*build_graphs=*/true,
+      /*allow_self_mapping=*/true);
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   EXPECT_TRUE(hasSelfMapping(y0, exact_graph).has_value());
   EXPECT_FALSE(hasSelfMapping(y1, exact_graph).has_value());
@@ -487,7 +493,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // order, but since there's no expr, it just makes sure exprs() and
   // vals() return all the val and expr groups.
   {
-    IdModel id_model(&fusion);
+    IdModel id_model(&fusion, /*validate=*/true);
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
@@ -502,7 +508,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // The exact graph should just map all IDs of the tensors. Ther
   // ordering of the exprs should be the merge and then the split.
   {
-    IdModel id_model(&fusion);
+    IdModel id_model(&fusion, /*validate=*/true);
 
     const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
     ValGraphStmtSort vg_stmt_sort(vg);
@@ -554,7 +560,7 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   // one. Since it should be deterministic, we check if the returned
   // expr vector is indeed ordered that way.
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*validate=*/true);
 
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   ValGraphStmtSort vg_stmt_sort(vg);
@@ -596,7 +602,7 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
   // connected with tv0, tv1 and tv2.
   tv4->merge(0)->split(0, 1);
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*validate=*/true);
   ValGraph vg = id_model.idGraph(IdMappingMode::EXACT);
 
   // Map the split-by-1 input and output
@@ -1876,7 +1882,10 @@ TEST_F(IdModelTest, SomeButNotAllArePermuted) {
   fusion->addOutput(out);
 
   IdModel id_model(
-      fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
+      fusion.get(),
+      /*validate=*/true,
+      /*build_graphs=*/true,
+      /*allow_self_mapping=*/true);
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(0), t0->axis(1)));
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(1), t0->axis(0)));
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s0->axis(2), t0->axis(2)));
@@ -1897,7 +1906,10 @@ TEST_F(IdModelTest, PermutedDifferently) {
   fusion->addOutput(out);
 
   IdModel id_model(
-      fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
+      fusion.get(),
+      /*validate=*/true,
+      /*build_graphs=*/true,
+      /*allow_self_mapping=*/true);
 
   // Due to the `slice`s, `s0` and `s1`'s non-split dimensions (0 and 1) are
   // mapped respectively. The split dimension (2) isn't.
