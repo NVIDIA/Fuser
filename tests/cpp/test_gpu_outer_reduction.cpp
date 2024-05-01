@@ -2239,7 +2239,10 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
   heuristics_params->cross_grid_inner_reduction = true;
   heuristics_params->split_grid_dim_inner_reduction = true;
   heuristics_params->grid_dim_inner_reduction = ParallelType::BIDy;
-  heuristics_params->lparams.bind(2L, ParallelType::BIDy);
+  // If not set, bind BIDy to an arbitrary value
+  if (!heuristics_params->lparams.hasDim(ParallelType::BIDy)) {
+    heuristics_params->lparams.bind(2L, ParallelType::BIDy);
+  }
 
   scheduleReduction(&fusion, *heuristics_params);
 
