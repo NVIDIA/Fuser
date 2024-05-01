@@ -566,7 +566,8 @@ void inferenceAllocationOrder(
 
     TensorView* ref = nullptr;
     // skipping cases where output has iter loop count.
-    size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+    // size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+    size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
       // only consider inputs for propagation when output has dependency on.
       if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark) {
