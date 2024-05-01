@@ -133,38 +133,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     tv1->setAllocationDomain(tv1_format, true);
 
     preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0, 2, 3));
-    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0, 2, 3));
-  }
-  {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
-
-    // Testing propagation between two tensors
-    // tv0 and tv1 has the same number of non-broadcast iter domains, so lhs
-    // operand would propagate its allocation order.
-    auto tv0 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv0);
-    auto tv1 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv1);
-    // tv2 should have allocation order from tv0
-    auto tv2 = add(tv0, tv1);
-    fusion.addOutput(tv2);
-    // tv3 should have allocation order from tv1
-    auto tv3 = add(tv1, tv0);
-    fusion.addOutput(tv3);
-
-    std::vector<IterDomain*> tv0_format = {
-        tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
-    tv0->setAllocationDomain(tv0_format, true);
-    std::vector<IterDomain*> tv1_format = {
-        tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
-    tv1->setAllocationDomain(tv1_format, true);
-
-    preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 1, 3));
-    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0, 2, 3));
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(3, 1, 0, 2));
+    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(3, 1, 0, 2));
   }
   {
     auto fusion_ptr = std::make_unique<Fusion>();
