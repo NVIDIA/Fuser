@@ -520,8 +520,8 @@ void replayAllocationDomain(
       new_alloc_domain[i] = alloc_domain[i];
       continue;
     }
-    if (un_mapped_iter != iter) {
-      new_alloc_domain[i] = *un_mapped_iter++;
+    if (unmapped_iter != iter) {
+      new_alloc_domain[i] = *unmapped_iter++;
     } else {
       new_alloc_domain[i] = *mapped_iter++;
     }
