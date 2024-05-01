@@ -1250,4 +1250,210 @@ TEST_F(Tutorial, BasicTMA) {
   }
 }
 
+TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // Create cache_tvs
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv2b = tv2->cacheBefore();
+
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+
+  auto reference_tv = tv2;
+
+  // Step 1: Create tma domain
+  // Use the root domain as TMA domain
+  //   root domain: [I0, I1]
+
+  constexpr int64_t num_threads = 128;
+  constexpr int64_t vectorization = 2;
+  constexpr int64_t tma_tile = num_threads * vectorization;
+  constexpr int64_t num_stages = 4;
+  constexpr int64_t num_ctas_for_hopper = 132;
+
+  // Step 2: Create Box
+  // After TMA domain creation
+  //         split: [I0, I3, 256]
+  reference_tv->split(-1, tma_tile);
+  //         split: [I2, 4, I3, 256]
+  reference_tv->split(0, num_stages);
+
+  // Step 3: Create Tile
+  // Do nothing here because box == tile
+
+  // Step 4: Schedule Shared Memory Tensor
+  //         split: [I2, 4, I3, 128, 2]
+  reference_tv->split(-1, vectorization);
+  //         split: [I4, 132, 4, I3, 128, 2]
+  reference_tv->split(0, num_ctas_for_hopper);
+  //         reorder: [I4, 132, I3, 4, 128, 2]
+  reference_tv->reorder({{3, 2}, {2, 3}});
+
+  // Transform Operations between cache operations and output reference
+  TransformPropagator propagator(reference_tv);
+  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+
+  // Propagate common parallel dimensions
+  reference_tv->axis(1)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  tv2b->axis(-2)->parallelize(ParallelType::TIDx);
+
+  // Vectorization for writing results to gmem
+  reference_tv->axis(-3)->parallelize(ParallelType::Unroll);
+  reference_tv->axis(-2)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Apply bulk type to TMA tensors
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv0a->axis(-2)->parallelize(ParallelType::Bulk);
+  tv0a->axis(-3)->parallelize(ParallelType::Bulk);
+
+  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-2)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-3)->parallelize(ParallelType::Bulk);
+
+  // ComputeAt
+  inlineMost();
+
+  if (verbose_) {
+    fusion->printMath();
+    fusion->printKernel();
+  }
+
+  constexpr int dim0 = 16384, dim1 = 16384;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = fe.runFusion({at_tv0, at_tv1});
+
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
+TEST_F(Tutorial, PointwiseBroadcastTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+
+  auto tv0 = makeContigTensor(3, aten_to_data_type(dtype));
+  auto tv1 = TensorViewBuilder()
+                 .ndims(4)
+                 .shape({-1, -1, -1, -1})
+                 .contiguity({true, false, true, true})
+                 .dtype(aten_to_data_type(dtype))
+                 .build();
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv0, {true, false, false, false});
+  auto tv3 = add(tv2, tv1);
+  fusion->addOutput(tv3);
+
+  // Create cache_tvs
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv3b = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+  tv3b->setMemoryType(MemoryType::Shared);
+
+  auto reference_tv = tv3;
+
+  // Step 1: Create tma domain
+  //   root domain: [I0, I1, I2, I3]
+  //    TMA domain: [I0, I1, I4]
+  reference_tv->merge(-2, -1);
+
+  // Step 2: Define TMA Box
+  //         split: [I0, I1, I5, 256]
+  reference_tv->split(-1, 256);
+
+  // Step 3: Define Tile
+  // Do nothing here because tile == box.
+
+  // Step 4: Schedule Shared Memory Tensor
+  //         merge: [I10, I5, 256]
+  reference_tv->merge(0, 1);
+  //         split: [I10, I7, 4, 256]
+  reference_tv->split(-2, 4);
+  //         merge: [I11, 4, 256]
+  reference_tv->merge(0, 1);
+
+  // Transform Operations between cache operations and output reference
+  TransformPropagator propagator(reference_tv);
+  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+
+  // Define Parallelization Schema
+  // Intermediate Tensors
+  tv3b->axis(0)->parallelize(ParallelType::BIDx);
+  tv3b->axis(1)->parallelize(ParallelType::Unroll);
+  tv3b->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  // TMA Tensors
+  tv1a->axis(0)->parallelize(ParallelType::BIDx);
+  tv1a->axis(1)->parallelize(ParallelType::TIDx);
+  tv1a->axis(2)->parallelize(ParallelType::Bulk);
+
+  tv0a->axis(0)->parallelize(ParallelType::BIDx);
+  tv0a->axis(1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(2)->parallelize(ParallelType::Bulk);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
+
+  // ComputeAt
+  inlineMost();
+
+  if (verbose_) {
+    fusion->printMath();
+    fusion->printKernel();
+  }
+
+  constexpr int dim0 = 32, dim1 = 2, dim2 = 4, dim3 = 256;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim1, dim2, dim3}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1, dim2, dim3}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = fe.runFusion({at_tv0, at_tv1});
+
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -70,7 +70,8 @@ bool MaxPosCalculator::isAllowedID(
     // BestEffort and MostInlined modes, avoid Unroll as well.
     bool is_vectorize = isParallelTypeVectorize(id->getParallelType()) ||
         id->getParallelType() == ParallelType::Group ||
-        (best_effort && id->getParallelType() == ParallelType::Unroll);
+        (best_effort && id->getParallelType() == ParallelType::Unroll) ||
+        id->getParallelType() == ParallelType::Bulk;
     allowed = allowed && !is_vectorize;
   }
 
