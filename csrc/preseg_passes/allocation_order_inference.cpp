@@ -503,12 +503,34 @@ void replayAllocationDomain(
     }
   }
 
+  // NOTE: preserve reduction iterdomain.
+  // we are not mapping rS{} id in outputs to inputs. This causes the pass to aggressively push for permutation on output. Which should be fine since re-ordering reduced id in allocation domain shouldn't matter. But it's hitting failures.
   std::vector<IterDomain*> target_alloc_domain = target->getMaybeRFactorDomain();
-  auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0;});
-  std::copy(mapped_ids.begin(), mapped_ids.end(), iter);
+  // auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0;});
+  // std::copy(mapped_ids.begin(), mapped_ids.end(), iter);
+
+  auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0 || it->isReduction();});
+
+  auto mapped_iter = mapped_ids.begin();
+  auto unmapped_iter = target_alloc_domain.begin();
+  const std::vector<IterDomain*>& alloc_domain = target->getMaybeRFactorDomain();
+  std::vector<IterDomain*> new_alloc_domain(alloc_domain.size(). nullptr);
+  for (auto i : c10::irange(alloc_domain.size())) {
+    if (alloc_domain[i]->isReduction() && mapped_id.count(alloc_domain[i]) == 0) {
+      new_alloc_domain[i] = alloc_domain[i];
+      continue;
+    }
+    if (un_mapped_iter != iter) {
+      new_alloc_domain[i] = *un_mapped_iter++;
+    } else {
+      new_alloc_domain[i] = *mapped_iter++;
+    }
+  }
+  
+
   // skip when it isn't updating.
-  if (target_alloc_domain != target->getMaybeRFactorDomain()) {
-    target->setAllocationDomain(target_alloc_domain, true);
+  if (new_alloc_domain != target->getMaybeRFactorDomain()) {
+    target->setAllocationDomain(new_alloc_domain, true);
   }
 }
 
