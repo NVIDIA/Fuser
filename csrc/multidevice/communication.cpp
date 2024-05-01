@@ -268,8 +268,12 @@ c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
 
   std::vector<std::vector<at::Tensor>> input_tensors(1);
   // FIXME: use split
-  int64_t team_size = params_.team.size();
-  int64_t scattered_dim_size = input_tensor.size(params_.scattered_axis);
+  NVF_ERROR(
+      params_.scattered_axis >= 0,
+      "scattered_axis is expected to be non-negative: ",
+      params_.scattered_axis)
+  const int64_t scattered_dim_size = input_tensor.size(params_.scattered_axis);
+  const int64_t team_size = params_.team.size();
   NVF_ERROR(
       scattered_dim_size == team_size, scattered_dim_size, " vs ", team_size);
   for (auto i : c10::irange(team_size)) {
