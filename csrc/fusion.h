@@ -512,4 +512,6 @@ class NVF_API Fusion : public IrContainer {
   int64_t expected_dynamic_smem_bytes_ = -1LL;
 };
 
+bool isExpressionEvaluated(Fusion* fusion);
+
 } // namespace nvfuser

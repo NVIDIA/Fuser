@@ -257,12 +257,7 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
-  bool is_expr_eval = std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-
-  if (is_expr_eval) {
+  if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
@@ -2460,11 +2455,7 @@ void FusionExecutor::deserialize(
 
   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
   // skip compilation?
-  bool is_expr_eval = std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-  if (is_expr_eval) {
+  if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
     return;

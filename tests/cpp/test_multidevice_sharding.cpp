@@ -27,9 +27,7 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   std::vector<int64_t> input_size = {2, 3, 2, 4};
   int sharded_output_dim = 3;
   input_size[sharded_dim] = num_devices;
@@ -79,9 +77,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator->size();
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   std::vector<int64_t> unsharded_input_size = {3, 2, 5};
   unsharded_input_size[sharded_dim] = num_devices;
 
