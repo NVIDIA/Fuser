@@ -28,6 +28,7 @@ class CancelSplitCat {
       : fusion_(fusion),
         id_model_(
             fusion,
+            /*validate=*/false,
             /*build_graphs=*/false,
             /*allow_self_mapping=*/true) {
     id_model_.buildExactGraph();
