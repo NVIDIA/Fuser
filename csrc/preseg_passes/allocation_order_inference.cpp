@@ -570,7 +570,8 @@ void inferenceAllocationOrder(
   // return the propagated map
   // return alloc_order_map;
 
-  auto id_model = IdModel(fusion);
+  // allow self mapping to avoid assert
+  auto id_model = IdModel(fusion, true, true);
 
   // picking a candidate for propagation.
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
@@ -587,7 +588,8 @@ void inferenceAllocationOrder(
     }
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
     if (out_tv == nullptr || out_tv->hasAllocation() ||
-        fusion->getOutputAlias(out_val).type != AllocationType::New) {
+        fusion->getOutputAlias(out_val).type != AllocationType::New ||
+        hasSelfMapping(out_tv, id_model.idGraph(IdMappingMode::EXACT)).has_value()) {
       continue;
     }
 
@@ -597,7 +599,8 @@ void inferenceAllocationOrder(
     size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
       // only consider inputs for propagation when output has dependency on.
-      if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark) {
+      if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark &&
+        !hasSelfMapping(iter.first, id_model.idGraph(IdMappingMode::EXACT)).has_value()) {
         // TODO: if loop_iter_count is sorted, we can early return here.
         ref = iter.first;
         non_bc_high_water_mark = iter.second;

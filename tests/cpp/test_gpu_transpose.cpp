@@ -46,11 +46,13 @@ class TransposeTest : public NVFuserTest {
   // For convenience, disable MarkAliasesPreparePass. Many tests in this file
   // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
   // would turn those fusions into a no-op, skipping the transpose scheduler.
-  TransposeTest() : optimization_guard_(false) {}
+  TransposeTest() : optimization_guard_(false), allocation_order_guard(false)_{}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard_;
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      allocation_order_guard_;
 };
 
 // x->sin->transpose->cos->y
