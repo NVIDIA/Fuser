@@ -2705,17 +2705,15 @@ static TensorView* newForMatmul(
   new_domain.reserve(higher_dim_domain.size());
 
   if (ndims_a > 2 || ndims_b > 2) {
-    auto higher_batch_ndims = higher_dim_domain.size() - 2;
-    auto lower_batch_ndims = lower_dim_domain.size() - 2;
+    auto higher_batch_ndims = higher_dim_domain.size();
+    auto lower_batch_ndims = lower_dim_domain.size();
     auto batch_ndims = higher_batch_ndims - 2;
-    auto non_common_batch_ndims = lower_batch_ndims > 0 ? higher_batch_ndims - lower_batch_ndims : higher_batch_ndims;
+    auto non_common_batch_ndims = lower_batch_ndims > 2 ? higher_batch_ndims - lower_batch_ndims : batch_ndims;
 
     for (auto inx: c10::irange(batch_ndims)) {
       if (inx < non_common_batch_ndims) {
         new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
-      }
-      // Check for common extents here
-      if (higher_dim_domain[inx]->extent()->isOneInt()){
+      } else if (higher_dim_domain[inx]->extent()->isOneInt()){
         new_domain.push_back(IterDomainBuilder(lower_dim_domain[inx - non_common_batch_ndims]).resetSchedulingParams().build());
       } else {
         NVF_ERROR(higher_dim_domain[inx]->extent() == lower_dim_domain[inx - non_common_batch_ndims]->extent());

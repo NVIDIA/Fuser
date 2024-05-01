@@ -121,6 +121,34 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto producer_root =
       TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
+
+  // Map MatmulOp extents in reverse
+  if (consumer_tv_->definition()->isA<MatmulOp>()) {
+    int ritc = consumer_root.size() - 1;
+    int ritp = producer_root.size() - 1;
+
+    while (ritc >=0 && ritp >= 0) {
+      IterDomain* producer_id = producer_root.at(ritp);
+      IterDomain* consumer_id = consumer_root.at(ritc);
+      if (!producer_id->extent()->sameAs(consumer_id->extent())){
+        ritp--;
+        ritc--;
+        continue;
+      }
+      IterDomain* map_key_id = producer_id;
+      IterDomain* map_value_id = consumer_id;
+      if (!producer_to_consumer) {
+        std::swap(map_key_id, map_value_id);
+      }
+      if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+        dom_map.insert(std::make_pair(map_key_id, map_value_id));
+      }
+      ritp--;
+      ritc--;
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
     IterDomain* producer_id = producer_root.at(itp);
