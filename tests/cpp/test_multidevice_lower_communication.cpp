@@ -25,7 +25,7 @@ TEST_F(LowerCommunicationTest, AllGather) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
-  DeviceMesh mesh(num_devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   in->setDeviceMesh(mesh);
   out->setDeviceMesh(mesh);
 
