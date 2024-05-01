@@ -544,9 +544,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
 
-  // Try to use 4 * SM blocks to sature the SMs but also won't cause a high
-  // inter-block communication cost.
-  const int64_t n_waves = 4;
+  // Try to use 4 * SM blocks to reduce communication cost. But still
+  // use 8 * SM blocks if the problem size is large, it increased requested
+  // waves, helps hiding memory latency, if still use 4 * SM blocks, about 5%
+  // regression for compute bound kernels. Not much change for memory bound.
+  const int64_t n_waves = n_elems >= (int64_t)64 * 1024 * 1024 ? 8 : 4;
 
   // if data fits in l2 and we need more parallelization in the iter dim,
   // we can use a smaller warp size. While thread local data fits in l1, and
@@ -670,6 +672,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   auto is_block_reduction = false;
   bool prioritize_block_reduction = true;
   if (prioritize_block_reduction) {
+    // block reduction is done with 1 block per sm to ensure it is finished
+    // within 1 wave. The number of threads per block is set to 1024 to achieve
+    // an occupancy of 50% which is important for compute-bound kernels.
+    const int64_t max_threads_per_block = 1024L;
+
     // start from a small bdimx to leave a large bdimy for reduction
     bdimx = 8;
 
@@ -680,8 +687,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
 
+    // set a max bdimx to leave some threads for reduction, allow at least 128
+    // which enable block reduction to handle cases with iteration dim of 128 x
+    // 4 x sm count.
+    int64_t tmp_redu_unroll =
+        scheduler_utils::safeDiv(max_unroll, opt_max_vect);
+    int64_t tmp_bdimy =
+        ceilDiv(total_reduction_numel, tmp_redu_unroll * min_serial_top_unroll);
+    int64_t max_bdimx = std::max(128L, max_threads_per_block / tmp_bdimy);
+
     // move from gidim to vectorization and bdimx to avoid using multiple waves
-    int64_t max_bdimx = 128L;
     while (gidim > device_multiprocessor_count &&
            (bdimx * 2 <= max_bdimx || iter_unroll_factor * 2 <= opt_max_vect)) {
       if (iter_unroll_factor * 2 <= opt_max_vect) {
@@ -695,21 +710,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
 
     // For reduction dim, prioritize unroll, improves perf for cases with small
-    // reduction dim e.g. 16 x 32768
-    int64_t max_threads_per_block = 1024L;
+    // reduction dim e.g. 16 x 32768. If we know the computation cost is low, we
+    // can further increase [min_serial_top_unroll] which may reduce bdimy = 1
+    // to avoid block reduction which requires smem data communication.
     inner_reduction_unroll_factor = std::min(
         rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
     bdimy = std::min(
         scheduler_utils::safeDiv(rDimAvail(), min_serial_top_unroll),
         max_threads_per_block / bdimx);
-
-    // move from vect to bdimx to avoid using a very small block size
-    // may happen for case with small reduction dim but large iteration dim
-    while (bdimx * bdimy * 2 <= max_threads_per_block &&
-           iter_unroll_factor > 1) {
-      iter_unroll_factor /= 2;
-      bdimx *= 2;
-    }
 
     // Block reduction generally requires high SM usage ratio. However, for
     // small input sizes, the requirement is relaxed to n_waves >= 0.5 or 0.7.
@@ -730,9 +738,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         sm_usage_threshold = 0.7f;
       }
     }
-    is_block_reduction = gidim <= device_multiprocessor_count &&
-        gidim >
-            (int64_t)(sm_usage_threshold * (float)device_multiprocessor_count);
+    int64_t required_blocks =
+        (int64_t)(sm_usage_threshold * (float)device_multiprocessor_count);
+
+    // only use block reduction when we need just 1 wave and SM usage is high
+    is_block_reduction =
+        gidim <= device_multiprocessor_count && gidim >= required_blocks;
   }
 
   // grid reduction
@@ -819,6 +830,32 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           ceilDiv(target_blocks, gidim));
     }
 
+    // If there isn't a lot of available parallelism from the iteration
+    // dimension, expand across the reduction dimension. This has to be done
+    // carefully. expand further. This adjust is important for extreme cases on
+    // A100, e.g. 1M x 512 but has mixed effect on H100. Keep it for now.
+    if (rDimAvail() > 16 &&
+        ceilDiv(total_iteration_numel, min_warp_size) <
+            device_multiprocessor_count * 2) {
+      // Find minimum we want to parallelize by, we don't want blocks striding
+      // across too many elements: In the parallel scheme [rBIDy, remainder,
+      // iBIDx, rTIDy, i_unroll, r_unroll] figure out how many bytes iterations
+      // across remainder stride
+      int64_t bytes_stride_remainder = max_input_dtype_size * bdimx * bdimy *
+          iter_unroll_factor * inner_reduction_unroll_factor;
+      // Empiercally found stride shouldn't exceed 256kiB boundaries in a block
+      int64_t kMaxStride = 128l * 1024l;
+
+      int64_t max_remainder_size =
+          scheduler_utils::safeDiv(kMaxStride, bytes_stride_remainder);
+
+      int64_t grdim_for_stride = ceilDiv(
+          total_reduction_numel,
+          max_remainder_size * bdimy * inner_reduction_unroll_factor);
+
+      grdim = grdim_for_stride;
+    }
+
     // Try to do some cleanup of ragged waves on device
     if (
         // If we have less than 8 waves of blocks
@@ -837,17 +874,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
               grdim * gidim % device_multiprocessor_count) {
         grdim = new_grdim;
       }
-    }
-
-    // Try to avoid grid reduction without block reduction by adjusting
-    // block and grid shapes by a factor of grdim.
-    // iteration dim: decrease bdimx, increase gidim
-    // reduction dim: increase bdimy, decrease grdim
-    if (bdimy == 1 && grdim > 1 && bdimx > grdim && bdimx % grdim == 0) {
-      bdimx /= grdim;
-      gidim *= grdim;
-      bdimy = grdim;
-      grdim = 1;
     }
   }
 
