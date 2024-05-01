@@ -2308,9 +2308,6 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                                            // vectorizable unless transposed,
                                            // output fully vectorizable
                  {505, 137, 248, 8, 8, 8}, // none vectorizable
-
-                 // The following cases are failing due to
-                 // https://github.com/NVIDIA/Fuser/issues/2118
                  // Cases with vectorizable strides but misaligned base pointers
                  {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
                  {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
