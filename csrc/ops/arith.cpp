@@ -2699,26 +2699,12 @@ static TensorView* newForMatmul(
   NVF_ERROR(ndims_a>=1 && ndims_b>= 1);
 
   std::vector<IterDomain*> new_domain;
-  auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;
-  auto lower_dim_domain = ndims_a >= ndims_b ? orig_domain_b : orig_domain_a;
-  
+  auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;  
   new_domain.reserve(higher_dim_domain.size());
 
   if (ndims_a > 2 || ndims_b > 2) {
-    auto higher_batch_ndims = higher_dim_domain.size();
-    auto lower_batch_ndims = lower_dim_domain.size();
-    auto batch_ndims = higher_batch_ndims - 2;
-    auto non_common_batch_ndims = lower_batch_ndims > 2 ? higher_batch_ndims - lower_batch_ndims : batch_ndims;
-
-    for (auto inx: c10::irange(batch_ndims)) {
-      if (inx < non_common_batch_ndims) {
-        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
-      } else if (higher_dim_domain[inx]->extent()->isOneInt()){
-        new_domain.push_back(IterDomainBuilder(lower_dim_domain[inx - non_common_batch_ndims]).resetSchedulingParams().build());
-      } else {
-        NVF_ERROR(higher_dim_domain[inx]->extent() == lower_dim_domain[inx - non_common_batch_ndims]->extent());
-        new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
-      }
+    for (auto inx: c10::irange(higher_dim_domain.size() - 2)) {
+      new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
     }
   }
   
@@ -2728,9 +2714,6 @@ static TensorView* newForMatmul(
     new_domain.push_back(IterDomainBuilder(m_id).resetSchedulingParams().build());
   }
 
-  // const IterDomain* k_id = orig_domain_a[ndims_a-1];
-  //   new_domain.push_back(IterDomainBuilder(k_id).resetSchedulingParams().iter_type(IterType::Reduction).build());
-  
   // Add N domain to output domain if present
   if (orig_domain_b.size() > 1) {
     const IterDomain* n_id = orig_domain_b[ndims_b-1];
@@ -2748,10 +2731,8 @@ static TensorView* newForMatmul(
 TensorView* eagerMatmul(
     TensorView* tv_a,
     TensorView* tv_b) {
-
   NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
   TensorView* out = newForMatmul(tv_a, tv_b);
-  // TensorView* out = newForMma(tv_a, tv_b, {1});
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
 }
