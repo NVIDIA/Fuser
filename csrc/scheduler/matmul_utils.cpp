@@ -329,7 +329,7 @@ int64_t maxRowVectorization(const at::Tensor& tens) {
   const int64_t data_ptr_int =
       static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-  vec_size = std::min(vec_size, (int64_t)(16l));
+  vec_size = std::min(vec_size, 16LL);
   vec_size /= (int64_t)tens.element_size();
   vec_size = std::max(vec_size, 1l);
   if (vec_size == 1l) {
