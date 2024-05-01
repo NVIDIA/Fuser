@@ -23,7 +23,7 @@ struct CommParams {
   Team team; // should not have duplicates and should contain both the root and
              // the mesh
   c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
-  int scattered_axis = -1;
+  int64_t scattered_axis = -1;
 };
 
 // The class "Communication" represents a MPI-style communication
