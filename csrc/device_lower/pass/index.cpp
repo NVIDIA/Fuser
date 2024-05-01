@@ -1585,7 +1585,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
     int64_t leading_bytes = getBytesFromSwizzle(swizzle) * getK(mma->macro());
-    int64_t stride_bytes = getBytesFromSwizzle(swizzle) * core_matrix_outer_size;
+    int64_t stride_bytes =
+        getBytesFromSwizzle(swizzle) * core_matrix_outer_size;
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
@@ -1606,8 +1607,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int64_t leading_bytes = getBytesFromSwizzle(swizzle) * getK(mma->macro());
-    int64_t stride_bytes = getBytesFromSwizzle(swizzle) * core_matrix_outer_size;
+    auto layout = *mma->layout();
+    bool transpose = (layout == MmaLayout::TN || layout == MmaLayout::NN);
+    int64_t leading_bytes = getBytesFromSwizzle(swizzle) *
+        (transpose ? getK(mma->macro()) : getN(mma->macro()));
+    int64_t stride_bytes =
+        getBytesFromSwizzle(swizzle) * core_matrix_outer_size;
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
