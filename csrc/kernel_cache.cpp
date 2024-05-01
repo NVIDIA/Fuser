@@ -779,6 +779,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // that whenever we encounter a new set of input shapes we segment and compile
   // a new FusionKernelRuntime.
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    // This value is filled when looking at the first FusionKernelRuntime when
+    // defining reuse_it below. Using the concretized complete fusion from that
+    // runtime, we check whether we can schedule the unsegmented Fusion. If so,
+    // then we filter out any segmented kernels since we would prefer not to
+    // use a segmented kernel unless we have to.
     std::optional<bool> should_not_be_segmented = std::nullopt;
     auto reuse_it = std::find_if(
         kernel_runtimes.begin(),
@@ -788,6 +793,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           if (!should_not_be_segmented.has_value()) {
             // Use the concretized complete fusion from this runtime to check
             // whether we can schedule the complete fusion without segmenting.
+            // Reusing this concretized fusion lets us avoid doing a separate
+            // concretization before entering this function.
             std::unique_ptr<Fusion> conc_fusion = std::make_unique<Fusion>(
                 *(kernel_runtime->fusionSegments()->completeFusion()));
             SchedulerRuntimeInfo runtime_info(
