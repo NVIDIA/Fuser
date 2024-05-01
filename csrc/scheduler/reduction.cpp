@@ -657,6 +657,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // grouped reduction needs 2 iterations to load 8 x fp32 data from register to
   // shared memory.
   const int64_t empirical_max_vect = 4L;
+  const int64_t opt_max_vect =
+      std::min(empirical_max_vect, (int64_t)vectorize_factor);
 
   // Leave some serial work on top of unroll to avoid using large unroll for
   // small reductions
@@ -673,7 +675,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
     // start from a small vectorization factor to leave more for reduction
     // unroll
-    iter_unroll_factor = 2;
+    iter_unroll_factor = std::min(2L, opt_max_vect);
 
     // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
@@ -681,9 +683,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // move from gidim to vectorization and bdimx to avoid using multiple waves
     int64_t max_bdimx = 128L;
     while (gidim > device_multiprocessor_count &&
-           (bdimx * 2 <= max_bdimx ||
-            iter_unroll_factor * 2 <= empirical_max_vect)) {
-      if (iter_unroll_factor * 2 <= empirical_max_vect) {
+           (bdimx * 2 <= max_bdimx || iter_unroll_factor * 2 <= opt_max_vect)) {
+      if (iter_unroll_factor * 2 <= opt_max_vect) {
         iter_unroll_factor *= 2;
       } else if (bdimx * 2 <= max_bdimx) {
         bdimx *= 2;
@@ -773,7 +774,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // increased reductions each x-dim threads processes. want to start with a
     // small value and incrase when bdimx is larger than 64.
     const int64_t max_vectorize_factor = std::min(
-        empirical_max_vect,
+        opt_max_vect,
         std::min(
             (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
     if (total_iteration_numel > 3072) {
@@ -799,8 +800,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
       inner_reduction_unroll_factor =
           scheduler_utils::lastPow2(inner_reduction_unroll_factor);
-      // inner_reduction_unroll_factor = std::min(inner_reduction_unroll_factor,
-      // 8);
     }
 
     gidim = iDimAvail();
@@ -838,6 +837,17 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
               grdim * gidim % device_multiprocessor_count) {
         grdim = new_grdim;
       }
+    }
+
+    // Try to avoid grid reduction without block reduction by adjusting
+    // block and grid shapes by a factor of grdim.
+    // iteration dim: decrease bdimx, increase gidim
+    // reduction dim: increase bdimy, decrease grdim
+    if (bdimy == 1 && grdim > 1 && bdimx > grdim && bdimx % grdim == 0) {
+      bdimx /= grdim;
+      gidim *= grdim;
+      bdimy = grdim;
+      grdim = 1;
     }
   }
 
@@ -1299,7 +1309,6 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       (has_welford
            ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
            : rparams.cross_block_inner_reduction);
-
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tv,
