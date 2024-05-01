@@ -1584,11 +1584,14 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
+    int64_t inner_size = (layout == MmaLayout::TT || layout == MmaLayout::TN)
+        ? getK(mma->macro())
+        : getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getM(mma->macro()) * /*bytes per item*/ 2L,
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
     if (swizzle != MmaInputSmemSwizzle::None) {
       // TODO: why???!!!
@@ -1614,11 +1617,14 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
+    int64_t inner_size = (layout == MmaLayout::TN || layout == MmaLayout::NN)
+        ? getK(mma->macro())
+        : getN(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
     if (swizzle != MmaInputSmemSwizzle::None &&
         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {

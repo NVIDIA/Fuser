@@ -859,9 +859,6 @@ void WarpMmaSwizzler::scheduleOperandRead(
     MmaInputSmemSwizzle swizzle,
     bool transpose,
     bool transpose2) {
-  if (transpose) {
-    tv->reorder({{-2, -1}});
-  }
   if (swizzle == MmaInputSmemSwizzle::None) {
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
     // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
@@ -871,16 +868,9 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    if (transpose2) {
-      tv->reorder({{-2, -1}});
-    }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
     // For example, [K, M]
-    if (transpose2) {
-      tv->reorder({{-2, -1}});
-      // [M, K]
-    }
     tv->split(-2, 8);
     tv->split(-1, 8);
     // For example transpose2 == false
@@ -894,10 +884,6 @@ void WarpMmaSwizzler::scheduleOperandRead(
     tv->split(-4, 8 / swizzle_size);
     // [Ko, K2, K4, Moo, Mo2, M8]
     tv->swizzle(SwizzleType::XOR, -5, -2);
-    if (!transpose2) {
-      tv->reorder({{-3, -5}});
-      // [Ko, Moo, K2, K4, Mo2, M8]
-    }
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
