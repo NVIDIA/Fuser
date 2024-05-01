@@ -315,10 +315,6 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
 
-void OptOutConstDispatch::handle(const MatmulOp* stmt) {
-  unhandled(stmt);
-}
-
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
@@ -338,8 +334,4 @@ M(assoc_comm::FlattenedAssocCommOp)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
-
-void OptOutDispatch::handle(MatmulOp* stmt) {
-  unhandled(stmt);
-}
 } // namespace nvfuser
