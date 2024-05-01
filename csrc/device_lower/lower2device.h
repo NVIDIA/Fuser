@@ -24,6 +24,7 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -110,9 +111,7 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
-  const IdModel& idModel() const {
-    return *id_model_
-  }
+  const IdModel& idModel() const {return *id_model_}
 
   std::shared_ptr<const HaloInfo> haloInfo() const {
     return std::const_pointer_cast<const HaloInfo>(halo_info_);
