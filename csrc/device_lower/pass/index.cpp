@@ -1585,10 +1585,10 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
-    // int64_t inner_size = (layout == MmaLayout::TT || layout == MmaLayout::TN)
-    //     ? getK(mma->macro())
-    //     : getM(mma->macro());
-    int64_t inner_size = getM(mma->macro());
+    int64_t inner_size = (layout == MmaLayout::TT || layout == MmaLayout::TN)
+        ? getK(mma->macro())
+        : getM(mma->macro());
+    // int64_t inner_size = getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = core_matrix_outer_size *
