@@ -394,16 +394,41 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-// fd.ops.matmul (a, b) where a = [M,K], b = [K,N]
-TEST_F(MatmulATenEvaluationTest, MatmulNode) {
+TEST_F(MatmulATenEvaluationTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-
-  int64_t m = 32, n = 64, k = 128;
-  std::vector<int64_t> a_shape{512, m, k}, b_shape{32, 1, k, n};
+  std::vector<int64_t> a_shape{512, 32, 64}, b_shape{32, 1, 64, 128};
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  auto tv2 = eagerMatmul(tv0, tv1);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({t0, t1});
+
+  const std::vector<FusionExecutor>& executors = fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
+  // Verify that fusion compilation was skipped.
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
+
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
+TEST_F(MatmulATenEvaluationTest, MatmulNodeSymbolic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> a_shape{512, 32, 64}, b_shape{32, 1, 64, 128};;
+
+  auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
+  auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);
   auto tv2 = eagerMatmul(tv0, tv1);
 
   fusion->addInput(tv0);
