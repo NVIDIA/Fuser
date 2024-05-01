@@ -484,6 +484,11 @@ void replayAllocationDomain(
   std::vector<IterDomain*> mapped_ids;
   std::unordered_set<IterDomain*> mapped_id;
   for (auto* ref_id : ref_alloc_domain) {
+    // skipping broadcast/reduction domains
+    if (ref_id->isBroadcast() || ref_id->isReduction()) {
+      continue;
+    }
+
     for (auto* id : target->getMaybeRFactorDomain()) {
       // skip already map id
       if (mapped_id.count(id) != 0) {
@@ -543,7 +548,7 @@ void inferenceAllocationOrder(
   // picking a candidate for propagation.
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
   for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    loop_iter_count.emplace_back(tv, countLoopIterDomains(tv);
+    loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
   }
 
   // propagating the allocation order through graph
@@ -561,7 +566,8 @@ void inferenceAllocationOrder(
 
     TensorView* ref = nullptr;
     // skipping cases where output has iter loop count.
-    size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+    // size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+    size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
       // only consider inputs for propagation when output has dependency on.
       if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark) {
