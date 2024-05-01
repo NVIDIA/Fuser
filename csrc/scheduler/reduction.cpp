@@ -1084,9 +1084,9 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
         scheduler_debug_utils::canScheduleRejectReason(
             heuristicType(),
             "Un-mapped multi-reduction: ",
-            reduction_tvs[it - 1],
+            reduction_tvs[it - 1]->toString(),
             " ",
-            reduction_tvs[it]);
+            reduction_tvs[it]->toString());
         return false;
       }
     }

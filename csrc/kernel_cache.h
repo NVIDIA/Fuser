@@ -119,7 +119,7 @@ class FusionKernelRuntime {
     }
   }
 
-  //! query if we already have a compiled kernel for execution
+  //! query if we have already attempted compilation
   bool isCompiled() {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
