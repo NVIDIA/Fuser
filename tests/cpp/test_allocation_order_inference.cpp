@@ -277,6 +277,7 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
   auto tv2 = makeSymbolicTensor({-1, -1, -1, -1});
   fusion.addInput(tv2);
   auto tv3 = gt(tv0, IrBuilder::create<Val>(0.0));
+  fusion.addOutput(tv3);
   auto tv4 = where(tv3, tv1, tv2);
   fusion.addOutput(tv4);
 
@@ -308,6 +309,7 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   auto tv1 = makeSymbolicTensor({-1, 1}); // stride order: {0, 1}
   fusion.addInput(tv1);
   auto tv2 = sum(tv0, {1}); // stride order: {1, 2, 3, 0}
+  fusion.addOutput(tv2);
   auto tv3 = sum(tv2, {1}); // stride order: {1, 2, 0}
   fusion.addOutput(tv3);
   // tv3 dominates the propagation since it has more non-broadcast dimension
