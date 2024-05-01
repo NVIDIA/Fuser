@@ -111,7 +111,9 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
-  const IdModel& idModel() const {return *id_model_}
+  const IdModel& idModel() const {
+    return *id_model_;
+  }
 
   std::shared_ptr<const HaloInfo> haloInfo() const {
     return std::const_pointer_cast<const HaloInfo>(halo_info_);
