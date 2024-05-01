@@ -335,11 +335,16 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
+  setAsIdentity(inputs.first);
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+
+  std::cout << "CG output:\n" << cg_outputs[0] << std::endl;
+
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
