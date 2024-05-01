@@ -99,9 +99,9 @@ IdModel::IdModel(
 
 IdModel::IdModel(
     Fusion* fusion,
+    bool validate,
     bool build_graphs,
-    bool allow_self_mapping,
-    bool validate)
+    bool allow_self_mapping)
     : allow_self_mapping_(allow_self_mapping), validate_(validate) {
   auto all_exprs = fusion->exprs();
   std::copy_if(

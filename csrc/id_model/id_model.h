@@ -104,9 +104,9 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
+      bool validate = false,
       bool build_graphs = true,
-      bool allow_self_mapping = false,
-      bool validate = true);
+      bool allow_self_mapping = false);
 
   // Returns iter domain graph of provided mode. The graph must have
   // been already built.
