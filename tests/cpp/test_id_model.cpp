@@ -121,7 +121,8 @@ IterDomain* getChildIdByName(IterDomain* id, StmtNameType name) {
 class IdModelTester : public IdModel {
  public:
   // Do not automatically build the graphs
-  IdModelTester(Fusion* fusion) : IdModel(fusion, /*build_graphs=*/false) {
+  IdModelTester(Fusion* fusion)
+      : IdModel(fusion, /*validation=*/true, /*build_graphs=*/false) {
     // Make sure the depedent graphs are already built
     maybeBuildGraph(IdMappingMode::EXACT);
     maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -213,8 +214,7 @@ void validateIELResolution(
     auto promotion_id = iel_promotion_map_it->second;
     ASSERT_TRUE(
         exact_graph.disjointValSets().strictAreMapped(promotion_id, ref_id))
-        << "Unexpected promotion. "
-        << "Expected: " << ref_id->toString()
+        << "Unexpected promotion. " << "Expected: " << ref_id->toString()
         << ". Actual: " << promotion_id->toString();
     ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
         << "Promotion of " << id->toString()
@@ -352,9 +352,9 @@ void checkStep4Results(
   const auto& iel_promotion_map = tester.s4_iel_promotion_map;
 
   EXPECT_EQ(iel_promotion_map.size(), ref_promotion_map.size())
-      << "Mismatched Step-4 result map. "
-      << "Expected to have " << ref_promotion_map.size()
-      << " mappings but found " << iel_promotion_map.size();
+      << "Mismatched Step-4 result map. " << "Expected to have "
+      << ref_promotion_map.size() << " mappings but found "
+      << iel_promotion_map.size();
 
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
