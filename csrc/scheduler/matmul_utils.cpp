@@ -329,7 +329,7 @@ int64_t maxRowVectorization(const at::Tensor& tens) {
   const int64_t data_ptr_int =
       static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-  vec_size = std::min(vec_size, 16LL);
+  vec_size = std::min(vec_size, 16l);
   vec_size /= (int64_t)tens.element_size();
   vec_size = std::max(vec_size, 1l);
   if (vec_size == 1l) {
@@ -381,28 +381,14 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   MatmulParams::SupportedVectorization supported_vec_size;
   supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
   supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_B);
-  // If there is no C tensor, then we will use full vectorization of the
-  // outputs. So find the max vectorization of the output tensors, then
-  // possibly reduce it if it is not supported by a input C tensor.
-  supported_vec_size.epilogue = getMinVectorization(MatmulRole::INPUT_C);
-  auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
-  // TODO: do we also need to look at OUTPUT_AUX?
-  for (TensorView* d : d_it->second) {
-    // Get inner dim of this output (the N dimension of the matmul problem). The
-    // output will be contiguous, so we will set the max vectorization that
-    // divides evenly into N, unless already set to something lower due to
-    // INPUT_C.
-    const int64_t N =
-        runtime_info.expressionEvaluator()
-            .evaluate(TensorDomain::noReductions(d->getMaybeRFactorDomain())
-                          .back()
-                          ->extent())
-            .as<int64_t>();
-    const int64_t d_max_vec = std::min(
-        (int64_t)16LL / dataTypeSize(d->dtype()),
-        scheduler_utils::maxVectorizationWidth(N));
-    supported_vec_size.epilogue =
-        std::min(supported_vec_size.epilogue, d_max_vec);
+  //
+  supported_vec_size.epilogue = 16LL;
+  const auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
+  if (it != roles_map.end()) {
+    for (TensorView* tv : it->second) {
+      supported_vec_size.epilogue = std::min(
+          supported_vec_size.epilogue, 16LL / dataTypeSize(tv->dtype()));
+    }
   }
   return supported_vec_size;
 }
