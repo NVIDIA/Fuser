@@ -1608,11 +1608,6 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     int64_t leading_bytes = getBytesFromSwizzle(swizzle) * getK(mma->macro());
     int64_t stride_bytes = getBytesFromSwizzle(swizzle) * core_matrix_outer_size;
-    if (swizzle != MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
-      // TODO: why???!!!
-      std::swap(leading_bytes, stride_bytes);
-    }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
