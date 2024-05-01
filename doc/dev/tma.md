@@ -439,7 +439,31 @@ Please go to [test_tutorial.cpp](../../tests/cpp/test_tutorial.cpp) and search `
 
 ### Examples
 
+#### Example 1: tma-load inputs and vectorize-store output pointwise kernel
+
+Please go to [test_tutorial.cpp](../../tests/cpp/test_tutorial.cpp) and search `TEST_F(Tutorial, VectorizeStorePointwiseTMA)`.
+
+Fusion:
+
+```
+inputs:
+T0[I0, I1] contiguity: T, T
+T1[I0, I1] contiguity: T, T
+
+math:
+T2[I0, I1] = T0[I0, I1] + T1[I0, I1];
+
+outputs:
+T2[I0, I1] contiguity: T, T
+```
+
+Schedule:
+
+![Example 1: tma-load-inputs, vectorize-store-output pointwise](tma/example1.svg)
+
 #### Example 2: broadcast kernel with discontiguous input
+
+Please go to [test_tutorial.cpp](../../tests/cpp/test_tutorial.cpp) and search `TEST_F(Tutorial, PointwiseBroadcastTMA)`.
 
 Fusion:
 
