@@ -1575,6 +1575,7 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
+  constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
@@ -1583,11 +1584,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
-    int64_t stride_bytes =
-        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
-        /*number of core matrices*/ (getM(mma->macro()) / 8L) *
-        /*bytes per item*/ 2L;
+    int64_t stride_bytes = core_matrix_outer_size *
+        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t leading_bytes = core_matrix_outer_size *
+        /*number of core matrices, rounded up to handle padding */
+        roundUpToMultiple(getM(mma->macro()) * /*bytes per item*/ 2L,
+                          getBytesFromSwizzle(swizzle));
     if (swizzle != MmaInputSmemSwizzle::None) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
@@ -1612,13 +1614,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int64_t stride_bytes =
-        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+    int64_t stride_bytes = core_matrix_outer_size *
+        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t leading_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getN(mma->macro()) / 8L,
-                          getBytesFromSwizzle(swizzle) / 16L) *
-        /*bytes per item*/ 2L;
+        roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
+                          getBytesFromSwizzle(swizzle));
     if (swizzle != MmaInputSmemSwizzle::None &&
         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
       // TODO: why???!!!
