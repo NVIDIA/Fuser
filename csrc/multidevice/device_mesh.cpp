@@ -10,6 +10,13 @@
 
 namespace nvfuser {
 
+/*static*/ DeviceMesh DeviceMesh::createForNumDevices(
+    const int64_t num_devices) {
+  std::vector<DeviceIdxType> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  return DeviceMesh(devices);
+}
+
 std::string DeviceMesh::toString() const {
   std::stringstream ss;
   ss << "DeviceMesh{";
