@@ -335,7 +335,7 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  setAsIdentity(inputs.first);
+  debugging::setAsIdentity(inputs.first);
 
   FusionExecutor fe;
   fe.compileFusion(
