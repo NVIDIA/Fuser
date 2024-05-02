@@ -268,8 +268,9 @@ TEST_P(CommunicationTest, ReduceScatter) {
   const int device_id = communicator->deviceId();
   for (auto j : c10::irange(number_of_repetitions)) {
     std::ignore = j;
+    // Use int to avoid rounding error.
     at::Tensor unsharded_input_tensor =
-        at::randn({num_devices, num_devices, tensor_size}, tensor_options);
+        at::randint(2, {num_devices, num_devices, tensor_size}, tensor_options);
     at::Tensor input_tensor =
         unsharded_input_tensor.slice(0, device_id, device_id + 1);
     at::Tensor output_tensor = at::empty({1, tensor_size}, tensor_options);
