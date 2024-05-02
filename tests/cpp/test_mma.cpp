@@ -428,6 +428,7 @@ TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
   auto shapes = matmulAtInputShape3DHopperSS(
@@ -503,7 +504,7 @@ TEST_P(HopperSS, SingleTile) {
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0->applyMmaSwizzle(swizzle_a, false);
   tv1->setMemoryType(MemoryType::Shared);
-  tv1->applyMmaSwizzle(swizzle_b, transpose_b);
+  tv1->applyMmaSwizzle(swizzle_b, transpose_b ^ transpose_a);
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
