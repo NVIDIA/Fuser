@@ -101,7 +101,6 @@ void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
 
   // host_fusion body
   indent_size++;
-  // for (auto expr : host_fusion->unordered_exprs()) {
   for (auto expr : host_fusion->topLevelExprs()) {
     os() << expr->toString(indent_size);
   }

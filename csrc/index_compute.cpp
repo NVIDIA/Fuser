@@ -1815,7 +1815,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   for (auto alloc_id : alloc_dom) {
     // Already taken care of because we can detect no indexing required
     if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride() || alloc_id->isDeviceDim() || // ?
+        alloc_id->isStride() || alloc_id->isDeviceDim() ||
         (alloc_id->isThread() &&
          producer_tv->getMemoryType() == MemoryType::Local)) {
       skip_indexing.insert(alloc_id);
@@ -2274,7 +2274,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim() || // ?
+        alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim() ||
         (alloc_dom[i]->isThread() &&
          consumer_tv->getMemoryType() == MemoryType::Local)) {
       continue;
@@ -2307,7 +2307,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     Val* stride = nullptr;
     for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
-          alloc_dom[j]->isDeviceDim() || alloc_dom[j]->isStride()) { // ?
+          alloc_dom[j]->isDeviceDim() || alloc_dom[j]->isStride()) {
         continue;
       }
 

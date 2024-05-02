@@ -25,7 +25,6 @@
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
-#include <host_ir_container.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -273,7 +272,7 @@ void FusionExecutor::compileFusion(
     std::vector<Val*> output_extents;
     for (const auto id : maybe_rfactor_domain) {
       Val* extent = nullptr;
-      if (id->isReduction() || id->isStride() || id->isDeviceDim() || (id->isHostDim() && !fusion->isA<hir::HostIrContainer>())) {
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast() && id->hasExpandedExtent()) {
         extent = id->expandedExtent();
@@ -927,7 +926,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
-    } else if (id->isDeviceDim() || (id->isHostDim() && !id->fusion()->isA<hir::HostIrContainer>())) {
+    } else if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());

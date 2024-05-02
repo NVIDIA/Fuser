@@ -23,12 +23,8 @@ std::ostream& HostIrContainer::print(std::ostream& os, bool include_tensor_trans
   os << "\n%HostIrContainer {\n";
   IrMathPrinter op_exprs(os, indent_size);
   op_exprs.handle(this);
-  NVF_ERROR(!include_tensor_transforms, "not implemented for now");
-//   if (include_tensor_transforms) {
-//     os << "\nTransformPrinter : \n";
-//     IrTransformPrinter t_exprs(os, indent_size);
-//     t_exprs.handle(this);
-//   }
+  // TODO implement the case include_tensor_transforms=true
+  NVF_ERROR(!include_tensor_transforms, "the case include_tensor_transforms=true is not implemented for now");
   os << "}\n";
 
   return os;

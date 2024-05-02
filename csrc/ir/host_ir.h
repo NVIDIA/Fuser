@@ -43,21 +43,6 @@ class NVF_API HostUnit : public Expr {
   std::unique_ptr<Fusion> fusion_;
 };
 
-class NVF_API StreamIr : public Val {
- public:
-  StreamIr(IrBuilderPasskey passkey);
-  StreamIr(const StreamIr* src, IrCloner* ir_cloner);
-  bool sameAs(const Statement* other) const override;
-
-  NVFUSER_DECLARE_CLONE
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
- private:
-  const int idx_;
-  static int running_counter_;
-};
-
 class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
@@ -85,30 +70,6 @@ class NVF_API PostOnStream : public Expr {
     return attributes_.at(0)->as<HostUnit>();
   }
 };
-
-// class NVF_API ExecuteComm : public Expr {
-//  public:
-//   using Expr::Expr;
-//   ExecuteComm(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion, std::vector<Val*> inputs, std::vector<Val*> outputs);
-
-//   ExecuteComm(const ExecuteComm& other) = delete;
-//   ExecuteComm& operator=(const ExecuteComm& other) = delete;
-//   ExecuteComm(ExecuteComm&& other) = delete;
-//   ExecuteComm& operator=(ExecuteComm&& other) = delete;
-
-//   NVFUSER_DECLARE_CLONE_AND_CREATE
-
-//   std::string toString(int indent_size = 0) const override;
-//   std::string toInlineString(int indent_size = 0) const override;
-//   virtual const char* getOpString() const override {
-//     return "ExecuteComm";
-//   }
-
-//   bool sameAs(const Statement* other) const override;
-
-//  private:
-//   std::unique_ptr<Fusion> fusion_;
-// };
 
 } // namespace hir
 

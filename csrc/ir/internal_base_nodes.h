@@ -242,10 +242,6 @@ class NVF_API IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
-  bool isHostDim() const {
-    return getParallelType() == ParallelType::Host;
-  }
-
   void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {

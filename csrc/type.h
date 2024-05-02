@@ -36,7 +36,6 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
-  StreamIr,
   Others
 };
 
@@ -680,8 +679,7 @@ enum class ParallelType {
   Mma,
   Group,
   Bulk,
-  Serial,
-  Host
+  Serial
 };
 
 std::unordered_set<ParallelType> allParallelTypesExcept(

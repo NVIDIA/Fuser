@@ -10,7 +10,6 @@
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <host_ir_container.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -161,12 +160,6 @@ void ExpressionEvaluator::bind_(
             rfactor_domain[i]->extent(),
             (int)tv->getDeviceMesh().vector().size(),
             evaluate_validate);
-      } else if (rfactor_domain[i]->isHostDim() && !rfactor_domain[i]->fusion()->isA<hir::HostIrContainer>()) {
-        // Device dimensions extents will always be 1.
-        // Ignore concrete extents because they hold the unsharded extents.
-        NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
-        bind_(rfactor_domain[i]->extent(), 1, evaluate_validate);
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }

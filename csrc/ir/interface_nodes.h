@@ -558,20 +558,12 @@ class NVF_API TensorView : public Val {
 
   void clearComputeWith();
 
-  void gpuAt(unsigned int pos) {
-    gpu_at_pos_ = pos;
-    for (unsigned int i = 0; i < pos && i < domain()->leaf().size(); i++) {
-      domain()->leaf().at(i)->parallelize(ParallelType::Host);
-    }
-  }
-
  private:
   TensorDomain* domain_ = nullptr;
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   bool is_double_buffered_ = false;
-  unsigned int gpu_at_pos_ = 0;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;
