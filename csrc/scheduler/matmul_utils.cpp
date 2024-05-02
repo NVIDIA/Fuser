@@ -59,7 +59,6 @@ inline std::optional<MmaMacro> getMmaOp(
     case 80:
     case 86:
     case 89:
-    case 90: // NOTE: temp use ampere MMA op for hopper
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:
