@@ -1618,7 +1618,6 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    // bool transpose = ;
     bool inner_size = (layout == MmaLayout::TN || layout == MmaLayout::NN)
         ? getK(mma->macro())
         : getN(mma->macro());
