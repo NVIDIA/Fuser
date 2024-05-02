@@ -1623,10 +1623,10 @@ void IndexLowering::handle(const MmaOp* mma) {
     bool inner_size = transpose ? getK(mma->macro()) : getN(mma->macro());
     int64_t leading_bytes = // core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t stride_bytes = core_matrix_outer_size *
+    int64_t stride_bytes = core_matrix_outer_size * getBytesFromSwizzle(swizzle);
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
-                          getBytesFromSwizzle(swizzle));
+        // roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
+        //                   getBytesFromSwizzle(swizzle));
     // if (transpose) {
     //   std::swap(leading_bytes, stride_bytes);
     // }
