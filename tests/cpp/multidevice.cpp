@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -25,12 +28,46 @@ MultiDeviceTest::MultiDeviceTest() {
       (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
        communicator->is_available());
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+
+  // Currently, we attempt to wait for debugger before every test, which is
+  // fine because we usually debug one test at a time using --gtest_filter. As
+  // a potential improvement, call it at the test program level:
+  // https://github.com/google/googletest/blob/main/docs/advanced.md#global-set-up-and-tear-down
+  waitForDebugger();
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
   if (do_barrier_at_test && communicator->is_available()) {
     communicator->barrier();
   }
+}
+
+void MultiDeviceTest::waitForDebugger() {
+  char* rank_to_debug_str = getNvFuserEnv("MPI_DEBUG_RANK");
+  if (rank_to_debug_str == nullptr) {
+    return;
+  }
+  const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+  NVF_CHECK(
+      rank_to_debug >= 0 && rank_to_debug < communicator->size(),
+      "rank_to_debug=",
+      rank_to_debug,
+      " must be in the range of [0,",
+      communicator->size(),
+      ").");
+
+  if (communicator->deviceId() == rank_to_debug) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+  }
+  communicator->barrier();
 }
 
 void MultiDeviceTest::SetUp() {

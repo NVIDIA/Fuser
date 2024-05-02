@@ -44,6 +44,11 @@ class MultiDeviceTest : public NVFuserTest {
   // and timeout later.
   bool do_barrier_at_test;
   bool disable_skip;
+
+ private:
+  // If NVFUSER_MPI_DEBUG_RANK is set, that rank will attempt to wait for the
+  // debugger.
+  void waitForDebugger();
 };
 
 class PipelineTest : public MultiDeviceTest {
