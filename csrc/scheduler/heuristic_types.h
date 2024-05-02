@@ -55,7 +55,7 @@ enum class ScheduleHeuristic {
   InnerPersistent,
   InnerOuterPersistent,
   OuterPersistent,
-  Transpose,
+  Transpose
 };
 
 //! Define a schedule table to loop over all the heuristics in priority order.
