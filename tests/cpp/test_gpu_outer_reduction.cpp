@@ -2169,8 +2169,20 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
   NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
 
-  // only do block reduction, enforce vectorization so we can group them
+  // Input is small, getReductionHeuristics may generate a heuristics without
+  // block reduction. In this test, enforce block reduction and disable grid
+  // reduction so we only test iter grouped block reduction.
   const int vect_factor = 8;
+  heuristics_params->multiple_reds_per_blk = true;
+  heuristics_params->cross_block_inner_reduction = true;
+  heuristics_params->block_dim_iter_dom = ParallelType::TIDx;
+  heuristics_params->block_dim_inner_reduction = ParallelType::TIDy;
+  if (!heuristics_params->lparams.hasDim(ParallelType::TIDx)) {
+    heuristics_params->lparams.bind(2L, ParallelType::TIDx);
+  }
+  if (!heuristics_params->lparams.hasDim(ParallelType::TIDy)) {
+    heuristics_params->lparams.bind(2L, ParallelType::TIDy);
+  }
   heuristics_params->cross_grid_inner_reduction = false;
   heuristics_params->split_grid_dim_inner_reduction = false;
   heuristics_params->vectorize_iter_dom = true;
