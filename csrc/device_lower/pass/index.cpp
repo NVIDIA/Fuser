@@ -1619,14 +1619,14 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    // bool transpose = (layout == MmaLayout::TN || layout == MmaLayout::NN);
-    // bool inner_size = transpose ? getK(mma->macro()) : getN(mma->macro());
-    int64_t leading_bytes = // core_matrix_outer_size *
+    bool transpose = (layout == MmaLayout::TN || layout == MmaLayout::NN);
+    bool inner_size = transpose ? getK(mma->macro()) : getN(mma->macro());
+    int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t stride_bytes = core_matrix_outer_size * getBytesFromSwizzle(swizzle);
+    int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        // roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
-        //                   getBytesFromSwizzle(swizzle));
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
+                          getBytesFromSwizzle(swizzle));
     // if (transpose) {
     //   std::swap(leading_bytes, stride_bytes);
     // }
