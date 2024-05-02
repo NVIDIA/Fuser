@@ -1620,9 +1620,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle != MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
-      // TODO: why???!!!
+    if (swizzle != MmaInputSmemSwizzle::None) {
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
