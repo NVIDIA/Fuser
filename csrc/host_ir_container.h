@@ -29,7 +29,6 @@ class HostIrContainer final : public Fusion {
     return top_level_exprs;
   }
 
-  Fusion* symbolic_fusion;
   std::vector<Expr*> top_level_exprs;
 };
 

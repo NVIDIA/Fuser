@@ -16,7 +16,7 @@ namespace hir {
 HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     HostIrExecutorParams params)
-    : container_(std::move(container)), params_(std::move(params)){};
+    : container_(std::move(container)), params_(params){};
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {

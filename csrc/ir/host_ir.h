@@ -29,7 +29,7 @@ class NVF_API HostUnit : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "hir::HostUnit";
   }
 
@@ -61,7 +61,7 @@ class NVF_API PostOnStream : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "hir::PostOnStream";
   }
 
