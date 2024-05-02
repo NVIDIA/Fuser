@@ -336,6 +336,7 @@ TEST_P(HopperRS, SingleTile) {
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   debugging::setAsIdentity(inputs.first);
+  debugging::setAsARange(inputs.second);
 
   FusionExecutor fe;
   fe.compileFusion(
