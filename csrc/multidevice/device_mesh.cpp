@@ -8,6 +8,8 @@
 
 #include <multidevice/device_mesh.h>
 
+#include <numeric>
+
 namespace nvfuser {
 
 /*static*/ DeviceMesh DeviceMesh::createForNumDevices(
