@@ -6,7 +6,6 @@
  */
 // clang-format on
 #pragma once
-#include <scheduler/expr_eval_sched.h>
 #include <scheduler/matmul.h>
 #include <scheduler/no_op.h>
 #include <scheduler/normalization_inner.h>
