@@ -572,10 +572,13 @@ void inferenceAllocationOrder(
 
   // allow self mapping to avoid assert
   auto id_model = IdModel(fusion, true, true);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& val_sets = exact_graph.disjointValSets();
 
   // picking a candidate for propagation.
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
   for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    if (!hasSelfMapping(tv, exact_graph).has_value()) {
     loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
   }
 
@@ -589,7 +592,7 @@ void inferenceAllocationOrder(
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
     if (out_tv == nullptr || out_tv->hasAllocation() ||
         fusion->getOutputAlias(out_val).type != AllocationType::New ||
-        hasSelfMapping(out_tv, id_model.idGraph(IdMappingMode::EXACT)).has_value()) {
+        hasSelfMapping(out_tv, exact_graph).has_value()) {
       continue;
     }
 
@@ -599,11 +602,19 @@ void inferenceAllocationOrder(
     size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
       // only consider inputs for propagation when output has dependency on.
-      if (DependencyCheck::isDependencyOf(iter.first, out_val) && iter.second > non_bc_high_water_mark &&
-        !hasSelfMapping(iter.first, id_model.idGraph(IdMappingMode::EXACT)).has_value()) {
-        // TODO: if loop_iter_count is sorted, we can early return here.
-        ref = iter.first;
-        non_bc_high_water_mark = iter.second;
+      if (DependencyCheck::isDependencyOf(iter.first, out_val)) {
+        if (iter.second > non_bc_high_water_mark) {
+          // TODO: if loop_iter_count is sorted, we can early return here.
+          ref = iter.first;
+          non_bc_high_water_mark = iter.second;
+	} else if (iter.second == non_bc_high_water_mark && ref != nullptr) {
+	  // we need to ensure that there's no ambiguity on permutation mapping from multiple dominating references.
+	  for (auto i : c10::range(ref->nDims())) {
+            if (!val_sets.strictAreMapped(ref->getMaybeAllocationDomain()[i], iter.first->getMaybeAllocationDomain()[i])) {
+	    ref = nullptr;
+	    return;
+	  }
+	}
       }
     }
     if (ref) {
