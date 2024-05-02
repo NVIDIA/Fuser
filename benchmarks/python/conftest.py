@@ -70,7 +70,9 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
-
+    config.addinivalue_line(
+        "markers", "inner_outer_persistent: mark tests using inner_outer_persistent scheduler."
+    )
 
 def pytest_collection_modifyitems(session, config, items):
     """
