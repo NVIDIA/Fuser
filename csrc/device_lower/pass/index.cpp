@@ -1630,7 +1630,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     if (swizzle != MmaInputSmemSwizzle::None) {
       if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Local) {
         if (mma->layout() == MmaLayout::TN) {
-          int64_t stride_bytes = core_matrix_outer_size *
+          stride_bytes = core_matrix_outer_size *
               /*number of core matrices, rounded up to handle padding */
               roundUpToMultiple(getK(mma->macro()) * /*bytes per item*/ 2L,
                                 getBytesFromSwizzle(swizzle));
