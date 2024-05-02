@@ -1584,13 +1584,13 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
-    int64_t stride_bytes = core_matrix_outer_size *
-        getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = core_matrix_outer_size *
+        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getM(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle != MmaInputSmemSwizzle::None) {
+    if (swizzle == MmaInputSmemSwizzle::None) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
     }
