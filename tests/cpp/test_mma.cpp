@@ -320,7 +320,7 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
+  tv1->applyMmaSwizzle(swizzle_b, false);
 
   naivelyParallelize(tv1);
 
