@@ -1590,7 +1590,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getM(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None) {
+    if (swizzle == MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
     }
@@ -1620,8 +1621,10 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None ||
-        (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
+    if ((swizzle == MmaInputSmemSwizzle::None &&
+         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) ||
+        (swizzle != MmaInputSmemSwizzle::None &&
+         (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN))) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
     }
