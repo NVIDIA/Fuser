@@ -1150,37 +1150,17 @@ void scheduleInnerOuterPersistentKernel(
 
   FusionGuard fg(fusion);
 
-  // Project the persistent buffers to the inputs. Inputs will be cached in a
-  // later step, this will move them to be in a register buffer as expected.
-  // dummy outputs are helper tensors to make sure persistent buffer projection
-  // does not create trouble for transform propagation.
-  const auto& dummy_outputs =
-      reduction_scheduler_utils::projectPersistentBuffers(
-          fusion, rparams.project_persistent_buffers);
-
-  // Cache tensors before grabbing any references to reductions as cache_before
-  // can invalidate the references since when applied to a reduction tensor view
-  // the new tensor view contains the reduction and original doesn't.
-  const bool unroll = rparams.isUnrolled();
-  // Cache inputs even if not unrolled, as otherwise we may not create a
-  // persistent buffer if that persistent buffer would be the input.
-  const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
-
-  // Cache and fork outputs
-  const auto& cached_outputs =
-      scheduler_utils::cacheAndForkOutputs(fusion, unroll);
-
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  // move persistent buffer marked in [smem_persistent_buffers] from register to
-  // smem
-  normalization_scheduler_utils::movePersistentBufferToSmem(
-      fusion, rparams, cached_inputs);
-
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  normalization_scheduler_utils::beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
   std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;
@@ -1227,6 +1207,7 @@ void scheduleInnerOuterPersistentKernel(
     fusion->addOutput(output);
   }
 
+  const bool unroll = rparams.isUnrolled();
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
