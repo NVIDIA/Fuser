@@ -490,7 +490,7 @@ void replayAllocationDomain(
       // avoid mapping a reduced dimension. 
       if (!ref_id->isReduction() && id->isReduction()) {
         // technically we don't need to skip this. But it's giving issues
-        break;
+        continue;
       }
       // skip already map id
       if (mapped_id.count(id) != 0) {
