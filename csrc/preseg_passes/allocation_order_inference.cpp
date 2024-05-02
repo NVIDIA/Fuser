@@ -609,10 +609,11 @@ void inferenceAllocationOrder(
           non_bc_high_water_mark = iter.second;
 	} else if (iter.second == non_bc_high_water_mark && ref != nullptr) {
 	  // we need to ensure that there's no ambiguity on permutation mapping from multiple dominating references.
-	  for (auto i : c10::range(ref->nDims())) {
+	  for (auto i : c10::irange(ref->nDims())) {
             if (!val_sets.strictAreMapped(ref->getMaybeAllocationDomain()[i], iter.first->getMaybeAllocationDomain()[i])) {
-	    ref = nullptr;
-	    return;
+	      ref = nullptr;
+	      return;
+	    }
 	  }
 	}
       }
