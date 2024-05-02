@@ -123,14 +123,17 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto& consumer_root = consumer->root();
 
   // Map MatmulOp extents in reverse
-  if (consumer_tv_->definition()->isA<MatmulOp>()) {
+  if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     int ritc = consumer_root.size() - 1;
     int ritp = producer_root.size() - 1;
 
+    // Check if the producer is lhs/rhs input
+    bool is_lhs = producer->sameAs(op->inA());
+    int k_inx = is_lhs ? ritp : ritp - 1;
     while (ritc >=0 && ritp >= 0) {
       IterDomain* producer_id = producer_root.at(ritp);
       IterDomain* consumer_id = consumer_root.at(ritc);
-      if (!producer_id->extent()->sameAs(consumer_id->extent())){
+      if (ritp == k_inx){ // No mapping for K axis in the consumer
         ritp--;
         ritc--;
         continue;

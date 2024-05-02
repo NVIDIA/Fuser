@@ -2728,6 +2728,9 @@ static TensorView* newForMatmul(
 
 } // namespace
 
+
+// TODO (Priya): This will be renamed to matmul once we are ready to modify the python API backend.
+// Keeping separate for now, to avoid breaking tests in Thunder.
 TensorView* eagerMatmul(
     TensorView* tv_a,
     TensorView* tv_b) {
