@@ -579,7 +579,8 @@ void inferenceAllocationOrder(
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
   for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     if (!hasSelfMapping(tv, exact_graph).has_value()) {
-    loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
+      loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
+    }
   }
 
   // propagating the allocation order through graph
