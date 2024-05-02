@@ -1600,6 +1600,12 @@ void IndexLowering::handle(const MmaOp* mma) {
                            getK(mma->macro()) * /*bytes per item*/ 2L,
                            getBytesFromSwizzle(swizzle));
       }
+    } else if (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN) {
+        stride_bytes = core_matrix_outer_size *
+            /*number of core matrices, rounded up to handle padding */
+            roundUpToMultiple(
+                           getK(mma->macro()) * /*bytes per item*/ 2L,
+                           getBytesFromSwizzle(swizzle));
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
