@@ -219,7 +219,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
         mma->inB()->as<kir::TensorIndex>()->index(),
         /*scaleD=*/IrBuilder::create<Val>(true),
-        /*scaleA=*/IrBuilder::create<Val>(-1, DataType::Int32),
+        /*scaleA=*/IrBuilder::create<Val>(0, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(-1, DataType::Int32)};
     auto layout = *mma->layout();
     if (a_on_smem) {
