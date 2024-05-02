@@ -42,10 +42,9 @@ using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
 // To run the following tests on several devices, pytorch must be installed with
-// the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
-// default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
+// the flag USE_DISTRIBUTED=1 and nccl support. Then, on a node with at least 6
 // GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
-// --gtest_filter=PipelineTwoStages*`.
+// --gtest_filter=PipelineTestTwoStages*`.
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};

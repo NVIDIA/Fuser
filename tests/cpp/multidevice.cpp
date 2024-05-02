@@ -16,32 +16,52 @@
 
 namespace nvfuser {
 
-void MultiDeviceTest::SetUp() {
-  NVFuserTest::SetUp();
-
+MultiDeviceTest::MultiDeviceTest() {
   communicator = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print = true;
+  debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+  do_barrier_at_test =
+      (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
+       communicator->is_available());
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+}
+
+MultiDeviceTest::~MultiDeviceTest() {
+  if (do_barrier_at_test && communicator->is_available()) {
+    communicator->barrier();
   }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") &&
-      communicator->is_available()) {
-    do_barrier_at_test = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip = true;
-  }
+}
+
+void MultiDeviceTest::SetUp() {
+  // Set the same random seed for all processes.
+  NVFuserTest::SetUp();
+
   if (!disable_skip && !communicator->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
 }
 
-void MultiDeviceTest::TearDown() {
-  if (do_barrier_at_test && communicator->is_available()) {
-    communicator->barrier();
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    TensorView* tv,
+    DeviceIdxType deviceId) {
+  if (!isSharded(tv)) {
+    return tensor;
   }
-  NVFuserTest::TearDown();
+  auto sharded_dim = getShardedAxis(tv);
+  int i = 0;
+  const auto& devices = tv->getDeviceMesh().vector();
+  auto it = std::find(devices.begin(), devices.end(), deviceId);
+  if (it != devices.end()) {
+    i = std::distance(devices.begin(), it);
+  }
+  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+}
+
+/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
+  static Communicator* communicator = new Communicator();
+  return communicator;
 }
 
 DeviceMesh MultiDeviceTest::createDeviceMesh(int size) {
@@ -140,8 +160,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-void PipelineTest::SetUp() {
-  MultiDeviceTest::SetUp();
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }

@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -301,4 +300,3 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       __FILE__);
 }
 } // namespace nvfuser
-#endif

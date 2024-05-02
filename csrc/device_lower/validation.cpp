@@ -1029,12 +1029,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  // To avoid errors in analysis when using ATen evaluation for matmul, only
-  // validate expressions that require codegen. See PR # 1775 and Issue #1812
-  std::vector<Val*> outs_requiring_codegen =
-      lower_utils::getFusionOutputsRequiringCodegen(fusion);
-  auto exprs = StmtSort::getExprsBetween(
-      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
+  auto exprs = StmtSort::getExprs(fusion);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -1137,9 +1132,11 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       // Remember if a grouped ID is found
       is_grouped = true;
 
-      // Grouping only makes sense for the normal iteration type
+      // Grouping only makes sense for the normal iteration or gather scatter
+      // type
       NVF_CHECK(
-          id->getIterType() == IterType::Iteration,
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::GatherScatter,
           "Invalid use of ParallelType::Group.",
           " Grouping of ",
           id->getIterType(),
