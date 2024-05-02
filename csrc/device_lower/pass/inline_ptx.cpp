@@ -220,7 +220,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         mma->inB()->as<kir::TensorIndex>()->index(),
         /*scaleD=*/IrBuilder::create<Val>(true),
         /*scaleA=*/IrBuilder::create<Val>(0, DataType::Int32),
-        /*scaleB=*/IrBuilder::create<Val>(-1, DataType::Int32)};
+        /*scaleB=*/IrBuilder::create<Val>(0, DataType::Int32)};
     auto layout = *mma->layout();
     if (a_on_smem) {
       // tnspA: if not K-major, then needs transpose
