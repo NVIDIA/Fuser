@@ -1633,7 +1633,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getK(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-        std::swap(leading_bytes, stride_bytes);
+        // std::swap(leading_bytes, stride_bytes);
       }
     }
     auto matrix_desc = constructMatrixDescriptor(
