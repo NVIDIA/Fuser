@@ -392,8 +392,10 @@ void Fusion::validateInputs() {
   }
 }
 
-std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms, int indent_size)
-    const {
+std::ostream& Fusion::print(
+    std::ostream& os,
+    bool include_tensor_transforms,
+    int indent_size) const {
   FUSER_PERF_SCOPE("Fusion::print");
   indent(os, indent_size) << "\n%kernel {\n";
   IrMathPrinter op_exprs(os, indent_size);

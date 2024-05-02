@@ -48,7 +48,7 @@ inline std::ostream& indent(std::ostream& os, int indent_size) {
 class IrPrinter {
  public:
   explicit IrPrinter(std::ostream& os, int indent_size = 0)
-      : indent_size(indent_size), os_(os){}
+      : indent_size(indent_size), os_(os) {}
   virtual ~IrPrinter() = default;
 
   int indent_size;

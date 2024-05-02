@@ -10,14 +10,14 @@
 #include <executor_kernel_arg.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir_container.h>
+#include <host_ir_executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
-#include <host_ir_container.h>
-#include <host_ir_executor.h>
 
 #include <algorithm>
 #include <iostream>
@@ -27,9 +27,8 @@ namespace nvfuser {
 namespace hir {
 
 using HostIrTestParams = std::tuple<bool>;
-class HostIrTest:
-    public NVFuserTest,
-    public testing::WithParamInterface<HostIrTestParams> {};
+class HostIrTest : public NVFuserTest,
+                   public testing::WithParamInterface<HostIrTestParams> {};
 
 TEST_P(HostIrTest, SingleFusion) {
   auto [use_fusion_executor_cache] = GetParam();
@@ -47,17 +46,25 @@ TEST_P(HostIrTest, SingleFusion) {
   fusion->addOutput(tv2);
 
   FusionGuard::setCurFusion(hic.get());
-  auto hu = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto hu = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::move(fusion));
 
   IrCloner ir_cloner(hic.get());
 
-  std::vector<Val*> post_inputs = {ir_cloner.clone(hu->fusion_to_execute()->inputs().at(0))};
-  std::vector<Val*> post_outputs = {ir_cloner.clone(hu->fusion_to_execute()->outputs().at(0))};
-  auto post = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu, std::move(post_inputs), std::move(post_outputs));
+  std::vector<Val*> post_inputs = {
+      ir_cloner.clone(hu->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs = {
+      ir_cloner.clone(hu->fusion_to_execute()->outputs().at(0))};
+  auto post = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu,
+      std::move(post_inputs),
+      std::move(post_outputs));
 
   hic->top_level_exprs.push_back(post);
 
-  // add global IO to the HostIrContainer. This step could potentially be infered automatically
+  // add global IO to the HostIrContainer. This step could potentially be
+  // infered automatically
   hic->addInput(post->inputs().at(0));
   hic->addOutput(post->outputs().at(0));
 
@@ -97,27 +104,38 @@ TEST_P(HostIrTest, TwoFusions) {
   fusion_1.addInput(tv0_1);
   fusion_1.addOutput(tv2_1);
 
-
   FusionGuard::setCurFusion(hic.get());
   IrCloner ir_cloner(hic.get());
 
-  auto hu_0 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
-  auto hu_1 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
+  auto hu_0 = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
+  auto hu_1 = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
 
-  std::vector<Val*> post_inputs_0 = {ir_cloner.clone(hu_0->fusion_to_execute()->inputs().at(0))};
-  std::vector<Val*> post_outputs_0 = {ir_cloner.clone(hu_0->fusion_to_execute()->outputs().at(0))};
-  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_0, std::move(post_inputs_0), post_outputs_0);
+  std::vector<Val*> post_inputs_0 = {
+      ir_cloner.clone(hu_0->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_outputs_0 = {
+      ir_cloner.clone(hu_0->fusion_to_execute()->outputs().at(0))};
+  auto post_0 = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu_0,
+      std::move(post_inputs_0),
+      post_outputs_0);
 
   auto& post_inputs_1 = post_outputs_0;
-  std::vector<Val*> post_outputs_1 = {ir_cloner.clone(hu_1->fusion_to_execute()->outputs().at(0))};
-  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_1, std::move(post_inputs_1), post_outputs_1);
-
+  std::vector<Val*> post_outputs_1 = {
+      ir_cloner.clone(hu_1->fusion_to_execute()->outputs().at(0))};
+  auto post_1 = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu_1,
+      std::move(post_inputs_1),
+      post_outputs_1);
 
   hic->top_level_exprs.push_back(post_0);
   hic->top_level_exprs.push_back(post_1);
 
   hic->addInput(post_0->inputs().at(0));
-  hic->addOutput( post_1->outputs().at(0));
+  hic->addOutput(post_1->outputs().at(0));
 
   HostIrExecutorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
@@ -125,7 +143,8 @@ TEST_P(HostIrTest, TwoFusions) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   c10::IValue input = at::randn(input_sizes_0, options);
-  auto ref_output = at::sum(at::relu(input.toTensor()), at::OptionalIntArrayRef({0,1})) * 2;
+  auto ref_output =
+      at::sum(at::relu(input.toTensor()), at::OptionalIntArrayRef({0, 1})) * 2;
 
   auto outputs = hie.runWithInput({input});
 
@@ -164,39 +183,54 @@ TEST_P(HostIrTest, ThreeFusions) {
   fusion_2.addInput(tv1_2);
   fusion_2.addOutput(tv2_2);
 
-
   FusionGuard::setCurFusion(hic.get());
   IrCloner ir_cloner(hic.get());
-  auto clone = [&] (std::vector<Val*> vals)
-    {
-      std::vector<Val*> ret;
-      for (auto val: vals) {
-        ret.push_back(ir_cloner.clone(val));
-      }
-      return ret;
-    };
+  auto clone = [&](std::vector<Val*> vals) {
+    std::vector<Val*> ret;
+    for (auto val : vals) {
+      ret.push_back(ir_cloner.clone(val));
+    }
+    return ret;
+  };
 
-  auto hu_0 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
-  auto hu_1 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
-  auto hu_2 = IrBuilder::create<HostUnit>(static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_2));
+  auto hu_0 = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_0));
+  auto hu_1 = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_1));
+  auto hu_2 = IrBuilder::create<HostUnit>(
+      static_cast<IrContainer*>(hic.get()), std::make_unique<Fusion>(fusion_2));
 
   std::vector<Val*> post_inputs_0 = clone({tv0_0});
   std::vector<Val*> post_outputs_0 = clone({tv1_0, tv2_0});
-  auto post_0 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_0, std::move(post_inputs_0), post_outputs_0);
+  auto post_0 = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu_0,
+      std::move(post_inputs_0),
+      post_outputs_0);
 
   std::vector<Val*> post_inputs_1 = {post_outputs_0.at(0)};
   std::vector<Val*> post_outputs_1 = clone({tv2_1});
-  auto post_1 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_1, std::move(post_inputs_1), post_outputs_1);
+  auto post_1 = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu_1,
+      std::move(post_inputs_1),
+      post_outputs_1);
 
-  std::vector<Val*> post_inputs_2 = {post_outputs_0.at(1), post_outputs_1.at(0)};
-  std::vector<Val*> post_outputs_2= clone({tv2_2});
-  auto post_2 = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu_2, std::move(post_inputs_2), post_outputs_2);
+  std::vector<Val*> post_inputs_2 = {
+      post_outputs_0.at(1), post_outputs_1.at(0)};
+  std::vector<Val*> post_outputs_2 = clone({tv2_2});
+  auto post_2 = IrBuilder::create<PostOnStream>(
+      static_cast<IrContainer*>(hic.get()),
+      hu_2,
+      std::move(post_inputs_2),
+      post_outputs_2);
 
   hic->top_level_exprs.push_back(post_0);
   hic->top_level_exprs.push_back(post_1);
   hic->top_level_exprs.push_back(post_2);
 
-  // add global IO to the HostIrContainer. This step could potentially be infered automatically
+  // add global IO to the HostIrContainer. This step could potentially be
+  // infered automatically
   hic->addInput(post_0->inputs().at(0));
   hic->addOutput(post_2->outputs().at(0));
 
@@ -210,7 +244,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto tv1_0_ref = tv0_0_ref + tv0_0_ref;
   auto tv2_0_ref = at::sum(tv1_0_ref, {0});
   auto tv0_1_ref = tv1_0_ref;
-  auto tv2_1_ref = at:: sum(tv0_1_ref * tv0_1_ref, {0});
+  auto tv2_1_ref = at::sum(tv0_1_ref * tv0_1_ref, {0});
   auto tv0_2_ref = tv2_0_ref;
   auto tv1_2_ref = tv2_1_ref;
   auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
@@ -224,9 +258,10 @@ INSTANTIATE_TEST_SUITE_P(
     Manual,
     HostIrTest,
     testing::Combine(testing::Bool()),
-    [](const testing::TestParamInfo<std::tuple<bool>>& info)
-        -> std::string {
-      return (std::get<0>(info.param) ? "use_fusion_executor_cache" : "use_fusion_executor");
+    [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
+      return (
+          std::get<0>(info.param) ? "use_fusion_executor_cache"
+                                  : "use_fusion_executor");
     });
 
 } // namespace hir

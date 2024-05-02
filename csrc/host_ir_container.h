@@ -20,7 +20,10 @@ class HostIrContainer final : public Fusion {
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
   //! Print to an output stream
-  std::ostream& print(std::ostream& os, bool include_tensor_transforms = false, int indent_size = 0) const;
+  std::ostream& print(
+      std::ostream& os,
+      bool include_tensor_transforms = false,
+      int indent_size = 0) const;
 
   const auto& topLevelExprs() const {
     return top_level_exprs;

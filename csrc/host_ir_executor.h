@@ -31,9 +31,10 @@ struct HostIrExecutorParams {
 };
 
 class HostIrExecutor final : public OptInDispatch {
-
  public:
-  HostIrExecutor(std::unique_ptr<HostIrContainer> container, HostIrExecutorParams = HostIrExecutorParams());
+  HostIrExecutor(
+      std::unique_ptr<HostIrContainer> container,
+      HostIrExecutorParams = HostIrExecutorParams());
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
  private:
@@ -42,12 +43,11 @@ class HostIrExecutor final : public OptInDispatch {
 
   std::unique_ptr<HostIrContainer> container_;
   HostIrExecutorParams params_;
-    // Stores concrete computed values,
+  // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
   // Cache Fusions, FusionExecutors
   std::unordered_map<PostOnStream*, FusionExecutor> fe_;
   std::unordered_map<PostOnStream*, FusionExecutorCache> fec_;
-
 };
 
 } // namespace hir

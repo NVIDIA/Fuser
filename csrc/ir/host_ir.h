@@ -16,7 +16,7 @@ namespace nvfuser {
 namespace hir {
 
 class NVF_API HostUnit : public Expr {
-  public:
+ public:
   using Expr::Expr;
   HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
   HostUnit(const HostUnit* src, IrCloner* ir_cloner);
@@ -46,10 +46,11 @@ class NVF_API HostUnit : public Expr {
 class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
-  PostOnStream(IrBuilderPasskey passkey,
-               HostUnit* hu,
-               std::vector<Val*> inputs,
-               std::vector<Val*> outputs);
+  PostOnStream(
+      IrBuilderPasskey passkey,
+      HostUnit* hu,
+      std::vector<Val*> inputs,
+      std::vector<Val*> outputs);
 
   PostOnStream(const PostOnStream& other) = delete;
   PostOnStream& operator=(const PostOnStream& other) = delete;

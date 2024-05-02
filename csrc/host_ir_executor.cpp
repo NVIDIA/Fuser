@@ -6,29 +6,28 @@
  */
 // clang-format on
 
-#include <ir/utils.h>
 #include <host_ir_executor.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
 namespace hir {
 
-HostIrExecutor::HostIrExecutor(std::unique_ptr<HostIrContainer> container, HostIrExecutorParams params)
-  :container_(std::move(container)), params_(std::move(params)) {};
+HostIrExecutor::HostIrExecutor(
+    std::unique_ptr<HostIrContainer> container,
+    HostIrExecutorParams params)
+    : container_(std::move(container)), params_(std::move(params)){};
 
-std::vector<at::Tensor> HostIrExecutor::runWithInput(const std::vector<c10::IValue>& inputs) {
-
+std::vector<at::Tensor> HostIrExecutor::runWithInput(
+    const std::vector<c10::IValue>& inputs) {
   // process input values:
   NVF_ERROR(
-      inputs.size() == container_->inputs().size(),
-      "Wrong number of inputs");
+      inputs.size() == container_->inputs().size(), "Wrong number of inputs");
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[container_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
+    val_to_IValue_[container_->inputs().at(input_idx)] = inputs.at(input_idx);
   }
 
-
-  for (auto expr: container_->topLevelExprs()) {
+  for (auto expr : container_->topLevelExprs()) {
     dispatch(expr);
   }
 
@@ -70,8 +69,7 @@ void HostIrExecutor::handle(PostOnStream* post) {
     auto [it, has_emplaced] = fe_.try_emplace(post);
     auto& fe = it->second;
     if (has_emplaced) {
-      fe.compileFusion(
-          post->hostUnit()->fusion_to_execute(), input_IValues);
+      fe.compileFusion(post->hostUnit()->fusion_to_execute(), input_IValues);
     }
     outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
