@@ -1627,9 +1627,9 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (transpose) {
-      std::swap(leading_bytes, stride_bytes);
-    }
+    // if (transpose) {
+    //   std::swap(leading_bytes, stride_bytes);
+    // }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
