@@ -350,6 +350,9 @@ TEST_P(HopperRS, SingleTile) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
+
+  std::cout << "Reference:\n" << tref << std::endl;
+
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
