@@ -1634,6 +1634,7 @@ void IndexLowering::handle(const MmaOp* mma) {
               /*number of core matrices, rounded up to handle padding */
               roundUpToMultiple(getK(mma->macro()) * /*bytes per item*/ 2L,
                                 getBytesFromSwizzle(swizzle));
+          std::swap(leading_bytes, stride_bytes);
         }
       }
       if (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN) {
