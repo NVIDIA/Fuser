@@ -1621,12 +1621,14 @@ void IndexLowering::handle(const MmaOp* mma) {
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if ((swizzle == MmaInputSmemSwizzle::None &&
-         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) ||
-        (swizzle != MmaInputSmemSwizzle::None &&
-         (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN))) {
-      // TODO: why???!!!
-      std::swap(leading_bytes, stride_bytes);
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      if (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN) {
+        std::swap(leading_bytes, stride_bytes);
+      }
+    } else {
+      if (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT) {
+        std::swap(leading_bytes, stride_bytes);
+      }
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
