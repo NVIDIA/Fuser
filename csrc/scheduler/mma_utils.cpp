@@ -873,7 +873,6 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // For example, [K, M]
     tv->split(-2, 8);
     tv->split(-1, 8);
-    // For example transpose2 == false
     // [Ko, K8, Mo, M8]
     // Note: the extent of Mo may not be a multiple of swizzle_size, but we
     // still split swizzle_size. If this is the case, effectively we are
