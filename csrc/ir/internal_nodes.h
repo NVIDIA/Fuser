@@ -2255,7 +2255,7 @@ class NVF_API CatOp : public Expr {
   Val* getPred(int input_idx) const;
 };
 
-//! Linear Operator to be expression evaluated without decomposition.
+//! Matmul Operator to be expression evaluated without decomposition.
 class NVF_API MatmulOp : public Expr {
  public:
   using Expr::Expr;
@@ -2265,7 +2265,7 @@ class NVF_API MatmulOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "LinearOp";
+    return "MatmulOp";
   }
 
   std::string toString(int indent_size = 0) const override;
