@@ -411,11 +411,8 @@ class NVF_API TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
-  // TODO: what is transpose 2? Why do we need it?
-  void applyMmaSwizzle(
-      MmaInputSmemSwizzle swizzle,
-      bool transpose,
-      bool transpose2 = false);
+  // TODO: what is transpose? Why do we need it?
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
