@@ -334,4 +334,5 @@ M(assoc_comm::FlattenedAssocCommOp)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
+
 } // namespace nvfuser
