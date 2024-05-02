@@ -206,6 +206,8 @@ bool checkCanSchedule(
     case ScheduleHeuristic::Matmul:
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::ExprEval:
+      return checkCanSchedule<ExprEvalScheduler>(fusion, runtime_info, data_cache);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
@@ -251,6 +253,10 @@ bool checkCanSchedule(
     case ScheduleHeuristic::Matmul:
       scheduler_entry =
           std::make_unique<MatmulScheduler>(fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::ExprEval:
+      scheduler_entry =
+          std::make_unique<ExprEvalScheduler>(fusion, runtime_info, data_cache);
       break;
     default:
       NVF_ERROR(false, "unreachable");
@@ -342,6 +348,9 @@ HeuristicSummary::HeuristicSummary(
       NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
       break;
     }
+    case ScheduleHeuristic::ExprEval:
+      ExprEvalScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      break;
     default:
       NVF_ERROR(false, "unknown heuristic");
   }
@@ -417,6 +426,9 @@ void HeuristicSummary::validate() const {
     }
     case ScheduleHeuristic::Matmul: {
       // TODO: add a proper set of checks
+      break;
+    }    
+    case ScheduleHeuristic::ExprEval: {
       break;
     }
     default:
