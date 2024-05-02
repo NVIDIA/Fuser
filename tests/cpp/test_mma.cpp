@@ -504,7 +504,7 @@ TEST_P(HopperSS, SingleTile) {
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0->applyMmaSwizzle(swizzle_a, false);
   tv1->setMemoryType(MemoryType::Shared);
-  tv1->applyMmaSwizzle(swizzle_b, transpose_b ^ transpose_a);
+  tv1->applyMmaSwizzle(swizzle_b, transpose_b);
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
