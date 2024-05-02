@@ -1589,7 +1589,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         ? getK(mma->macro())
         : getM(mma->macro());
     int64_t leading_bytes = core_matrix_outer_size *
-        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+        getBytesFromSwizzle(swizzle); // size of unit matrix in bytes
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
@@ -1622,7 +1622,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         ? getK(mma->macro())
         : getN(mma->macro());
     int64_t leading_bytes = core_matrix_outer_size *
-        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+        getBytesFromSwizzle(swizzle); // size of unit matrix in bytes
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
