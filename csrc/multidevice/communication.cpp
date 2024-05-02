@@ -104,15 +104,20 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(
   post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
-    doLocalCopy(output_tensor, input_tensor);
+    if (params_.is_root_in_mesh) {
+      // Do a local copy and the subsequent broadcast will be in place.
+      doLocalCopy(output_tensor, input_tensor);
+    } else {
+      // `output_tensor` isn't allocated for this device.
+      output_tensor = input_tensor;
+    }
   }
 
   if (params_.team.size() == 1) {
     return nullptr;
   }
 
-  std::vector<at::Tensor> tensors(
-      {comm.deviceId() == params_.root ? input_tensor : output_tensor});
+  std::vector<at::Tensor> tensors({output_tensor});
   return comm.getBackendForTeam(params_.team, backend)
       ->broadcast(tensors, {.rootRank = root_relative_index_});
 }
