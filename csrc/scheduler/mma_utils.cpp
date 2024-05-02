@@ -880,10 +880,9 @@ void WarpMmaSwizzler::scheduleOperandRead(
     tv->split(-2, swizzle_size);
     // For example, swizzle_size = 2
     // [Ko, K8, Moo, Mo2, M8]
-    // tv->split(-4, 8 / swizzle_size);
-    tv->split(-4, swizzle_size);
+    tv->split(-4, 8 / swizzle_size);
     // [Ko, K2, K4, Moo, Mo2, M8]
-    tv->swizzle(SwizzleType::XOR, -4, -2);
+    tv->swizzle(SwizzleType::XOR, -5, -2);
     tv->reorder({{-3, -5}});
     // [Ko, Moo, K2, K4, Mo2, M8]
   }
