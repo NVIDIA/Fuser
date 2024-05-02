@@ -1621,7 +1621,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     bool transpose = (layout == MmaLayout::TN || layout == MmaLayout::NN);
     bool inner_size = !transpose ? getK(mma->macro()) : getN(mma->macro());
-    int64_t leading_bytes = core_matrix_outer_size *
+    int64_t leading_bytes = // core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
