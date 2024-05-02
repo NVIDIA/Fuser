@@ -1626,9 +1626,9 @@ void IndexLowering::handle(const MmaOp* mma) {
         std::swap(leading_bytes, stride_bytes);
       }
     } else {
-      if (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT) {
+      // if (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT) {
         std::swap(leading_bytes, stride_bytes);
-      }
+      // }
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
