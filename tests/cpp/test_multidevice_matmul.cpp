@@ -82,7 +82,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   // Tests local matmul with no communication
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh(communicator->size());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -135,7 +135,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   // Tests local matmul + allgather
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh(communicator->size());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -190,7 +190,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   // Tests local matmul + allreduce
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh(communicator->size());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;
@@ -241,7 +241,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   // Tests local matmul + reduce scatter
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = createDeviceMesh(communicator->size());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;

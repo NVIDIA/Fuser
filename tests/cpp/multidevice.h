@@ -33,9 +33,6 @@ class MultiDeviceTest : public NVFuserTest {
 
   static Communicator* getOrCreateCommunicator();
 
-  // Creates a 1D device mesh from [0 ... size)
-  DeviceMesh createDeviceMesh(int size);
-
   Communicator* communicator;
   c10::TensorOptions tensor_options;
   bool debug_print;

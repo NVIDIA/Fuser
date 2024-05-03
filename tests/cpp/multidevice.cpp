@@ -64,12 +64,6 @@ void MultiDeviceTest::SetUp() {
   return communicator;
 }
 
-DeviceMesh MultiDeviceTest::createDeviceMesh(int size) {
-  std::vector<int64_t> devices(size);
-  std::iota(devices.begin(), devices.end(), 0);
-  return DeviceMesh(devices);
-}
-
 void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
