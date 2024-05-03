@@ -2482,6 +2482,19 @@ TEST_F(
           params.double_buffer_options.smem_double_buffer_stage,
           data_types,
           /*ignore_occupancy_drop=*/false);
+
+  // Find GPU name to check if this is an A100
+  int dev_idx = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
+  cudaDeviceProp prop;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
+  std::string gpu_name(prop.name);
+  if (gpu_name.find("A100") != gpu_name.npos) {
+    // Test that we promote smem reuse on A100. This might differ on devices
+    // with different amounts of smem.
+    ASSERT_TRUE(params.promote_prologue_smem_reuse);
+  }
+
   scheduleMatmul(&fusion, params);
 
   // FusionExecutor::compileFusion would fail otherwise.
