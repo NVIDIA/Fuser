@@ -780,6 +780,32 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // that whenever we encounter a new set of input shapes we segment and compile
   // a new FusionKernelRuntime.
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    // First segment the Fusion in a new FusionKernelRuntime. This requires
+    // concretizing the Fusion first
+    auto conc_fusion = std::make_unique<Fusion>(*fusion_);
+    if (initial_info.isDynamic()) {
+      const auto& conc_initial_info =
+          conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
+      NVF_ERROR(conc_info);
+      conc_info->setInitialInfo(&conc_initial_info);
+
+      DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
+      // Initial info is used during concretization and is owned by conc_fusion.
+      // After concretization, we stop managing it so that we won't keep cloning
+      // it for every subsequent Fusion copy.
+      conc_fusion->stopManaging("initial_info");
+    }
+    FusionGuard fg(conc_fusion.get());
+    FusionKernelRuntime desired_fkr(
+        std::move(conc_fusion),
+        args,
+        /*serde_buffer=*/nullptr,
+        forced_index_type,
+        fusion_id_,
+        conc_info_id_map_.at(config),
+        kernel_runtimes.size(),
+        auto_schedule_);
+
     // This value is filled when looking at the first FusionKernelRuntime when
     // defining reuse_it below. Using the concretized complete fusion from that
     // runtime, we check whether we can schedule the unsegmented Fusion. If so,
@@ -822,8 +848,63 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         });
     if (reuse_it != kernel_runtimes.end()) {
       kernel_runtime = reuse_it->get();
-      kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
       reusing = true;
+      static int successful_reuse_unsegmented = 0;
+      static int successful_reuse_segmented = 0;
+      static int unsuccessful_reuse_unsegmented = 0;
+      static int unsuccessful_reuse_segmented = 0;
+
+      // Validate that this runtime has the desired heuristics
+      NVF_ERROR(
+          kernel_runtime->executors().size() == desired_fkr.executors().size());
+      auto& these_heuristics =
+          kernel_runtime->schedulerHeuristics()->heuristicsList();
+      bool segmented = these_heuristics.size() != 1;
+      auto& desired_heuristics =
+          desired_fkr.schedulerHeuristics()->heuristicsList();
+      NVF_ERROR(these_heuristics.size() == desired_heuristics.size());
+      for (size_t i : c10::irange(these_heuristics.size())) {
+        if (!these_heuristics.at(i)->sameAs(desired_heuristics.at(i).get())) {
+          std::cerr << "Found mismatched parameters! Desired params:"
+                    << std::endl;
+          for (size_t j : c10::irange(desired_heuristics.size())) {
+            std::cerr << desired_heuristics.at(j)->params()->toString()
+                      << std::endl;
+          }
+          std::cerr
+              << "Failed reusing params (THESE DON'T MATCH THE ABOVE PARAMS):"
+              << std::endl;
+          for (size_t j : c10::irange(desired_heuristics.size())) {
+            std::cerr << these_heuristics.at(j)->params()->toString()
+                      << std::endl;
+          }
+          if (segmented) {
+            std::cerr << "So far we have failed to reuse "
+                      << ++unsuccessful_reuse_segmented << " segmented runtimes"
+                      << std::endl;
+          } else {
+            std::cerr << "So far we have failed to reuse "
+                      << ++unsuccessful_reuse_unsegmented
+                      << " unsegmented runtimes" << std::endl;
+          }
+          reusing = false;
+          break;
+        }
+      }
+      if (reusing) {
+        std::cerr << "Reusing runtime with " << these_heuristics.size()
+                  << " segments" << std::endl;
+        if (segmented) {
+          std::cerr << "So far we have reused " << ++successful_reuse_segmented
+                    << " segmented runtimes" << std::endl;
+        } else {
+          std::cerr << "So far we have reused "
+                    << ++successful_reuse_unsegmented << " unsegmented runtimes"
+                    << std::endl;
+        }
+      }
+
+      kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
     }
     if (reusing) {
       static int reused_kernel = 1;
