@@ -3375,8 +3375,9 @@ void IterDomain::parallelize(ParallelType t) {
 
   if (t == ParallelType::Group) {
     NVF_CHECK(
-        getIterType() == IterType::Iteration,
-        "Grouping IterDomain of non Iteration type is not allowed. ",
+        getIterType() == IterType::Iteration ||
+            getIterType() == IterType::GatherScatter,
+        "Grouping IterDomain of non Iteration / GatherScatter type is not allowed. ",
         getIterType());
   }
 
