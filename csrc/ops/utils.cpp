@@ -174,6 +174,81 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 }
 
+IterDomain* outIterDomain(const std::vector<IterDomain*>& ids){
+  // For the start and stop offsets, take the maximum of input axes.
+  // For now, the offsets of both start and stop are always integer
+  // constant, so we can statically compute them. It is unclear
+  // whether we would need to support dynamic offsetting, e.g.,
+  // shifting by a dynamic offset.
+  int64_t start_offset = 0;
+  int64_t stop_offset = 0;
+  Val* extent_val = nullptr;
+  bool extent_is_from_symbolic = true;
+  Val* expanded_extent_val = nullptr;
+  std::optional<IterType> iter_type = std::nullopt;
+
+  for (const id: ids) {
+    if (id->isBroadcast()) {
+      if (id->hasExpandedExtent()) {
+        expanded_extent_val = promoteSize(expanded_extent_vals, id->expandedExtent());
+      }
+      continue;
+    }
+    if (extent_is_from_symbolic && !id->isSymbolic()) {
+      // We prefer to use extents from non-Symbolic inputs if there are any
+      // because they might indicate a broadcast axis that is resolved in this
+      // op.
+      extent_val = id->extent();
+      extent_is_from_symbolic = false;
+    }
+    extent_val = promoteSize(extent_val, id->extent());
+    if (iter_type.has_value()) {
+      iter_type = promoteIterType(iter_type.value(), id->getIterType());
+    } else {
+      iter_type = id->getIterType();
+    }
+
+    auto id_start_offset = id->start();
+    auto id_stop_offset = id->stopOffset();
+      // Currently, start is always constant
+      NVF_ERROR(
+          id_start_offset->isConstInt(),
+          "Invalid IterDomain start: ",
+          id_start_offset);
+      NVF_ERROR(
+          id_stop_offset->isConstInt(),
+          "Invalid IterDomain stop offset: ",
+          id_stop_offset);
+      start_offset =
+          std::max(start_offset, id_start_offset->evaluate().as<int64_t>());
+      stop_offset =
+          std::max(stop_offset, id_stop_offset->evaluate().as<int64_t>());
+  }
+
+  IterDomain* out_domain = nullptr;
+  if (extent_val != nullptr) {
+      NVF_ERROR(
+          iter_type.has_value(),
+          "Could not deduce iter type for new tensor view.");
+      out_domain =
+          IterDomainBuilder(
+              IrBuilder::create<Val>(start_offset, DataType::Index),
+              extent_val)
+              .stop_offset(
+                  IrBuilder::create<Val>(stop_offset, DataType::Index))
+              .iter_type(iter_type.value())
+              .build();
+    } else {
+      out_domain = IterDomainBuilder(
+                              FusionGuard::getCurFusion()->zeroVal(),
+                              FusionGuard::getCurFusion()->oneVal())
+                              .expanded_extent(expanded_extent_vals[dim_i])
+                              .iter_type(IterType::Broadcast)
+                              .build();
+    }
+  return out_domain;
+}
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -277,6 +352,10 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
                               .iter_type(IterType::Broadcast)
                               .build();
     }
+  }
+
+  for (const auto dim_i: c10::irange(out_domain.size())) {
+
   }
 
   return out_domain;
