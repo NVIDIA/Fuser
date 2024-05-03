@@ -34,18 +34,22 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // memory format as with ref.
 //
 // The propagation rule explained in an example, given inputs:
-//   ref's allocation domain {iS0[i0], ir1[i1], iS2[i2]}
-//   target's rfactor domain {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2],
-//   ib8[1]}
+//   ref's allocation domain
+//     {iS0[i0], ir1[i1], iS2[i2]}
+//   target's rfactor domain
+//     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
 // 1. we project iter domains from targets' rfactor domain which has an exact
 // map to ref's allocation domain.
 //   mapped_id_vec {ir5[i1], iS7[i2]}
-// 2. remove all projected id from target's rfactor domain:
-//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5], ib8[1]}
-// 3. iterating through unmodified target's rfactor domain, we construct new
-// allocation domain
-//
+// 2. remove all projected ids and reduction iter domains from target's rfactor domain:
+//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
+// 3. iterating through unmodified target's rfactor domain to construct target allocation domain:
+//   if target_rfactor_domain[i] is a reduction and is not mapped
+//      keep the reduction iter domain in the original position;
+//   else
+//      push the front of unmapped_id_vec to the end of target allocation domain if unmapped_id_vec isn't empty yet;
+//      otherwise, push the frnot of mapped_id_vec at the end of target allocation domain.
 void AllocationOrderMapping(
     const IdModel& id_model,
     TensorView* ref,
@@ -55,18 +59,15 @@ void AllocationOrderMapping(
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
 
+  // map target rfactor domain into ref's allocation domain
   std::vector<IterDomain*> mapped_id_vec;
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target->getMaybeRFactorDomain()) {
-      // sharp-edges 0: double check this one.
+      // sharp-edges 0
       // avoid mapping a reduced dimension.
       if (!ref_id->isReduction() && id->isReduction()) {
         // technically we don't need to skip this. But it's giving issues
-        continue;
-      }
-      // skip already map id
-      if (mapped_id_set.count(id) != 0) {
         continue;
       }
       // how do we resolve multiple mapping?
@@ -78,18 +79,9 @@ void AllocationOrderMapping(
     }
   }
 
-  // NOTE: preserve reduction iterdomain.
-  // we are not mapping rS{} id in outputs to inputs. This causes the pass to
-  // aggressively push for permutation on output. Which should be fine since
-  // re-ordering reduced id in allocation domain shouldn't matter. But it's
-  // hitting failures.
+  // removing mapped ids and reduction ids to create unmapped_ids_vec.
   std::vector<IterDomain*> unmapped_ids_vec = target->getMaybeRFactorDomain();
-  // auto iter = std::remove_if(unmapped_ids_vec.begin(),
-  // unmapped_ids_vec.end(), [&mapped_id_set](IterDomain* it) {return
-  // mapped_id_set.count(it) != 0;}); std::copy(mapped_id_vec.begin(),
-  // mapped_id_vec.end(), iter);
-
-  auto iter = std::remove_if(
+  auto unmapped_ids_vec_end = std::remove_if(
       unmapped_ids_vec.begin(),
       unmapped_ids_vec.end(),
       [&mapped_id_set](IterDomain* it) {
@@ -103,19 +95,23 @@ void AllocationOrderMapping(
   std::vector<IterDomain*> target_alloc_domain(
       target_rfactor_domain.size(), nullptr);
   for (auto i : c10::irange(target_rfactor_domain.size())) {
+    // sharp-edges 1
+    // preserves non-mapped reduction id in its original position
     if (target_rfactor_domain[i]->isReduction() &&
         mapped_id_set.count(target_rfactor_domain[i]) == 0) {
       target_alloc_domain[i] = target_rfactor_domain[i];
       continue;
     }
-    if (unmapped_id_iter != iter) {
+    // push unmapped ids to outer dimension
+    if (unmapped_id_iter != unmapped_ids_vec_end) {
       target_alloc_domain[i] = *unmapped_id_iter++;
     } else {
+      // push mapped ids to inner dimension
       target_alloc_domain[i] = *mapped_id_iter++;
     }
   }
 
-  // skip when it isn't updating.
+  // skip trivial allocation domain
   if (target_alloc_domain != target_rfactor_domain) {
     target->setAllocationDomain(target_alloc_domain, true);
   }
