@@ -1336,6 +1336,9 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     std::tie(info.sizes, info.strides) = has_expanded_domains
         ? inferShapeOfOutput(tv, expr_eval)
         : inferShapeOfIntermediate(tv, alloc, expr_eval);
+    // TODO: actually properly set the size of the intermediate. Here I am just
+    // overallocating to avoid invalid accesses
+    info.sizes[0] *= 100;
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
