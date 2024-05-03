@@ -27,7 +27,8 @@ using AllocationOrderInferenceTest = NVFuserTest;
 
 std::vector<int64_t> getAllocationDomainPermutation(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =
-    ir_utils::computePermutation(tv->getMaybeRFactorDomain(), tv->getMaybeAllocationDomain());
+      ir_utils::computePermutation(
+          tv->getMaybeRFactorDomain(), tv->getMaybeAllocationDomain());
   if (permutation.has_value()) {
     return permutation.value();
   }
@@ -54,7 +55,8 @@ TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
   tv0->setAllocationDomain(tv0_nhwc, true);
 
   preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
+  EXPECT_THAT(
+      getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
   EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
 }
 
@@ -103,7 +105,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
 
-    preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv2, tv3, tv6, tv7});
+    preseg_passes::inferenceAllocationOrder(
+        &fusion, {tv0}, {tv2, tv3, tv6, tv7});
     EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
     EXPECT_THAT(getAllocationDomainPermutation(tv6), ElementsAre(0, 2, 3, 1));
@@ -238,13 +241,9 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor({-1, 1}); // stride order: {0, 1}
   fusion.addInput(tv1);
-  // stride order: {2, 1, 3, 0}
-  // Since dimension-1 is reduced. Its location in stride order doesn't matter.
-  // We choose to preserve its position to avoid unnecessary permutation 
-  auto tv2 = sum(tv0, {1});
+  auto tv2 = sum(tv0, {1}); // stride order: {1, 2, 3, 0}
   fusion.addOutput(tv2);
-  // stride order: {2, 1, 0}
-  auto tv3 = sum(tv2, {1});
+  auto tv3 = sum(tv2, {1}); // stride order: {1, 2, 0}
   fusion.addOutput(tv3);
   // tv3 dominates the propagation since it has more non-broadcast dimension
   auto tv4 = add(tv1, tv3); // stride order: {1, 0}
@@ -255,9 +254,10 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   auto tv5 = broadcast(tv3, {true, false, false, true});
   fusion.addOutput(tv5);
 
-  preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3, tv4, tv5});
-  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(2, 1, 3, 0));
-  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(2, 1, 0));
+  preseg_passes::inferenceAllocationOrder(
+      &fusion, {tv0, tv1}, {tv2, tv3, tv4, tv5});
+  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 2, 0));
   EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
   EXPECT_THAT(getAllocationDomainPermutation(tv5), ElementsAre(0, 3, 2, 1));
 }
