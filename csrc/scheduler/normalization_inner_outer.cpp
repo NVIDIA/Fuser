@@ -328,7 +328,8 @@ std::vector<TensorView*> sortProjectableBufferInputs(
   std::vector<int> buffer_latency(n_buffer_inputs, 0);
   int sm_count =
       (int)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  int n_outer_loop = [&sm_count, &reduction_tvs, &runtime_info]() -> int {
+  int n_outer_loop = 1;
+  {
     for (auto buffer : reduction_tvs) {
       if (scheduler_utils::isFastestDimReduction(buffer)) {
         continue;
@@ -339,16 +340,14 @@ std::vector<TensorView*> sortProjectableBufferInputs(
           auto id_size =
               runtime_info.expressionEvaluator().evaluate(id->extent());
           NVF_ERROR(id_size.hasValue(), "Could not infer outer dim size.");
-            outer_dim_size *= id_size.as<int64_t>();
+          outer_dim_size *= id_size.as<int64_t>();
         }
       }
       int gdimy = sm_count;
-      int n_loops = (int)ceilDiv(outer_dim_size, gdimy);
-      return n_loops;
+      n_outer_loop = (int)ceilDiv(outer_dim_size, gdimy);
+      break;
     }
-    NVF_ERROR(false, "Could not infer outer loop count.");
-    return 1;
-  }();
+  }
 
   // set latency for each buffer.
   // Assume load from smem to register has a latency of 1, from gmem to smem has
@@ -389,10 +388,16 @@ std::vector<TensorView*> sortProjectableBufferInputs(
 
 // Sort persistent buffers based on the number of uses from smallest to largest.
 // Used when buffers are not projected to inputs.
+// TODO: Currently, this function is unused as all existing cases (LayerNorm bwd
+// and RMS norm bwd) involve projecting buffers to inputs. Consider this
+// function a placeholder for scenarios where buffers are not projected to
+// inputs. Refer to the test CombinedSchedulerInnerOuterNoOuterBroadcastTv for a
+// concrete example of such cases. Add NoOuterBroadcast cases to our benchmarks
+// and test the performance of this function.
 std::vector<TensorView*> sortPersistentBuffers(
     std::vector<TensorView*> persistent_buffers) {
   // Directly sort the persistent_buffers vector based on the number of uses.
-  std::sort(
+  std::stable_sort(
       persistent_buffers.begin(),
       persistent_buffers.end(),
       [](TensorView* a, TensorView* b) {
@@ -408,11 +413,29 @@ std::vector<TensorView*> sortPersistentBuffers(
 // is slower than registers, we should move the buffers that are
 // less frequently accessed to shared memory.
 struct PersistentBufferStorageParams {
+  // representing buffers that are stored in shared memory, other buffers are
+  // stored in registers.
   std::vector<TensorView*> smem_persistent_buffers;
+
+  // Total number of bytes occupied by all persistent buffers stored in shared
+  // memory.
   int64_t smem_buffer_size = -1;
+
+  // Total number of bytes occupied by all persistent buffers stored in
+  // registers.
   int64_t regs_buffer_size = -1;
+
+  // Additional shared memory usage per block that is not associated with
+  // persistent buffers. This includes memory for driver overhead and workspace
+  // for reductions.
   int64_t smem_overhead = -1;
+
+  // Flag indicating whether there are sufficient registers and shared memory
+  // available to accommodate all persistent buffers as required for efficient
+  // execution.
   bool has_enough_regs_and_smem = false;
+
+  // Flag indicating whether the persistent buffers are recomputed using inputs.
   bool project_to_input = false;
 };
 
@@ -469,74 +492,95 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_regs = scheduler_utils::register_file_size_full;
   buffer_params.smem_overhead = smem_overhead;
 
-  // Put all the persistent tensors in registers
+  // (1) init the buffer_params by putting all the persistent tensors in
+  // registers
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // Relocate buffers to shared memory until the buffer size in registers is
+  // (2) If the avilable register is larger than current register buffer size,
+  // no need to move buffers to shared memory, return early.
+  if (buffer_params.regs_buffer_size <= available_regs) {
+    buffer_params.has_enough_regs_and_smem = true;
+    return buffer_params;
+  }
+
+  // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
-  if (buffer_params.regs_buffer_size > available_regs) {
-    const auto sorted_candidate_tvs = buffer_params.project_to_input
-        ? sortProjectableBufferInputs(
-              fusion,
-              persistent_buffer_info.persistent_buffers,
-              persistent_buffer_info.projectable_buffer_inputs,
-              outer_broadcast_tvs,
-              reduction_tvs,
-              runtime_info)
-        : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
 
-    // determine the number of buffers to move to shared memory
-    const int64_t n_buffers = (int64_t)sorted_candidate_tvs.size();
-    int64_t acc_regs_buffer_size = 0, acc_smem_buffer_size = 0;
-    int64_t n_smem_buffer = -1;
-    for (int i = 1; i <= n_buffers; i++) {
-      auto current_tv = sorted_candidate_tvs[i - 1];
-      int64_t tv_buffer_size_regs =
-          scheduler_utils::getPersistentBufferSizeOfTensor(
-              current_tv, runtime_info, persistent_buffer_info);
+  // (3.1) Sort the candidate persistent buffers, based on its read/write usage.
+  // Put the buffer that is less frequently used in the front.
+  const auto sorted_candidate_tvs = buffer_params.project_to_input
+      ? sortProjectableBufferInputs(
+            fusion,
+            persistent_buffer_info.persistent_buffers,
+            persistent_buffer_info.projectable_buffer_inputs,
+            outer_broadcast_tvs,
+            reduction_tvs,
+            runtime_info)
+      : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
 
-      int64_t tv_buffer_size_smem = roundUpSharedMemory(
-          tv_buffer_size_regs,
-          dataTypeSize(current_tv->getDataType().value()),
-          vectorize_factor,
-          InnerOuterPersistentKernelScheduler::threads_per_block_min,
-          InnerOuterPersistentKernelScheduler::threads_per_block_max,
-          dev_prop->warpSize);
+  // (3.2) Before this loop, all buffers are in registers.
+  // Try to move buffer from register to shared memroy. The visiting order is
+  // from the first buffer to the last buffer in the sorted_candidate_tvs.
+  // After one buffer is moved to shared memory, the buffer size in registers
+  // and shared memory are updated accordingly. Break if required register and
+  // shared memory are lower than limit or shared memory exceeds the limit.
+  int64_t n_smem_buffer = -1;
+  const int n_buffers = (int)sorted_candidate_tvs.size();
+  for (int i = 0; i < n_buffers; i++) {
+    // start from the first buffer, which has the smallest read/write latency
+    // move it to shared memory has a smaller impact on performance than moving
+    // other more frequently accessed buffers.
+    auto current_tv = sorted_candidate_tvs[i];
 
-      acc_regs_buffer_size += tv_buffer_size_regs;
-      acc_smem_buffer_size += tv_buffer_size_smem;
-      // check if we have enough registers after moving the first-i buffers to
-      // shared memory
-      if (buffer_params.regs_buffer_size - acc_regs_buffer_size <=
-          available_regs) {
-        n_smem_buffer = i;
-        break;
-      }
+    // calculate the size of this buffer & reduce the register buffer size
+    int64_t tv_buffer_size_regs =
+        scheduler_utils::getPersistentBufferSizeOfTensor(
+            current_tv, runtime_info, persistent_buffer_info);
+    buffer_params.regs_buffer_size -= tv_buffer_size_regs;
+
+    // round up the buffer size to shared memory & increase the shared memory
+    // buffer size
+    int64_t tv_buffer_size_smem = roundUpSharedMemory(
+        tv_buffer_size_regs,
+        dataTypeSize(current_tv->getDataType().value()),
+        vectorize_factor,
+        InnerOuterPersistentKernelScheduler::threads_per_block_min,
+        InnerOuterPersistentKernelScheduler::threads_per_block_max,
+        dev_prop->warpSize);
+    buffer_params.smem_buffer_size += tv_buffer_size_smem;
+
+    // The first-i buffers to are moved from register to shared memory
+    // If both the register buffer size and shared memory buffer size are within
+    // the allowable limit, we found a good configuration. Record the number of
+    // buffers to be moved to shared memory and break the loop.
+    if (buffer_params.regs_buffer_size <= available_regs &&
+        buffer_params.smem_buffer_size <= available_smem) {
+      n_smem_buffer = i + 1;
+      break;
     }
-
-    // Can't be scheduled if n_smem_buffer is not set or requested shared memory
-    // is larger than available.
-    if (n_smem_buffer == -1 || acc_smem_buffer_size > available_smem) {
-      buffer_params.has_enough_regs_and_smem = false;
-      return buffer_params;
+    // shared memory buffer size exceeds the limit, not a good configuration.
+    // break the loop, n_smem_buffer remains [-1] indicating a bad
+    // configuration.
+    if (buffer_params.smem_buffer_size > available_smem) {
+      break;
     }
+  }
 
-    // move n_smem_buffer buffers to shared memory
+  // n_smem_buffer > 0, has_enough_regs_and_smem = true, move the
+  // first n_smem_buffer buffers to shared memory. otherwise, we
+  // don't have enough shared memory and registers to accommodate all persistent
+  // buffers, has_enough_regs_and_smem = false.
+  if (n_smem_buffer > 0) {
+    buffer_params.has_enough_regs_and_smem = true;
+    buffer_params.smem_persistent_buffers.reserve(n_smem_buffer);
     for (int i = 0; i < n_smem_buffer; i++) {
       buffer_params.smem_persistent_buffers.emplace_back(
           sorted_candidate_tvs[i]);
     }
-    buffer_params.regs_buffer_size -= acc_regs_buffer_size;
-    buffer_params.smem_buffer_size = acc_smem_buffer_size;
+  } else {
+    buffer_params.has_enough_regs_and_smem = false;
   }
-
-  buffer_params.has_enough_regs_and_smem =
-      (buffer_params.smem_buffer_size <= available_smem) &&
-      (buffer_params.regs_buffer_size <= available_regs);
-  NVF_ERROR(
-      buffer_params.has_enough_regs_and_smem,
-      "Not enough registers and shared memory for persistence! Should return early.");
   return buffer_params;
 }
 
