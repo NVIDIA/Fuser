@@ -10981,7 +10981,15 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 2, 2> T0, Tensor<__half,
 
       // wait for semaphore
       semaphore = &T13[work_buffer_pos * num_segments + segment_id];
-      grid_sync::semaphoreWait(semaphore, cta_rank);
+      if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+        // Any non-zero value indicates that a slot is reserved. -1 indicates
+        // that the slot has not yet been written but is reserved. We will set
+        // the value to target's cta rank once writing is complete.
+        while(atomicCAS(semaphore, 0, -1)) {
+          __nanosleep(8);
+        }
+      }
+      // grid_sync::semaphoreWait(semaphore, cta_rank);
       __syncthreads();
 
       for(nvfuser_index_t i158 = 0; i158 < 32; ++i158) {
@@ -10998,7 +11006,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 2, 2> T0, Tensor<__half,
         }
       }
 
-      // Reset the semaphore. This indicates that the read is complete and it is safe to overwrite this slot
+      // Reset the semaphore. This indicates that the read is complete and it
+      // is safe to overwrite this slot
       __syncthreads();
       grid_sync::semaphoreRelease(semaphore, 0);
     }
