@@ -333,17 +333,13 @@ std::vector<TensorView*> sortProjectableBufferInputs(
       if (scheduler_utils::isFastestDimReduction(buffer)) {
         continue;
       }
-      int64_t outer_dim_size = -1;
+      int64_t outer_dim_size = 1;
       for (auto id : buffer->getMaybeRFactorDomain()) {
         if (id->isReduction()) {
           auto id_size =
               runtime_info.expressionEvaluator().evaluate(id->extent());
           NVF_ERROR(id_size.hasValue(), "Could not infer outer dim size.");
-          if (outer_dim_size == -1) {
-            outer_dim_size = id_size.as<int64_t>();
-          } else {
             outer_dim_size *= id_size.as<int64_t>();
-          }
         }
       }
       int gdimy = sm_count;
