@@ -36,13 +36,6 @@ class MultiDeviceTest : public NVFuserTest {
   Communicator* communicator;
   c10::TensorOptions tensor_options;
   bool debug_print;
-  // This is a knob that forces all processes to synchronize at a barrier
-  // between tests. It slows the tests down so that's why it's default turned
-  // off.  Without the barrier, isolating a failing test can be hard so that's
-  // we turn on the flag for CI. Specifically, if a test fails such that a
-  // subset of processes fail, then some processes will move onto another tests
-  // and timeout later.
-  bool do_barrier_at_test;
   bool disable_skip;
 };
 
