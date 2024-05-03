@@ -174,7 +174,8 @@ void replayAllocationDomain(
 //   alloc_order_map.
 void inferenceAllocationOrder(
     Fusion* fusion,
-    const std::unordered_set<Val*>& skip_set) {
+    const std::vector<TensorView*>& srcs,
+    const std::vector<TensorView*>& dsts) {
   // build IdModel, setting allow_self_mapping to avoid assert
   // even though we do NOT populate allocation order where self_mapping is
   // present
@@ -185,7 +186,7 @@ void inferenceAllocationOrder(
 
   // populate the number of non-broadcast/non-reduction iterdomains on srcs
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
-  for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+  for (auto* tv : srcs) {
     // skip entry with self mapping.
     if (!hasSelfMapping(tv, exact_graph).has_value()) {
       loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
@@ -193,21 +194,15 @@ void inferenceAllocationOrder(
   }
 
   // propagate new allocation domain on dsts
-  for (Val* out_val : fusion->outputs()) {
-    if (skip_set.count(out_val) != 0) {
-      continue;
-    }
-
-    auto* out_tv = dynamic_cast<TensorView*>(out_val);
-
+  for (TensorView* dst : dsts) {
     // safe check when allocation domain on the entry cannot be safely mutated.
-    if (out_tv == nullptr || out_tv->hasAllocation() ||
-        fusion->getOutputAlias(out_val).type != AllocationType::New) {
+    if (dst == nullptr || dst->hasAllocation() ||
+        fusion->getOutputAlias(dst).type != AllocationType::New) {
       continue;
     }
 
     // skip entry with self mapping.
-    if (hasSelfMapping(out_tv, exact_graph).has_value()) {
+    if (hasSelfMapping(dst, exact_graph).has_value()) {
       continue;
     }
 
@@ -218,7 +213,7 @@ void inferenceAllocationOrder(
     size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
       // discard srcs for propagation which dst has no dependency on.
-      if (!DependencyCheck::isDependencyOf(iter.first, out_val)) {
+      if (!DependencyCheck::isDependencyOf(iter.first, dst)) {
         continue;
       }
       // discard srcs with lower iterdomain count than ref
@@ -255,13 +250,19 @@ void inferenceAllocationOrder(
 
     // propagate allocation domain if we still have a candidate.
     if (ref) {
-      replayAllocationDomain(id_model, ref, out_tv);
+      replayAllocationDomain(id_model, ref, dst);
     }
   }
 }
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
-  inferenceAllocationOrder(fusion);
+  // propagation sources are all input TensorViews
+  auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
+  // propagation destinations are all output TensorViews
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
+  inferenceAllocationOrder(fusion, srcs, dsts);
 }
 
 } // namespace nvfuser::preseg_passes
