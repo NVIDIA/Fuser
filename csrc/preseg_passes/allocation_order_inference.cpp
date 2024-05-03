@@ -16,7 +16,8 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// counting the number of non-broadcast & non-reduction iterdomains in tv's allocation domain.
+// counting the number of non-broadcast & non-reduction iter domains in tv's
+// allocation domain.
 size_t countLoopIterDomains(const TensorView* tv) {
   return std::count_if(
       tv->getMaybeAllocationDomain().begin(),
@@ -26,8 +27,26 @@ size_t countLoopIterDomains(const TensorView* tv) {
       });
 }
 
-// mapping allocation domain from ref to target, for details on the propagation rule see Note [ Allocation Order Propagation ]
-void replayAllocationDomain(
+// Note [ Allocation Order Mapping ]
+//
+// Map allocation domain from ref to target's rfactor domain to construct a new
+// allocation domain for target. The objective is to have target in a similar
+// memory format as with ref.
+//
+// The propagation rule explained in an example, given inputs:
+//   ref's allocation domain {iS0[i0], ir1[i1], iS2[i2]}
+//   target's rfactor domain {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2],
+//   ib8[1]}
+//
+// 1. we project iter domains from targets' rfactor domain which has an exact
+// map to ref's allocation domain.
+//   mapped_id_vec {ir5[i1], iS7[i2]}
+// 2. remove all projected id from target's rfactor domain:
+//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5], ib8[1]}
+// 3. iterating through unmodified target's rfactor domain, we construct new
+// allocation domain
+//
+void AllocationOrderMapping(
     const IdModel& id_model,
     TensorView* ref,
     TensorView* target) {
@@ -39,9 +58,8 @@ void replayAllocationDomain(
   std::vector<IterDomain*> mapped_id_vec;
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto* ref_id : ref_alloc_domain) {
-    // maybe not skipping broadcast/reduction domains
-
     for (auto* id : target->getMaybeRFactorDomain()) {
+      // sharp-edges 0: double check this one.
       // avoid mapping a reduced dimension.
       if (!ref_id->isReduction() && id->isReduction()) {
         // technically we don't need to skip this. But it's giving issues
@@ -109,18 +127,35 @@ void replayAllocationDomain(
 //
 // The propagation tries to populate allocation domain from srcs to dsts.
 //
-// For each TensorView in dsts, it iterate through all TensorView in srcs looking for a reference TensorView to propagate its allocation domain.
-//   1. It only propagate to TensorView in dsts when it's safe to manipulate its allocation domain:
+// For each TensorView in dsts, it iterate through all TensorView in srcs
+// looking for a reference TensorView to propagate its allocation domain.
+//   1. It only propagate to TensorView in dsts when it's safe to manipulate its
+//   allocation domain:
 //     1.1 It doesn't have an allocation domain set;
 //     1.2 It is not an aliase to another TensorView;
 //     1.3 It does not have self mapping;
 //   2. Among all entries in srcs, we pick reference that:
 //     2.1 It has a dependency towards dst;
-//     2.2 It has the highest count of non-broadcast/non-reduction iterdomains in allocation domain.
-//     1.3 It does not have self mapping;
+//     2.2 It has the highest count of loop (non-broadcast/non-reduction) iter
+//     domains in allocation domain.
+//         Note0: The reason to count behind this is that, we could have binary
+//         operation on a full-sized tensor with a broadcast vector tensor. In
+//         which case, we would want to propagate the layout of the full-sized
+//         tensor to the output, even though both candidates have the same rank.
+//         Note1: when we have multiple candidates with the same count of loop
+//         iter domains, we require there's no ambiguity by checking both
+//         candidates having the same iter domain mapping. Otherwise we'll stop
+//         the propagation.
+//     2.3 It does not have self mapping;
+//   3. Propagate memory format from selected reference in `srcs` to its
+//   corresponding target in `dsts`.
 //
-// Propagation rule:
-//   Given a source TensorView `src` and a destination TensorView `dst`
+// propagation rule:
+//   Given a reference TensorView `ref` and a target TensorView `target`, we try
+//   to map iter domain in `ref->getMaybeAllocationDomain()` to
+//   `target->getMaybeRFactorDomain()`, which would gives `target` to a similar
+//   memory layout as `ref`. For details on the propagation rule see Note [
+//   Allocation Order Mapping ]
 void inferenceAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
@@ -133,7 +168,7 @@ void inferenceAllocationOrder(
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& val_sets = exact_graph.disjointValSets();
 
-  // populate the number of non-broadcast/non-reduction iterdomains on srcs
+  // populate the number of loop iter domains on srcs
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
   for (auto* tv : srcs) {
     // skip entry with self mapping.
@@ -199,7 +234,7 @@ void inferenceAllocationOrder(
 
     // propagate allocation domain if we still have a candidate.
     if (ref) {
-      replayAllocationDomain(id_model, ref, dst);
+      AllocationOrderMapping(id_model, ref, dst);
     }
   }
 }
@@ -208,7 +243,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
-  // mark output TensorViews as propagation destinations 
+  // mark output TensorViews as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
   // propagate allocation domain from sources to destinations
