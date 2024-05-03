@@ -497,7 +497,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the avilable register is larger than current register buffer size,
+  // (2) If the available register is larger than current register buffer size,
   // no need to move buffers to shared memory, return early.
   if (buffer_params.regs_buffer_size <= available_regs) {
     buffer_params.has_enough_regs_and_smem = true;
