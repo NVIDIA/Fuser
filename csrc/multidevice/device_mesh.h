@@ -49,10 +49,9 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
-
   // returns the index of device in the mesh.
   // returns -1 if device is not present.
-  int64_t idxOf(const DeviceIdxType device) {
+  int64_t idxOf(const DeviceIdxType device) const {
     auto it = std::find(vector_.begin(), vector_.end(), device);
     if (it != vector_.end()) {
       return std::distance(vector_.begin(), it);
