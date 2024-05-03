@@ -40,9 +40,10 @@ class HostIrTest : public NVFuserTest,
    seem cumbersome, we believe that current design is as simple as can be to
    allow for the level of flexibility we will need in the future.
 
-    The first test (HostIrTest.SingleFusion) illustrates the simplest non-trivial host program possible: compiling and running a single Fusion.
-    It is a good starting point to understand the Host Ir semantics.
-    The host program could be illustrated as follows:
+    The first test (HostIrTest.SingleFusion) illustrates the simplest
+   non-trivial host program possible: compiling and running a single Fusion. It
+   is a good starting point to understand the Host Ir semantics. The host
+   program could be illustrated as follows:
 
     tv0: input
 
@@ -53,19 +54,34 @@ class HostIrTest : public NVFuserTest,
     Here is a summary of the different steps:
     1) We define the fusion we want to execute
 
-    2) We instantiate a (empty for now) HostIrContainer. This container will be used to 1)register the Host IRs, and 2) to represent the Host program through its top_level_exprs_.
+    2) We instantiate a (empty for now) HostIrContainer. This container will be
+   used to 1)register the Host IRs, and 2) to represent the Host program through
+   its top_level_exprs_.
 
-    3) We create a HostUnit Ir holding the created fusion. (this IR is registered in the HostIrContainer)
+    3) We create a HostUnit Ir holding the created fusion. (this IR is
+   registered in the HostIrContainer)
 
-    4) We create TensorViews that represents, at the Host level, the I/O of the Fusion we want to execute. On the one hand, those TensorViews are involved in the Host program, so they need to be registered in the HostIrContainer. On the other hand, they need to match the I/O of the Fusion we want to execute. Therefore we use IrCloner to create those TensorView from the Fusion's I/O.
+    4) We create TensorViews that represents, at the Host level, the I/O of the
+   Fusion we want to execute. On the one hand, those TensorViews are involved in
+   the Host program, so they need to be registered in the HostIrContainer. On
+   the other hand, they need to match the I/O of the Fusion we want to execute.
+   Therefore we use IrCloner to create those TensorView from the Fusion's I/O.
 
-    5) We create a PostOnStream Ir, taking as argument the HostUnit and the I/O TensorView. This IR represents the instruction of executing the Fusion with the given I/O.
+    5) We create a PostOnStream Ir, taking as argument the HostUnit and the I/O
+   TensorView. This IR represents the instruction of executing the Fusion with
+   the given I/O.
 
-    6) We define the Host program by adding PostOnStream to the container's top level expression. In the current simple example, the HostProgram only consists of this single instruction.
+    6) We define the Host program by adding PostOnStream to the container's top
+   level expression. In the current simple example, the HostProgram only
+   consists of this single instruction.
 
-    7) We define the Host program's global I/O, using the `addInput` `addOuput` methods. In the present simple example, those global I/Os match the PostOnStream's I/O, which themselves were cloned from the Fusion's I/O. Note: this step could probably be automated from a data dependency analysis
+    7) We define the Host program's global I/O, using the `addInput` `addOuput`
+   methods. In the present simple example, those global I/Os match the
+   PostOnStream's I/O, which themselves were cloned from the Fusion's I/O. Note:
+   this step could probably be automated from a data dependency analysis
 
-    8) We instantiate HostIrExecutor and run the Host program with concrete inputs using HostIrExecutor::runWithInput
+    8) We instantiate HostIrExecutor and run the Host program with concrete
+   inputs using HostIrExecutor::runWithInput
 */
 
 TEST_P(HostIrTest, SingleFusion) {
@@ -130,7 +146,9 @@ TEST_P(HostIrTest, SingleFusion) {
 }
 
 /*
-  In the second test, we build upon the previous test by writing a host program where we execute to Fusion in a pipeline fashion. The host program could be illustrated as follows:
+  In the second test, we build upon the previous test by writing a host program
+  where we execute to Fusion in a pipeline fashion. The host program could be
+  illustrated as follows:
 
   tv0: input
 
@@ -336,6 +354,8 @@ TEST_P(HostIrTest, ThreeFusions) {
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
+  // we test two different modes of the HostIrExecutor: using FusionExecutor or
+  // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), std::move(params));
