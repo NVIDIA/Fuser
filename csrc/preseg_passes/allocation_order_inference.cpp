@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
-#include <id_model/id_model.h>
 #include <iter_visitor.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <root_domain_map.h>
@@ -15,22 +15,6 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-
-// performs permutation by `alloc_order` on `tv`'s rfactor_domain.
-std::vector<IterDomain*> constructAllocationDomain(
-    TensorView* tv,
-    const AllocationOrder& alloc_order) {
-  auto rfactor_dom = tv->getMaybeRFactorDomain();
-  auto rank = rfactor_dom.size();
-
-  std::vector<IterDomain*> allocation_domain(rank, nullptr);
-  // specify allocation domain with dimension per allocation order.
-  for (auto i : c10::irange(rank)) {
-    allocation_domain[i] = rfactor_dom.at(alloc_order.at(i));
-  }
-
-  return allocation_domain;
-}
 
 // NOTE: [Allocation Order Inference]
 //
@@ -75,11 +59,8 @@ std::vector<IterDomain*> constructAllocationDomain(
 // those tensors are not going to affect vectorization. Hence we need to
 // identify case 2.
 
-
-
-
-// helper utils to count the number of non broadcast / non reduction
-// iterdomain
+// helper function to count the number of non-broadcast & non-reduction
+// iterdomains in tv's rfactor domain.
 size_t countLoopIterDomains(const TensorView* tv) {
   return std::count_if(
       tv->getMaybeRFactorDomain().begin(),
@@ -88,30 +69,6 @@ size_t countLoopIterDomains(const TensorView* tv) {
         return !ptr_id->isBroadcast() && !ptr_id->isReduction();
       });
 };
-
-// TODO: update comment
-// Returns the candidate operand that dominates the allocation order.
-//
-// It scans through each candidate to find the first one that:
-//   1. is a TensorView
-//   2. has the most non_broadcast IterDomains
-//
-// The function returns a nullptr when it encounters a TensorView that does
-// not have an entry in alloc_order_map_, since this means we failed to
-// propagate memory format for an entry, we do NOT want to aggressively insert
-// output memory format.
-//
-// The function is used to resolve allocation order propagation for operator
-// with multiple operands. The operand with the most number of
-// non-broadcast IterDomain will be dominating the output allocation order.
-// The motivation behind it to avoid breaking allocation order propagation
-// from operands produced by broadcast. e.g. When a binary operator could take
-// in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
-// propagate the channels_last allocation order to output.
-//
-// Pre-condition: `candidates` must be the input operands of the same Expr.
-TensorView* findReference(const std::vector<Val*>& candidates) {
-}
 
 // mapping allocation domain from producer to consumer without reduction
 //
@@ -132,76 +89,75 @@ void replayAllocationDomain(
     const IdModel& id_model,
     TensorView* ref,
     TensorView* target) {
-  // // constructing alloc_domain for producer from its root domain, while
-  // // filtering out reduction because they won't appear in consumer's domain.
-  // std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
-  //     constructAllocationDomain(producer, alloc_order_map_.at(producer)));
-  // // creating producer to consumer root domain map
-  // std::unordered_map<IterDomain*, IterDomain*> p2c_map =
-  //     PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-  // // map alloc_domain to consumer
-  // std::transform(
-  //     alloc_domain.cbegin(),
-  //     alloc_domain.cend(),
-  //     alloc_domain.begin(),
-  //     [&p2c_map](IterDomain* id) { return p2c_map.at(id); });
-  // return alloc_domain;
-  const DisjointSets<Val*>& val_sets = id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
+  const DisjointSets<Val*>& val_sets =
+      id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
 
-  // TODO: I don't think I'm doing it right here.
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
-  std::vector<IterDomain*> mapped_ids;
-  std::unordered_set<IterDomain*> mapped_id;
+
+  std::vector<IterDomain*> mapped_id_vec;
+  std::unordered_set<IterDomain*> mapped_id_set;
   for (auto* ref_id : ref_alloc_domain) {
     // maybe not skipping broadcast/reduction domains
 
     for (auto* id : target->getMaybeRFactorDomain()) {
-      // avoid mapping a reduced dimension. 
+      // avoid mapping a reduced dimension.
       if (!ref_id->isReduction() && id->isReduction()) {
         // technically we don't need to skip this. But it's giving issues
         continue;
       }
       // skip already map id
-      if (mapped_id.count(id) != 0) {
+      if (mapped_id_set.count(id) != 0) {
         continue;
       }
       // how do we resolve multiple mapping?
       if (val_sets.strictAreMapped(ref_id, id)) {
-        mapped_ids.push_back(id);
-        mapped_id.insert(id);
+        mapped_id_vec.push_back(id);
+        mapped_id_set.insert(id);
         break;
       }
     }
   }
 
   // NOTE: preserve reduction iterdomain.
-  // we are not mapping rS{} id in outputs to inputs. This causes the pass to aggressively push for permutation on output. Which should be fine since re-ordering reduced id in allocation domain shouldn't matter. But it's hitting failures.
-  std::vector<IterDomain*> target_alloc_domain = target->getMaybeRFactorDomain();
-  // auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0;});
-  // std::copy(mapped_ids.begin(), mapped_ids.end(), iter);
+  // we are not mapping rS{} id in outputs to inputs. This causes the pass to
+  // aggressively push for permutation on output. Which should be fine since
+  // re-ordering reduced id in allocation domain shouldn't matter. But it's
+  // hitting failures.
+  std::vector<IterDomain*> unmapped_ids_vec = target->getMaybeRFactorDomain();
+  // auto iter = std::remove_if(unmapped_ids_vec.begin(),
+  // unmapped_ids_vec.end(), [&mapped_id_set](IterDomain* it) {return
+  // mapped_id_set.count(it) != 0;}); std::copy(mapped_id_vec.begin(),
+  // mapped_id_vec.end(), iter);
 
-  auto iter = std::remove_if(target_alloc_domain.begin(), target_alloc_domain.end(), [&mapped_id](IterDomain* it) {return mapped_id.count(it) != 0 || it->isReduction();});
+  auto iter = std::remove_if(
+      unmapped_ids_vec.begin(),
+      unmapped_ids_vec.end(),
+      [&mapped_id_set](IterDomain* it) {
+        return mapped_id_set.count(it) != 0 || it->isReduction();
+      });
 
-  auto mapped_iter = mapped_ids.begin();
-  auto unmapped_iter = target_alloc_domain.begin();
-  const std::vector<IterDomain*>& alloc_domain = target->getMaybeRFactorDomain();
-  std::vector<IterDomain*> new_alloc_domain(alloc_domain.size(), nullptr);
-  for (auto i : c10::irange(alloc_domain.size())) {
-    if (alloc_domain[i]->isReduction() && mapped_id.count(alloc_domain[i]) == 0) {
-      new_alloc_domain[i] = alloc_domain[i];
+  auto mapped_id_iter = mapped_id_vec.begin();
+  auto unmapped_id_iter = unmapped_ids_vec.begin();
+  const std::vector<IterDomain*>& target_rfactor_domain =
+      target->getMaybeRFactorDomain();
+  std::vector<IterDomain*> target_alloc_domain(
+      target_rfactor_domain.size(), nullptr);
+  for (auto i : c10::irange(target_rfactor_domain.size())) {
+    if (target_rfactor_domain[i]->isReduction() &&
+        mapped_id_set.count(target_rfactor_domain[i]) == 0) {
+      target_alloc_domain[i] = target_rfactor_domain[i];
       continue;
     }
-    if (unmapped_iter != iter) {
-      new_alloc_domain[i] = *unmapped_iter++;
+    if (unmapped_id_iter != iter) {
+      target_alloc_domain[i] = *unmapped_id_iter++;
     } else {
-      new_alloc_domain[i] = *mapped_iter++;
+      target_alloc_domain[i] = *mapped_id_iter++;
     }
   }
-  
 
   // skip when it isn't updating.
-  if (new_alloc_domain != target->getMaybeRFactorDomain()) {
-    target->setAllocationDomain(new_alloc_domain, true);
+  if (target_alloc_domain != target_rfactor_domain) {
+    target->setAllocationDomain(target_alloc_domain, true);
   }
 }
 
@@ -219,75 +175,85 @@ void replayAllocationDomain(
 void inferenceAllocationOrder(
     Fusion* fusion,
     const std::unordered_set<Val*>& skip_set) {
-  // std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
-  // // Note: we only consider simple permutation of allocation domain to rfactor
-  // // domain.
-  // for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-  //   std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-  //       TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
-  //       TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
-  //   if (permutation.has_value()) {
-  //     alloc_order_map[tv] = permutation.value();
-  //   }
-  // }
-  //
-  // // Initialize AllocationOrderInferencer with allocation order of input tensor
-  // // views
-  // AllocationOrderInferencer infer(alloc_order_map);
-  // infer.traverse(fusion);
-  //
-  // return the propagated map
-  // return alloc_order_map;
-
-  // allow self mapping to avoid assert
-  auto id_model = IdModel(fusion, true, true);
+  // build IdModel, setting allow_self_mapping to avoid assert
+  // even though we do NOT populate allocation order where self_mapping is
+  // present
+  auto id_model =
+      IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& val_sets = exact_graph.disjointValSets();
 
-  // picking a candidate for propagation.
+  // populate the number of non-broadcast/non-reduction iterdomains on srcs
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
   for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    // skip entry with self mapping.
     if (!hasSelfMapping(tv, exact_graph).has_value()) {
       loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
     }
   }
 
-  // propagating the allocation order through graph
-  // option1: a vanilla mapping with `val_sets.strictAreMapped` and only manipulate things that is mapped.
-  // option2: wondering if there's something for us to replay a partial map?! i.e. we can replay ref->rfactor --> ref->allocation to tv->rfactor
+  // propagate new allocation domain on dsts
   for (Val* out_val : fusion->outputs()) {
     if (skip_set.count(out_val) != 0) {
       continue;
     }
+
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
+
+    // safe check when allocation domain on the entry cannot be safely mutated.
     if (out_tv == nullptr || out_tv->hasAllocation() ||
-        fusion->getOutputAlias(out_val).type != AllocationType::New ||
-        hasSelfMapping(out_tv, exact_graph).has_value()) {
+        fusion->getOutputAlias(out_val).type != AllocationType::New) {
       continue;
     }
 
+    // skip entry with self mapping.
+    if (hasSelfMapping(out_tv, exact_graph).has_value()) {
+      continue;
+    }
+
+    // find a ref among srcs to be propagated to given dst
     TensorView* ref = nullptr;
-    // skipping cases where output has iter loop count.
-    // size_t non_bc_high_water_mark = countLoopIterDomains(out_tv) - 1;
+
+    // high water mark for candidate of ref.
     size_t non_bc_high_water_mark = 0;
     for (const auto& iter : loop_iter_count) {
-      // only consider inputs for propagation when output has dependency on.
-      if (DependencyCheck::isDependencyOf(iter.first, out_val)) {
-        if (iter.second > non_bc_high_water_mark) {
-          // TODO: if loop_iter_count is sorted, we can early return here.
-          ref = iter.first;
-          non_bc_high_water_mark = iter.second;
-	} else if (iter.second == non_bc_high_water_mark && ref != nullptr) {
-	  // we need to ensure that there's no ambiguity on permutation mapping from multiple dominating references.
-	  for (auto i : c10::irange(ref->nDims())) {
-            if (!val_sets.strictAreMapped(ref->getMaybeAllocationDomain()[i], iter.first->getMaybeAllocationDomain()[i])) {
-	      ref = nullptr;
-	      return;
-	    }
-	  }
-	}
+      // discard srcs for propagation which dst has no dependency on.
+      if (!DependencyCheck::isDependencyOf(iter.first, out_val)) {
+        continue;
+      }
+      // discard srcs with lower iterdomain count than ref
+      if (iter.second < non_bc_high_water_mark) {
+        // TODO: if loop_iter_count is sorted, we can early return here.
+        continue;
+      }
+
+      // new candidate found, update ref and high water mark
+      if (iter.second > non_bc_high_water_mark) {
+        ref = iter.first;
+        non_bc_high_water_mark = iter.second;
+      }
+
+      // found multiple candidate with the same iterdomain count
+      if (iter.second == non_bc_high_water_mark && ref != nullptr) {
+        // ensure that there's no ambiguity on permutation mapping from multiple
+        // references. we need both ref candidates to have the same mapping on
+        // allocation domain
+        for (auto i : c10::irange(ref->nDims())) {
+          if (!val_sets.strictAreMapped(
+                  ref->getMaybeAllocationDomain()[i],
+                  iter.first->getMaybeAllocationDomain()[i])) {
+            // reset ref to nullptr, while keeping the iterdomain count high
+            // water mark. No propagatoin will occur unless we found another ref
+            // candidate with a higher iterdomain count.
+            ref = nullptr;
+            break;
+          }
+        }
+        continue;
       }
     }
+
+    // propagate allocation domain if we still have a candidate.
     if (ref) {
       replayAllocationDomain(id_model, ref, out_tv);
     }
