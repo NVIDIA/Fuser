@@ -1279,7 +1279,9 @@ void movePersistentBufferToSmem(
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
-  if (!rparams.smem_persistent_buffers.empty()) {
+  if (rparams.smem_persistent_buffers.empty()) {
+     return;
+   }
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
     auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
