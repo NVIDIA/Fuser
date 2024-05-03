@@ -655,7 +655,7 @@ static void MatmulShapeWarpStageSpecificSplitK(
     for (long int num_stages : NumStages) {
       for (auto [m, n, k] :
            std::vector<std::tuple<int, int, int>>(SplitKSpecificShapes)) {
-        for (auto splitk_factor : {1, 2, 3, 4, 5, 6, 15, 16, 17, 31, 32, 33, 63, 64, 65}) {
+        for (auto splitk_factor : {2, 3, 4, 5, 6, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128}) {
           for (bool use_smem_epilogue : {false, true}) {
             b->Args(
                 {m,

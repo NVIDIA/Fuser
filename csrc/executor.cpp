@@ -1337,8 +1337,9 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
         ? inferShapeOfOutput(tv, expr_eval)
         : inferShapeOfIntermediate(tv, alloc, expr_eval);
     // TODO: actually properly set the size of the intermediate. Here I am just
-    // overallocating to avoid invalid accesses
-    info.sizes[0] *= 100;
+    // overallocating to avoid invalid accesses. Multiplying by N here
+    // accomodates a split-K factor up to 2*N.
+    info.sizes[0] *= 64;
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
