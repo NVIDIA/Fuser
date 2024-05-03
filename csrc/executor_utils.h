@@ -40,6 +40,11 @@ NVF_API std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
+std::string dumpCompiledCodeToFile(
+    const std::vector<char>& code,
+    const std::string& id,
+    const std::string& suffix);
+
 // I'm not happy with CompiledKernel being a struct exposing all the fields.
 // This could be refactored.
 struct CompiledKernel : public NonCopyable {

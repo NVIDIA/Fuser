@@ -733,21 +733,6 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
   return code;
 }
 
-// Returns the name of the dumped file.
-std::string dumpCompiledCodeToFile(
-    const std::vector<char>& code,
-    const std::string& id,
-    const std::string& suffix) {
-  std::stringstream file_name;
-  file_name << "__tmp_kernel_" << id << suffix;
-  debug() << "PRINTING: " << file_name.str() << std::endl;
-  std::ofstream out(file_name.str());
-  NVF_ERROR(out.is_open());
-  out.write(code.data(), (std::streamsize)code.size());
-  out.close();
-  return file_name.str();
-}
-
 // Get the max register count passed as -maxrregcount ptxas
 // option. The count is determined based on block sizes, an optional
 // heuristic and an environment variable.
@@ -1146,6 +1131,21 @@ std::unique_ptr<CompiledKernel> compileSource(
 }
 
 } // namespace
+
+// Returns the name of the dumped file.
+std::string dumpCompiledCodeToFile(
+    const std::vector<char>& code,
+    const std::string& id,
+    const std::string& suffix) {
+  std::stringstream file_name;
+  file_name << "__tmp_kernel_" << id << suffix;
+  debug() << "PRINTING: " << file_name.str() << std::endl;
+  std::ofstream out(file_name.str());
+  NVF_ERROR(out.is_open());
+  out.write(code.data(), (std::streamsize)code.size());
+  out.close();
+  return file_name.str();
+}
 
 CompiledKernel::~CompiledKernel() {
   if (module != nullptr) {

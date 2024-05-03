@@ -121,16 +121,16 @@ scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1" \;
+    find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' -exec mv '{}' "$1" \;
 }
 
 cleanup() {
-    numkernels=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
+    numkernels=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' | wc -l)
 
     if (( numkernels > 0 ))
     then
         backupdir=$outdir/${currentcommit}-interrupted
-        echo "Interrupted. Backing up $numkernels .cu files to $backupdir"
+        echo "Interrupted. Backing up $numkernels .cu and .ptx files to $backupdir"
         mkdir -p "$backupdir"
         movecudafiles "$backupdir"
     fi

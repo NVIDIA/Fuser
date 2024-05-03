@@ -27,6 +27,7 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
+#include <fstream>
 #include <mutex>
 #include <sstream>
 
@@ -823,6 +824,34 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       kernel_runtime = reuse_it->get();
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
       reusing = true;
+    }
+    if (reusing) {
+      static int reused_kernel = 1;
+      // Print cuda kernels and PTX in order so that we can compare to those
+      // created with DisableOption::KernelReuse
+      for (const FusionExecutor& executor : kernel_runtime->executors()) {
+        // Disable printing so that we don't redundantly print this kernel
+        DebugDumpOptionsGuard ddog;
+        if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
+            isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+          DebugDumpOptionsGuard::getCurOptions().unset(
+              DebugDumpOption::CudaToFile);
+          DebugDumpOptionsGuard::getCurOptions().unset(
+              DebugDumpOption::DebugInfo);
+          std::stringstream filenamess;
+          filenamess << "__tmp_kernel_" << reused_kernel << ".reused.cu";
+          std::ofstream kernel_file(filenamess.str());
+          std::cout << "PRINTING: " << filenamess.str() << std::endl;
+          kernel_file << executor.getStructuredCode() << std::endl;
+        }
+        if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+          std::string ptx_filename = executor_utils::dumpCompiledCodeToFile(
+              executor.compiledKernel().ptx,
+              std::to_string(reused_kernel),
+              ".reused.ptx");
+        }
+        reused_kernel++;
+      }
     }
   }
 
