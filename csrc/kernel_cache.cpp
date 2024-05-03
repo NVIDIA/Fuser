@@ -849,10 +849,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (reuse_it != kernel_runtimes.end()) {
       kernel_runtime = reuse_it->get();
       reusing = true;
-      static int successful_reuse_unsegmented = 0;
-      static int successful_reuse_segmented = 0;
-      static int unsuccessful_reuse_unsegmented = 0;
-      static int unsuccessful_reuse_segmented = 0;
 
       // Validate that this runtime has the desired heuristics
       NVF_ERROR(
@@ -862,48 +858,42 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       bool segmented = these_heuristics.size() != 1;
       auto& desired_heuristics =
           desired_fkr.schedulerHeuristics()->heuristicsList();
-      NVF_ERROR(these_heuristics.size() == desired_heuristics.size());
-      for (size_t i : c10::irange(these_heuristics.size())) {
-        if (!these_heuristics.at(i)->sameAs(desired_heuristics.at(i).get())) {
-          std::cerr << "Found mismatched parameters! Desired params:"
+      if (these_heuristics.size() != desired_heuristics.size()) {
+        reusing = false;
+      } else {
+        for (size_t i : c10::irange(these_heuristics.size())) {
+          if (!these_heuristics.at(i)->sameAs(desired_heuristics.at(i).get())) {
+            debug() << "Found mismatched parameters! Desired params:"
                     << std::endl;
-          for (size_t j : c10::irange(desired_heuristics.size())) {
-            std::cerr << desired_heuristics.at(j)->params()->toString()
+            for (size_t j : c10::irange(desired_heuristics.size())) {
+              debug() << desired_heuristics.at(j)->params()->toString()
                       << std::endl;
-          }
-          std::cerr
-              << "Failed reusing params (THESE DON'T MATCH THE ABOVE PARAMS):"
-              << std::endl;
-          for (size_t j : c10::irange(desired_heuristics.size())) {
-            std::cerr << these_heuristics.at(j)->params()->toString()
+            }
+            debug()
+                << "Failed reusing params (THESE DON'T MATCH THE ABOVE PARAMS):"
+                << std::endl;
+            for (size_t j : c10::irange(desired_heuristics.size())) {
+              debug() << these_heuristics.at(j)->params()->toString()
                       << std::endl;
+            }
+            reusing = false;
+            break;
           }
-          if (segmented) {
-            std::cerr << "So far we have failed to reuse "
-                      << ++unsuccessful_reuse_segmented << " segmented runtimes"
-                      << std::endl;
-          } else {
-            std::cerr << "So far we have failed to reuse "
-                      << ++unsuccessful_reuse_unsegmented
-                      << " unsegmented runtimes" << std::endl;
-          }
-          reusing = false;
-          break;
         }
       }
       if (reusing) {
-        std::cerr << "Reusing runtime with " << these_heuristics.size()
-                  << " segments" << std::endl;
         if (segmented) {
-          std::cerr << "So far we have reused " << ++successful_reuse_segmented
-                    << " segmented runtimes" << std::endl;
+          ++successful_reuse_segmented_;
         } else {
-          std::cerr << "So far we have reused "
-                    << ++successful_reuse_unsegmented << " unsegmented runtimes"
-                    << std::endl;
+          ++successful_reuse_unsegmented_;
+        }
+      } else {
+        if (segmented) {
+          ++unsuccessful_reuse_segmented_;
+        } else {
+          ++unsuccessful_reuse_unsegmented_;
         }
       }
-
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
     }
     if (reusing) {
@@ -935,6 +925,35 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       }
     }
   }
+
+  // TODO: Hide this output behind a dump option
+  const int total_inputs = id_to_kernel_runtime_.size() + (reusing ? 0 : 1);
+  const float successful_segmented_pct =
+      100.0 * (float)successful_reuse_segmented_ / (float)total_inputs;
+  const float successful_unsegmented_pct =
+      100.0 * (float)successful_reuse_unsegmented_ / (float)total_inputs;
+  const float unsuccessful_segmented_pct =
+      100.0 * (float)unsuccessful_reuse_segmented_ / (float)total_inputs;
+  const float unsuccessful_unsegmented_pct =
+      100.0 * (float)unsuccessful_reuse_unsegmented_ / (float)total_inputs;
+  debug() << "FusionExecutorCache Reuse stats:" << std::endl;
+  debug() << "  Unique inputs seen: " << total_inputs << std::endl;
+  debug() << "  Successfully reused runtimes: "
+          << successful_reuse_segmented_ + successful_reuse_unsegmented_ << " ("
+          << successful_segmented_pct + successful_unsegmented_pct << "%)"
+          << std::endl;
+  debug() << "    segmented: " << successful_reuse_segmented_ << " ("
+          << successful_segmented_pct << "% of total)" << std::endl;
+  debug() << "    unsegmented: " << successful_reuse_unsegmented_ << " ("
+          << successful_unsegmented_pct << "% of total)" << std::endl;
+  debug() << "  Failed to reuse runtimes: "
+          << unsuccessful_reuse_segmented_ + unsuccessful_reuse_unsegmented_
+          << " (" << unsuccessful_segmented_pct + unsuccessful_unsegmented_pct
+          << "%)" << std::endl;
+  debug() << "    segmented: " << unsuccessful_reuse_segmented_ << " ("
+          << unsuccessful_segmented_pct << "% of total)" << std::endl;
+  debug() << "    unsegmented: " << unsuccessful_reuse_unsegmented_ << " ("
+          << unsuccessful_unsegmented_pct << "% of total)" << std::endl;
 
   if (!reusing) {
     // cache miss, need to re-build an optimized graph for this case

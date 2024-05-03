@@ -758,6 +758,11 @@ class FusionExecutorCache {
 
   // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
   const bool auto_schedule_;
+
+  int successful_reuse_unsegmented_ = 0;
+  int successful_reuse_segmented_ = 0;
+  int unsuccessful_reuse_unsegmented_ = 0;
+  int unsuccessful_reuse_segmented_ = 0;
 };
 
 } // namespace nvfuser
