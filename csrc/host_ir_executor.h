@@ -19,8 +19,11 @@ namespace hir {
 
 /*
 a HostIrExecutor executes a host programs represented through a HostIrContainer
-It instantiated with with the desired HostIrContainer, and run with concrete inputs by calling the method runWithInput.
-Note that for now HostIrExecutor is an interpreter; later we could rather compile host code.
+It is instantiated with the desired HostIrContainer, and runs the Host program with concrete inputs by calling the method runWithInput.
+
+For now HostIrExecutor is an interpreter; later we could rather compile host code.
+
+Note: most of the implementation is copy pasted for MultiDeviceExecutor. This duplication will be resolved in the future.
 */
 
 // Set of parameters that control the behavior of HostIrExecutor

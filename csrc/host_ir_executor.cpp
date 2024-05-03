@@ -27,7 +27,8 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
     val_to_IValue_[container_->inputs().at(input_idx)] = inputs.at(input_idx);
   }
 
-  // Interpret each instruction in an "eager" way by iterate over the Host Ir Container's top level expression list
+  // Interpret each instruction in an "eager" way by iterate over the Host Ir
+  // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
     dispatch(expr);
   }

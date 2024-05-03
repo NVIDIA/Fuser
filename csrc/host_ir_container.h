@@ -16,7 +16,10 @@ namespace hir {
 /*
 HostIrContainer is used to represent a host program.
 1) It inherits from Fusion, so that (Host) IRs can be resgistered to it.
-2) It holds a vector of Host Expressions `top_level_exprs_` that represent the host program. For now, this vector is manually managed. Moreover, because we use a vector as data structure, top_level_exprs_ can only represent linear Host programs. Later, we it should support non-linear program having a DAG structure.
+2) It holds a vector of Host Expressions `top_level_exprs_` that represent the
+host program. For now, this vector is manually managed. Moreover, because we use
+a vector as data structure, top_level_exprs_ can only represent linear Host
+programs. Later, we it should support non-linear program having a DAG structure.
 */
 
 class HostIrContainer final : public Fusion {
@@ -37,7 +40,7 @@ class HostIrContainer final : public Fusion {
     return top_level_exprs_.push_back(expr);
   }
 
-private:
+ private:
   std::vector<Expr*> top_level_exprs_;
 };
 
