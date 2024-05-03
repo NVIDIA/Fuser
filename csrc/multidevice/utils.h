@@ -20,7 +20,7 @@ namespace nvfuser {
 NVF_API bool isSharded(TensorView*);
 
 // Returns number of device dimensions in a TensorView's leaf domain.
-NVF_API int64_t numDeviceDims(TensorView*);
+int64_t numDeviceDims(TensorView*);
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref

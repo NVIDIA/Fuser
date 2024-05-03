@@ -38,28 +38,27 @@ class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest() : optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+    num_devices_ = communicator->size();
   }
 
   void SetUp() {
+    MultiDeviceTest::SetUp();
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed matmul tests require Ampere or newer";
     }
-    MultiDeviceTest::SetUp();
-    num_devices = communicator->size();
   }
 
-  MultiDeviceExecutorParams executor_params{
+  MultiDeviceExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
-  int num_devices;
+  int num_devices_;
 
-  std::tuple<at::Tensor, at::Tensor, at::Tensor> getAtenInputOutputs(
+  std::tuple<at::Tensor, at::Tensor, at::Tensor> getInputsAndReferenceOutputs(
       MmaLayout layout,
       int M,
       int N,
       int K) {
-    at::manual_seed(0);
     int local_rank = communicator->local_rank();
     c10::ScalarType type = c10::ScalarType::Half;
     auto a = matmulAtInput2D(
@@ -86,7 +85,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 256, N = 64, K = 64;
-  int Mo = num_devices;
+  int Mo = num_devices_;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
   std::vector<int> b_shape = {N, K};
@@ -110,7 +109,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   }
   b->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::TN, M, N, K);
+  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   a_ = a_.view({Mo, Mi, K});
   c_ = c_.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
@@ -118,7 +117,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   auto expected_output = shardTensor(c_, c, communicator->deviceId());
 
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params);
+      std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
@@ -139,7 +138,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 256, N = 64, K = 64;
-  int Mo = num_devices;
+  int Mo = num_devices_;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
   std::vector<int> b_shape = {N, K};
@@ -165,7 +164,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::TN, M, N, K);
+  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   a_ = a_.view({Mo, Mi, K});
   c_ = c_.view({Mo, Mi, N});
 
@@ -173,7 +172,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       shardTensor(a_, a, communicator->deviceId()), b_};
   auto expected_output = shardTensor(c_, c, communicator->deviceId());
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params);
+      std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
@@ -194,7 +193,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 128, N = 64, K = 128;
-  int Ko = num_devices, Ki = K / Ko;
+  int Ko = num_devices_, Ki = K / Ko;
   std::vector<int> a_shape = {Ko, Ki, M};
   std::vector<int> b_shape = {Ko, Ki, N};
 
@@ -221,7 +220,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   }
   c->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NT, M, N, K);
+  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
   a_ = a_.view({Ko, Ki, M});
   b_ = b_.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {
@@ -229,7 +228,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
       shardTensor(b_, b, communicator->deviceId())};
 
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params);
+      std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
@@ -245,8 +244,8 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   DeviceMesh mesh = createDeviceMesh(communicator->size());
 
   int M = 128, N = 64, K = 128;
-  int Ko = num_devices, Ki = K / Ko;
-  int Mo = num_devices, Mi = M / Mo;
+  int Ko = num_devices_, Ki = K / Ko;
+  int Mo = num_devices_, Mi = M / Mo;
   std::vector<int> a_shape = {Ko, Ki, M};
   std::vector<int> b_shape = {Ko, Ki, N};
 
@@ -278,7 +277,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   c->setDeviceMesh(mesh);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  auto [a_, b_, c_] = getAtenInputOutputs(MmaLayout::NT, M, N, K);
+  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
   a_ = a_.view({Ko, Ki, M});
   b_ = b_.view({Ko, Ki, N});
   c_ = c_.view({Mo, Mi, N});
@@ -289,7 +288,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       shardTensor(c_, c, communicator->deviceId()).view({1, Mi, N});
 
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params);
+      std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
       runtime.completeFusion(),
