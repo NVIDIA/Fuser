@@ -109,8 +109,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   }
   b->setDeviceMesh(mesh);
 
-  auto [in0, in1, out] =
-      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
@@ -165,8 +164,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
 
-  auto [in0, in1, out] =
-      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
 
@@ -222,8 +220,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   }
   c->setDeviceMesh(mesh);
 
-  auto [in0, in1, out] =
-      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {
@@ -280,8 +277,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   c->setDeviceMesh(mesh);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  auto [in0, in1, out] =
-      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   out = out.view({Mo, Mi, N});
