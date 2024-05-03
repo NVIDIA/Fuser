@@ -256,12 +256,13 @@ void inferenceAllocationOrder(
 }
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
-  // propagation sources are all input TensorViews
+  // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
-  // propagation destinations are all output TensorViews
+  // mark output TensorViews as propagation destinations 
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
+  // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 }
 
