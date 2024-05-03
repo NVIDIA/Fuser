@@ -31,9 +31,11 @@ class MatmulATenEvaluationTest : public NVFuserTest {
       optimization_guard_;
 };
 
-using MatmulNodeParamType = std::tuple<std::vector<int64_t>, std::vector<int64_t>>;
+using MatmulNodeParamType =
+    std::tuple<std::vector<int64_t>, std::vector<int64_t>>;
 
-class ATenNodesParametrizedTest : public NVFuserFixtureParamTest<MatmulNodeParamType> {
+class ATenNodesParametrizedTest
+    : public NVFuserFixtureParamTest<MatmulNodeParamType> {
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
@@ -428,7 +430,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
 
   FusionExecutor fe;
   fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
   fe.compileFusion(fusion.get(), {t0, t1});
   auto out = fe.runFusion({t0, t1});
 
@@ -459,7 +461,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
 
   FusionExecutor fe;
   fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
   fe.compileFusion(fusion.get(), {t0, t1});
   auto out = fe.runFusion({t0, t1});
 
@@ -469,25 +471,29 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-std::vector<MatmulNodeParamType> matmul_inp_generator(){
-  int b = 128, m = 64, k = 32, n = 16;
-
-  return {
-    std::make_tuple(std::vector<int64_t>({m, k}), std::vector<int64_t>({k, n})),
-    std::make_tuple(std::vector<int64_t>({k}), std::vector<int64_t>({k, n})),
-    std::make_tuple(std::vector<int64_t>({m, k}), std::vector<int64_t>({k})),
-    std::make_tuple(std::vector<int64_t>({k}), std::vector<int64_t>({b, k, n})),
-    std::make_tuple(std::vector<int64_t>({b, m, k}), std::vector<int64_t>({k})),
-    std::make_tuple(std::vector<int64_t>({b, 1, m, k}), std::vector<int64_t>({b, k, n}))
-  };
-}
+constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 
 INSTANTIATE_TEST_SUITE_P(
-  ,
-  ATenNodesParametrizedTest,
-  ::testing::ValuesIn(
-    matmul_inp_generator()
-  )
-);
+    ,
+    ATenNodesParametrizedTest,
+    testing::Values(
+        std::make_tuple(
+            std::vector<int64_t>({m, k}),
+            std::vector<int64_t>({k, n})),
+        std::make_tuple(
+            std::vector<int64_t>({k}),
+            std::vector<int64_t>({k, n})),
+        std::make_tuple(
+            std::vector<int64_t>({m, k}),
+            std::vector<int64_t>({k})),
+        std::make_tuple(
+            std::vector<int64_t>({k}),
+            std::vector<int64_t>({b, k, n})),
+        std::make_tuple(
+            std::vector<int64_t>({b, m, k}),
+            std::vector<int64_t>({k})),
+        std::make_tuple(
+            std::vector<int64_t>({b, 1, m, k}),
+            std::vector<int64_t>({b, k, n}))));
 
 } // namespace nvfuser
