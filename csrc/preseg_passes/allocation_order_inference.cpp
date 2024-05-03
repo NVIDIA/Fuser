@@ -16,75 +16,17 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// NOTE: [Allocation Order Inference]
-//
-// AllocationOrderInferencer ctor takes a map of allocation order for inputs as
-// `unordered_map<const TensorView*, AllocationOrder>`. It propagates
-// AllocationOrder on a fusion and updates the the map with allocation order for
-// other TensorView in the fusion.
-//
-// e.g.
-//   std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
-//   // ... update alloc_order_map with AllocationOrder for tensors
-//   //     (i.e. usually inputs)
-//
-//   // create AllocationOrderInferencer
-//   AllocationOrderInferencer infer(alloc_order_map);
-//   // propagates AllocationOrder from entries already in alloc_order_map
-//   infer.traverse(fusion);
-//   // all tensor that's propagated successfully will have their allocation
-//   // order in alloc_order_map
-//
-// The protocol for AllocationOrder in alloc_order_map_ has three states. For
-// each `tv`, its corresponding allocation order `alloc_order_map_[tv]`:
-// 1. The allocation order has the same size as the `tv`'s rfactor domain;
-//    This means it has a preferred allocation order and the entry should
-//    participate in propagation.
-// 2. The allocation order is an empty array;
-//    This means it's a wild card and shouldn't dictate output allocation
-//    order. But it marks that propagation is successful for `tv`.
-//    i.e. This currently happens for TensorViews that's created by factory
-//    methods and its consumers.
-// 3. alloc_order_map_ does not have an entry for `tv`.
-//    This is the case where propagation has not reach the `tv`, likely due to
-//    lack of allocation order on inputs or certain operation not yet supported
-//    by propagation rule.
-//
-// Identify the difference between case 2. and 3. above allows us to better
-// handle `resolveAllocationOrder` among multiple candidates.
-// i. We do not want to ignore candidates where propagation has failed and
-// aggressively propagates allocatoin order through unresolved candidates. So we
-// would want to identify case 3. ii. Tensors created by factory methods should
-// carry a wild-card and should not actively participate propagation. Because
-// those tensors are not going to affect vectorization. Hence we need to
-// identify case 2.
-
-// helper function to count the number of non-broadcast & non-reduction
-// iterdomains in tv's rfactor domain.
+// counting the number of non-broadcast & non-reduction iterdomains in tv's allocation domain.
 size_t countLoopIterDomains(const TensorView* tv) {
   return std::count_if(
-      tv->getMaybeRFactorDomain().begin(),
-      tv->getMaybeRFactorDomain().end(),
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end(),
       [&](auto ptr_id) {
         return !ptr_id->isBroadcast() && !ptr_id->isReduction();
       });
-};
+}
 
-// mapping allocation domain from producer to consumer without reduction
-//
-// e.g.
-//   producer rfactor dom [r0', i0', i1', i2'] @ allocation order {0, 1, 3, 2}
-//    |       alloc dom [r0', i0', i2', i1']
-//    |
-//    Operation
-//    |
-//    v
-//   consumer rfactor dom [..., i0, ..., i1, ..., i2, ...]
-//
-// we construct allocation domain on producer, filtering out reduction, apply
-// root domain map from producer to consumer.
-//   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
-// so the function would return [i0, i2, i1]
+// mapping allocation domain from ref to target, for details on the propagation rule see Note [ Allocation Order Propagation ]
 void replayAllocationDomain(
     const IdModel& id_model,
     TensorView* ref,
@@ -165,13 +107,20 @@ void replayAllocationDomain(
 
 // Note [ Allocation Order Propagation ]
 //
-// The propagation tries to propagate allocation order from inputs to the entire
-// fusion:
-//   1. Iterates through all inputs, looking for TensorView with allocation
-//   domain that's a permutation of its corresponding rfactor domain and record
-//   it as the allocation order of the tensor;
-//   2. Traverse the fusion IR, propagate allocation order and record results in
-//   alloc_order_map.
+// The propagation tries to populate allocation domain from srcs to dsts.
+//
+// For each TensorView in dsts, it iterate through all TensorView in srcs looking for a reference TensorView to propagate its allocation domain.
+//   1. It only propagate to TensorView in dsts when it's safe to manipulate its allocation domain:
+//     1.1 It doesn't have an allocation domain set;
+//     1.2 It is not an aliase to another TensorView;
+//     1.3 It does not have self mapping;
+//   2. Among all entries in srcs, we pick reference that:
+//     2.1 It has a dependency towards dst;
+//     2.2 It has the highest count of non-broadcast/non-reduction iterdomains in allocation domain.
+//     1.3 It does not have self mapping;
+//
+// Propagation rule:
+//   Given a source TensorView `src` and a destination TensorView `dst`
 void inferenceAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
