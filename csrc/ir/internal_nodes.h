@@ -1363,8 +1363,7 @@ class NVF_API BeginFoldOp : public Expr {
 
   BeginFoldOp(
       IrBuilderPasskey,
-      const std::vector<TensorView*>& out_prev_folds,
-      const std::vector<TensorView*>& out_next_elements,
+      const std::vector<std::pair<TensorView*, TensorView*>>& prev_next_tensors,
       const std::vector<TensorView*>& inputs,
       const std::vector<Val*>& inits);
 
@@ -1385,27 +1384,29 @@ class NVF_API BeginFoldOp : public Expr {
   }
 
   TensorView* prevFoldTensor(size_t n = 0) const {
-    return output(n)->as<TensorView>();
+    return output(2 * n)->as<TensorView>();
   }
 
   TensorView* nextElementTensor(size_t n = 0) const {
-    return output(numTensors() + n)->as<TensorView>();
+    return output(2 * n + 1)->as<TensorView>();
   }
 
   TensorView* inputTensor(size_t n = 0) const {
-    return input(n)->as<TensorView>();
+    return input(2 * n)->as<TensorView>();
   }
+
   Val* initVal(size_t n = 0) const {
-    return input(numTensors() + n);
+    return input(2 * n + 1);
   }
 };
 
-//! This node represents the end of a "fold group" that outputs a reduction.
-class NVF_API FinalizeReductionOp : public Expr {
+//! This node represents the end of a "fold group". It can output one reduction
+//! tensor, one scan tensor, or both.
+class NVF_API EndFoldOp : public Expr {
  public:
   using Expr::Expr;
 
-  FinalizeReductionOp(
+  EndFoldOp(
       IrBuilderPasskey,
       const std::vector<TensorView*>& outputs,
       const std::vector<TensorView*>& combined_tensors,
@@ -1415,7 +1416,7 @@ class NVF_API FinalizeReductionOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "FinalizeReductionOp";
+    return "EndFoldOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -1428,16 +1429,34 @@ class NVF_API FinalizeReductionOp : public Expr {
     return inputs().size();
   }
 
+  Val* scanTensor(size_t n = 0) const {
+    NVF_CHECK(hasScan(), "Scan tensor requested from non-scan fold");
+    return output(n);
+  }
+
+  Val* reductionTensor(size_t n = 0) const {
+    NVF_CHECK(hasReduction(), "Reduction tensor requested from non-reduction fold");
+    return output(hasScan() ? numTensors() + n : n);
+  }
+
   //! This traverses backward to find the BeginFoldOp at the beginning of this
   //! fold group. It is an error if other than one such op is found.
   BeginFoldOp* beginFoldOp() const;
 
-  bool isAssociative() const {
+  bool hasScan() const {
     return attribute<bool>(0);
   }
 
-  bool isCommutative() const {
+  bool hasReduction() const {
     return attribute<bool>(1);
+  }
+
+  bool isAssociative() const {
+    return attribute<bool>(2);
+  }
+
+  bool isCommutative() const {
+    return attribute<bool>(3);
   }
 };
 

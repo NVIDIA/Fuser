@@ -609,58 +609,41 @@ NVF_API TensorView* min(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
-class NVF_API FoldGroup {
- public:
-  FoldGroup(BeginFoldOp* begin_op) : begin_op_(begin_op) {}
+//! Returns a vector of partial sum/next element pairs
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
+    const std::vector<TensorView*>& input_tvs,
+    const std::vector<Val*>& init_vals,
+    const std::vector<int64_t>& axes);
 
-  static FoldGroup makeFoldGroup(
-      const std::vector<TensorView*>& input_tvs,
-      const std::vector<Val*>& init_vals,
-      const std::vector<int64_t>& axes);
+//! Returns a TensorView with IterType::Fold axes replaced with
+//! IterType::Reduction
+NVF_API std::vector<TensorView*> finalizeReductionFold(
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false);
 
-  TensorView* prevFoldTensor(int64_t n = 0) {
-    return begin_op_->prevFoldTensor(n);
-  }
+//! Returns a TensorView with IterType::Fold axes replaced with
+//! IterType::Iteration
+NVF_API std::vector<TensorView*> finalizeScanFold(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false,
+    bool inclusive = false) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
+}
 
-  TensorView* nextElementTensor(int64_t n = 0) {
-    return begin_op_->nextElementTensor(n);
-  }
-
-  std::vector<TensorView*> finalizeReduction(
-      const std::vector<TensorView*>& combined_tvs,
-      bool associative = false,
-      bool commutative = false);
-
-  TensorView* finalizeReduction(
-      TensorView* combined_tv,
-      bool associative = false,
-      bool commutative = false) {
-    return finalizeReduction(
-               std::vector<TensorView*>{combined_tv}, associative, commutative)
-        .at(0);
-  }
-
-  std::vector<TensorView*> finalizeScan(
-      const std::vector<TensorView*>& combined_tvs,
-      bool associative = false,
-      bool commutative = false);
-
-  TensorView* finalizeScan(
-      TensorView* combined_tv,
-      bool associative = false,
-      bool commutative = false) {
-    return finalizeScan(
-               std::vector<TensorView*>{combined_tv}, associative, commutative)
-        .at(0);
-  }
-
-  BeginFoldOp* beginOp() const {
-    return begin_op_;
-  }
-
- private:
-  BeginFoldOp* begin_op_ = nullptr;
-};
+//! Returns a vector of scan/reduction pairs
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> finalizeScanFoldWithReduction(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false,
+    bool inclusive = false) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
+}
 
 // COMPOUND OPERATIONS
 // add_alpha

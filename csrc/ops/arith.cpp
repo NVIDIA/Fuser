@@ -1458,7 +1458,7 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
-FoldGroup FoldGroup::makeFoldGroup(
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
     const std::vector<TensorView*>& input_tvs,
     const std::vector<Val*>& init_vals,
     const std::vector<int64_t>& axes) {
@@ -1467,8 +1467,7 @@ FoldGroup FoldGroup::makeFoldGroup(
   NVF_CHECK(input_tvs.size() == init_vals.size());
 
   // create outputs, both with the same domain
-  std::vector<TensorView*> prev_folds;
-  std::vector<TensorView*> next_elements;
+  std::vector<std::pair<TensorView*, TensorView*> prev_next_tensors;
   prev_folds.reserve(input_tvs.size());
   next_elements.reserve(input_tvs.size());
   for (TensorView* tv : input_tvs) {
@@ -1518,24 +1517,25 @@ FoldGroup FoldGroup::makeFoldGroup(
               .build());
     }
 
-    prev_folds.push_back(IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
+    auto prev = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype());
     // Clone each IterDomain so that there are different IterDomains in each
     // output TensorView
     for (auto i : c10::irange(new_root.size())) {
       new_root[i] = IrBuilder::create<IterDomain>(new_root[i]);
     }
-    next_elements.push_back(IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(new_root), tv->dtype()));
+    auto next = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype());
+    prev_next_tensors.emplace_back(prev, next);
   }
 
-  auto begin_op = IrBuilder::create<BeginFoldOp>(
-      prev_folds, next_elements, input_tvs, init_vals);
+  auto begin_op =
+      IrBuilder::create<BeginFoldOp>(prev_next_tensors, input_tvs, init_vals);
 
   return FoldGroup(begin_op);
 }
 
-std::vector<TensorView*> FoldGroup::finalizeReduction(
+std::vector<TensorView*> finalizeReductionFold(
     const std::vector<TensorView*>& combined_tvs,
     bool associative,
     bool commutative) {
@@ -1547,6 +1547,8 @@ std::vector<TensorView*> FoldGroup::finalizeReduction(
 
     for (IterDomain* id : tv->getMaybeRFactorDomain()) {
       // Convert all IterType::Fold axes to IterType::Reduction
+      // TODO: If there are nested fold groups, this op should only operate on
+      // the inner group.
       out_root.push_back(
           IterDomainBuilder(id)
               .iter_type(id->isFold() ? IterType::Reduction : id->getIterType())
@@ -1558,7 +1560,7 @@ std::vector<TensorView*> FoldGroup::finalizeReduction(
   }
 
   IrBuilder::create<FinalizeReductionOp>(
-      out_tvs, combined_tvs, associative, commutative);
+      /*scan_outputs=*/{}, out_tvs, combined_tvs, associative, commutative);
 
   return out_tvs;
 }

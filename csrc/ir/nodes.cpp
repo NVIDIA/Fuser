@@ -2045,15 +2045,13 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 BeginFoldOp::BeginFoldOp(
     IrBuilderPasskey passkey,
-    const std::vector<TensorView*>& out_prev_folds,
-    const std::vector<TensorView*>& out_next_elements,
+    const std::vector<std::pair<TensorView*, TensorView*>>& prev_next_tensors,
     const std::vector<TensorView*>& inputs,
     const std::vector<Val*>& inits)
     : Expr(passkey) {
-  NVF_CHECK(!out_prev_folds.empty());
+  NVF_CHECK(!prev_next_tensors.empty());
 
-  size_t num_tensors = out_prev_folds.size();
-  NVF_CHECK(out_next_elements.size() == num_tensors);
+  size_t num_tensors = prev_next_tensors.size();
   NVF_CHECK(inputs.size() == num_tensors);
   NVF_CHECK(inits.size() == num_tensors);
 
@@ -2061,17 +2059,18 @@ BeginFoldOp::BeginFoldOp(
 
   std::vector<bool> is_dim_folded(ndims, false);
   for (int64_t d : c10::irange(ndims)) {
-    is_dim_folded[d] = out_prev_folds.front()->axis(d)->isFold();
+    is_dim_folded[d] = prev_next_tensors.front().first()->axis(d)->isFold();
   }
 
   for (size_t i : c10::irange(num_tensors)) {
     const DataType dtype = inputs.at(i)->dtype();
-    NVF_CHECK(out_prev_folds.at(i)->dtype() == dtype);
-    NVF_CHECK(out_next_elements.at(i)->dtype() == dtype);
+    auto& [prev, next] = prev_next_tensors.at(i);
+    NVF_CHECK(prev->dtype() == dtype);
+    NVF_CHECK(next->dtype() == dtype);
     NVF_CHECK(inits.at(i)->dtype() == dtype);
 
-    NVF_CHECK(out_prev_folds.at(i)->nDims() == ndims);
-    NVF_CHECK(out_next_elements.at(i)->nDims() == ndims);
+    NVF_CHECK(prev->nDims() == ndims);
+    NVF_CHECK(next->nDims() == ndims);
     NVF_CHECK(inputs.at(i)->nDims() == ndims);
     if (auto init_tv = dynamic_cast<TensorView*>(inits.at(i))) {
       NVF_CHECK(init_tv->nDims() == ndims);
@@ -2079,22 +2078,14 @@ BeginFoldOp::BeginFoldOp(
 
     // Fold dims should match in all outputs
     for (int64_t d : c10::irange(ndims)) {
-      NVF_CHECK(out_prev_folds.at(i)->axis(d)->isFold() == is_dim_folded[d]);
-      NVF_CHECK(out_next_elements.at(i)->axis(d)->isFold() == is_dim_folded[d]);
+      NVF_CHECK(prev->axis(d)->isFold() == is_dim_folded[d]);
+      NVF_CHECK(next->axis(d)->isFold() == is_dim_folded[d]);
     }
-  }
 
-  for (TensorView* v : out_prev_folds) {
-    addOutput(v);
-  }
-  for (TensorView* v : out_next_elements) {
-    addOutput(v);
-  }
-  for (TensorView* v : inputs) {
-    addInput(v);
-  }
-  for (Val* v : inits) {
-    addInput(v);
+    addOutput(prev);
+    addOutput(next);
+    addInput(inputs.at(i));
+    addInput(inits.at(i));
   }
 }
 
@@ -2155,31 +2146,51 @@ std::vector<PolymorphicValue> BeginFoldOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BeginFoldOp)
 
-FinalizeReductionOp::FinalizeReductionOp(
+EndFoldOp::EndFoldOp(
     IrBuilderPasskey passkey,
-    const std::vector<TensorView*>& outputs,
+    const std::vector<TensorView*>& scan_outputs,
+    const std::vector<TensorView*>& reduction_outputs,
     const std::vector<TensorView*>& combined_tensors,
     bool associative,
     bool commutative)
     : Expr(passkey) {
   NVF_CHECK(
-      combined_tensors.size() == outputs.size(),
+      !combined_tensors.empty(),
+      "Must provided more than zero combined tensors");
+  NVF_CHECK(
+      !scan_outputs.empty() || !reduction_outputs.empty(),
+      "EndFoldOp must have some outputs");
+  size_t num_tensors = combined_tensors.size();
+  NVF_CHECK(
+      scan_outputs.empty() || scan_outputs.size() == num_tensors,
       "Expected ",
-      combined_tensors.size(),
-      " output tensors but found ",
-      outputs.size());
+      num_tensors,
+      " output scan tensors but found ",
+      scan_outputs.size());
+  NVF_CHECK(
+      reduction_outputs.empty() || reduction_outputs.size() == num_tensors,
+      "Expected ",
+      num_tensors,
+      " output reduction tensors but found ",
+      reduction_outputs.size());
 
   for (size_t i : c10::irange(combined_tensors.size())) {
     addInput(combined_tensors.at(i));
   }
-  addDataAttribute(associative);
-  addDataAttribute(commutative);
-  for (TensorView* v : outputs) {
+  for (TensorView* v : scan_outputs) {
     addOutput(v);
   }
+  for (TensorView* v : reduction_outputs) {
+    addOutput(v);
+  }
+  // Flags indicating whether or not we have scans and reductions
+  addDataAttribute(!scan_outputs.empty());
+  addDataAttribute(!reduction_outputs.empty());
+  addDataAttribute(associative);
+  addDataAttribute(commutative);
 }
 
-BeginFoldOp* FinalizeReductionOp::beginFoldOp() const {
+BeginFoldOp* EndFoldOp::beginFoldOp() const {
   BeginFoldOp* begin_fold_op = nullptr;
   std::stack<TensorView*> to_check;
   for (size_t i : c10::irange(numTensors())) {
@@ -2216,7 +2227,7 @@ BeginFoldOp* FinalizeReductionOp::beginFoldOp() const {
   return begin_fold_op;
 }
 
-std::string FinalizeReductionOp::toString(int indent_size) const {
+std::string EndFoldOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "{ ";
   bool first = true;
@@ -2228,7 +2239,7 @@ std::string FinalizeReductionOp::toString(int indent_size) const {
     ss << output(i)->toString();
   }
   ss << " }\n";
-  indent(ss, indent_size) << "   = finalizeReduction( { ";
+  indent(ss, indent_size) << "   = endFold( { ";
   first = true;
   for (int64_t i : c10::irange(inputs().size())) {
     if (!first) {
@@ -2241,18 +2252,18 @@ std::string FinalizeReductionOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string FinalizeReductionOp::toInlineString(int indent_size) const {
+std::string EndFoldOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> FinalizeReductionOp::evaluate(
+std::vector<PolymorphicValue> EndFoldOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(false, "FinalizeReductionOp cannot be evaluated directly.");
+  NVF_ERROR(false, "EndFoldOp cannot be evaluated directly.");
   return {};
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(FinalizeReductionOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(EndFoldOp)
 
 //==============================================================================================================================
 

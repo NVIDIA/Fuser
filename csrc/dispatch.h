@@ -91,6 +91,8 @@ class Val;
   f(WelfordOp);                   \
   f(GroupedWelfordOp);            \
   f(GroupedWelfordOp);            \
+  f(BeginFoldOp);                 \
+  f(EndFoldOp);                   \
   f(LoadStoreOp);                 \
   f(MmaOp);                       \
   f(BroadcastOp);                 \

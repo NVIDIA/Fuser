@@ -31,11 +31,16 @@ TEST_F(FoldTest, Sum) {
   TensorView* inp = makeConcreteTensor({8, 8});
   fusion.addInput(inp);
 
-  FoldGroup g =
-      FoldGroup::makeFoldGroup({inp}, {fusion.zeroVal(inp->dtype())}, {1});
-  TensorView* combined = add(g.prevFoldTensor(), g.nextElementTensor());
-  TensorView* out_sum =
-      g.finalizeReduction(combined, /*associative=*/true, /*commutative=*/true);
+  std::vector<std::pair<TensorView*, TensorView*>> fold_tensors =
+      beginFold({inp}, {fusion.zeroVal(inp->dtype())}, {1});
+  ASSERT_EQ(fold_tensors.size(), 1);
+  auto& [prev_fold, next_elem] = fold_tensors.front();
+
+  auto* begin_op = prev_fold.definition()->as<BeginFoldOp>();
+
+  TensorView* combined = add(prev_fold, next_elem);
+  TensorView* out_sum = finalizeReductionFold(
+      begin_op, combined, /*associative=*/true, /*commutative=*/true);
 
   fusion.addOutput(out_sum);
 
@@ -44,7 +49,7 @@ TEST_F(FoldTest, Sum) {
   EXPECT_TRUE(out_sum->definition()->isA<FinalizeReductionOp>());
   EXPECT_EQ(
       out_sum->definition()->as<FinalizeReductionOp>()->beginFoldOp(),
-      g.beginOp());
+      begin_op);
 
   inlineMost();
 
