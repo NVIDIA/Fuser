@@ -20,18 +20,10 @@ namespace nvfuser {
 namespace hir {
 
 std::ostream& HostIrContainer::print(
-    std::ostream& os,
-    bool include_tensor_transforms,
-    int indent_size) const {
+    std::ostream& os) const {
   os << "\n%HostIrContainer {\n";
-  IrMathPrinter op_exprs(os, indent_size);
+  IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
-  // TODO implement the case include_tensor_transforms=true
-  NVF_ERROR(
-      !include_tensor_transforms,
-      "the case include_tensor_transforms=true is not implemented for now");
-  os << "}\n";
-
   return os;
 }
 

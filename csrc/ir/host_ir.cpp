@@ -42,7 +42,7 @@ std::string HostUnit::toString(int indent_size) const {
         << output->toString(indent_size + indent_increment) << "\n";
   }
   indent(ss, indent_size) << "}. Kernel:{";
-  fusion_->print(ss, false, indent_size + indent_increment);
+  fusion_->print(ss, false);
   indent(ss, indent_size) << "\n";
   indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
