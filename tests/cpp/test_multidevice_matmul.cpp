@@ -36,9 +36,9 @@ namespace nvfuser {
 
 class DistributedMatmulTest : public MultiDeviceTest {
  protected:
-  DistributedMatmulTest() : optimization_guard_(false) {
+  DistributedMatmulTest()
+      : num_devices_(communicator->size()), optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-    num_devices_ = communicator->size();
   }
 
   void SetUp() {
@@ -52,7 +52,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
-  int num_devices_;
+  const int num_devices_;
 
   std::tuple<at::Tensor, at::Tensor, at::Tensor> getInputsAndReferenceOutputs(
       MmaLayout layout,
@@ -109,12 +109,13 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   }
   b->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
-  a_ = a_.view({Mo, Mi, K});
-  c_ = c_.view({Mo, Mi, N});
+  auto [a_ten, b_ten, c_ten] =
+      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  a_ten = a_ten.view({Mo, Mi, K});
+  c_ten = c_ten.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
-      shardTensor(a_, a, communicator->deviceId()), b_};
-  auto expected_output = shardTensor(c_, c, communicator->deviceId());
+      shardTensor(a_ten, a, communicator->deviceId()), b_ten};
+  auto expected_output = shardTensor(c_ten, c, communicator->deviceId());
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
@@ -164,13 +165,14 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
-  a_ = a_.view({Mo, Mi, K});
-  c_ = c_.view({Mo, Mi, N});
+  auto [a_ten, b_ten, c_ten] =
+      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  a_ten = a_ten.view({Mo, Mi, K});
+  c_ten = c_ten.view({Mo, Mi, N});
 
   std::vector<c10::IValue> inputs = {
-      shardTensor(a_, a, communicator->deviceId()), b_};
-  auto expected_output = shardTensor(c_, c, communicator->deviceId());
+      shardTensor(a_ten, a, communicator->deviceId()), b_ten};
+  auto expected_output = shardTensor(c_ten, c, communicator->deviceId());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
@@ -220,19 +222,20 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   }
   c->setDeviceMesh(mesh);
 
-  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
-  a_ = a_.view({Ko, Ki, M});
-  b_ = b_.view({Ko, Ki, N});
+  auto [a_ten, b_ten, c_ten] =
+      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  a_ten = a_ten.view({Ko, Ki, M});
+  b_ten = b_ten.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {
-      shardTensor(a_, a, communicator->deviceId()),
-      shardTensor(b_, b, communicator->deviceId())};
+      shardTensor(a_ten, a, communicator->deviceId()),
+      shardTensor(b_ten, b, communicator->deviceId())};
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
-      runtime.completeFusion(), outputs, inputs, {c_}, __LINE__, __FILE__);
+      runtime.completeFusion(), outputs, inputs, {c_ten}, __LINE__, __FILE__);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
@@ -277,15 +280,16 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   c->setDeviceMesh(mesh);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  auto [a_, b_, c_] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
-  a_ = a_.view({Ko, Ki, M});
-  b_ = b_.view({Ko, Ki, N});
-  c_ = c_.view({Mo, Mi, N});
+  auto [a_ten, b_ten, c_ten] =
+      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  a_ten = a_ten.view({Ko, Ki, M});
+  b_ten = b_ten.view({Ko, Ki, N});
+  c_ten = c_ten.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
-      shardTensor(a_, a, communicator->deviceId()),
-      shardTensor(b_, b, communicator->deviceId())};
+      shardTensor(a_ten, a, communicator->deviceId()),
+      shardTensor(b_ten, b, communicator->deviceId())};
   auto expected_output =
-      shardTensor(c_, c, communicator->deviceId()).view({1, Mi, N});
+      shardTensor(c_ten, c, communicator->deviceId()).view({1, Mi, N});
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
