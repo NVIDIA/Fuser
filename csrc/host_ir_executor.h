@@ -17,6 +17,13 @@ namespace nvfuser {
 
 namespace hir {
 
+/*
+a HostIrExecutor executes a host programs represented through a HostIrContainer
+It instantiated with with the desired HostIrContainer, and run with concrete inputs by calling the method runWithInput.
+Note that for now HostIrExecutor is an interpreter; later we could rather compile host code.
+*/
+
+// Set of parameters that control the behavior of HostIrExecutor
 struct HostIrExecutorParams {
   // Experimental: whether to use FusionExecutorCache rather than
   // FusionExecutor.
@@ -43,7 +50,7 @@ class HostIrExecutor final : public OptInDispatch {
 
   std::unique_ptr<HostIrContainer> container_;
   HostIrExecutorParams params_;
-  // Stores concrete computed values,
+  // Stores concrete computed values
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
   // Cache Fusions, FusionExecutors
   std::unordered_map<PostOnStream*, FusionExecutor> fe_;

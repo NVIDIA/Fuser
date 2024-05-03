@@ -20,7 +20,9 @@ namespace nvfuser {
 namespace hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
-    : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {}
+    : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
+  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>());
+}
 
 HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
@@ -64,6 +66,7 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {hu}) {
+  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>());
   NVF_ERROR(this->inputs().size() == hu->fusion_to_execute()->inputs().size());
   NVF_ERROR(
       this->outputs().size() == hu->fusion_to_execute()->outputs().size());

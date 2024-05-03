@@ -20,18 +20,19 @@ HostIrExecutor::HostIrExecutor(
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {
-  // process input values:
+  // process input values
   NVF_ERROR(
       inputs.size() == container_->inputs().size(), "Wrong number of inputs");
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue_[container_->inputs().at(input_idx)] = inputs.at(input_idx);
   }
 
+  // Interpret each instruction in an "eager" way by iterate over the Host Ir Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
     dispatch(expr);
   }
 
-  // Collect global outputs from context
+  // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
     auto output = val_to_IValue_.at(output_val).toTensor();
