@@ -10875,10 +10875,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 2, 2> T0, Tensor<__half,
   // [semaphore usage]
   // CTAs start "active" and become "inactive" after their writes if they are
   // in the bottom half of the "active" CTAs in the present stage. We hold one
-  // semaphore for each work buffer position. The semaphore records the stage
-  // in which its value was written. At each stage, each "active CTA" watches
-  // the value of the semaphore at the shifted work buffer location until its
-  // value equals either the previous stage or a negative value.
+  // semaphore for each work buffer position. When a semaphore is zero it means
+  // the corresponding work buffer position is available for writing to. Once
+  // that work buffer slot is filled with data, the _target CTA_'s rank is
+  // written to the semaphore (note that rank 0 is never a target CTA). At each
+  // stage, each active CTA watches its semaphore to see when its rank appears.
+  // At that point, it reads the data and resets the semaphore to zero so that
+  // the work buffer slot can be re-used.
   //
   // Note one exception. In the case that splitk_factor is not a factor of two,
   // there will be no CTA to write some entries in the stage 1. This would lead
@@ -10890,12 +10893,9 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 2, 2> T0, Tensor<__half,
   // written to that work buffer location. In that case, there is no read done
   // and the sum is not updated.
   //
-  // [resetting the semaphore]
-  // Upon the last read of a work buffer position, we want to reset the
-  // semaphore to zero. We know this is the case if the CTA is in the upper
-  // half of the currently active CTAs.
+  // Notice that the semaphores are set to zero whenever the target CTA reads a
+  // result, so the semaphores are reset to zero at the end of the algorithm.
 
-  // Allocate register buffer to hold result
 
   // Compute D=ceil(log2(S)) which is the position of the most significant high
   // bit of S-1 (starting with 1 for the position of the least significant bit)
