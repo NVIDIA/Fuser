@@ -25,6 +25,10 @@ MultiDeviceTest::MultiDeviceTest() {
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
+  // Force all processes to synchronize at a barrier between tests. It slightly
+  // slows the tests down, but makes it much easier to isolate a failing test.
+  // Without this, if a test fails such that a subset of processes fail, then
+  // some processes will move onto another tests and timeout later.
   if (communicator->is_available()) {
     communicator->barrier();
   }
