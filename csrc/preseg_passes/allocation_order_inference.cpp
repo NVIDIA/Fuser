@@ -64,12 +64,6 @@ void AllocationOrderMapping(
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target->getMaybeRFactorDomain()) {
-      // sharp-edges 0
-      // avoid mapping a reduced dimension.
-      if (!ref_id->isReduction() && id->isReduction()) {
-        // technically we don't need to skip this. But it's giving issues
-        continue;
-      }
       // how do we resolve multiple mapping?
       if (val_sets.strictAreMapped(ref_id, id)) {
         mapped_id_vec.push_back(id);
