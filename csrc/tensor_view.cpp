@@ -1214,7 +1214,7 @@ void TensorView::clearReductionIterDomains() {
       if (!root_i->isReduction()) {
         new_root.push_back(root_i);
       }
-      auto alloc_i = getAllocatoinDomain().at(i);
+      auto alloc_i = getAllocationDomain().at(i);
       if (!alloc_i->isReduction()) {
         new_alloc.push_back(alloc_i);
         new_contig.push_back(domain()->contiguity().at(i));
