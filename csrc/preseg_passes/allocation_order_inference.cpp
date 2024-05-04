@@ -136,7 +136,7 @@ void inferenceAllocationOrder(
   // present
   auto id_model =
       IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
-  auto ca_map = (fusion, /*allow_self_mapping=*/true);
+  auto ca_map = ComputeAtMap(fusion, /*allow_self_mapping=*/true);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& val_sets = exact_graph.disjointValSets();
 
