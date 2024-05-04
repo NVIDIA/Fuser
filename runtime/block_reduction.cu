@@ -255,17 +255,37 @@ __device__ void blockIterGroupedReduce(
   }
 
   if (should_write && write_pred) {
+    T result[N];
     #pragma unroll
     for (int i = 0; i < N; ++i) {
-      T result = out[i];
-      reduction_op(result, shared_mem[smem_offset + i]);
-      if (reduction_size > 1) {
-        reduction_op(
-            result,
-            shared_mem[smem_offset + N * blockDim.x + i]); // Handle the last element if
-                                              // reduction size is odd
+      result[i] = out[i];
+    }
+
+    T self[N];
+    #pragma unroll
+    for (unsigned int i = 0; i < total_loads; ++i) {
+      loadGeneric<T, elements_per_load>( self + i * elements_per_load, shared_mem + smem_offset + i * elements_per_load);
+    }
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
+      reduction_op(result[i], self[i]);
+    }
+
+    if(reduction_size > 1){
+      T peer[N];
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        loadGeneric<T, elements_per_load>( peer + i * elements_per_load, 
+          shared_mem + smem_offset + N * blockDim.x + i * elements_per_load);
       }
-      out[i] = result;
+      #pragma unroll
+      for (int i = 0; i < N; ++i) {
+        reduction_op(result[i], peer[i]);
+      }
+    }
+    #pragma unroll
+    for (int i = 0; i < N; ++i) {
+      out[i] = result[i];
     }
   }
   block_sync::sync<Aligned>();
