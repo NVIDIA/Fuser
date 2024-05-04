@@ -492,19 +492,42 @@ __device__ void blockIterGroupedReduce(
     // ...
     // N-th warp has the final result of the N-th chunk
     // We need threads with TIDy == 0 to have all the final results
+    // if(warp_tidy==0){
+    //   const int iter_idx = threadIdx.x;
+    //   const int valid_group_idx = wid;
+    //   int offset = valid_group_idx * BDIMX + iter_idx;
+    //   smem[offset] = avg;
+    // }
+    // block_sync::sync<Aligned>();
+
+    // if(threadIdx.y == 0){
+    //   for(int i = 0; i<N; i++){
+    //     int offset = i * BDIMX + threadIdx.x;    
+    //     out[i] = smem[offset];
+    //   }
+    // }
+    // block_sync::sync<Aligned>();
+
+
+    // vectorized version
+    // [BDIMX, N]
     if(warp_tidy==0){
       const int iter_idx = threadIdx.x;
       const int valid_group_idx = wid;
-      int offset = valid_group_idx * BDIMX + iter_idx;
+      int offset = valid_group_idx + iter_idx * N;
       smem[offset] = avg;
     }
     block_sync::sync<Aligned>();
 
     if(threadIdx.y == 0){
-      for(int i = 0; i<N; i++){
-        int offset = i * BDIMX + threadIdx.x;    
-        out[i] = smem[offset];
-      }
+      constexpr unsigned int total_loads = sizeof(T) * N / 16;
+      constexpr unsigned int elements_per_load = 16 / sizeof(T);
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        loadGeneric<T, elements_per_load>(
+          out + i * elements_per_load,
+          smem + N * threadIdx.x + i * elements_per_load);
+      }      
     }
     block_sync::sync<Aligned>();
   }
