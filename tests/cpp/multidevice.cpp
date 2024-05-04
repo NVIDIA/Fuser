@@ -30,16 +30,21 @@ MultiDeviceTest::MultiDeviceTest() {
        communicator->is_available());
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
-  static std::once_flag once;
-  std::call_once(once, [this]() {
-    // Catch exceptions so call_once always flips `once` and executes this
-    // functor only once.
-    try {
-      waitForDebugger();
-    } catch (const std::exception& e) {
-      TORCH_WARN("Failed to wait for debugger: ", e.what());
-    }
-  });
+  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
+  if (rank_to_debug_str != nullptr) {
+    const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        waitForDebuggerAtRank(rank_to_debug);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
+  }
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
@@ -48,22 +53,16 @@ MultiDeviceTest::~MultiDeviceTest() {
   }
 }
 
-void MultiDeviceTest::waitForDebugger() {
-  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
-  if (rank_to_debug_str == nullptr) {
-    return;
-  }
-
-  const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
   NVF_CHECK(
-      rank_to_debug >= 0 && rank_to_debug < communicator->size(),
-      "rank_to_debug=",
-      rank_to_debug,
+      rank >= 0 && rank < communicator->size(),
+      "rank=",
+      rank,
       " must be in the range of [0,",
       communicator->size(),
       ").");
 
-  if (communicator->deviceId() == rank_to_debug) {
+  if (communicator->deviceId() == rank) {
     volatile bool waiting = true;
     auto pid = getpid();
     std::cerr << "Process " << pid
@@ -74,7 +73,10 @@ void MultiDeviceTest::waitForDebugger() {
     }
     std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
   }
-  communicator->barrier();
+
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
 }
 
 void MultiDeviceTest::SetUp() {

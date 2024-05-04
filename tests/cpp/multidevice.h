@@ -46,9 +46,7 @@ class MultiDeviceTest : public NVFuserTest {
   bool disable_skip;
 
  private:
-  // If NVFUSER_MULTIDEVICE_WAIT_DEBUGGER_AT_RANK is set, that rank will
-  // attempt to wait for the debugger.
-  void waitForDebugger();
+  void waitForDebuggerAtRank(DeviceIdxType rank);
 };
 
 class PipelineTest : public MultiDeviceTest {
