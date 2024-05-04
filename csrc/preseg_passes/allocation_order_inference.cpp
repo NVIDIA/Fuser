@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <compute_at_map.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -50,6 +51,7 @@ size_t countLoopIterDomains(const TensorView* tv) {
 //   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
 void AllocationOrderMapping(
     const IdModel& id_model,
+    const ComputeAtMap& ca_map,
     TensorView* ref,
     TensorView* target) {
   const DisjointSets<Val*>& val_sets =
@@ -65,7 +67,8 @@ void AllocationOrderMapping(
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
       // how do we resolve multiple mapping?
-      if (val_sets.strictAreMapped(ref_id, id)) {
+      if (val_sets.strictAreMapped(ref_id, id) ||
+          ca_map.areMapped(ref_id, id, IdMappingMode::INNERMOST)) {
         mapped_id_vec.push_back(id);
         mapped_id_set.insert(id);
         break;
@@ -133,6 +136,7 @@ void inferenceAllocationOrder(
   // present
   auto id_model =
       IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  auto ca_map = (fusion, /*allow_self_mapping=*/true);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& val_sets = exact_graph.disjointValSets();
 
@@ -202,7 +206,7 @@ void inferenceAllocationOrder(
 
     // propagate allocation domain if we still have a candidate.
     if (ref) {
-      AllocationOrderMapping(id_model, ref, dst);
+      AllocationOrderMapping(id_model, ca_map, ref, dst);
     }
   }
 }
