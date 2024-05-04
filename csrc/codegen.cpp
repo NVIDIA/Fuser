@@ -2780,8 +2780,37 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
-             << ";\n";
+    if(std::getenv("USE_WARP") != nullptr) {
+      std::cout << "Using warp reduction" << std::endl;
+      ArgumentBuilder func_template_args;
+      func_template_args.arg(isAligned());
+      func_template_args.arg(num_grouped_iterations);
+      func_template_args.arg(data_type);
+
+      const auto& par_dim_map = kernel_->summary().parallel_dimension_map;
+      std::cout << "par_dim_map: " << par_dim_map.toString() << std::endl;
+      // NVF_ERROR(par_dim_map.get(ParallelType::TIDx)->isConstInt());
+      // NVF_ERROR(par_dim_map.get(ParallelType::TIDy)->isConstInt());
+      // func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDx)));
+      // func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDy)));
+      func_template_args.arg(8);
+      func_template_args.arg(128);
+      ArgumentBuilder func_args;
+      auto output_tv = output->view();
+      auto va = kernel_->summary().vectorized_accesses;
+      if (va.find(output_tv) != va.end()) {
+        func_args.arg(genVariableName(output) + ".array");
+      } else {
+        func_args.arg(genVariableName(output));
+      }
+      func_args.arg(genVariableName(input));
+      func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+      indent() << genCall("blockIterGroupedWarpReduce", func_template_args, func_args)
+               << ";\n";
+    }else{
+      indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+               << ";\n";
+    }
   }
 
   void handle(const GroupedReductionOp* grouped_rop) final {

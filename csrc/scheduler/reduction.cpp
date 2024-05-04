@@ -658,7 +658,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // to smem and gmem in block and grid reductions. Try to avoid 8, since 8-way
   // grouped reduction needs 2 iterations to load 8 x fp32 data from register to
   // shared memory.
-  const int64_t empirical_max_vect = 4L;
+  const int64_t empirical_max_vect = 8L;
   const int64_t opt_max_vect =
       std::min(empirical_max_vect, (int64_t)vectorize_factor);
 
@@ -790,6 +790,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
             (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
     if (total_iteration_numel > 3072) {
       iter_unroll_factor = bdimx > 64 ? 4L : 2L;
+      iter_unroll_factor = bdimx > 128 ? 8L : iter_unroll_factor;
       iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
       iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
     }
