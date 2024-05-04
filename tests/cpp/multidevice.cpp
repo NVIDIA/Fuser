@@ -7,6 +7,7 @@
 // clang-format on
 #include <sys/types.h>
 #include <unistd.h>
+#include <mutex>
 
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
@@ -29,11 +30,16 @@ MultiDeviceTest::MultiDeviceTest() {
        communicator->is_available());
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
-  // Currently, we attempt to wait for debugger before every test, which is
-  // fine because we usually debug one test at a time using --gtest_filter. As
-  // a potential improvement, call it at the test program level:
-  // https://github.com/google/googletest/blob/main/docs/advanced.md#global-set-up-and-tear-down
-  waitForDebugger();
+  static std::once_flag once;
+  std::call_once(once, [this]() {
+    // Catch exceptions so call_once always flips `once` and executes this
+    // functor only once.
+    try {
+      waitForDebugger();
+    } catch (const std::exception& e) {
+      TORCH_WARN("Failed to wait for debugger: ", e.what());
+    }
+  });
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
@@ -43,10 +49,11 @@ MultiDeviceTest::~MultiDeviceTest() {
 }
 
 void MultiDeviceTest::waitForDebugger() {
-  char* rank_to_debug_str = getNvFuserEnv("MPI_DEBUG_RANK");
+  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
   if (rank_to_debug_str == nullptr) {
     return;
   }
+
   const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
   NVF_CHECK(
       rank_to_debug >= 0 && rank_to_debug < communicator->size(),
