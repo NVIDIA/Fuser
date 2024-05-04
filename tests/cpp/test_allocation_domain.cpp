@@ -1432,7 +1432,9 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
                  .contiguity({true, std::nullopt, true})
                  .build();
   auto tv1 = sum(tv0, {0});
-  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, {std::nullopt, true, std::nullopt});
+  tv1->setAllocationDomain(
+      {tv1->axis(0), tv1->axis(2), tv1->axis(1)},
+      {std::nullopt, true, std::nullopt});
   tv1->clearReductionIterDomains();
 }
 
