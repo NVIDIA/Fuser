@@ -688,9 +688,9 @@ ReductionTvProperties getReductionProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
+  for (size_t i = alloc_dom.size(); i > 0; i--) {
+    auto id = alloc_dom[i - 1];
     if (id->isBroadcast()) {
       continue;
     }
@@ -712,7 +712,7 @@ ReductionTvProperties getReductionProperties(
   // Reduction element count
   int64_t total_reduction_numel = 1;
 
-  for (auto id : root_dom) {
+  for (auto id : tv->getRootDomain()) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(
