@@ -1198,17 +1198,40 @@ void TensorView::clearReductionIterDomains() {
       getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
-  std::vector<IterDomain*> new_root;
-  std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
-    if (!root_i->isReduction()) {
-      new_root.push_back(root_i);
-      new_contig.push_back(domain()->contiguity().at(i));
+  if (domain()->hasAllocation()) {
+    NVF_ERROR(
+        std::is_permutation(getLeafDomain().begin(), getRootDomain().end(),
+                            getAllocationDomain().begin(), getAllocationDomain().end(),
+        "should not call clearReductionIterDomains on transformed allocation domain");
+    std::vector<IterDomain*> new_root;
+    std::vector<IterDomain*> new_alloc;
+    std::vector<std::optional<bool>> new_contig;
+    for (const auto i : c10::irange(getRootDomain().size())) {
+      auto root_i = getRootDomain().at(i);
+      if (!root_i->isReduction()) {
+        new_root.push_back(root_i);
+      }
+      auto alloc_i = getRootDomain().at(i);
+      if (!alloc_i->isReduction()) {
+        new_alloc.push_back(root_i);
+        new_contig.push_back(domain()->contiguity().at(i));
+      }
     }
-  }
 
-  setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+    setDomain(IrBuilder::create<TensorDomain>(container(), new_root, {}, new_alloc, {}, new_contig));
+  } else {
+    std::vector<IterDomain*> new_root;
+    std::vector<std::optional<bool>> new_contig;
+    for (const auto i : c10::irange(getRootDomain().size())) {
+      auto root_i = getRootDomain().at(i);
+      if (!root_i->isReduction()) {
+        new_root.push_back(root_i);
+        new_contig.push_back(domain()->contiguity().at(i));
+      }
+    }
+
+    setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  }
 }
 
 void TensorView::doubleBuffer() {
