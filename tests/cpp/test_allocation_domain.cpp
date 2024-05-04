@@ -1429,10 +1429,10 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
                  .shape({-1, 1, -1})
-                 .contiguity({true, true, std::nullopt})
-                 .strideOrder({2, 0, 1})
+                 .contiguity({true, std::nullopt, true})
                  .build();
   auto tv1 = sum(tv0, {0});
+  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, {true, true, std::nullopt});
   tv1->clearReductionIterDomains();
 }
 
