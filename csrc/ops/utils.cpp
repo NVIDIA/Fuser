@@ -270,88 +270,14 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       TensorDomain::noReductions(tvs[0]->getMaybeRFactorDomain()).size(),
       nullptr);
 
-  // For the start and stop offsets, take the maximum of input axes.
-  // For now, the offsets of both start and stop are always integer
-  // constant, so we can statically compute them. It is unclear
-  // whether we would need to support dynamic offsetting, e.g.,
-  // shifting by a dynamic offset.
-  std::vector<int64_t> start_offsets(out_domain.size(), 0);
-  std::vector<int64_t> stop_offsets(out_domain.size(), 0);
-  std::vector<Val*> extent_vals(out_domain.size(), nullptr);
-  std::vector<bool> extent_is_from_symbolic(out_domain.size(), true);
-  std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
-  std::vector<std::optional<IterType>> iter_types(
-      out_domain.size(), std::nullopt);
-
-  for (auto tv : tvs) {
-    auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-    NVF_ERROR(
-        dom.size() == out_domain.size(),
-        "Invalid tensor view found while producing an output, it has ",
-        dom.size(),
-        " dimensions but expected ",
-        out_domain.size());
-    for (const auto i : c10::irange(dom.size())) {
-      if (dom[i]->isBroadcast()) {
-        if (dom[i]->hasExpandedExtent()) {
-          expanded_extent_vals[i] =
-              promoteSize(expanded_extent_vals[i], dom[i]->expandedExtent());
-        }
-        continue;
-      }
-      if (extent_is_from_symbolic[i] && !dom[i]->isSymbolic()) {
-        // We prefer to use extents from non-Symbolic inputs if there are any
-        // because they might indicate a broadcast axis that is resolved in this
-        // op.
-        extent_vals[i] = dom[i]->extent();
-        extent_is_from_symbolic[i] = false;
-      }
-      extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
-      if (iter_types[i].has_value()) {
-        iter_types[i] =
-            promoteIterType(iter_types[i].value(), dom[i]->getIterType());
-      } else {
-        iter_types[i] = dom[i]->getIterType();
-      }
-
-      auto start_offset = dom[i]->start();
-      auto stop_offset = dom[i]->stopOffset();
-      // Currently, start is always constant
-      NVF_ERROR(
-          start_offset->isConstInt(),
-          "Invalid IterDomain start: ",
-          start_offset);
-      NVF_ERROR(
-          stop_offset->isConstInt(),
-          "Invalid IterDomain stop offset: ",
-          stop_offset);
-      start_offsets[i] =
-          std::max(start_offsets[i], start_offset->evaluate().as<int64_t>());
-      stop_offsets[i] =
-          std::max(stop_offsets[i], stop_offset->evaluate().as<int64_t>());
-    }
-  }
   for (const auto dim_i : c10::irange(out_domain.size())) {
-    if (extent_vals[dim_i] != nullptr) {
-      NVF_ERROR(
-          iter_types[dim_i].has_value(),
-          "Could not deduce iter type for new tensor view.");
-      out_domain[dim_i] =
-          IterDomainBuilder(
-              IrBuilder::create<Val>(start_offsets[dim_i], DataType::Index),
-              extent_vals[dim_i])
-              .stop_offset(
-                  IrBuilder::create<Val>(stop_offsets[dim_i], DataType::Index))
-              .iter_type(iter_types[dim_i].value())
-              .build();
-    } else {
-      out_domain[dim_i] = IterDomainBuilder(
-                              FusionGuard::getCurFusion()->zeroVal(),
-                              FusionGuard::getCurFusion()->oneVal())
-                              .expanded_extent(expanded_extent_vals[dim_i])
-                              .iter_type(IterType::Broadcast)
-                              .build();
+    std::vector <IterDomain*> input_ids;
+    input_ids.reserve(tvs.size());
+    for (auto tv: tvs){
+      auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+      input_ids.emplace_back(dom[dim_i]);
     }
+    out_domain[dim_i] = outIterDomain(input_ids);
   }
   return out_domain;
 }
