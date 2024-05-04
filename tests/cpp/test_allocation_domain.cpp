@@ -1423,4 +1423,17 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
   testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, 1, -1})
+                 .contiguity({true, std::nullopt, true})
+                 .strideOrder({0, 2, 1})
+                 .build();
+  auto tv1 = sum(tv0, {0});
+  tv1->clearReductionIterDomains();
+}
+
 } // namespace nvfuser

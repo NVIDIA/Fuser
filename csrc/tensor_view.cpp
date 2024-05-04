@@ -1200,8 +1200,11 @@ void TensorView::clearReductionIterDomains() {
 
   if (domain()->hasAllocation()) {
     NVF_ERROR(
-        std::is_permutation(getRootDomain().begin(), getRootDomain().end(),
-                            getAllocationDomain().begin(), getAllocationDomain().end()),
+        std::is_permutation(
+            getRootDomain().begin(),
+            getRootDomain().end(),
+            getAllocationDomain().begin(),
+            getAllocationDomain().end()),
         "should not call clearReductionIterDomains on transformed allocation domain");
     std::vector<IterDomain*> new_root;
     std::vector<IterDomain*> new_alloc;
@@ -1218,7 +1221,13 @@ void TensorView::clearReductionIterDomains() {
       }
     }
 
-    setDomain(IrBuilder::create<TensorDomain>(container(), new_root, std::vector<IterDomain*>(), new_alloc, new_root, new_contig));
+    setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        new_root,
+        std::vector<IterDomain*>(),
+        new_alloc,
+        new_root,
+        new_contig));
   } else {
     std::vector<IterDomain*> new_root;
     std::vector<std::optional<bool>> new_contig;
@@ -1230,7 +1239,8 @@ void TensorView::clearReductionIterDomains() {
       }
     }
 
-    setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+    setDomain(
+        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
   }
 }
 
