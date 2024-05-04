@@ -2695,33 +2695,27 @@ static TensorView* newForMatmul(
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
-
+  auto ndims_out = std::max(ndims_a, ndims_b);
   NVF_ERROR(ndims_a>=1 && ndims_b>= 1);
 
-  std::vector<IterDomain*> new_domain;
-  auto higher_dim_domain = ndims_a >= ndims_b ? orig_domain_a : orig_domain_b;  
-  new_domain.reserve(higher_dim_domain.size());
-
-  if (ndims_a > 2 || ndims_b > 2) {
-    for (auto inx: c10::irange(higher_dim_domain.size() - 2)) {
-      new_domain.push_back(IterDomainBuilder(higher_dim_domain[inx]).resetSchedulingParams().build());
-    }
-  }
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
   
-  // Add M domain to output domain if present
-  if (orig_domain_a.size() > 1) {
-    const IterDomain* m_id = orig_domain_a[ndims_a-2];
-    new_domain.push_back(IterDomainBuilder(m_id).resetSchedulingParams().build());
-  }
+  int kpos_a = ndims_a - 1;
+  int kpos_b = ndims_b > 1 ? ndims_b - 2 : 0;
 
-  // Add N domain to output domain if present
-  if (orig_domain_b.size() > 1) {
-    const IterDomain* n_id = orig_domain_b[ndims_b-1];
-    new_domain.push_back(IterDomainBuilder(n_id).resetSchedulingParams().build());
-  }
+  for (int inx = ndims_out - 1, inx_a = ndims_a - 1, inx_b = ndims_b - 1; inx >= 0; inx--, inx_a--, inx_b--){
+    std::vector<IterDomain*> input_ids;
+    if (inx_a >= 0 && inx_a != kpos_a){
+      input_ids.emplace_back(orig_domain_a[inx_a]);
+    }
+    if (inx_b >= 0 && inx_b != kpos_b){
+      input_ids.emplace_back(orig_domain_b[inx_b]);
+    }
+    out_domain[inx] = ops::outIterDomain(input_ids);
+  }  
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
-      new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
   return IrBuilder::create<TensorView>(td, tv_a->dtype());
 }
