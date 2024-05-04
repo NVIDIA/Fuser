@@ -187,10 +187,10 @@ IterDomain* outIterDomain(const std::vector<IterDomain*>& ids){
   Val* expanded_extent_val = nullptr;
   std::optional<IterType> iter_type = std::nullopt;
 
-  for (const id: ids) {
+  for (auto id: ids) {
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
-        expanded_extent_val = promoteSize(expanded_extent_vals, id->expandedExtent());
+        expanded_extent_val = promoteSize(expanded_extent_val, id->expandedExtent());
       }
       continue;
     }
@@ -242,7 +242,7 @@ IterDomain* outIterDomain(const std::vector<IterDomain*>& ids){
       out_domain = IterDomainBuilder(
                               FusionGuard::getCurFusion()->zeroVal(),
                               FusionGuard::getCurFusion()->oneVal())
-                              .expanded_extent(expanded_extent_vals[dim_i])
+                              .expanded_extent(expanded_extent_val)
                               .iter_type(IterType::Broadcast)
                               .build();
     }
@@ -353,11 +353,6 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
                               .build();
     }
   }
-
-  for (const auto dim_i: c10::irange(out_domain.size())) {
-
-  }
-
   return out_domain;
 }
 #if defined(__GNUC__) && !defined(__clang__)
