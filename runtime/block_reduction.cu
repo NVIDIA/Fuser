@@ -169,84 +169,124 @@ __device__ void blockIterGroupedReduce(
       index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
           threadIdx, blockDim);
 
-  // Adjust shared memory offset for array processing
-  unsigned int smem_offset =
-      (reduction_idx * reduction_size + reduction_tid) * N;
-  if (read_pred) {
-    // This section calculates the number of vectorized load operations required
-    // to fetch all elements of an array into shared memory, assuming each load
-    // can transfer up to 16 bytes. For example, with fusion input vectorized by
-    // 8 (N = 8) and computations in fp32 (sizeof(T) = 4 bytes), the total data
-    // size is 4 * 8 = 32 bytes, necessitating 32 / 16 = 2 load transactions.
-    // Each transaction loads 16 / 4 (bytes per element) = 4 elements.
-    if constexpr (sizeof(T) * N <= 16) {
-      loadGeneric<T, N>(shared_mem + smem_offset, const_cast<T*>(inp_val));
-    } else {
-      constexpr unsigned int total_loads = sizeof(T) * N / 16;
-      constexpr unsigned int elements_per_load = 16 / sizeof(T);
-      static_assert(
-          sizeof(T) * N == 16 * total_loads,
-          "This combination of vectorization factor and data type is not supported!");
-      static_assert(
-          sizeof(T) * elements_per_load == 16,
-          "This data type is not supported!");
-#pragma unroll
+  // In shared memory, each row has 128 bytes, if sizeof(T) * N = 32 bytes, each row has 128 / 32 = 4 threads.
+  // Each transaction can only load data from one row, with a max of 16 bytes per thread.
+  // So the total bytes per transaction is 4 x 16 = 64 bytes which is only half of the
+  // maximum 128 bytes per transaction. we should change the layout from [TIDy, TIDx, N] to 
+  // [N/4, TIDy, TIDx, 4]
+  constexpr unsigned int total_loads = sizeof(T) * N / 16 > 1 ? sizeof(T) * N / 16 : 1;
+  constexpr unsigned int elements_per_load = 16 / sizeof(T) > N ? N : 16 / sizeof(T);
+
+  if(true){
+    unsigned int smem_offset_inter = blockDim.x * blockDim.y * blockDim.z * elements_per_load;
+    unsigned int smem_offset_intra = (threadIdx.z * blockDim.x  * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x) * elements_per_load;
+    
+    // load to [total_loads] sections of shared memory
+    #pragma unroll
+    for (unsigned int i = 0; i < total_loads; ++i) {
+      loadGeneric<T, elements_per_load>(
+          shared_mem + smem_offset_inter * i + smem_offset_intra,
+          const_cast<T*>(inp_val) + i * elements_per_load);
+    }
+    block_sync::sync<Aligned>();
+
+    // Reduce down to nearest power of 2 for the tree reduction:
+    // Perform parallel reduction for each element in the array
+    int np2 = 1 << (31 - __clz(reduction_size));
+    if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
+      // vectorized load from smem to regs
+      T self[N];
+      T peer[N];
+      #pragma unroll
       for (unsigned int i = 0; i < total_loads; ++i) {
-        loadGeneric<T, elements_per_load>(
-            shared_mem + smem_offset + i * elements_per_load,
-            const_cast<T*>(inp_val) + i * elements_per_load);
+        int self_offset = smem_offset_inter * i + smem_offset_intra;
+        int peer_offset = self_offset + np2 * elements_per_load * blockDim.x;
+        loadGeneric<T, elements_per_load>(self + i * elements_per_load, shared_mem + self_offset);
+        loadGeneric<T, elements_per_load>(peer + i * elements_per_load, shared_mem + peer_offset);          
+      }
+      // reduction
+      #pragma unroll
+      for (int i = 0; i < N; ++i) {
+        reduction_op(self[i], peer[i]);
+      }
+      // write self back to smem
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        int self_offset = smem_offset_inter * i + smem_offset_intra;
+        loadGeneric<T, elements_per_load>(shared_mem + self_offset, self + i * elements_per_load);
       }
     }
-  } else {
-#pragma unroll
-    for (int i = 0; i < N; ++i) {
-      shared_mem[smem_offset + i] = init_val;
+    block_sync::sync<Aligned>();
+
+    // Tree reduction
+    for (int factor = np2 / 2; factor > 1; factor >>= 1) {
+      if (reduction_tid < factor) {
+        // vectorized load from smem to regs
+        T self[N];
+        T peer[N];
+        #pragma unroll
+        for (unsigned int i = 0; i < total_loads; ++i) {
+          int self_offset = smem_offset_inter * i + smem_offset_intra;
+          int peer_offset = self_offset + factor * elements_per_load * blockDim.x;
+          loadGeneric<T, elements_per_load>(self + i * elements_per_load, shared_mem + self_offset);
+          loadGeneric<T, elements_per_load>(peer + i * elements_per_load, shared_mem + peer_offset);             
+        }
+        // reduction
+        #pragma unroll
+        for (int i = 0; i < N; ++i) {
+          reduction_op(self[i], peer[i]);
+        }
+        // write self back to smem
+        #pragma unroll
+        for (unsigned int i = 0; i < total_loads; ++i) {
+          int self_offset = smem_offset_inter * i + smem_offset_intra;
+          loadGeneric<T, elements_per_load>(shared_mem + self_offset, self + i * elements_per_load);
+        }
+      }
+      block_sync::sync<Aligned>();
     }
-  }
 
-  block_sync::sync<Aligned>();
-
-  // Reduce down to nearest power of 2 for the tree reduction:
-  int np2 = 1 << (31 - __clz(reduction_size));
-
-  // Perform parallel reduction for each element in the array
-  if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
-#pragma unroll
-    for (int i = 0; i < N; ++i) {
-      reduction_op(
-          shared_mem[smem_offset + i], shared_mem[smem_offset + np2 * N + i]);
-    }
-  }
-
-  block_sync::sync<Aligned>();
-
-  for (int factor = np2 / 2; factor > 1; factor >>= 1) {
-    if (reduction_tid < factor) {
-#pragma unroll
+    // last reduction
+    if (should_write && write_pred) {
+      // init result
+      T result[N];
+      #pragma unroll
       for (int i = 0; i < N; ++i) {
-        reduction_op(
-            shared_mem[smem_offset + i],
-            shared_mem[smem_offset + factor * N + i]);
+        result[i] = out[i];
+      }
+  
+      // copy first element to result
+      T self[N];
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        int self_offset = smem_offset_inter * i + smem_offset_intra;
+        loadGeneric<T, elements_per_load>( self + i * elements_per_load, shared_mem + self_offset);
+      }
+      #pragma unroll
+      for (int i = 0; i < N; ++i) {
+        reduction_op(result[i], self[i]);
+      }
+  
+      // reduction of the 2nd last element
+      if(reduction_size > 1){
+        T peer[N];
+        #pragma unroll
+        for (unsigned int i = 0; i < total_loads; ++i) {
+          int peer_offset = smem_offset_inter * i + smem_offset_intra + elements_per_load * blockDim.x;
+          loadGeneric<T, elements_per_load>( peer + i * elements_per_load,  shared_mem + peer_offset);
+        }
+        #pragma unroll
+        for (int i = 0; i < N; ++i) {
+          reduction_op(result[i], peer[i]);
+        }
+      }
+      #pragma unroll
+      for (int i = 0; i < N; ++i) {
+        out[i] = result[i];
       }
     }
     block_sync::sync<Aligned>();
   }
-
-  if (should_write && write_pred) {
-#pragma unroll
-    for (int i = 0; i < N; ++i) {
-      T result = out[i];
-      reduction_op(result, shared_mem[smem_offset + i]);
-      if (reduction_size > 1) {
-        reduction_op(
-            result,
-            shared_mem[smem_offset + N + i]); // Handle the last element if
-                                              // reduction size is odd
-      }
-      out[i] = result;
-    }
-  }
-  block_sync::sync<Aligned>();
 }
 
 // Use the same pred for both reads and writes
