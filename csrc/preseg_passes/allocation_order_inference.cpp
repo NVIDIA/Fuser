@@ -42,16 +42,19 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // 1. we project iter domains from targets' rfactor domain which has an exact
 // map to ref's allocation domain.
 //   mapped_id_vec {ir5[i1], iS7[i2]}
-// 2. remove all projected ids and reduction iter domains from target's rfactor domain:
+// 2. remove all projected ids and reduction iter domains from target's rfactor
+// domain:
 //   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5]}
-// 3. iterating through unmodified target's rfactor domain to construct target allocation domain:
+// 3. iterating through unmodified target's rfactor domain to construct target
+// allocation domain:
 //   if target_rfactor_domain[i] is a reduction and is not mapped
 //      keep the reduction iter domain in the original position;
 //   else
-//      push the front of unmapped_id_vec to the end of target allocation domain if unmapped_id_vec isn't empty yet;
-//      otherwise, push the frnot of mapped_id_vec at the end of target allocation domain.
+//      push the front of unmapped_id_vec to the end of target allocation domain
+//      if unmapped_id_vec isn't empty yet; otherwise, push the frnot of
+//      mapped_id_vec at the end of target allocation domain.
 //
-// Note: we could be using a simplified logic below, 
+// Note: we could be using a simplified logic below,
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
 // 1. we project iter domains from targets' rfactor domain which has an exact
 // map to ref's allocation domain.
