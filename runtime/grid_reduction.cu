@@ -726,14 +726,27 @@ __device__ void iterGroupedGridReduceLastBlock(
     inp[i] = init_val;
   }
 
+  // Max vectorized load/store size is 16 bytes, if each thread has more than
+  // 16 bytes, split into multiple sections to ensure each thread occupies only
+  // 16 bytes at most. For example, if each thread has 8 fp32 which occupies 32
+  // bytes, split into 2 sections, in each secdtion each thread holds 4 fp32 or
+  // 16 bytes. Thread-0 processes elements [0,7], the first 4 elements [0,3] are
+  // stored in the first section and the last 4 elements [4,7] are stored in the
+  // 2nd section. The data layout in gmem is:
+  //         |-----------section 1-----------|-----------section 2-----------|
+  // TIDx:   |000|001|002|003|004|005|006|007|000|001|002|003|004|005|006|007|
+  // GMEM:   |000|016|032|048|064|080|096|112|128|144|160|176|192|208|224|240|
+  // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
+  // This layout ensures coalesced access to gmem and each transaction loads 128
+  // bytes.
   constexpr int total_bytes = vec_size * sizeof(T);
   constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
   constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
-  // split into multiple sections to ensure each thread occupies 16 bytes at
-  // most. For example, if each thread occupies 32 bytes, each transaction only
-  // get 16/32 * 128 = 64 bytes. define offset between different sections, each
-  // thread holds [n_elements] each section has [grid_reduction_segment_size *
-  // block_reduction_segment_size * grid_segment_size] threads.
+
+  // offset between different sections
+  // each thread holds [n_elements], threads count in each section is:
+  // [grid_reduction_segment_size * block_reduction_segment_size *
+  // grid_segment_size]
   unsigned int gmem_offset_inter = grid_reduction_segment_size *
       block_reduction_segment_size * grid_segment_size * n_elements;
   // Block stride across the reduction until we only have one value per thread
@@ -865,15 +878,27 @@ __device__ void iterGroupedGridReduce(
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
             threadIdx, blockDim);
 
+    // Max vectorized load/store size is 16 bytes, if each thread has more than
+    // 16 bytes, split into multiple sections to ensure each thread occupies
+    // only 16 bytes at most. For example, if each thread has 8 fp32 which
+    // occupies 32 bytes, split into 2 sections, in each secdtion each thread
+    // holds 4 fp32 or 16 bytes. Thread-0 processes elements [0,7], the first 4
+    // elements [0,3] are stored in the first section and the last 4 elements
+    // [4,7] are stored in the 2nd section. The data layout in gmem is:
+    //         |-----------section 1-----------|-----------section 2-----------|
+    // TIDx:   |000|001|002|003|004|005|006|007|000|001|002|003|004|005|006|007|
+    // GMEM:   |000|016|032|048|064|080|096|112|128|144|160|176|192|208|224|240|
+    // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
+    // This layout ensures coalesced access to gmem and each transaction loads
+    // 128 bytes.
     constexpr int total_bytes = vec_size * sizeof(T);
     constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
     constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
-    // split into multiple sections to ensure each thread occupies 16 bytes at
-    // most. For example, if each thread occupies 32 bytes, each transaction
-    // only get 16/32 * 128 = 64 bytes. define offset between different
-    // sections, each thread holds [n_elements] each section has
+
+    // offset between different sections
+    // each thread holds [n_elements], threads count in each section is:
     // [grid_reduction_segment_size * block_reduction_segment_size *
-    // grid_segment_size] threads.
+    // grid_segment_size]
     unsigned int gmem_offset_inter = grid_reduction_segment_size *
         block_reduction_segment_size * grid_segment_size * n_elements;
 
@@ -937,5 +962,4 @@ __device__ void iterGroupedGridReduce(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   }
 }
-
 } // namespace reduction
