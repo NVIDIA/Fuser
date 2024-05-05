@@ -48,8 +48,21 @@ __device__ void blockReduce(
       index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
           threadIdx, blockDim);
 
+  // smem_offset is the offset into shared memory for the current thread.
+  // To ensure coalesced access to shared memory, we need to ensure
+  // each transaction is accessing a contiguous block of 128 bytes.
+  // For outer reduction where TIDy is in the reduction dimension and TIDx
+  // is in the iteration dimension and TIDz is not used. We have
+  // reduction_tid = TIDy and reduction_idx = TIDx. If we directly use the
+  // offset based on reduction_tid and reduction_idx, we will have stride
+  // access to shared memory. For example:
+  // offset = reduction_idx * reduction_size + reduction_tid
+  //        = TIDx * blockDim.y + TIDy
+  // To avoid this, we should always use the offset based on the indexing of
+  // threads within a block.
   // Offset into smem for the current thread
-  unsigned int smem_offset = reduction_idx * reduction_size + reduction_tid;
+  unsigned int smem_offset = threadIdx.x + threadIdx.y * blockDim.x +
+      threadIdx.z * blockDim.x * blockDim.y;
 
   // Initialize shared memory
   if (read_pred) {
