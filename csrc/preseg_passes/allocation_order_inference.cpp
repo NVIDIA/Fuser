@@ -40,19 +40,20 @@ size_t countLoopIterDomains(const TensorView* tv) {
 //     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
 // 1. we project iter domains from targets' rfactor domain which has an exact
-// map to ref's allocation domain.
+// map to ref's allocation domain. (sharp-edge 0: we exlucde mapping from
+// iteration id on ref to reduction id on target to avoid unnecessary
+// re-ordering which exposes issue 2202).
 //   mapped_id_vec {ir5[i1], iS7[i2]}
 // 2. remove all projected ids and reduction iter domains from target's rfactor
 // domain:
 //   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5]}
 // 3. iterating through unmodified target's rfactor domain to construct target
 // allocation domain:
-//   if target_rfactor_domain[i] is a reduction and is not mapped
-//      keep the reduction iter domain in the original position;
-//   else
-//      push the front of unmapped_id_vec to the end of target allocation domain
-//      if unmapped_id_vec isn't empty yet; otherwise, push the frnot of
-//      mapped_id_vec at the end of target allocation domain.
+//   (sharp-edge 1: if target_rfactor_domain[i] is a reduction and is not
+//   mapped, we keep the reduction iter domain in the original position.) Push
+//   the front of unmapped_id_vec to the end of target allocation domain, if
+//   unmapped_id_vec isn't empty yet; Otherwise, push the frnot of mapped_id_vec
+//   at the end of target allocation domain.
 //
 // Note: we could be using a simplified logic below,
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
@@ -84,6 +85,12 @@ void AllocationOrderMapping(
 #if true
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
+      // sharp-edges 0
+      // avoid mapping a reduced dimension.
+      if (!ref_id->isReduction() && id->isReduction()) {
+        // technically we don't need to skip this. But it's giving issues
+        continue;
+      }
       // how do we resolve multiple mapping?
       if (val_sets.strictAreMapped(ref_id, id)) {
         mapped_id_vec.push_back(id);

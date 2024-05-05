@@ -249,9 +249,16 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor({-1, 1}); // stride order: {0, 1}
   fusion.addInput(tv1);
-  auto tv2 = sum(tv0, {1}); // stride order: {1, 2, 3, 0}
+  // Instead of propagating stride order: {1, 2, 3, 0}
+  // The end result is {2, 1, 3, 0} because we skip mapping from Iteration id to
+  // reduction id. See Note [ Allocation Order Mapping ] sharp-edge 0 for
+  // details.
+  // TODO: restore behavior after issue:
+  // https://github.com/NVIDIA/Fuser/issues/2202
+  auto tv2 = sum(tv0, {1});
   fusion.addOutput(tv2);
-  auto tv3 = sum(tv2, {1}); // stride order: {1, 2, 0}
+  // ditto. stride order here is {2, 1, 0} instead of {1, 2, 0}
+  auto tv3 = sum(tv2, {1});
   fusion.addOutput(tv3);
   // tv3 dominates the propagation since it has more non-broadcast dimension
   auto tv4 = add(tv1, tv3); // stride order: {1, 0}
@@ -264,8 +271,16 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
 
   preseg_passes::inferenceAllocationOrder(
       &fusion, {tv0, tv1}, {tv2, tv3, tv4, tv5});
+#if true
+  // permutation here is strange because in propagation we are preserving
+  // reduction iter domain in its position in rfactor domain See issue:
+  // https://github.com/NVIDIA/Fuser/issues/2202
+  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(2, 1, 3, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(2, 1, 0));
+#else
   EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 2, 3, 0));
   EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 2, 0));
+#endif
   EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
   EXPECT_THAT(getAllocationDomainPermutation(tv5), ElementsAre(0, 3, 2, 1));
 }
