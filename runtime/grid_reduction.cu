@@ -725,26 +725,31 @@ __device__ void iterGroupedGridReduceLastBlock(
   for (int i = 0; i < vec_size; i++) {
     inp[i] = init_val;
   }
+
+  constexpr int total_bytes = vec_size * sizeof(T);
+  constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
+  constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
+  // split into 2 sections to ensure each thread occupies 16 bytes in each section
+  // if each thread occupies 32 bytes, each transaction only get 16/32 * 128 = 64 bytes
+  // define offset between different sections, each thread holds [n_elements]
+  // each section has [grid_reduction_segment_size * block_reduction_segment_size * grid_segment_size] threads
+  unsigned int gmem_offset_inter = grid_reduction_segment_size * block_reduction_segment_size * grid_segment_size * n_elements;
   // Block stride across the reduction until we only have one value per thread
   for (nvfuser_index_t reduction_i = id_in_block_segment;
        reduction_i < grid_reduction_segment_size;
        reduction_i += input_stride_for_thread_in_segment) {
     // index to global memory
     auto work_buf_offset =
-        reduction_i * (block_reduction_segment_size * grid_segment_size) +
+    reduction_i * (block_reduction_segment_size * grid_segment_size) +
         block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    work_buf_offset *= vec_size;
+    unsigned int gmem_offset_intra = work_buf_offset * n_elements;    
 
-    // vectorized load from global memory
-    constexpr int total_bytes = vec_size * sizeof(T);
-    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
 #pragma unroll
     for (int i = 0; i < n_loads; i++) {
       int i_offset = i * n_elements;
       T in_reg[n_elements];
       loadGlobalToLocal<T, n_elements, true, CacheOp::Global>(
-          &in_reg[0], const_cast<T*>(in + work_buf_offset + i_offset));
+          &in_reg[0], const_cast<T*>(in + gmem_offset_inter * i + gmem_offset_intra));
 #pragma unroll
       for (int j = 0; j < n_elements; j++) {
         reduction_op(inp[i_offset + j], in_reg[j]);
@@ -857,6 +862,15 @@ __device__ void iterGroupedGridReduce(
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
             threadIdx, blockDim);
 
+    constexpr int total_bytes = vec_size * sizeof(T);
+    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
+    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
+    // split into 2 sections to ensure each thread occupies 16 bytes in each section
+    // if each thread occupies 32 bytes, each transaction only get 16/32 * 128 = 64 bytes
+    // define offset between different sections, each thread holds [n_elements]
+    // each section has [grid_reduction_segment_size * block_reduction_segment_size * grid_segment_size] threads
+    unsigned int gmem_offset_inter = grid_reduction_segment_size * block_reduction_segment_size * grid_segment_size * n_elements;
+   
     // index to the right position in [work_buf] to store block reduction
     // results. Consider a typical outer reduction case where iteration dim is
     // TIDx and BIDx and reduction dim is TIDy and BIDy. block_offset = BIDy
@@ -867,15 +881,13 @@ __device__ void iterGroupedGridReduce(
     auto work_buf_offset =
         block_offset * (block_reduction_segment_size * grid_segment_size) +
         block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    work_buf_offset *= vec_size;
+    unsigned int gmem_offset_intra = work_buf_offset * n_elements;    
 
-    constexpr int total_bytes = vec_size * sizeof(T);
-    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
+
 #pragma unroll
     for (int i = 0; i < n_loads; i++) {
       loadLocalToGlobal<T, n_elements, true>(
-          &work_buf[work_buf_offset + i * n_elements],
+          &work_buf[gmem_offset_inter * i + gmem_offset_intra],
           &block_reduction_val[i * n_elements]);
     }
   }

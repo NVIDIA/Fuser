@@ -790,7 +790,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
             (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
     if (total_iteration_numel > 3072) {
       iter_unroll_factor = bdimx > 64 ? 4L : 2L;
-      iter_unroll_factor = bdimx > 128 ? 8L : iter_unroll_factor;
+      if(bdimx > 128){
+        bdimx /= 2;
+        iter_unroll_factor *= 2;
+      }
+      // iter_unroll_factor = bdimx > 128 ? empirical_max_vect : iter_unroll_factor;
       iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
       iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
     }
