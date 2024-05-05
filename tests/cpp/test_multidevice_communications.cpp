@@ -63,12 +63,13 @@ TEST_P(CommunicationTest, Gather) {
   params.team = all_ranks;
   auto communication = Gather(params);
 
+  at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
+  at::Tensor output_tensor =
+      at::empty({communicator->size(), tensor_size}, tensor_options);
   for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor =
+    input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j;
-    at::Tensor output_tensor =
-        at::empty({communicator->size(), tensor_size}, tensor_options);
+        (communicator->deviceId() + 1) * j);
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
     work->wait();
