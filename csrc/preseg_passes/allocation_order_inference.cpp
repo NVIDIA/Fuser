@@ -42,7 +42,21 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // 1. we project iter domains from targets' rfactor domain which has an exact
 // map to ref's allocation domain.
 //   mapped_id_vec {ir5[i1], iS7[i2]}
-// 2. remove all projected ids and reduction iter domains from target's rfactor
+// 2. remove all projected ids and reduction iter domains from target's rfactor domain:
+//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5]}
+// 3. iterating through unmodified target's rfactor domain to construct target allocation domain:
+//   if target_rfactor_domain[i] is a reduction and is not mapped
+//      keep the reduction iter domain in the original position;
+//   else
+//      push the front of unmapped_id_vec to the end of target allocation domain if unmapped_id_vec isn't empty yet;
+//      otherwise, push the frnot of mapped_id_vec at the end of target allocation domain.
+//
+// Note: we could be using a simplified logic below, 
+// See issue https://github.com/NVIDIA/Fuser/issues/2202
+// 1. we project iter domains from targets' rfactor domain which has an exact
+// map to ref's allocation domain.
+//   mapped_id_vec {ir5[i1], iS7[i2]}
+// 2. remove all projected iter domains from target's rfactor
 // domain:
 //   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
 // 3. append mapped_id_vec at the end of unmapped_id_vec.
@@ -62,6 +76,50 @@ void AllocationOrderMapping(
   // map target rfactor domain into ref's allocation domain
   std::vector<IterDomain*> mapped_id_vec;
   std::unordered_set<IterDomain*> mapped_id_set;
+
+  // logic to preserve reduction iter domain in target to WAR issue #2202
+#if true
+  for (auto* ref_id : ref_alloc_domain) {
+    for (auto* id : target_rfactor_domain) {
+      // how do we resolve multiple mapping?
+      if (val_sets.strictAreMapped(ref_id, id)) {
+        mapped_id_vec.push_back(id);
+        mapped_id_set.insert(id);
+        break;
+      }
+    }
+  }
+
+  // removing mapped ids and reduction ids to create unmapped_ids_vec.
+  std::vector<IterDomain*> unmapped_ids_vec = target_rfactor_domain;
+  auto unmapped_ids_vec_end = std::remove_if(
+      unmapped_ids_vec.begin(),
+      unmapped_ids_vec.end(),
+      [&mapped_id_set](IterDomain* it) {
+        return mapped_id_set.count(it) != 0 || it->isReduction();
+      });
+
+  auto mapped_id_iter = mapped_id_vec.begin();
+  auto unmapped_id_iter = unmapped_ids_vec.begin();
+  std::vector<IterDomain*> target_alloc_domain(
+      target_rfactor_domain.size(), nullptr);
+  for (auto i : c10::irange(target_rfactor_domain.size())) {
+    // sharp-edges 1
+    // preserves non-mapped reduction id in its original position
+    if (target_rfactor_domain[i]->isReduction() &&
+        mapped_id_set.count(target_rfactor_domain[i]) == 0) {
+      target_alloc_domain[i] = target_rfactor_domain[i];
+      continue;
+    }
+    // push unmapped ids to outer dimension
+    if (unmapped_id_iter != unmapped_ids_vec_end) {
+      target_alloc_domain[i] = *unmapped_id_iter++;
+    } else {
+      // push mapped ids to inner dimension
+      target_alloc_domain[i] = *mapped_id_iter++;
+    }
+  }
+#else
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
       // how do we resolve multiple mapping?
@@ -72,7 +130,6 @@ void AllocationOrderMapping(
       }
     }
   }
-
   // removing mapped ids and reduction ids to create unmapped_ids_vec.
   std::vector<IterDomain*> target_alloc_domain = target_rfactor_domain;
   auto unmapped_ids_vec_end = std::remove_if(
@@ -82,6 +139,7 @@ void AllocationOrderMapping(
         return mapped_id_set.count(it) != 0;
       });
   std::copy(mapped_id_vec.begin(), mapped_id_vec.end(), unmapped_ids_vec_end);
+#endif
 
   // skip trivial allocation domain
   if (target_alloc_domain != target_rfactor_domain) {
