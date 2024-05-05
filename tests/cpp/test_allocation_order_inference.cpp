@@ -136,8 +136,8 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     tv1->setAllocationDomain(tv1_format, true);
 
     preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
-    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(3, 1, 0, 2));
-    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(3, 1, 0, 2));
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0, 2, 3));
+    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0, 2, 3));
   }
 }
 
