@@ -67,7 +67,7 @@ void AllocationOrderMapping(
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
       // how do we resolve multiple mapping?
-      if (val_sets.strictAreMapped(ref_id, id) ||
+      if (val_sets.permissiveAreMapped(ref_id, id) ||
           ca_map.areMapped(ref_id, id, IdMappingMode::INNERMOST)) {
         mapped_id_vec.push_back(id);
         mapped_id_set.insert(id);
@@ -190,7 +190,7 @@ void inferenceAllocationOrder(
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
         for (auto i : c10::irange(ref->nDims())) {
-          if (!val_sets.strictAreMapped(
+          if (!val_sets.permissiveAreMapped(
                   ref->getMaybeAllocationDomain()[i],
                   iter.first->getMaybeAllocationDomain()[i])) {
             // reset ref to nullptr, while keeping the iterdomain count high
