@@ -334,6 +334,11 @@ std::vector<TensorView*> sortProjectableBufferInputs(
       if (scheduler_utils::isFastestDimReduction(buffer)) {
         continue;
       }
+      // Use the first outer reduction tensor to infer the outer dim size.
+      // Compile time check ensures they have the same iter and reduction axes,
+      // connected with inner reduction tv. Similar to the first inner reduction
+      // tv is used to derive the reduction properties. Here the first outer
+      // reduction tv is used to derive the outer dim size.
       int64_t outer_dim_size = 1;
       for (auto id : buffer->getMaybeRFactorDomain()) {
         if (id->isReduction()) {
