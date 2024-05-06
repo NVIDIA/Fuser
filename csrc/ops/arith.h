@@ -806,8 +806,4 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
   return tensor(IrBuilder::arrayExpr(vals));
 }
 
-NVF_API TensorView* eagerMatmul(
-    TensorView* tv_a,
-    TensorView* tv_b);
-
 } // namespace nvfuser
