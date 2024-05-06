@@ -67,8 +67,7 @@ constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
     ScheduleHeuristic::PointWise,
     ScheduleHeuristic::InnerPersistent,
     ScheduleHeuristic::OuterPersistent,
-    ScheduleHeuristic::InnerOuterPersistent
-    };
+    ScheduleHeuristic::InnerOuterPersistent};
 
 std::string toString(ScheduleHeuristic sh);
 
