@@ -21,14 +21,15 @@ MultiDeviceTest::MultiDeviceTest() {
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
-  do_barrier_at_test =
-      (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
-       communicator->is_available());
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
-  if (do_barrier_at_test && communicator->is_available()) {
+  // Force all processes to synchronize at a barrier between tests. It slightly
+  // slows the tests down, but makes it much easier to isolate a failing test.
+  // Without this, if a test fails such that a subset of processes fail, then
+  // some processes will move onto another tests and timeout later.
+  if (communicator->is_available()) {
     communicator->barrier();
   }
 }
