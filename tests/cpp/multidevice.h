@@ -37,6 +37,9 @@ class MultiDeviceTest : public NVFuserTest {
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool disable_skip;
+
+ private:
+  void waitForDebuggerAtRank(DeviceIdxType rank);
 };
 
 class PipelineTest : public MultiDeviceTest {
