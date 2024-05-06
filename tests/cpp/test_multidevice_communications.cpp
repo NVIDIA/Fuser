@@ -48,14 +48,10 @@ void CommunicationTest::SetUp() {
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
-  NVF_ERROR(
-      obtained.equal(expected),
-      "Device ",
-      communicator->deviceId(),
-      " expected tensor:\n",
-      expected,
-      "\nbut obtained tensor:\n",
-      obtained);
+  EXPECT_TRUE(obtained.equal(expected))
+      << "Device " << communicator->deviceId() << " expected tensor:\n"
+      << expected << "\nbut obtained tensor:\n"
+      << obtained;
 }
 
 void CommunicationTest::resetDstBuffers() {

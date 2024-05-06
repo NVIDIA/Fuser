@@ -10,32 +10,25 @@
 #include <ATen/core/TensorBody.h>
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
-
-#include <exceptions.h>
-#include <multidevice/multidevice.h>
-#ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
-#else
-#include <multidevice/c10d_mock.h>
-#endif
+
+#include <exceptions.h>
+#include <multidevice/multidevice.h>
 #include <visibility.h>
 
 namespace nvfuser {
 
-/*
-   This file implements the class Communicator which sets up the inter-process
-   Backend. This class contains inter-process information, such as the rank, the
-   world size, as well as the Process Group that can be called to perform
-   inter-process communications.
-
-   Each process is associated with a unique deviceId and device. The actual MPI
-   rank remains private to the class and should not be used by the user. The
-   communicator class holds privately the mappings ranks <-> device IDs <->
-   device.
-
-*/
+// This file implements the class Communicator which sets up the inter-process
+// Backend. This class contains inter-process information, such as the rank, the
+// world size, as well as the Process Group that can be called to perform
+// inter-process communications.
+//
+// Each process is associated with a unique deviceId and device. The actual MPI
+// rank remains private to the class and should not be used by the user. The
+// communicator class holds privately the mappings ranks <-> device IDs <->
+// device.
 
 using RankType = DeviceIdxType;
 
@@ -53,7 +46,7 @@ constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  NVF_API Communicator(
+  Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
 
@@ -81,7 +74,7 @@ class Communicator {
   }
 
   // performs a send/receive p2p data transfer
-  NVF_API c10::intrusive_ptr<c10d::Work> sendRecv(
+  c10::intrusive_ptr<c10d::Work> sendRecv(
       DeviceIdxType receiver,
       DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
@@ -108,9 +101,16 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank associted with the current process,
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
   // returns world backend for communicator backend or default backend if not
   // specified.
-  NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(
+  c10::intrusive_ptr<c10d::Backend> getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation

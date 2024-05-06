@@ -36,6 +36,7 @@
 #include <c10/util/irange.h>
 
 #include <cmath>
+#include <cstring>
 #include <fstream>
 
 namespace nvfuser {
@@ -256,12 +257,7 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
-  bool is_expr_eval = std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-
-  if (is_expr_eval) {
+  if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
@@ -1614,6 +1610,138 @@ void FusionExecutor::initializeExecutorEntry(
   executor_entry.init = true;
 }
 
+/// Copies the data, logical_size, and alloc_stride parameters to the
+/// appropriate parts of entry.args[idx].
+///
+/// For GPU tensors, we pass a Tensor<type, rank, rank> struct (see
+/// runtime/tensor.cu), where the rank describes the number of elements in the
+/// shape and stride arrays. The actual shapes and strides are dynamic, but the
+/// type and rank of the tensors are actually static (changing them would need
+/// a new FusionDefinition). So we create the storage area for the
+/// Tensor<t,r,r> during ::computeArgs, and then in this function we just
+/// update that memory with the current values for the tensor's base address,
+/// shape, and strides.
+///
+/// @param entry the entry we have previously setup for this fusion
+/// @param idx the index into entry.args and related parallel arrays in the
+///            entry.
+/// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
+///                      computing how large the arrays to copy are.
+static void fillTensorArgMetadata(
+    FusionExecutor::ExecutorEntry& entry,
+    const PolymorphicValue& tensor_metadata,
+    size_t idx,
+    size_t idx_type_size) {
+  void* data = tensor_metadata->*&TensorMetaData::data;
+  // g++ has trouble inferring the types of more complicated fields through our
+  // *& operators. Creating an `auto` alias as a temporary resolves this
+  // problem.
+#define TMD_ARRAY_REF(pv, field)                  \
+  ({                                              \
+    const auto& fld_tmp_ = pv->*&field;           \
+    const c10::IntArrayRef& fld_aref_ = fld_tmp_; \
+    fld_aref_;                                    \
+  })
+  const c10::IntArrayRef& shape =
+      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::logical_size);
+  const c10::IntArrayRef& strides =
+      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::alloc_stride);
+#undef TMD_ARRAY_REF
+
+  // These are the three offsets we need to copy into.
+  std::array<std::byte*, 3> offsets = {
+      entry.args[idx].data(), // data ptr
+      entry.args[idx].data() + sizeof(void*), // shape array
+      // strides array:
+      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
+  };
+
+  memcpy(offsets[0], &data, sizeof(void*));
+  switch (idx_type_size) {
+    case sizeof(int64_t): {
+      // we use i64's for our sizes, so can use a simple copy here
+      memcpy(offsets[1], shape.data(), shape.size() * sizeof(int64_t));
+      memcpy(offsets[2], strides.data(), strides.size() * sizeof(int64_t));
+    } break;
+    case sizeof(int32_t): {
+      // we need to cast per-element, so need a loop.
+      // This case happens when the kernel uses 32bit indices. Since we
+      // (specifically TensorMetaData) store indices in 64bit, we can't
+      // directly copy our buffer into the args buffer. We thus have to
+      // manually downcast each element to fit in the smaller buffer.
+      for (size_t i = 0; i < shape.size(); ++i) {
+        const int32_t shp = static_cast<int32_t>(shape[i]);
+        memcpy(offsets[1] + i * sizeof(int32_t), &shp, sizeof(int32_t));
+      }
+      // In rare cases we have fewer strides than shapes
+      for (size_t i = 0; i < strides.size(); ++i) {
+        const int32_t strd = static_cast<int32_t>(strides[i]);
+        memcpy(offsets[2] + i * sizeof(int32_t), &strd, sizeof(int32_t));
+      }
+    } break;
+    default:
+      NVF_CHECK(0, "Unhandled index type size");
+      break;
+  }
+}
+
+// set the arguments that we'll pass to cuLaunchKernel. This should happen
+// when we change the rank of a tensor or the number of arguments to a kernel.
+// It does not need to happen when only shapes change---use recomputeArgs for
+// that.
+void FusionExecutor::computeArgs(
+    ExecutorEntry& entry,
+    ExpressionEvaluator& expr_eval,
+    const kir::Kernel* kernel) const {
+  FUSER_PERF_SCOPE("Initial GetArgsBuffers");
+
+  const std::vector<Val*>& params = kernel->parameters();
+  entry.args.resize(params.size());
+  entry.arg_ptrs.resize(params.size());
+  const PrimDataType idx_type = kernel->indexType();
+  for (size_t p = 0; p < params.size(); ++p) {
+    entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
+    entry.arg_ptrs[p] = entry.args[p].data();
+  }
+}
+
+// Reset the arguments that we'll pass to cuLaunchKernel. This needs to be
+// invoked on every shape change.
+void FusionExecutor::recomputeArgs(
+    ExecutorEntry& entry,
+    ExpressionEvaluator& expr_eval,
+    const kir::Kernel* kernel) const {
+  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+  // assert(entry.init && "entry was never initialized");
+
+  const std::vector<Val*>& params = kernel->parameters();
+  const PrimDataType idx_type = kernel->indexType();
+  // assert(entry.args.size() == params.size());
+  // assert(entry.arg_ptrs.size() == params.size());
+  // assert(params.size() >= args.size());
+  for (size_t p = 0; p < params.size(); ++p) {
+    PolymorphicValue pv = expr_eval.evaluate(params[p]);
+    if (pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
+      // GPU tensors are not passed directly: instead we pass a Tensor<type,
+      // rank, rank> struct. The pointer and dimensions are dynamic, but the
+      // types and ranks are actually static (changing the rank or the types
+      // would need to be done via a new FusionDefinition). As such, we created
+      // the Tensor<t, r, r> struct during ::computeArgs, and here we just fill
+      // in the base address, shape, and stride arrays to cover whatever new
+      // tensors we got this round.
+      TensorView* mtv = dynamic_cast<TensorView*>(params[p]);
+      const Val* mdexpr = IrBuilder::metadataExpr(mtv);
+      const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
+      const size_t idx_type_size =
+          PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
+      fillTensorArgMetadata(entry, tmd, p, idx_type_size);
+    } else {
+      entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
+    }
+    entry.arg_ptrs[p] = entry.args[p].data();
+  }
+}
+
 void FusionExecutor::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
@@ -1903,14 +2031,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
-  std::vector<std::vector<std::byte>> arg_buffers;
-  {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
-    arg_buffers.reserve(kernel()->parameters().size());
-    for (auto v : kernel()->parameters()) {
-      arg_buffers.emplace_back(
-          getKernelArgument(expr_eval, v, kernel()->indexType()));
-    }
+  if (executor_entry->args.empty()) {
+    computeArgs(*executor_entry, expr_eval, kernel());
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1940,11 +2062,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
-    std::vector<void*> arg_buffer_ptrs;
-    arg_buffer_ptrs.reserve(arg_buffers.size());
-    for (auto& arg_buffer : arg_buffers) {
-      arg_buffer_ptrs.push_back(arg_buffer.data());
-    }
+    recomputeArgs(*executor_entry, expr_eval, kernel());
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1991,7 +2109,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer_ptrs.data(),
+          executor_entry->arg_ptrs.data(),
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
@@ -2005,7 +2123,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer_ptrs.data()));
+          executor_entry->arg_ptrs.data()));
     }
 
     if (measure_kernel_time) {
@@ -2337,11 +2455,7 @@ void FusionExecutor::deserialize(
 
   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
   // skip compilation?
-  bool is_expr_eval = std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
-  if (is_expr_eval) {
+  if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
     return;

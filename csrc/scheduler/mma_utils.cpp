@@ -970,7 +970,8 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
   auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
-  std::vector<int64_t> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
+  std::vector<int64_t> device_pos, batch_pos, prev_reduction_pos, m_pos, n_pos,
+      k_pos;
 
   int64_t ndims = tv->nDims();
 
@@ -987,6 +988,8 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       k_pos.push_back(idx);
     } else if (id->isReduction()) {
       prev_reduction_pos.push_back(idx);
+    } else if (id->isDeviceDim()) {
+      device_pos.push_back(idx);
     } else {
       batch_pos.push_back(idx);
     }
@@ -1014,6 +1017,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Order the categories, while keeping the original
   //  intra-category ordering.
+  insert_to_order_map(device_pos);
   insert_to_order_map(batch_pos);
   insert_to_order_map(prev_reduction_pos);
   insert_to_order_map(m_pos);
@@ -1069,8 +1073,8 @@ ProblemIterDomainsOpt getProblemIterDomains(
   IterDomain* k = nullptr;
 
   const auto& leaf_domains = props.out->getLeafDomain();
-  const auto concrete =
-      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  const auto concrete = TensorDomain::noDevices(
+      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains)));
   if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
     std::stringstream ss;
     ss << "Failed to find the minimum number of MMA input candidates, expected "
@@ -1362,9 +1366,12 @@ void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
 bool hasValidBroadcastOp(TensorView* bcast_out) {
   // First check the tensorsview is 3D (4D)
   // and has one broadcast dim.
-  auto dims = bcast_out->domain()->nDims();
-  if (!((dims == 3 || dims == 4) &&
-        (int64_t)bcast_out->domain()->noBroadcasts().size() == dims - 1)) {
+  // Ignore device dimensions in this analysis.
+  auto non_device_dims =
+      TensorDomain::noDevices(bcast_out->getLeafDomain()).size();
+  if (!((non_device_dims == 3 || non_device_dims == 4) &&
+        TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
+            non_device_dims - 1)) {
     return false;
   }
 
@@ -1374,6 +1381,13 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   }
 
   return false;
+}
+
+int64_t numBroadcastDeviceDims(TensorView* tv) {
+  return std::count_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim() && id->isBroadcast(); });
 }
 
 // This function checks if the mul-sum can be replace with a mma op. The checks
@@ -1395,11 +1409,15 @@ bool broadcastsAreValid(
   auto bcast_l = dynamic_cast<BroadcastOp*>(left->definition());
   auto bcast_r = dynamic_cast<BroadcastOp*>(right->definition());
 
-  // Ensure that only one dim is getting broadcast.
+  // Ensure that only one non-device dim is getting broadcast.
   auto bcastFlags_l = bcast_l->getBroadcastDimFlags();
   auto bcastFlags_r = bcast_r->getBroadcastDimFlags();
-  auto count_l = std::count(bcastFlags_l.begin(), bcastFlags_l.end(), true);
-  auto count_r = std::count(bcastFlags_r.begin(), bcastFlags_r.end(), true);
+  auto bcast_l_devices = numBroadcastDeviceDims(left);
+  auto bcast_r_devices = numBroadcastDeviceDims(right);
+  auto count_l = std::count(bcastFlags_l.begin(), bcastFlags_l.end(), true) -
+      bcast_l_devices;
+  auto count_r = std::count(bcastFlags_r.begin(), bcastFlags_r.end(), true) -
+      bcast_r_devices;
   if ((count_l != 1) || (count_l != count_r)) {
     return false;
   }
