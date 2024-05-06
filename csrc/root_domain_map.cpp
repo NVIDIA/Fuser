@@ -127,7 +127,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
     bool is_lhs = producer->sameAs(op->inA());
-    int out_size = consumer_root.size();
+    auto out_size = consumer_root.size();
 
     const auto& mapping =
         ops::mapMatmulOpIterDomains(producer_root, is_lhs, out_size);

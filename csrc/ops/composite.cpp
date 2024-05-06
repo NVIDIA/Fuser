@@ -351,11 +351,6 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
   NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
-  // [K]x[K]-> Return dot product of vectors
-  if (tv_a->nDims() == 1 && tv_b->nDims == 1) {
-    return sum(mul(tv_a, tv_b));
-  }
-
   // For all other cases, create a new MatmulOp
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
