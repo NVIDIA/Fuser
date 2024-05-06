@@ -1431,11 +1431,26 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
                  .shape({-1, 1, -1})
                  .contiguity({true, std::nullopt, true})
                  .build();
-  auto tv1 = sum(tv0, {0});
+  auto tv1 = sum(tv0, {2});
   tv1->setAllocationDomain(
-      {tv1->axis(0), tv1->axis(2), tv1->axis(1)},
-      {std::nullopt, true, std::nullopt});
+      {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
+      {std::nullopt, std::nullopt, true});
+  // copy entries from old domain for validation later
+  std::vector<IterDomain*> root_copy = tv1->getRootDomain();
+  std::vector<IterDomain*> alloc_copy = tv1->getAllocationDomain();
+  std::vector<std::optional<bool>> contig_copy = tv1->getContiguity();
+  // clear reduction iter domain removed reduction iter domain from both root
+  // and allocation domain and adjusting contiguity flag as well
   tv1->clearReductionIterDomains();
+  // entry 2 is removed since tv1->axis(2) is a reduction iter domain in tv1's
+  // root domain
+  EXPECT_THAT(tv1->getRootDomain(), ElementsAre(root_copy[0], root_copy[1]));
+  // entry 1 is removed since tv1->axis(2) is a reduction iter domain and tv1's
+  // allocation domain looks like {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
+  EXPECT_THAT(
+      tv1->getAllocationDomain(), ElementsAre(alloc_copy[0], alloc_copy[2]));
+  EXPECT_THAT(
+      tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
 }
 
 } // namespace nvfuser
