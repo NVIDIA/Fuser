@@ -2256,7 +2256,7 @@ class NVF_API CatOp : public Expr {
 };
 
 //! Matmul Operator to be expression evaluated without decomposition.
-class NVF_API MatmulOp : public Expr {
+class MatmulOp : public Expr {
  public:
   using Expr::Expr;
 

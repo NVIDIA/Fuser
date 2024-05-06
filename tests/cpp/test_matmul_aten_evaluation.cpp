@@ -31,8 +31,8 @@ class MatmulATenEvaluationTest : public NVFuserTest {
       optimization_guard_;
 };
 
-using MatmulNodeParamType =
-    std::tuple<std::vector<int64_t>, std::vector<int64_t>>;
+using Sizes = std::vector<int64_t>;
+using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
 
 class ATenNodesParametrizedTest
     : public NVFuserFixtureParamTest<MatmulNodeParamType> {
@@ -413,8 +413,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> a_shape = std::get<0>(GetParam());
-  std::vector<int64_t> b_shape = std::get<1>(GetParam());
+  const auto& [a_shape, b_shape] = GetParam();
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
@@ -444,8 +443,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> a_shape = std::get<0>(GetParam());
-  std::vector<int64_t> b_shape = std::get<1>(GetParam());
+  const auto& [a_shape, b_shape] = GetParam();
 
   auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
   auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);

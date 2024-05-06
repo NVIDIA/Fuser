@@ -174,7 +174,13 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 }
 
-IterDomain* outIterDomain(const std::vector<IterDomain*>& ids){
+// Adding these pragmas since gcc-12.2.1
+// incorrectly reports a warning with the use of evaluate
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
+IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids){
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
   // constant, so we can statically compute them. It is unclear
@@ -248,13 +254,11 @@ IterDomain* outIterDomain(const std::vector<IterDomain*>& ids){
     }
   return out_domain;
 }
-
-// Adding these pragmas since gcc-12.2.1
-// incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#pragma GCC diagnostic pop
 #endif
+
+
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
@@ -277,13 +281,10 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
       input_ids.emplace_back(dom[dim_i]);
     }
-    out_domain[dim_i] = outIterDomain(input_ids);
+    out_domain[dim_i] = newOutputIterDomain(input_ids);
   }
   return out_domain;
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
   auto out_domain = newOutputDomain(vals);
