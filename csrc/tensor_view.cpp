@@ -1198,8 +1198,8 @@ void TensorView::clearReductionIterDomains() {
       getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
-  std::vector<IterDomain*> root = getRootDomain();
-  std::vector<IterDomain*> alloc = getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& root = getRootDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
 
   NVF_ERROR(
       std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
@@ -1208,13 +1208,13 @@ void TensorView::clearReductionIterDomains() {
   std::vector<IterDomain*> new_root;
   std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
+  for (const auto i : c10::irange(root.size())) {
+    auto root_i = root.at(i);
     if (!root_i->isReduction()) {
       new_root.push_back(root_i);
     }
     // contig flag is specified for on allocation domain
-    auto alloc_i = getAllocationDomain().at(i);
+    auto alloc_i = alloc.at(i);
     if (!alloc_i->isReduction()) {
       new_alloc.push_back(alloc_i);
       new_contig.push_back(domain()->contiguity().at(i));
