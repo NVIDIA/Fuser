@@ -10,6 +10,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
+#include <ops/utils.h>
 
 #include <sstream>
 
@@ -124,30 +125,21 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
   // Map MatmulOp extents in reverse
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
-    int ritc = consumer_root.size() - 1;
-    int ritp = producer_root.size() - 1;
-
     // Check if the producer is lhs/rhs input
     bool is_lhs = producer->sameAs(op->inA());
-    int k_inx = is_lhs ? ritp : ritp - 1;
-    while (ritc >=0 && ritp >= 0) {
-      IterDomain* producer_id = producer_root.at(ritp);
-      IterDomain* consumer_id = consumer_root.at(ritc);
-      if (ritp == k_inx){ // No mapping for K axis in the consumer
-        ritp--;
-        ritc--;
-        continue;
-      }
-      IterDomain* map_key_id = producer_id;
-      IterDomain* map_value_id = consumer_id;
+    int out_size = consumer_root.size();
+
+    const auto& mapping = ops::mapMatmulIterDomains(producer_root, is_lhs, out_size);
+
+    for (auto inx: c10::irange(out_size)){
+      IterDomain* map_key_id = mapping.at(inx);
+      IterDomain* map_value_id = consumer_root.at(inx);
       if (!producer_to_consumer) {
         std::swap(map_key_id, map_value_id);
       }
       if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
         dom_map.insert(std::make_pair(map_key_id, map_value_id));
       }
-      ritp--;
-      ritc--;
     }
     return dom_map;
   }
