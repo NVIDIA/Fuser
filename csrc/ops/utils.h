@@ -33,6 +33,12 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
+std::vector<IterDomain*> mapMatmulIterDomains(
+  const std::vector<IterDomain*>& input_domain,
+  bool is_lhs,
+  int out_size
+);
+
 IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
 
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);

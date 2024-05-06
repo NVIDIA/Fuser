@@ -2693,26 +2693,33 @@ static TensorView* newForMatmul(
 ) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
+  
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
+
+  NVF_ERROR(ndims_a >= 1 && ndims_b >= 1);
+
   auto ndims_out = std::max(ndims_a, ndims_b);
-  NVF_ERROR(ndims_a>=1 && ndims_b>= 1);
-
-  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+  if (std::min(ndims_a, ndims_b) == 1) {
+    ndims_out = std::max(ndims_a, ndims_b) - 1;
+  }
   
-  int kpos_a = ndims_a - 1;
-  int kpos_b = ndims_b > 1 ? ndims_b - 2 : 0;
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (int inx = ndims_out - 1, inx_a = ndims_a - 1, inx_b = ndims_b - 1; inx >= 0; inx--, inx_a--, inx_b--){
+  const auto& mapping_a = ops::mapMatmulIterDomains(orig_domain_a, true, ndims_out);
+  const auto& mapping_b = ops::mapMatmulIterDomains(orig_domain_b, false, ndims_out);
+  
+  for (auto inx: c10::irange(ndims_out)){
     std::vector<IterDomain*> input_ids;
-    if (inx_a >= 0 && inx_a != kpos_a){
-      input_ids.emplace_back(orig_domain_a[inx_a]);
+    input_ids.reserve(2);
+    if (mapping_a[inx] != nullptr){
+      input_ids.emplace_back(mapping_a[inx]);
     }
-    if (inx_b >= 0 && inx_b != kpos_b){
-      input_ids.emplace_back(orig_domain_b[inx_b]);
+    if (mapping_b[inx] != nullptr){
+      input_ids.emplace_back(mapping_b[inx]);
     }
-    out_domain[inx] = ops::outIterDomain(input_ids);
-  }  
+    out_domain[inx] = ops::newOutputIterDomain(input_ids);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
