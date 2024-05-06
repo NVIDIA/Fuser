@@ -72,7 +72,7 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "inner_outer_persistent: mark tests using inner_outer_persistent scheduler.",
+        "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
     )
 
 
