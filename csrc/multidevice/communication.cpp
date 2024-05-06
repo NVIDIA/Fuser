@@ -14,7 +14,6 @@
 namespace nvfuser {
 namespace {
 
-// FIXME: rename this.
 void post_common(Communication& self, Communicator& comm) {
   NVF_ERROR(
       std::find(
@@ -105,7 +104,9 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(
 
   if (comm.deviceId() == params_.root) {
     if (params_.is_root_in_mesh) {
-      // Do a local copy and the subsequent broadcast will be in place.
+      // Do a local copy and the subsequent broadcast will be in place. Consider
+      // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
+      // local copy to complete.
       doLocalCopy(output_tensor, input_tensor);
     } else {
       // `output_tensor` isn't allocated for this device.
