@@ -94,11 +94,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
     bool ignore_occupancy_drop) {
-  const auto properties = at::cuda::getCurrentDeviceProperties();
-  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
-  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
-  const size_t shared_memory_available =
-      device_smem_limit - shared_memory_overhead;
+  const size_t shared_memory_available = deviceAvailableSharedMemoryBytes();
 
   // We clip smem_double_buffer_stage to 1 since we will always load operands
   // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
@@ -148,8 +144,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // use additional shared memory for epilogue if occupancy is not changed.
   // occupancy is estimated using register and shared memory usage.
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
   const auto threads_per_block =
-      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+      warp_dims.m * warp_dims.n * warp_dims.k * warp_size;
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
