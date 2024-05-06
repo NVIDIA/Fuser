@@ -126,6 +126,13 @@ bool isSharded(TensorView* tv) {
   return is_sharded;
 }
 
+int64_t numDeviceDims(TensorView* tv) {
+  return std::count_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
+}
+
 bool isResharding(Expr* expr) {
   std::unordered_set<TensorView*> tvs;
   for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
