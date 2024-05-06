@@ -9,8 +9,8 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
 #include <ops/utils.h>
+#include <root_domain_map.h>
 
 #include <sstream>
 
@@ -129,9 +129,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     bool is_lhs = producer->sameAs(op->inA());
     int out_size = consumer_root.size();
 
-    const auto& mapping = ops::mapMatmulOpIterDomains(producer_root, is_lhs, out_size);
+    const auto& mapping =
+        ops::mapMatmulOpIterDomains(producer_root, is_lhs, out_size);
 
-    for (auto inx: c10::irange(out_size)){
+    for (auto inx : c10::irange(out_size)) {
       IterDomain* map_key_id = mapping.at(inx);
       IterDomain* map_value_id = consumer_root.at(inx);
       if (!producer_to_consumer) {

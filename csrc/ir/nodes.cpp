@@ -4456,11 +4456,7 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   return {at::cat(unpadded_inputs, concat_dim)};
 }
 
-MatmulOp::MatmulOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* in_a,
-    Val* in_b)
+MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
     : Expr(passkey) {
   addOutput(out);
   addInput(in_a);

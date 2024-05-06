@@ -177,20 +177,18 @@ IterType promoteIterType(IterType type1, IterType type2) {
 //! Maps the input iterdomains to the output of MatmulOp.
 //! Returns a vector where each element is the
 //! input iterdomain corresponding to the output iterdomain at that index.
-//! If the element is nullptr, there is no mapping between input-output at that index.
-//! Based on the input dimensions following cases are possible:
+//! If the element is nullptr, there is no mapping between input-output at that
+//! index. Based on the input dimensions following cases are possible:
 //! 1. A/B is 1D: [M, K] x [K] -> [M]
 //! Mapping A: {id_M}, Mapping B: {nullptr}
 //! 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
 //! Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N}
-//! 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M, N]
-//! Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
+//! 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
+//! N] Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
 std::vector<IterDomain*> mapMatmulOpIterDomains(
-  const std::vector<IterDomain*>& input_domain,
-  bool is_lhs,
-  int out_size
-) {
-
+    const std::vector<IterDomain*>& input_domain,
+    bool is_lhs,
+    int out_size) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
   int inp_size = input_domain.size();
 
@@ -200,15 +198,16 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   }
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N} / {K} (ndims = 1)
-  int kpos = is_lhs ? inp_size - 1: inp_size - 2; 
+  int kpos = is_lhs ? inp_size - 1 : inp_size - 2;
 
   // If A/B is 1D, out_size < inp_size.
-  for (int out_inx = out_size - 1, inp_inx = inp_size - 1; inp_inx >= 0; inp_inx--){
-    if (inp_inx != kpos){
+  for (int out_inx = out_size - 1, inp_inx = inp_size - 1; inp_inx >= 0;
+       inp_inx--) {
+    if (inp_inx != kpos) {
       mapping[out_inx] = input_domain[inp_inx];
-      out_inx --;
+      out_inx--;
     } else if (inp_size <= out_size) {
-      out_inx --;
+      out_inx--;
     }
   }
   return mapping;
@@ -220,7 +219,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
-IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids){
+IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids) {
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
   // constant, so we can statically compute them. It is unclear
@@ -233,10 +232,11 @@ IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids){
   Val* expanded_extent_val = nullptr;
   std::optional<IterType> iter_type = std::nullopt;
 
-  for (auto id: ids) {
+  for (auto id : ids) {
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
-        expanded_extent_val = promoteSize(expanded_extent_val, id->expandedExtent());
+        expanded_extent_val =
+            promoteSize(expanded_extent_val, id->expandedExtent());
       }
       continue;
     }
@@ -256,48 +256,45 @@ IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids){
 
     auto id_start_offset = id->start();
     auto id_stop_offset = id->stopOffset();
-      // Currently, start is always constant
-      NVF_ERROR(
-          id_start_offset->isConstInt(),
-          "Invalid IterDomain start: ",
-          id_start_offset);
-      NVF_ERROR(
-          id_stop_offset->isConstInt(),
-          "Invalid IterDomain stop offset: ",
-          id_stop_offset);
-      start_offset =
-          std::max(start_offset, id_start_offset->evaluate().as<int64_t>());
-      stop_offset =
-          std::max(stop_offset, id_stop_offset->evaluate().as<int64_t>());
+    // Currently, start is always constant
+    NVF_ERROR(
+        id_start_offset->isConstInt(),
+        "Invalid IterDomain start: ",
+        id_start_offset);
+    NVF_ERROR(
+        id_stop_offset->isConstInt(),
+        "Invalid IterDomain stop offset: ",
+        id_stop_offset);
+    start_offset =
+        std::max(start_offset, id_start_offset->evaluate().as<int64_t>());
+    stop_offset =
+        std::max(stop_offset, id_stop_offset->evaluate().as<int64_t>());
   }
 
   IterDomain* out_domain = nullptr;
   if (extent_val != nullptr) {
-      NVF_ERROR(
-          iter_type.has_value(),
-          "Could not deduce iter type for new tensor view.");
-      out_domain =
-          IterDomainBuilder(
-              IrBuilder::create<Val>(start_offset, DataType::Index),
-              extent_val)
-              .stop_offset(
-                  IrBuilder::create<Val>(stop_offset, DataType::Index))
-              .iter_type(iter_type.value())
-              .build();
-    } else {
-      out_domain = IterDomainBuilder(
-                              FusionGuard::getCurFusion()->zeroVal(),
-                              FusionGuard::getCurFusion()->oneVal())
-                              .expanded_extent(expanded_extent_val)
-                              .iter_type(IterType::Broadcast)
-                              .build();
-    }
+    NVF_ERROR(
+        iter_type.has_value(),
+        "Could not deduce iter type for new tensor view.");
+    out_domain =
+        IterDomainBuilder(
+            IrBuilder::create<Val>(start_offset, DataType::Index), extent_val)
+            .stop_offset(IrBuilder::create<Val>(stop_offset, DataType::Index))
+            .iter_type(iter_type.value())
+            .build();
+  } else {
+    out_domain = IterDomainBuilder(
+                     FusionGuard::getCurFusion()->zeroVal(),
+                     FusionGuard::getCurFusion()->oneVal())
+                     .expanded_extent(expanded_extent_val)
+                     .iter_type(IterType::Broadcast)
+                     .build();
+  }
   return out_domain;
 }
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
-
 
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
@@ -315,9 +312,9 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       nullptr);
 
   for (const auto dim_i : c10::irange(out_domain.size())) {
-    std::vector <IterDomain*> input_ids;
+    std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
-    for (auto tv: tvs){
+    for (auto tv : tvs) {
       auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
       input_ids.emplace_back(dom[dim_i]);
     }

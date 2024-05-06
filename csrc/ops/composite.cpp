@@ -302,13 +302,12 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-static TensorView* newForMatmul(
-    TensorView* tv_a,
-    TensorView* tv_b
-) {
-  auto orig_domain_a = TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
-  auto orig_domain_b = TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
-  
+static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+  auto orig_domain_a =
+      TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
+  auto orig_domain_b =
+      TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
+
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
@@ -318,19 +317,21 @@ static TensorView* newForMatmul(
   if (std::min(ndims_a, ndims_b) == 1) {
     ndims_out = std::max(ndims_a, ndims_b) - 1;
   }
-  
+
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const auto& mapping_a = ops::mapMatmulOpIterDomains(orig_domain_a, true, ndims_out);
-  const auto& mapping_b = ops::mapMatmulOpIterDomains(orig_domain_b, false, ndims_out);
-  
-  for (auto inx: c10::irange(ndims_out)){
+  const auto& mapping_a =
+      ops::mapMatmulOpIterDomains(orig_domain_a, true, ndims_out);
+  const auto& mapping_b =
+      ops::mapMatmulOpIterDomains(orig_domain_b, false, ndims_out);
+
+  for (auto inx : c10::irange(ndims_out)) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(2);
-    if (mapping_a[inx] != nullptr){
+    if (mapping_a[inx] != nullptr) {
       input_ids.emplace_back(mapping_a[inx]);
     }
-    if (mapping_b[inx] != nullptr){
+    if (mapping_b[inx] != nullptr) {
       input_ids.emplace_back(mapping_b[inx]);
     }
     out_domain[inx] = ops::newOutputIterDomain(input_ids);
@@ -344,16 +345,14 @@ static TensorView* newForMatmul(
 
 } // namespace
 
-
-// TODO (Priya): This will be renamed to matmul once we are ready to modify the python API backend.
-// Keeping separate for now, to avoid breaking tests in Thunder.
-TensorView* eagerMatmul(
-    TensorView* tv_a,
-    TensorView* tv_b) {
+// TODO (Priya): This will be renamed to matmul once we are ready to modify the
+// python API backend. Keeping separate for now, to avoid breaking tests in
+// Thunder.
+TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
   NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
   // [K]x[K]-> Return dot product of vectors
-  if (tv_a->nDims() == 1 && tv_b->nDims == 1){
+  if (tv_a->nDims() == 1 && tv_b->nDims == 1) {
     return sum(mul(tv_a, tv_b));
   }
 

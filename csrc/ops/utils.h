@@ -35,10 +35,9 @@ IterType promoteIterType(IterType type1, IterType type2);
 
 //! Maps the input iterdomains to the output of MatmulOp.
 std::vector<IterDomain*> mapMatmulOpIterDomains(
-  const std::vector<IterDomain*>& input_domain,
-  bool is_lhs,
-  int out_size
-);
+    const std::vector<IterDomain*>& input_domain,
+    bool is_lhs,
+    int out_size);
 
 IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
 
