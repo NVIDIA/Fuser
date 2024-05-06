@@ -188,9 +188,9 @@ IterType promoteIterType(IterType type1, IterType type2) {
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     bool is_lhs,
-    int64_t out_size) {
+    size_t out_size) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
-  int64_t inp_size = input_domain.size();
+  auto inp_size = (int64_t)input_domain.size();
 
   if (inp_size == 1) {
     // Only reduction axis {K}
@@ -198,10 +198,10 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   }
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N} / {K} (ndims = 1)
-  int kpos = is_lhs ? inp_size - 1 : inp_size - 2;
+  auto kpos = is_lhs ? inp_size - 1 : inp_size - 2;
 
   // If A/B is 1D, out_size < inp_size.
-  for (int64_t out_inx = out_size - 1, inp_inx = inp_size - 1; inp_inx >= 0;
+  for (auto out_inx = (int64_t)out_size - 1, inp_inx = inp_size - 1; inp_inx >= 0;
        inp_inx--) {
     if (inp_inx != kpos) {
       mapping[out_inx] = input_domain[inp_inx];
