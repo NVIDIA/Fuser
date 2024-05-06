@@ -607,45 +607,47 @@ __device__ void blockIterGroupedReduce(
     // ...
     // N-th warp has the final result of the N-th chunk
     // We need threads with TIDy == 0 to have all the final results
-    if(warp_tidy==0){
-      const int iter_idx = threadIdx.x;
-      const int valid_group_idx = wid;
-      int offset = valid_group_idx * BDIMX + iter_idx;
-      smem[offset] = avg;
-    }
-    block_sync::sync<Aligned>();
-
-    if(threadIdx.y == 0){
-      for(int i = 0; i<N; i++){
-        int offset = i * BDIMX + threadIdx.x;    
-        out[i] = smem[offset];
-      }
-    }
-    block_sync::sync<Aligned>();
-
-
-    // // vectorized version
-    // // [BDIMX, N]
     // if(warp_tidy==0){
     //   const int iter_idx = threadIdx.x;
     //   const int valid_group_idx = wid;
-    //   int offset = valid_group_idx + iter_idx * N;
+    //   int offset = valid_group_idx * BDIMX + iter_idx;
     //   smem[offset] = avg;
-    //   if(blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && wid <=1 ){
-    //     printf("tidx=%d, wid: %d, smem_offset: %d\n", threadIdx.x, wid,offset);
-    //   }      
     // }
     // block_sync::sync<Aligned>();
 
     // if(threadIdx.y == 0){
-    //   constexpr unsigned int total_loads = sizeof(T) * N / 16;
-    //   constexpr unsigned int elements_per_load = 16 / sizeof(T);
-    //   #pragma unroll
-    //   for (unsigned int i = 0; i < total_loads; ++i) {
-    //     loadGeneric<T, elements_per_load>(
-    //       out + i * elements_per_load,
-    //       smem + N * threadIdx.x + i * elements_per_load);
-    //   }      
+    //   for(int i = 0; i<N; i++){
+    //     int offset = i * BDIMX + threadIdx.x;    
+    //     out[i] = smem[offset];
+    //   }
     // }
+    // block_sync::sync<Aligned>();
+
+
+    // vectorized version
+    // [BDIMX, N]
+    constexpr unsigned int total_loads = sizeof(T) * N / 16;
+    constexpr unsigned int elements_per_load = 16 / sizeof(T);
+
+    if(warp_tidy==0){
+      const int iter_idx = threadIdx.x;
+      const int load_id = wid / elements_per_load;
+      const int valid_group_idx = wid - load_id * elements_per_load;
+      int offset = valid_group_idx + iter_idx * elements_per_load + load_id * BDIMX * elements_per_load;
+      smem[offset] = avg;
+      // if(blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0 && wid <=1 ){
+      //   printf("tidx=%d, wid: %d, smem_offset: %d\n", threadIdx.x, wid,offset);
+      // }      
+    }
+    block_sync::sync<Aligned>();
+
+    if(threadIdx.y == 0){
+      #pragma unroll
+      for (unsigned int i = 0; i < total_loads; ++i) {
+        loadGeneric<T, elements_per_load>(
+          out + i * elements_per_load,
+          smem + N * threadIdx.x + i * elements_per_load);
+      }      
+    }
     block_sync::sync<Aligned>();
   }
