@@ -108,7 +108,7 @@ class NVF_API PostOnStream : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  HostUnit* hostUnit() {
+  HostUnit* hostUnit() const {
     return attributes_.at(0)->as<HostUnit>();
   }
 };

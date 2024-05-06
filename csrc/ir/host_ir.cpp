@@ -31,22 +31,8 @@ HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
 NVFUSER_DEFINE_CLONE_AND_CREATE(HostUnit)
 
 std::string HostUnit::toString(int indent_size) const {
-  int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "Execute the following kernel, taking inputs :{\n";
-  for (auto input : fusion_->inputs()) {
-    indent(ss, indent_size + indent_increment)
-        << input->toString(indent_size + indent_increment) << "\n";
-  }
-  indent(ss, indent_size) << "} and outputs: {\n";
-  for (auto output : fusion_->outputs()) {
-    indent(ss, indent_size + indent_increment)
-        << output->toString(indent_size + indent_increment) << "\n";
-  }
-  indent(ss, indent_size) << "}. Kernel:{";
   fusion_->print(ss, false);
-  indent(ss, indent_size) << "\n";
-  indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
 }
 
@@ -83,7 +69,22 @@ PostOnStream::PostOnStream(
 NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 
 std::string PostOnStream::toString(int indent_size) const {
+  int indent_increment = 2;
   std::stringstream ss;
+  indent(ss, indent_size) << "Execute the following Fusion, taking inputs :{\n";
+  for (auto input : inputs()) {
+    indent(ss, indent_size + indent_increment)
+        << input->toString(indent_size + indent_increment) << "\n";
+  }
+  indent(ss, indent_size) << "} and outputs: {\n";
+  for (auto output : outputs()) {
+    indent(ss, indent_size + indent_increment)
+        << output->toString(indent_size + indent_increment) << "\n";
+  }
+  indent(ss, indent_size) << "}. Fusion to execute:{";
+  indent(ss, indent_size) << hostUnit()->toString();
+  indent(ss, indent_size) << "\n";
+  indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
 }
 
