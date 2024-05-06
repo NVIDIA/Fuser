@@ -11,6 +11,7 @@
 #include <iter_visitor.h>
 #include <ops/utils.h>
 #include <root_domain_map.h>
+#include <ops/utils.h>
 
 #include <sstream>
 
