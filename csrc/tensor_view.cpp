@@ -1236,7 +1236,6 @@ void TensorView::clearReductionIterDomains() {
         new_contig));
   }
 }
-}
 
 void TensorView::doubleBuffer() {
   // Early correctness checking. May miss eventual errors as the
