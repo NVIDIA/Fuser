@@ -909,6 +909,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDx;
+    rparams->static_bdimx = true;
   }
 
   rparams->grid_dim_iter_dom =
@@ -927,6 +928,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->cross_block_inner_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
+      rparams->static_bdimy = true;
       rparams->block_dim_inner_reduction = ParallelType::TIDy;
     } else {
       rparams->block_dim_inner_reduction = ParallelType::TIDx;
