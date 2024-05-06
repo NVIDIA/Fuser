@@ -174,8 +174,18 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 }
 
-
-std::vector<IterDomain*> mapMatmulIterDomains(
+//! Maps the input iterdomains to the output of MatmulOp.
+//! Returns a vector where each element is the
+//! input iterdomain corresponding to the output iterdomain at that index.
+//! If the element is nullptr, there is no mapping between input-output at that index.
+//! Based on the input dimensions following cases are possible:
+//! 1. A/B is 1D: [M, K] x [K] -> [M]
+//! Mapping A: {id_M}, Mapping B: {nullptr}
+//! 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
+//! Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N}
+//! 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M, N]
+//! Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
+std::vector<IterDomain*> mapMatmulOpIterDomains(
   const std::vector<IterDomain*>& input_domain,
   bool is_lhs,
   int out_size

@@ -2706,8 +2706,8 @@ static TensorView* newForMatmul(
   
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const auto& mapping_a = ops::mapMatmulIterDomains(orig_domain_a, true, ndims_out);
-  const auto& mapping_b = ops::mapMatmulIterDomains(orig_domain_b, false, ndims_out);
+  const auto& mapping_a = ops::mapMatmulOpIterDomains(orig_domain_a, true, ndims_out);
+  const auto& mapping_b = ops::mapMatmulOpIterDomains(orig_domain_b, false, ndims_out);
   
   for (auto inx: c10::irange(ndims_out)){
     std::vector<IterDomain*> input_ids;
