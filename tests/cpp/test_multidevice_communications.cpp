@@ -26,8 +26,11 @@ class CommunicationTest
 
   static constexpr DeviceIdxType root = 0;
   static constexpr int tensor_size = 1024;
-  static constexpr int number_of_repetitions = 8;
-  // TODO: test other reduction op types using subTest.
+  // This is so we test having multiple inflights collectives on the same
+  // buffers. This emulates more accurately the type of Workload we are
+  // targeting.
+  static constexpr int num_repetitions = 8;
+  // TODO: test other reduction op types.
   static constexpr c10d::ReduceOp::RedOpType red_op =
       c10d::ReduceOp::RedOpType::SUM;
   CommParams params;
@@ -66,10 +69,10 @@ TEST_P(CommunicationTest, Gather) {
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor =
       at::empty({communicator->size(), tensor_size}, tensor_options);
-  for (auto j : c10::irange(number_of_repetitions)) {
+  for (auto repetition : c10::irange(num_repetitions)) {
     input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j);
+        (communicator->deviceId() + 1) * repetition);
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
     work->wait();
@@ -77,7 +80,7 @@ TEST_P(CommunicationTest, Gather) {
     if (communicator->deviceId() == root) {
       at::Tensor ref = at::arange(tensor_size, tensor_options).unsqueeze(0) +
           at::arange(1, communicator->size() + 1, tensor_options).unsqueeze(1) *
-              j;
+              repetition;
       validate(output_tensor, ref);
     }
   }
@@ -87,12 +90,13 @@ TEST_P(CommunicationTest, Allgather) {
   params.team = all_ranks;
   auto communication = Allgather(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor =
+  at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
+  at::Tensor output_tensor =
+      at::empty({communicator->size(), tensor_size}, tensor_options);
+  for (auto repetition : c10::irange(num_repetitions)) {
+    input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j;
-    at::Tensor output_tensor =
-        at::empty({communicator->size(), tensor_size}, tensor_options);
+        (communicator->deviceId() + 1) * repetition);
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
@@ -100,7 +104,7 @@ TEST_P(CommunicationTest, Allgather) {
 
     at::Tensor ref = at::arange(tensor_size, tensor_options).unsqueeze(0) +
         at::arange(1, communicator->size() + 1, tensor_options).unsqueeze(1) *
-            j;
+            repetition;
     validate(output_tensor, ref);
   }
 }
@@ -110,21 +114,27 @@ TEST_P(CommunicationTest, Scatter) {
   params.team = all_ranks;
   auto communication = Scatter(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor;
+  at::Tensor input_tensor;
+  if (communicator->deviceId() == root) {
+    input_tensor =
+        at::empty({communicator->size(), tensor_size}, tensor_options);
+  }
+  at::Tensor output_tensor = at::empty({1, tensor_size}, tensor_options);
+
+  for (auto repetition : c10::irange(num_repetitions)) {
     if (communicator->deviceId() == root) {
-      input_tensor = at::arange(tensor_size, tensor_options).unsqueeze(0) +
+      input_tensor.copy_(
+          at::arange(tensor_size, tensor_options).unsqueeze(0) +
           at::arange(1, communicator->size() + 1, tensor_options).unsqueeze(1) *
-              j;
+              repetition);
     }
-    at::Tensor output_tensor = at::empty({1, tensor_size}, tensor_options);
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
     work->wait();
 
     auto ref = at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j;
+        (communicator->deviceId() + 1) * repetition;
     validate(output_tensor, ref);
   }
 }
@@ -134,12 +144,15 @@ TEST_P(CommunicationTest, Broadcast) {
   params.team = all_ranks;
   auto communication = Broadcast(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor;
+  at::Tensor input_tensor;
+  if (communicator->deviceId() == root) {
+    input_tensor = at::empty({tensor_size}, tensor_options);
+  }
+  at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
+  for (auto repetition : c10::irange(num_repetitions)) {
     if (communicator->deviceId() == root) {
-      input_tensor = at::arange(tensor_size, tensor_options) + j;
+      input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
     }
-    at::Tensor output_tensor = at::empty(tensor_size, tensor_options);
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
@@ -147,7 +160,7 @@ TEST_P(CommunicationTest, Broadcast) {
       work->wait();
     }
 
-    auto ref = at::arange(tensor_size, tensor_options) + j;
+    auto ref = at::arange(tensor_size, tensor_options) + repetition;
     validate(output_tensor, ref);
   }
 }
@@ -168,14 +181,18 @@ TEST_P(CommunicationTest, SendRecv) {
   params.team = {0, 1};
   auto communication = SendRecv(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor;
-    at::Tensor output_tensor;
+  at::Tensor input_tensor;
+  at::Tensor output_tensor;
+  if (communicator->deviceId() == sender) {
+    input_tensor = at::empty({tensor_size}, tensor_options);
+  } else {
+    NVF_ERROR(communicator->deviceId() == receiver);
+    output_tensor = at::empty({tensor_size}, tensor_options);
+  }
+
+  for (auto repetition : c10::irange(num_repetitions)) {
     if (communicator->deviceId() == sender) {
-      input_tensor = at::arange(tensor_size, tensor_options) + j;
-    } else {
-      NVF_ERROR(communicator->deviceId() == receiver);
-      output_tensor = at::empty(tensor_size, tensor_options);
+      input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
     }
 
     auto work = communication.post(
@@ -183,7 +200,7 @@ TEST_P(CommunicationTest, SendRecv) {
     work->wait();
 
     if (communicator->deviceId() == receiver) {
-      auto ref = at::arange(tensor_size, tensor_options) + j;
+      auto ref = at::arange(tensor_size, tensor_options) + repetition;
       validate(output_tensor, ref);
     }
   }
@@ -200,13 +217,15 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
   params.team = {0};
   auto communication = SendRecv(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor = at::arange(tensor_size, tensor_options) + j;
-    at::Tensor output_tensor = at::empty_like(input_tensor);
+  at::Tensor input_tensor = at::empty({tensor_size}, tensor_options);
+  at::Tensor output_tensor = at::empty_like(input_tensor);
+
+  for (auto repetition : c10::irange(num_repetitions)) {
+    input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
 
     communication.post(*communicator, input_tensor, output_tensor, GetParam());
 
-    auto ref = at::arange(tensor_size, tensor_options) + j;
+    auto ref = at::arange(tensor_size, tensor_options) + repetition;
     validate(output_tensor, ref);
   }
 }
@@ -217,11 +236,13 @@ TEST_P(CommunicationTest, Reduce) {
   params.team = all_ranks;
   auto communication = Reduce(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor =
+  at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
+  at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
+
+  for (auto repetition : c10::irange(num_repetitions)) {
+    input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j;
-    at::Tensor output_tensor = at::empty(tensor_size, tensor_options);
+        (communicator->deviceId() + 1) * repetition);
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
@@ -229,8 +250,8 @@ TEST_P(CommunicationTest, Reduce) {
 
     if (communicator->deviceId() == root) {
       const int s = communicator->size();
-      auto ref =
-          at::arange(tensor_size, tensor_options) * s + s * (s + 1) / 2 * j;
+      auto ref = at::arange(tensor_size, tensor_options) * s +
+          s * (s + 1) / 2 * repetition;
       validate(output_tensor, ref);
     }
   }
@@ -241,19 +262,20 @@ TEST_P(CommunicationTest, Allreduce) {
   params.team = all_ranks;
   auto communication = Allreduce(params);
 
-  for (auto j : c10::irange(number_of_repetitions)) {
-    at::Tensor input_tensor =
+  at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
+  at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
+  for (auto repetition : c10::irange(num_repetitions)) {
+    input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
-        (communicator->deviceId() + 1) * j;
-    at::Tensor output_tensor = at::empty(tensor_size, tensor_options);
+        (communicator->deviceId() + 1) * repetition);
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
     work->wait();
 
     const int s = communicator->size();
-    auto ref =
-        at::arange(tensor_size, tensor_options) * s + s * (s + 1) / 2 * j;
+    auto ref = at::arange(tensor_size, tensor_options) * s +
+        s * (s + 1) / 2 * repetition;
     validate(output_tensor, ref);
   }
 }
@@ -267,14 +289,19 @@ TEST_P(CommunicationTest, ReduceScatter) {
 
   const int num_devices = communicator->size();
   const int device_id = communicator->deviceId();
-  for (auto j : c10::irange(number_of_repetitions)) {
-    std::ignore = j;
-    // Use int to avoid rounding error.
-    at::Tensor unsharded_input_tensor =
-        at::randint(2, {num_devices, num_devices, tensor_size}, tensor_options);
-    at::Tensor input_tensor =
-        unsharded_input_tensor.slice(0, device_id, device_id + 1);
-    at::Tensor output_tensor = at::empty({1, tensor_size}, tensor_options);
+  at::Tensor unsharded_input_tensor =
+      at::empty({num_devices, num_devices, tensor_size}, tensor_options);
+  at::Tensor input_tensor =
+      unsharded_input_tensor.slice(0, device_id, device_id + 1);
+  at::Tensor output_tensor = at::empty({1, tensor_size}, tensor_options);
+
+  for (auto repetition : c10::irange(num_repetitions)) {
+    std::ignore = repetition;
+
+    // Create a tensor with integer values to avoid rounding error so we can
+    // validate using `equal` for more confidence.
+    unsharded_input_tensor.copy_(at::randint(
+        2, {num_devices, num_devices, tensor_size}, tensor_options));
 
     auto work = communication.post(
         *communicator, input_tensor, output_tensor, GetParam());
