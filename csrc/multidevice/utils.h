@@ -19,6 +19,9 @@ namespace nvfuser {
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
 
+// Returns number of device dimensions in a TensorView's leaf domain.
+int64_t numDeviceDims(TensorView*);
+
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
 template <typename TvIterator>

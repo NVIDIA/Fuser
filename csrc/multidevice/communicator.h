@@ -101,6 +101,13 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank associted with the current process,
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
   // returns world backend for communicator backend or default backend if not
   // specified.
   c10::intrusive_ptr<c10d::Backend> getWorld(
