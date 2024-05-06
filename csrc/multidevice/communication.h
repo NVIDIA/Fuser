@@ -28,6 +28,8 @@ enum class CommunicationType {
   SendRecv
 };
 
+std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
+
 /*
   This struct gathers all the parameters necessary for the
   construction a communication
@@ -137,7 +139,7 @@ case of a local copy)
 buffer
 */
 
-class NVF_API Communication : public Expr {
+class Communication : public Expr {
  public:
   using Expr::Expr;
   Communication(IrBuilderPasskey passkey, CommParams params);
@@ -169,7 +171,7 @@ class NVF_API Communication : public Expr {
 
 // Triggers the execution of the communication. This is a non-blocking call.
 // The communication can be posted multiple times
-c10::intrusive_ptr<c10d::Work> postCommunication(
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
     c10::intrusive_ptr<c10d::Backend> backend);

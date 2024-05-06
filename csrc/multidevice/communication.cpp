@@ -14,6 +14,37 @@
 #include <utils.h>
 
 namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
+  switch (type) {
+    case CommunicationType::Gather:
+      os << "Gather";
+      break;
+    case CommunicationType::Allgather:
+      os << "Allgather";
+      break;
+    case CommunicationType::Scatter:
+      os << "Scatter";
+      break;
+    case CommunicationType::Reduce:
+      os << "Reduce";
+      break;
+    case CommunicationType::Allreduce:
+      os << "Allreduce";
+      break;
+    case CommunicationType::ReduceScatter:
+      os << "ReduceScatter";
+      break;
+    case CommunicationType::Broadcast:
+      os << "Broadcast";
+      break;
+    case CommunicationType::SendRecv:
+      os << "SendRecv";
+      break;
+  }
+  return os;
+}
+
 namespace {
 
 inline void assertBufferCount(
@@ -59,37 +90,14 @@ inline bool isReduction(CommunicationType type) {
       type == CommunicationType::ReduceScatter;
 }
 
-inline std::string typeToString(CommunicationType type) {
-  switch (type) {
-    case CommunicationType::Gather:
-      return "Gather";
-    case CommunicationType::Allgather:
-      return "Allgather";
-    case CommunicationType::Scatter:
-      return "Scatter";
-    case CommunicationType::Reduce:
-      return "Reduce";
-    case CommunicationType::Allreduce:
-      return "Allreduce";
-    case CommunicationType::ReduceScatter:
-      return "ReduceScatter";
-    case CommunicationType::Broadcast:
-      return "Broadcast";
-    case CommunicationType::SendRecv:
-      return "SendRecv";
-    default:
-      NVF_ERROR(false);
-      return "";
-  }
-}
-
 inline void assertValid(
     const CommParams& params,
     const DeviceIdxType my_device_index) {
   assertBuffersHaveSameSize(params.src_bufs, params.dst_bufs);
+  std::unordered_set<DeviceIdxType> team_without_duplicates(
+      params.team.begin(), params.team.end());
   NVF_ERROR(
-      std::adjacent_find(params.team.cbegin(), params.team.cend()) ==
-          params.team.cend(),
+      team_without_duplicates.size() == params.team.size(),
       "the communication must not involve the same device more than once");
   NVF_ERROR(!params.team.empty(), "the team size must be greater than 0");
   NVF_ERROR(
@@ -181,7 +189,7 @@ std::string Communication::toString(int indent) const {
   std::string indent1 = ext_indent + "  ";
   std::string indent2 = ext_indent + "    ";
 
-  ss << ext_indent << "Communication " << typeToString(params_.type) << ": {\n";
+  ss << ext_indent << "Communication " << params_.type << ": {\n";
 
   if (hasRoot(params_.type)) {
     ss << indent1 << "root: " << params_.root << ",\n";
@@ -221,7 +229,7 @@ bool Communication::sameAs(const Statement* other) const {
       p1.team == p2.team && (!isReduction(p1.type) || p1.redOp == p2.redOp));
 }
 
-c10::intrusive_ptr<c10d::Work> postCommunication(
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
     c10::intrusive_ptr<c10d::Backend> backend) {
@@ -324,7 +332,7 @@ c10::intrusive_ptr<c10d::Work> postCommunication(
       }
     }
     default:
-      NVF_ERROR(false, "Wrong communication type: ", typeToString(params.type));
+      NVF_ERROR(false, "Wrong communication type: ", params.type);
       return nullptr;
   }
 }

@@ -83,8 +83,8 @@ TEST_P(CommunicationTest, Gather) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -113,8 +113,8 @@ TEST_P(CommunicationTest, Allgather) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     for (int i : c10::irange(communicator->size())) {
@@ -145,8 +145,8 @@ TEST_P(CommunicationTest, Scatter) {
           at::arange(tensor_size, tensor_options) + (i + 1) * j);
     }
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -173,8 +173,8 @@ TEST_P(CommunicationTest, Broadcast) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
     }
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     if (communicator->size() > 1) {
       work->wait();
     }
@@ -215,8 +215,8 @@ TEST_P(CommunicationTest, SendRecv) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
     }
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     if (communicator->deviceId() == receiver) {
@@ -244,7 +244,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
 
-    postCommunication(communication, communicator->deviceId(), backend);
+    postSingleCommunication(communication, communicator->deviceId(), backend);
 
     auto obtained = params.dst_bufs.at(0);
     auto ref = at::arange(tensor_size, tensor_options) + j;
@@ -269,8 +269,8 @@ TEST_P(CommunicationTest, Reduce) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -297,8 +297,8 @@ TEST_P(CommunicationTest, Allreduce) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -328,8 +328,8 @@ TEST_P(CommunicationTest, ReduceScatter) {
           (communicator->deviceId() + 1) * (i + j));
     }
 
-    auto work =
-        postCommunication(communication, communicator->deviceId(), backend);
+    auto work = postSingleCommunication(
+        communication, communicator->deviceId(), backend);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
