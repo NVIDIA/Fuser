@@ -136,16 +136,13 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     tv1->setAllocationDomain(tv1_format, true);
 
     preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
-#if true
-    // permutation here is strange because in propagation we are preserving
-    // reduction iter domain in its position in rfactor domain See issue:
-    // https://github.com/NVIDIA/Fuser/issues/2202
+    // tv1 dominates output allocation order, which has a permutation {1, 0, 2,
+    // 3}. But since tv1->axis(3) is a broadcast dimension, it did not map to
+    // tv2->axis(3)/tv3->axis(3). Propagated permutation would push the unmapped
+    // axis(3) first in the allocation domain while keeping mapped ids in its
+    // original order {1, 0, 2} as inner entries in its allocation domain.
     EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(3, 1, 0, 2));
     EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(3, 1, 0, 2));
-#else
-    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0, 2, 3));
-    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0, 2, 3));
-#endif
   }
 }
 
