@@ -1638,8 +1638,9 @@ void IndexLowering::handle(const MmaOp* mma) {
             roundUpToMultiple(
                            getK(mma->macro()) * /*bytes per item*/ 2L,
                            getBytesFromSwizzle(swizzle));
+      } else {
+        std::swap(leading_bytes, stride_bytes);
       }
-      std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
