@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -31,32 +30,35 @@ def get_version() -> str:
 
 
 def get_pytorch_cmake_prefix():
+    from subprocess import Popen, PIPE
+
     # need to do this in a separate process so we are not going to delete nvfuser library while it's loaded by torch
-    process_torch_prefix = subprocess.Popen(
+    process_torch_prefix = Popen(
         [
             sys.executable,
             "-c",
             "import torch.utils; print(torch.utils.cmake_prefix_path)",
         ],
-        stdout=subprocess.PIPE,
+        stdout=PIPE,
     )
     stdout_msg, error_msg = process_torch_prefix.communicate()
     return stdout_msg.decode("utf-8").rstrip("\n")
 
 
-def get_pytorch_use_distributed() -> bool:
+def get_pytorch_use_distributed():
+    from subprocess import Popen, PIPE
+
     # need to do this in a separate process so we are not going to delete nvfuser library while it's loaded by torch
-    process_torch_prefix = subprocess.Popen(
+    process_torch_prefix = Popen(
         [
             sys.executable,
             "-c",
             "import torch; print(torch._C._has_distributed())",
         ],
-        stdout=subprocess.PIPE,
+        stdout=PIPE,
     )
-    stdout_msg, _ = process_torch_prefix.communicate()
-    stdout_msg = stdout_msg.decode("utf-8").rstrip("\n")
-    return ast.literal_eval(stdout_msg)
+    stdout_msg, error_msg = process_torch_prefix.communicate()
+    return stdout_msg.decode("utf-8").rstrip("\n")
 
 
 if __name__ == "__main__":

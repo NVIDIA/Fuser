@@ -10,25 +10,32 @@
 #include <ATen/core/TensorBody.h>
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
-#include <torch/csrc/distributed/c10d/Backend.hpp>
-#include <torch/csrc/distributed/c10d/TCPStore.hpp>
-#include <torch/csrc/distributed/c10d/Work.hpp>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/Backend.hpp>
+#include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <torch/csrc/distributed/c10d/Work.hpp>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
 #include <visibility.h>
 
 namespace nvfuser {
 
-// This file implements the class Communicator which sets up the inter-process
-// Backend. This class contains inter-process information, such as the rank, the
-// world size, as well as the Process Group that can be called to perform
-// inter-process communications.
-//
-// Each process is associated with a unique deviceId and device. The actual MPI
-// rank remains private to the class and should not be used by the user. The
-// communicator class holds privately the mappings ranks <-> device IDs <->
-// device.
+/*
+   This file implements the class Communicator which sets up the inter-process
+   Backend. This class contains inter-process information, such as the rank, the
+   world size, as well as the Process Group that can be called to perform
+   inter-process communications.
+
+   Each process is associated with a unique deviceId and device. The actual MPI
+   rank remains private to the class and should not be used by the user. The
+   communicator class holds privately the mappings ranks <-> device IDs <->
+   device.
+
+*/
 
 using RankType = DeviceIdxType;
 

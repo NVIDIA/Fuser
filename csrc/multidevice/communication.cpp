@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <multidevice/communication.h>
-#if defined(USE_C10D_NCCL)
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 #include <utils.h>
@@ -229,7 +229,7 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
   c10d::ReduceOptions options = {
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
-#if defined(USE_C10D_NCCL)
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
 #if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
