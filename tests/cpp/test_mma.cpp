@@ -255,9 +255,6 @@ class HopperRS : public HopperBase,
     dtype = std::get<1>(GetParam());
     layout = std::get<2>(GetParam());
     swizzle_b = std::get<3>(GetParam());
-    if (layout != MmaLayout::TN) {
-      GTEST_SKIP() << "bugs to be fixed";
-    }
   }
 };
 
@@ -323,7 +320,7 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
+  tv1->applyMmaSwizzle(swizzle_b);
 
   naivelyParallelize(tv1);
 
