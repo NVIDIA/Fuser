@@ -168,7 +168,7 @@ inline void assertValid(
 // pytorch's process group expects the root to be specified
 // as an integer between 0 and world_size-1. We choose it to be
 // the device's relative index within the team
-DeviceIdxType getRootRelativeIndex(const CommParams& params) {
+int64_t getRootRelativeIndex(const CommParams& params) {
   auto it = std::find(params.team.begin(), params.team.end(), params.root);
   return std::distance(params.team.begin(), it);
 }
