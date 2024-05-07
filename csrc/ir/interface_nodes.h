@@ -412,7 +412,7 @@ class NVF_API TensorView : public Val {
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   // TODO: what is transpose? Why do we need it?
-  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose=false);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose = false);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
