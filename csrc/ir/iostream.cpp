@@ -10,7 +10,7 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
-#include <host_ir_container.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>

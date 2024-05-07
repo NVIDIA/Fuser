@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir_executor.h>
+#include <host_ir/executor.h>
 #include <ir/utils.h>
 
 namespace nvfuser {

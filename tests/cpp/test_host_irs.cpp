@@ -10,8 +10,8 @@
 #include <executor_kernel_arg.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <host_ir_container.h>
-#include <host_ir_executor.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
