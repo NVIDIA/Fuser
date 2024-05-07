@@ -126,7 +126,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    bool is_lhs = producer->sameAs(op->inA());
+    MatmulRole input_role = producer->sameAs(op->inA()) ? MatmulRole::INPUT_A : MatmulRole::INPUT_B;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily map to the output iterdomain at that index
@@ -134,8 +134,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // For eg: 
     // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between input and output for index=2
     // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain maps to the third output iterdomain.
-    const auto& aligned_producer_id =
-        ops::mapMatmulOpIterDomains(producer_root, is_lhs, out_size);
+    const std::vector<IterDomain*>& aligned_producer_id =
+        ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
 
     for (auto inx : c10::irange(out_size)) {
       IterDomain* map_key_id = aligned_producer_id.at(inx);

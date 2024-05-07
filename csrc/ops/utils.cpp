@@ -178,17 +178,13 @@ IterType promoteIterType(IterType type1, IterType type2) {
 //! This function aligns the input iterdomain to the output and returns a vector where each element is the
 //! input iterdomain corresponding to the output iterdomain at that index.
 //! If the element is nullptr, there is no mapping between input-output at that
-//! index. Based on the input dimensions following cases are possible:
-//! 1. A/B is 1D: [M, K] x [K] -> [M]
-//! Mapping A: {id_M}, Mapping B: {nullptr}
-//! 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
-//! Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N}
-//! 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
-//! N] Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
+//! index.
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    bool is_lhs,
+    MatmulRole input_role,
     size_t out_size) {
+
+  NVF_ERROR(input_role == MatmulRole::INPUT_A || input_role == MatmulRole::INPUT_B, "Unexpected input type.");
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
@@ -198,7 +194,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   }
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N} / {K} (ndims = 1)
-  auto kpos = is_lhs ? inp_size - 1 : inp_size - 2;
+  auto kpos = input_role == MatmulRole::INPUT_A ? inp_size - 1 : inp_size - 2;
 
   // If A/B is 1D, out_size < inp_size.
   for (auto out_idx = (int64_t)out_size - 1, inp_idx = inp_size - 1; inp_idx >= 0;
@@ -206,7 +202,10 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     if (inp_idx != kpos) {
       mapping[out_idx] = input_domain[inp_idx];
       out_idx--;
-    } else if (inp_size <= (int64_t)out_size) {
+    }
+    // Consider [M, K] x [K]: [M]. Since out_size < inp_size,
+    // input A and output are not right-aligned. In this case, the output index pointer should not be moved when the reduction axis is encountered. 
+    else if (inp_size <= (int64_t)out_size) {
       out_idx--;
     }
   }

@@ -324,9 +324,9 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapMatmulOpIterDomains(orig_domain_a, true, ndims_out);
+      ops::mapMatmulOpIterDomains(orig_domain_a, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b =
-      ops::mapMatmulOpIterDomains(orig_domain_b, false, ndims_out);
+      ops::mapMatmulOpIterDomains(orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
   for (auto idx : c10::irange(ndims_out)) {
     std::vector<IterDomain*> input_ids;
@@ -352,7 +352,13 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 // python API backend. Keeping separate for now, to avoid breaking tests in
 // Thunder.
 TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
-  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
+  NVF_CHECK(tv_a->dtype() == tv_b->dtype());
+
+  if (tv_a->nDims() == 1 && tv_b->nDims() == 1){
+    // Return the dot product instead of creating the MatmulOp.
+    // Cast back the output if needed since torch.matmul maintains input dtype.
+    return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
+  }
 
   // For all other cases, create a new MatmulOp
   TensorView* out = newForMatmul(tv_a, tv_b);

@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <type.h>
 #include <visibility.h>
+#include <scheduler/matmul_utils.h>
 
 #include <vector>
 
@@ -33,10 +34,20 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
-//! Maps the input iterdomains to the output of MatmulOp.
+// For MatmulOp, the input iterdomains at a given index do not necessarily map to the output iterdomain at that index
+// This function aligns the input iterdomain to the output and returns a vector where each element is the
+// input iterdomain corresponding to the output iterdomain at that index.
+// If the element is nullptr, there is no mapping between input-output at that
+// index. Based on the input dimensions following cases are possible:
+// 1. A/B is 1D: [M, K] x [K] -> [M]
+// Mapping A: {id_M}, Mapping B: {nullptr}
+// 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
+// Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N}
+// 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
+// N] Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    bool is_lhs,
+    MatmulRole input_role,
     size_t out_size);
 
 IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
