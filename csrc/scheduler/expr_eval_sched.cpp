@@ -29,7 +29,8 @@ ExprEvalScheduler::ExprEvalScheduler(
 //! Check if the no-op heuristics apply in given fusion
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check if the fusion has matmul node and accept
-  if (fusion->outputs().size() == 1 && fusion->outputs().front()->definition()->isA<MatmulOp>()) {
+  auto exprs = fusion->exprs();
+  if (exprs->size() == 1 && exprs.front()->isA<MatmulOp>()){
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
