@@ -100,13 +100,12 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
 }
 
 // Add key-value iterdomain pair to the map.
-void updatePairwiseRootDomainMap (
-  IterDomain* map_key_id,
-  IterDomain* map_value_id,
-  const std::unordered_set<IterDomain*>& root_dims_to_map,
-  bool producer_to_consumer,
-  std::unordered_map<IterDomain*, IterDomain*>& dom_map
-) {
+void updatePairwiseRootDomainMap(
+    IterDomain* map_key_id,
+    IterDomain* map_value_id,
+    const std::unordered_set<IterDomain*>& root_dims_to_map,
+    bool producer_to_consumer,
+    std::unordered_map<IterDomain*, IterDomain*>& dom_map) {
   if (!producer_to_consumer) {
     std::swap(map_key_id, map_value_id);
   }
