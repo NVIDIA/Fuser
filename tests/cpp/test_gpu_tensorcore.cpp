@@ -1876,7 +1876,6 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
     auto cg_outputs = fe.runFusion({t0, t1});
 
-    // [M, K] @ [N, K] needs strides.
     auto tref = use_mkn_dim_order
         ? t0.to(at::kFloat).matmul(t1.to(at::kFloat))
         : t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -1884,9 +1883,9 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   };
 
-  // A[M, K] @ B[N, K]
+  // B has the rfactor domain [N, K]
   scheduleCompileAndRun(false /* use_mkn_dim_order */);
-  // A[M, K] @ B[K, N] where B has allocation domain: [N, K]
+  // B has the rfactor domain [K, N] and allocation domain: [N, K]
   scheduleCompileAndRun(true /* use_mkn_dim_order */);
 }
 
