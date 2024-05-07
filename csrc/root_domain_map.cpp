@@ -98,13 +98,12 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
 }
 
 // Add key-value iterdomain pair to the map.
-void updatePairwiseRootDomainMap (
-  IterDomain* map_key_id,
-  IterDomain* map_value_id,
-  const std::unordered_set<IterDomain*>& root_dims_to_map,
-  bool producer_to_consumer,
-  std::unordered_map<IterDomain*, IterDomain*>& dom_map
-) {
+void updatePairwiseRootDomainMap(
+    IterDomain* map_key_id,
+    IterDomain* map_value_id,
+    const std::unordered_set<IterDomain*>& root_dims_to_map,
+    bool producer_to_consumer,
+    std::unordered_map<IterDomain*, IterDomain*>& dom_map) {
   if (!producer_to_consumer) {
     std::swap(map_key_id, map_value_id);
   }
@@ -142,21 +141,30 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    MatmulRole input_role = producer->sameAs(op->inA()) ? MatmulRole::INPUT_A : MatmulRole::INPUT_B;
+    MatmulRole input_role =
+        producer->sameAs(op->inA()) ? MatmulRole::INPUT_A : MatmulRole::INPUT_B;
     auto out_size = consumer_root.size();
 
-    // For MatmulOp, the input iterdomains at a given index do not necessarily map to the output iterdomain at that index
-    // `mapMatmulOpIterDomains` outputs a vector of the input iterdomains aligned to the output domain which can be used to create a pairwise map between input-output.
-    // For eg: 
-    // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between input and output for index=2
-    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain maps to the third output iterdomain.
+    // For MatmulOp, the input iterdomains at a given index do not necessarily
+    // map to the output iterdomain at that index `mapMatmulOpIterDomains`
+    // outputs a vector of the input iterdomains aligned to the output domain
+    // which can be used to create a pairwise map between input-output. For eg:
+    // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between
+    // input and output for index=2
+    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
+    // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_id =
         ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
 
     for (auto inx : c10::irange(out_size)) {
       IterDomain* map_key_id = aligned_producer_id.at(inx);
       IterDomain* map_value_id = consumer_root.at(inx);
-      updatePairwiseRootDomainMap(map_key_id, map_value_id, root_dims_to_map, producer_to_consumer, dom_map);
+      updatePairwiseRootDomainMap(
+          map_key_id,
+          map_value_id,
+          root_dims_to_map,
+          producer_to_consumer,
+          dom_map);
     }
     return dom_map;
   }
@@ -248,7 +256,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     IterDomain* map_key_id = producer_id;
     IterDomain* map_value_id = consumer_id;
-    updatePairwiseRootDomainMap(map_key_id, map_value_id, root_dims_to_map, producer_to_consumer, dom_map);
+    updatePairwiseRootDomainMap(
+        map_key_id,
+        map_value_id,
+        root_dims_to_map,
+        producer_to_consumer,
+        dom_map);
 
     itc++;
     itp++;

@@ -313,20 +313,22 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 
   NVF_ERROR(ndims_a >= 1 && ndims_b >= 1);
 
-  // Matmul output size is same as the higher dimensional input size if both A/B > 1D.
+  // Matmul output size is same as the higher dimensional input size if both A/B
+  // > 1D.
   auto ndims_out = std::max(ndims_a, ndims_b);
   if (std::min(ndims_a, ndims_b) == 1) {
-    // If one of the inputs is 1D, the output size is 1 less than the higher dimensional input size, since either M/N axis will be missing in the output.
-    // For eg: [M, K] x [K] -> [M]
+    // If one of the inputs is 1D, the output size is 1 less than the higher
+    // dimensional input size, since either M/N axis will be missing in the
+    // output. For eg: [M, K] x [K] -> [M]
     ndims_out = std::max(ndims_a, ndims_b) - 1;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const std::vector<IterDomain*>& mapping_a =
-      ops::mapMatmulOpIterDomains(orig_domain_a, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b =
-      ops::mapMatmulOpIterDomains(orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
+      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
+  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
+      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
   for (auto idx : c10::irange(ndims_out)) {
     std::vector<IterDomain*> input_ids;
@@ -354,7 +356,7 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
   NVF_CHECK(tv_a->dtype() == tv_b->dtype());
 
-  if (tv_a->nDims() == 1 && tv_b->nDims() == 1){
+  if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
     // Return the dot product instead of creating the MatmulOp.
     // Cast back the output if needed since torch.matmul maintains input dtype.
     return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));

@@ -9,9 +9,9 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
+#include <scheduler/matmul_utils.h>
 #include <type.h>
 #include <visibility.h>
-#include <scheduler/matmul_utils.h>
 
 #include <vector>
 
@@ -34,11 +34,12 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
-// For MatmulOp, the input iterdomains at a given index do not necessarily map to the output iterdomain at that index
-// This function aligns the input iterdomain to the output and returns a vector where each element is the
-// input iterdomain corresponding to the output iterdomain at that index.
-// If the element is nullptr, there is no mapping between input-output at that
-// index. Based on the input dimensions following cases are possible:
+// For MatmulOp, the input iterdomains at a given index do not necessarily map
+// to the output iterdomain at that index This function aligns the input
+// iterdomain to the output and returns a vector where each element is the input
+// iterdomain corresponding to the output iterdomain at that index. If the
+// element is nullptr, there is no mapping between input-output at that index.
+// Based on the input dimensions following cases are possible:
 // 1. A/B is 1D: [M, K] x [K] -> [M]
 // Mapping A: {id_M}, Mapping B: {nullptr}
 // 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
