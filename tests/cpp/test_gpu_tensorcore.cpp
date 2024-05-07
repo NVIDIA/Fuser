@@ -1732,12 +1732,27 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     // and it's rfactor domain in of the order [M, K, N], reorder it to the
     // expected [M, N, K] and propagate it backwards.
     if (use_mkn_dim_order) {
+      // If we have inputs with rfactor domains [M, K], [K, N]
+      // first check that broadcasted B has an allocation domain and A does not.
+      NVF_CHECK(
+          tv1b->hasAllocation(),
+          "B after brodcast should have an allocation domain");
+      NVF_CHECK(
+          !tv0b->hasAllocation(),
+          "A after brodcast should not have an allocation domain");
+
       // Get the permutation that describes the difference
       // between the rfactor domain and allocation domain.
       auto perm =
           ir_utils::computePermutation(
               tv1b->getMaybeRFactorDomain(), tv1b->getAllocationDomain())
               .value();
+
+      NVF_CHECK(perm.size() == 3, "The permutation vector size is incorrect");
+      // We reorder from [M, K, N] -> [M, N, K], perm:[0, 2, 1]
+      NVF_CHECK(
+          perm.at(0) == 0 && perm.at(1) == 2 && perm.at(2) == 1,
+          "permutation vector is incorrect");
 
       // Reorder the output of the Mma Op and propage that backwards.
       tv2->reorder(perm);
@@ -1769,7 +1784,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     tv2c->reorder({{2, 3}, {3, 4}, {4, 2}});
 
     //  0   1  2   3     4    5
-    // [Mo,No, Ko M128, N128, K32]
+    // [Mo,No, Ko, M128, N128, K32]
     tv0cw->computeAt(tv2c, 3);
     tv1cw->computeAt(tv2c, 3);
 
