@@ -1878,7 +1878,8 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     tv0cr->doubleBuffer();
     tv1cr->doubleBuffer();
 
-    // Create input for either [M, K] @ [N, K] or [M, K] @ [K, N] (with strides)
+    // Create inputs. B has K has the dim with unit stride with the
+    // use_mkn_dim_order flag
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     auto t0 = at::randn({M, K}, options);
     auto t1 = use_mkn_dim_order ? at::randn({K, N}, options)
