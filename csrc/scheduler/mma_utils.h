@@ -173,7 +173,6 @@ class WarpMmaSwizzler {
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
-  // TODO: what is transpose? Why do we need it?
   static void scheduleOperandRead(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
   //! Note [schedule of ldmatrix]

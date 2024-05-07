@@ -1596,6 +1596,7 @@ void IndexLowering::handle(const MmaOp* mma) {
                           getBytesFromSwizzle(swizzle));
     if (swizzle == MmaInputSmemSwizzle::None &&
         (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
+      // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
@@ -1630,6 +1631,7 @@ void IndexLowering::handle(const MmaOp* mma) {
                           getBytesFromSwizzle(swizzle));
     if (swizzle == MmaInputSmemSwizzle::None &&
         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
+      // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
