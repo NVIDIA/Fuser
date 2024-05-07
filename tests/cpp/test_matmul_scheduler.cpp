@@ -95,6 +95,30 @@ static const PrecisionsDesc TSS = std::make_tuple(
     PrimDataType::Float,
     PrimDataType::Float);
 
+void checkUnsegmentedVectorization(
+    const FusionExecutorCache& executor_cache,
+    int64_t expected_vec_A,
+    int64_t expected_vec_B,
+    int64_t expected_vec_epilogue) {
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  ASSERT_NE(runtime, nullptr);
+
+  // expected to match whole fusion with single segment
+  EXPECT_FALSE(runtime->isSegmented());
+
+  ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+
+  // Check that supported_vec_size matches expected.
+  const MatmulParams& params =
+      runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
+
+  EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+  EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+  EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+}
+
 // Matmul test that uses segmenter for fusion:
 //   D = (A x B) + bias
 //  Target architectures: Turing, Ampere
@@ -194,9 +218,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -288,9 +314,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -398,9 +426,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -495,9 +525,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -613,9 +645,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -708,9 +742,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -803,9 +839,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -914,9 +952,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1030,9 +1070,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -1106,15 +1148,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
-
-  NVF_CHECK(
-      isSchedulerInUse(
-          executor_cache.getMostRecentKernelRuntime(),
-          ScheduleHeuristic::Matmul),
-      "matmul scheduler was not used to handle prepared fusion");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -1177,15 +1211,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "fusion got segmented, expected to match whole fusion with single segment");
-
-    NVF_CHECK(
-        isSchedulerInUse(
-            executor_cache.getMostRecentKernelRuntime(),
-            ScheduleHeuristic::Matmul),
-        "matmul scheduler was not used to handle prepared fusion");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
   }
@@ -1244,15 +1270,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t1, t0});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
-
-  NVF_CHECK(
-      isSchedulerInUse(
-          executor_cache.getMostRecentKernelRuntime(),
-          ScheduleHeuristic::Matmul),
-      "matmul scheduler was not used to handle prepared fusion");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1313,9 +1331,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1379,9 +1395,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1447,9 +1461,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1526,9 +1538,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1612,9 +1622,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1705,9 +1713,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1802,9 +1808,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   auto outputs =
       executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1873,9 +1877,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     // verification
@@ -1971,9 +1973,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2074,9 +2074,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2155,9 +2153,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2238,9 +2234,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2659,6 +2653,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   executor_cache.profile(true);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
