@@ -64,7 +64,9 @@ class MatmulParams : public HeuristicParams {
     }
   };
 
-  //! This is the maximum vectorization supported by the inputs.
+  //! This is the maximum vectorization supported by the inputs. This refers to
+  //! the number of data elements loaded simultaneously, not the number of
+  //! bytes.
   struct SupportedVectorization {
     // operands
     int64_t a = 16;
