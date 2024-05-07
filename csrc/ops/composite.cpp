@@ -313,28 +313,31 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 
   NVF_ERROR(ndims_a >= 1 && ndims_b >= 1);
 
+  // Matmul output size is same as the higher dimensional input size if both A/B > 1D.
   auto ndims_out = std::max(ndims_a, ndims_b);
   if (std::min(ndims_a, ndims_b) == 1) {
+    // If one of the inputs is 1D, the output size is 1 less than the higher dimensional input size, since either M/N axis will be missing in the output.
+    // For eg: [M, K] x [K] -> [M]
     ndims_out = std::max(ndims_a, ndims_b) - 1;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const auto& mapping_a =
+  const std::vector<IterDomain*>& mapping_a =
       ops::mapMatmulOpIterDomains(orig_domain_a, true, ndims_out);
-  const auto& mapping_b =
+  const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, false, ndims_out);
 
-  for (auto inx : c10::irange(ndims_out)) {
+  for (auto idx : c10::irange(ndims_out)) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(2);
-    if (mapping_a[inx] != nullptr) {
-      input_ids.emplace_back(mapping_a[inx]);
+    if (mapping_a[idx] != nullptr) {
+      input_ids.emplace_back(mapping_a[idx]);
     }
-    if (mapping_b[inx] != nullptr) {
-      input_ids.emplace_back(mapping_b[inx]);
+    if (mapping_b[idx] != nullptr) {
+      input_ids.emplace_back(mapping_b[idx]);
     }
-    out_domain[inx] = ops::newOutputIterDomain(input_ids);
+    out_domain[idx] = ops::newOutputIterDomain(input_ids);
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(

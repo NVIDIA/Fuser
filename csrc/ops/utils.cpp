@@ -201,13 +201,13 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   auto kpos = is_lhs ? inp_size - 1 : inp_size - 2;
 
   // If A/B is 1D, out_size < inp_size.
-  for (auto out_inx = (int64_t)out_size - 1, inp_inx = inp_size - 1; inp_inx >= 0;
-       inp_inx--) {
-    if (inp_inx != kpos) {
-      mapping[out_inx] = input_domain[inp_inx];
-      out_inx--;
+  for (auto out_idx = (int64_t)out_size - 1, inp_idx = inp_size - 1; inp_idx >= 0;
+       inp_idx--) {
+    if (inp_idx != kpos) {
+      mapping[out_idx] = input_domain[inp_idx];
+      out_idx--;
     } else if (inp_size <= (int64_t)out_size) {
-      out_inx--;
+      out_idx--;
     }
   }
   return mapping;

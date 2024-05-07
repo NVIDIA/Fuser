@@ -476,22 +476,22 @@ INSTANTIATE_TEST_SUITE_P(
     ATenNodesParametrizedTest,
     testing::Values(
         std::make_tuple(
-            std::vector<int64_t>({m, k}),
-            std::vector<int64_t>({k, n})),
+            Sizes({m, k}),
+            Sizes({k, n})),
         std::make_tuple(
-            std::vector<int64_t>({k}),
-            std::vector<int64_t>({k, n})),
+            Sizes({k}),
+            Sizes({k, n})),
         std::make_tuple(
-            std::vector<int64_t>({m, k}),
-            std::vector<int64_t>({k})),
+            Sizes({m, k}),
+            Sizes({k})),
         std::make_tuple(
-            std::vector<int64_t>({k}),
-            std::vector<int64_t>({b, k, n})),
+            Sizes({k}),
+            Sizes({b, k, n})),
         std::make_tuple(
-            std::vector<int64_t>({b, m, k}),
-            std::vector<int64_t>({k})),
+            Sizes({b, m, k}),
+            Sizes({k})),
         std::make_tuple(
-            std::vector<int64_t>({b, 1, m, k}),
-            std::vector<int64_t>({b, k, n}))));
+            Sizes({b, 1, m, k}),
+            Sizes({b, k, n}))));
 
 } // namespace nvfuser
