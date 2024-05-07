@@ -8,6 +8,8 @@
 #include <macros.h>
 
 #include <csrc/exceptions.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -52,6 +54,8 @@
 #include "c10/core/ScalarType.h"
 
 namespace nvfuser {
+using testing::ElementsAre;
+
 namespace {
 class GPUTTensorCoreTest : public NVFuserTest {
  protected:
@@ -1750,14 +1754,58 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
       NVF_CHECK(perm.size() == 3, "The permutation vector size is incorrect");
       // We reorder from [M, K, N] -> [M, N, K], perm:[0, 2, 1]
-      NVF_CHECK(
-          perm.at(0) == 0 && perm.at(1) == 2 && perm.at(2) == 1,
-          "permutation vector is incorrect");
+      EXPECT_THAT(perm, ElementsAre(0, 2, 1));
 
       // Reorder the output of the Mma Op and propage that backwards.
       tv2->reorder(perm);
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           tv2, -1, {});
+
+      // Check that the re-order was propagated.
+      auto perm_tv1b = ir_utils::computePermutation(
+                           tv1b->getMaybeRFactorDomain(), tv1b->getLeafDomain())
+                           .value();
+      EXPECT_THAT(perm_tv1b, ElementsAre(0, 2, 1));
+
+      auto perm_tv0b = ir_utils::computePermutation(
+                           tv0b->getMaybeRFactorDomain(), tv0b->getLeafDomain())
+                           .value();
+      EXPECT_THAT(perm_tv0b, ElementsAre(0, 2, 1));
+
+      auto perm_tv1cr =
+          ir_utils::computePermutation(
+              tv1cr->getMaybeRFactorDomain(), tv1cr->getLeafDomain())
+              .value();
+      EXPECT_THAT(perm_tv1cr, ElementsAre(1, 0));
+
+      auto perm_tv1cw =
+          ir_utils::computePermutation(
+              tv1cw->getMaybeRFactorDomain(), tv1cw->getLeafDomain())
+              .value();
+      EXPECT_THAT(perm_tv1cw, ElementsAre(1, 0));
+
+      // The following are not modified.
+      auto perm_tv1 = ir_utils::computePermutation(
+                          tv1->getMaybeRFactorDomain(), tv1->getLeafDomain())
+                          .value();
+      EXPECT_THAT(perm_tv1, ElementsAre(0, 1));
+
+      auto perm_tv0 = ir_utils::computePermutation(
+                          tv0->getMaybeRFactorDomain(), tv0->getLeafDomain())
+                          .value();
+      EXPECT_THAT(perm_tv0, ElementsAre(0, 1));
+
+      auto perm_tv0cr =
+          ir_utils::computePermutation(
+              tv0cr->getMaybeRFactorDomain(), tv0cr->getLeafDomain())
+              .value();
+      EXPECT_THAT(perm_tv0cr, ElementsAre(0, 1));
+
+      auto perm_tv0cw =
+          ir_utils::computePermutation(
+              tv0cw->getMaybeRFactorDomain(), tv0cw->getLeafDomain())
+              .value();
+      EXPECT_THAT(perm_tv0cw, ElementsAre(0, 1));
     }
 
     auto tv2c = tv2->cacheBefore();
