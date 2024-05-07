@@ -343,10 +343,11 @@ int64_t maxRowVectorization(
 
   // Find innermost dimension
   bool contiguous = false;
+  int64_t elt_size = dataTypeSize(tv->dtype());
   for (int64_t i : c10::irange(sizes.size())) {
     int64_t stride = strides.at(i);
     int64_t size = sizes.at(i);
-    if (stride == 1) {
+    if (stride == elt_size) {
       std::optional<bool> contig = tv->getContiguity().at(i);
       if (contig.has_value() && !contig.value()) {
         // If TensorView is marked discontiguous in inner dimension, we cannot

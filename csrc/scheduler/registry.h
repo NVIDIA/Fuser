@@ -76,8 +76,8 @@ class SchedulerRuntimeInfo : public NonCopyable {
         isInputTv(tv),
         "Cannot get stride of non-input TensorView ",
         tv->toString());
-    auto strides_it = input_strides_elts_.find(tv);
-    NVF_ERROR(strides_it != input_strides_elts_.end());
+    auto strides_it = input_strides_elements_.find(tv);
+    NVF_ERROR(strides_it != input_strides_elements_.end());
     return strides_it->second;
   }
 
@@ -128,8 +128,12 @@ class SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Support output tensor pointers
   std::unordered_map<Val*, size_t> input_ptrs_;
 
-  // Copy of aten input tensor strides (in elements, not bytes)
-  std::unordered_map<Val*, std::vector<int64_t>> input_strides_elts_;
+  // Copy of aten input tensor strides (in elements)
+  std::unordered_map<Val*, std::vector<int64_t>> input_strides_elements_;
+
+  // Copy of aten input tensor strides (in bytes) for only discontiguous
+  // dimensions
+  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_;
