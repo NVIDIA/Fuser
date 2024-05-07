@@ -329,12 +329,10 @@ int64_t maxRowVectorization(
     TensorView* tv,
     const int64_t data_ptr_int,
     const std::vector<int64_t>& sizes,
-    const std::vector<size_t>& strides) {
-  const int64_t data_ptr_int =
-      static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
+    const std::vector<int64_t>& strides) {
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
   vec_size = std::min(vec_size, 16l);
-  vec_size /= (int64_t)tens.element_size();
+  vec_size /= dataTypeSize(tv->dtype());
   vec_size = std::max(vec_size, 1l);
   if (vec_size == 1l) {
     return vec_size;
@@ -346,7 +344,7 @@ int64_t maxRowVectorization(
   // Find innermost dimension
   bool contiguous = false;
   for (int64_t i : c10::irange(sizes.size())) {
-    int64_t stride = (int64_t)strides.at(i);
+    int64_t stride = strides.at(i);
     int64_t size = sizes.at(i);
     if (stride == 1) {
       std::optional<bool> contig = tv->getContiguity().at(i);
@@ -385,17 +383,20 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
     }
     for (TensorView* tv : it->second) {
       // TODO: handle the case when tv is not a Fusion input
-      const std::vector<size_t>& strides = runtime_info.getInputStride(tv);
-      NVF_ERROR(strides.size() == alloc.size());
+      const std::vector<int64_t>& strides = runtime_info.getInputStrides(tv);
       const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+      NVF_ERROR(alloc.size() == strides.size());
+
       std::vector<int64_t> sizes;
-      sizes.reserve(strides.size());
+      sizes.reserve(alloc.size());
       for (int64_t i : c10::irange(alloc.size())) {
         sizes.push_back(runtime_info.expressionEvaluator()
                             .evaluate(alloc[i]->extent())
                             .as<int64_t>());
       }
-      int64_t v = maxRowVectorization(tv, sizes, strides);
+
+      int64_t v = maxRowVectorization(
+          tv, (int64_t)runtime_info.ptrOf(tv), sizes, strides);
       if (v < vec_size) {
         vec_size = v;
       }

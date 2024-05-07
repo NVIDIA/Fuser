@@ -69,13 +69,15 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
 
-  const std::vector<size_t>& getInputStride(TensorView* tv) {
+  //! Returns strides of tensor, in elements instead of bytes. Only works for
+  //! complete Fusion inputs.
+  const std::vector<int64_t>& getInputStrides(TensorView* tv) {
     NVF_ERROR(
-        tv->isFusionInput(),
+        isInputTv(tv),
         "Cannot get stride of non-input TensorView ",
         tv->toString());
-    auto strides_it = input_discontig_strides_.find(tv);
-    NVF_ERROR(strides_it != input_discontig_strides_.end());
+    auto strides_it = input_strides_elts_.find(tv);
+    NVF_ERROR(strides_it != input_strides_elts_.end());
     return strides_it->second;
   }
 
@@ -126,8 +128,8 @@ class SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Support output tensor pointers
   std::unordered_map<Val*, size_t> input_ptrs_;
 
-  // Copy of aten input tensor strides (in bytes)
-  std::unordered_map<Val*, std::vector<size_t>> input_strides_bytes_;
+  // Copy of aten input tensor strides (in elements, not bytes)
+  std::unordered_map<Val*, std::vector<int64_t>> input_strides_elts_;
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_;

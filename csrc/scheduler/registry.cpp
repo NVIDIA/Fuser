@@ -14,6 +14,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -56,24 +57,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       NVF_ERROR(alloc_sizes.size() == alloc_strides.size());
 
       input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
-
-      // find and push discontiguous stride
-      int64_t dtype_size = dataTypeSize(input_tv->dtype());
-      input_discontig_strides_[fusion_inp] = {};
-      int64_t dims = (int64_t)alloc_strides.size();
-      int64_t expected_stride = 1;
-      for (int64_t dim = dims - 1; dim >= 0; dim--) {
-        auto size = alloc_sizes.at(dim);
-        if (size <= 1) {
-          continue;
-        }
-        auto stride = alloc_strides.at(dim);
-        if (stride != expected_stride) {
-          input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
-          expected_stride = stride;
-        }
-        expected_stride *= size;
-      }
+      input_strides_elts_[fusion_inp] = alloc_strides.vec();
     }
   }
 }
@@ -126,11 +110,17 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
   }
 
   auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
-  auto strides_it = input_discontig_strides_.find(tv);
-  if (strides_it != input_discontig_strides_.end()) {
+  auto strides_it = input_strides_elts_.find(tv);
+  int64_t elt_size = dataTypeSize(tv->dtype());
+  if (strides_it != input_strides_elts_.end()) {
     for (auto stride : strides_it->second) {
+      if (stride == 1) {
+        // Skip contiguous dimension in alignment computation
+        continue;
+      }
       alignment_size = std::min(
-          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
+          alignment_size,
+          SchedulerRuntimeInfo::computeAlignmentSize(stride * elt_size));
     }
   }
   alignment_map_[tv] = alignment_size;
