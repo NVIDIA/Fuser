@@ -54,42 +54,53 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
-TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
-  // TODO: Support 1+ dimensional A.
-  NVF_CHECK(
-      (a->nDims() == 2 && b->nDims() == 2),
-      "Only 2-D Inputs and Weights are currently supported in Linear!");
+namespace {
 
-  std::vector<bool> bcast_dims(a->nDims() + 1, false);
-  // A: [M, Bcast, K]
-  // B: [Bcast, N, K]
-  bcast_dims.at(bcast_dims.size() - 2) = true;
-  auto* tv0b = broadcast(a, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 2) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  auto* tv1b = broadcast(b, bcast_dims);
+static TensorView* newForLinear(TensorView* input, TensorView* weight, TensorView* bias) {
+  auto input_domain =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain());
 
-  NVF_CHECK(
-      a->getDataType().value() == b->getDataType().value(),
-      "data types of inputs to matmul don't match");
+  // Linear: inputs = {*, in_features}, weight = {out_features, in_features} / {in_features}
+  // For the linear output, all but the last dimension are the same shape as the input.
+  // The last dimension is out_features.
 
-  auto* output = fusedMultiplySum(tv0b, tv1b, {-1});
-  if (bias) {
-    NVF_CHECK(
-        (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");
-    NVF_CHECK(
-        a->getDataType().value() == bias->getDataType().value(),
-        "bias doesn't match input/weight dtype");
-    auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
-    auto* bcast_bias = ops::maybeBroadcast({output, bias_with_cast})[1];
-    auto* bias_output = add(output, bcast_bias);
-    return maybeCastOp(a->getDataType().value(), bias_output);
+  auto ndims_out = (input.size() - 1)+ (weight.size() - 1);
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);  
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain({input_domain.at(idx)});
   }
-  return maybeCastOp(a->getDataType().value(), output);
+  if (weight.size() == 2){
+    // Add out_features to output domain.
+    auto weight_domain = TensorDomain::noReductions(weight->getMaybeRFactorDomain());
+    if (bias != nullptr) {
+      auto bias_domain = TensorDomain::noReductions(bias->getMaybeRFactorDomain());
+      out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.at(0), bias_domain.at(0)});
+    } else {
+      out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.at(0)});
+    }
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  return IrBuilder::create<TensorView>(td, input->dtype());
 }
 
-TensorView* linear(TensorView* a, TensorView* b) {
-  return linear(a, b, nullptr /*bias*/);
+} // namespace
+
+TensorView* linear(TensorView* tv_a, TensorView* tv_b, TensorView* bias) {
+  NVF_CHECK(tv_a->nDims() >= 1);
+  NVF_CHECK(tv_b->nDims() == 1 || tv_b->nDims() == 2);
+
+  // For all other cases, create a new LinearOp
+  TensorView* out = newForLinear(tv_a, tv_b, bias);
+  IrBuilder::create<LinearOp>(out, tv_a, tv_b, bias);
+  return out;
+}
+
+TensorView* linear(TensorView* tv_a, TensorView* tv_b) {
+  return linear(tv_a, tv_b, /*bias=*/nullptr);
 }
 
 LstmResult lstm(
