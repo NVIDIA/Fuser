@@ -69,6 +69,16 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
 
+  const std::vector<size_t>& getInputStride(TensorView* tv) {
+    NVF_ERROR(
+        tv->isFusionInput(),
+        "Cannot get stride of non-input TensorView ",
+        tv->toString());
+    auto strides_it = input_discontig_strides_.find(tv);
+    NVF_ERROR(strides_it != input_discontig_strides_.end());
+    return strides_it->second;
+  }
+
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);
 
@@ -117,7 +127,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<Val*, size_t> input_ptrs_;
 
   // Copy of aten input tensor strides (in bytes)
-  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
+  std::unordered_map<Val*, std::vector<size_t>> input_strides_bytes_;
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_;

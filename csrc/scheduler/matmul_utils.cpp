@@ -325,7 +325,11 @@ std::string isMatmulFusionDefinitionSupported(
 // These rows can start at any multiple of the non-contiguous strides, so we
 // seek the largest power of 2 that divides all those other dimensions (capped
 // to 16) as well as the data pointer.
-int64_t maxRowVectorization(TensorView* tv, const at::Tensor& tens) {
+int64_t maxRowVectorization(
+    TensorView* tv,
+    const int64_t data_ptr_int,
+    const std::vector<int64_t>& sizes,
+    const std::vector<size_t>& strides) {
   const int64_t data_ptr_int =
       static_cast<int64_t>(reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
@@ -336,13 +340,14 @@ int64_t maxRowVectorization(TensorView* tv, const at::Tensor& tens) {
     return vec_size;
   }
 
-  NVF_ERROR(tens.ndimension() == tv->nDims());
+  NVF_ERROR(sizes.size() == strides.size());
+  NVF_ERROR(sizes.size() == tv->nDims());
 
   // Find innermost dimension
   bool contiguous = false;
-  for (int64_t i : c10::irange(tens.ndimension())) {
-    int64_t stride = tens.stride(i);
-    int64_t size = tens.size(i);
+  for (int64_t i : c10::irange(sizes.size())) {
+    int64_t stride = (int64_t)strides.at(i);
+    int64_t size = sizes.at(i);
     if (stride == 1) {
       std::optional<bool> contig = tv->getContiguity().at(i);
       if (contig.has_value() && !contig.value()) {
@@ -379,8 +384,18 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       return 16;
     }
     for (TensorView* tv : it->second) {
-      int64_t v = maxRowVectorization(
-          tv, runtime_info.expressionEvaluator().evaluate(tv).as<at::Tensor>());
+      // TODO: handle the case when tv is not a Fusion input
+      const std::vector<size_t>& strides = runtime_info.getInputStride(tv);
+      NVF_ERROR(strides.size() == alloc.size());
+      const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+      std::vector<int64_t> sizes;
+      sizes.reserve(strides.size());
+      for (int64_t i : c10::irange(alloc.size())) {
+        sizes.push_back(runtime_info.expressionEvaluator()
+                            .evaluate(alloc[i]->extent())
+                            .as<int64_t>());
+      }
+      int64_t v = maxRowVectorization(tv, sizes, strides);
       if (v < vec_size) {
         vec_size = v;
       }
