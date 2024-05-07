@@ -174,8 +174,8 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 }
 
-//! Maps the input iterdomains to the output of MatmulOp.
-//! Returns a vector where each element is the
+//! For MatmulOp, the input iterdomains at a given index do not necessarily map to the output iterdomain at that index
+//! This function aligns the input iterdomain to the output and returns a vector where each element is the
 //! input iterdomain corresponding to the output iterdomain at that index.
 //! If the element is nullptr, there is no mapping between input-output at that
 //! index. Based on the input dimensions following cases are possible:
@@ -206,7 +206,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     if (inp_inx != kpos) {
       mapping[out_inx] = input_domain[inp_inx];
       out_inx--;
-    } else if (inp_size <= out_size) {
+    } else if (inp_size <= (int64_t)out_size) {
       out_inx--;
     }
   }
