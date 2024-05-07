@@ -1633,6 +1633,7 @@ void IndexLowering::handle(const MmaOp* mma) {
                           getBytesFromSwizzle(swizzle));
     if (swizzle == MmaInputSmemSwizzle::None &&
         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
+      std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
