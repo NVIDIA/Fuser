@@ -100,8 +100,11 @@ void AllocationOrderMapping(
   }
 
   // removing mapped ids and reduction ids to create unmapped_ids_vec.
-  // This means for the rest of ids in target_rfactor_domain that's not in mapped_id_set, they are either 1. a reduction domain, or; 2. in [unmapped_ids_vec.begin(), unmapped_ids_vec_end)
-  // This ensures that sharp-edges 1's loop would reconstruct a permutation of the target_rfactor_domain, hence a valid allocation domain for target.
+  // This means for the rest of ids in target_rfactor_domain that's not in
+  // mapped_id_set, they are either 1. a reduction domain, or; 2. in
+  // [unmapped_ids_vec.begin(), unmapped_ids_vec_end) This ensures that
+  // sharp-edges 1's loop would reconstruct a permutation of the
+  // target_rfactor_domain, hence a valid allocation domain for target.
   std::vector<IterDomain*> unmapped_ids_vec = target_rfactor_domain;
   auto unmapped_ids_vec_end = std::remove_if(
       unmapped_ids_vec.begin(),
@@ -248,7 +251,7 @@ void inferenceAllocationOrder(
       if (iter.second > non_bc_high_water_mark) {
         ref = iter.first;
         non_bc_high_water_mark = iter.second;
-	continue;
+        continue;
       }
       // found multiple candidate with the same iterdomain count
       if (iter.second == non_bc_high_water_mark && ref != nullptr) {
