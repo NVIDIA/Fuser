@@ -12,6 +12,7 @@
 #include <scheduler/matmul_utils.h>
 #include <type.h>
 #include <visibility.h>
+#include <scheduler/matmul_utils.h>
 
 #include <vector>
 
