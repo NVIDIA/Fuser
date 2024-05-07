@@ -1456,4 +1456,105 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
+TEST_F(Tutorial, TMABankConflictFreeTranspose) {
+  GTEST_SKIP() << "This test needs new IdModel based indexing.";
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = makeContigTensor(2);
+  fusion.addInput(input);
+  auto output = transpose(input, 0, 1);
+  fusion.addOutput(output);
+
+  // Change the fusion to input->smem->register->smem->output
+  // where the smem->register part does the transpose
+  TensorView* input_smem_cache =
+      input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  input_smem_cache->setMemoryType(MemoryType::Shared);
+  TensorView* output_smem_cache =
+      output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+  output_smem_cache->setMemoryType(MemoryType::Shared);
+  TensorView* output_reg_cache = output_smem_cache->cacheBefore();
+
+  using Options =
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options;
+
+  // Create 32x32 tile. Each CTA has one tile, and the entire tile will be
+  // loaded to shared memory by TMA, and stored back to global memory by TMA.
+
+  // [I1, I0]
+  output->split(1, 32);
+  output->split(0, 32);
+  output->reorder({{-2, 0}});
+  output->merge(0);
+  // [I0/32 * I1/32', 32', 32]
+  output->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, 32', 32]
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      output, -1, {input}, Options{}.propagateParallelType());
+
+  // For fusion output, we just use TMA to store the entire tile back to global
+  // memory. There is no need to further schedule the output tensor.
+  output->axis(1)->parallelize(ParallelType::Bulk);
+  output->axis(2)->parallelize(ParallelType::Bulk);
+  // [BIDx, Bulk, Bulk]
+
+  // output_smem_cache and output_reg_cache are scheduled in the same way.
+  // We use each warp to load one column of input_smem_cache. We vectorize
+  // the load to 16 byte, and use 8 warps to load all these 8 columns. And
+  // when we write to output_smem_cache, we unroll the write. Each warp writes
+  // one row in output_smem_cache in each iteration, so there is no bank
+  // conflict.
+  // [BIDx, 32', 32]
+  output_smem_cache->setAllocationDomain(
+      output_smem_cache->getLeafDomain(), true);
+  output_smem_cache->split(1, 4);
+  // [BIDx, 8', 4', 32]
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      output_smem_cache, -1, {input});
+  output_smem_cache->merge(1, 3);
+  // [BIDx, 256, 4']
+  output_smem_cache->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      output_smem_cache,
+      -1,
+      {input_smem_cache},
+      Options{}.propagateParallelType());
+  output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
+  output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
+  output_reg_cache->setAllocationDomain(
+      output_reg_cache->getLeafDomain(), true);
+
+  // Schedule the memory format for 128 byte swizzle
+  // [BIDx, 8', 4', 32]
+  input_smem_cache->reorder({{-1, 1}});
+  // [BIDx, 32, 8', 4']
+  input_smem_cache->split(1, 8);
+  // [BIDx, 4, 8, 8', 4']
+  input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+  // [BIDx, 4, 8, 8', 4']
+  input_smem_cache->setAllocationDomain(
+      input_smem_cache->getLeafDomain(), true);
+  input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+  input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+  input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+  input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+  // [BIDx, Bulk, Bulk, Bulk, Bulk]
+
+  if (verbose_) {
+    fusion.print();
+    fusion.printKernel();
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t = at::randn({10000, 10000}, options);
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(&fusion, {t}, {}, index32bit);
+  std::vector<at::Tensor> outputs = fe.runFusion({t});
+  ASSERT_TRUE(at::equal(t.t(), outputs[0]));
+}
+
 } // namespace nvfuser

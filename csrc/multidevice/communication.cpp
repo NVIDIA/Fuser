@@ -8,7 +8,7 @@
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
-#if defined(USE_C10D_NCCL)
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 #include <utils.h>

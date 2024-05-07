@@ -64,7 +64,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 void orderTiledConcreteIdAsRoot(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
+//! [Device, Batch, Previous Reduction, M, N, K]
 //!  for easier processing of later scheduling steps.
 //!
 //! This matching works on root domain only, and
