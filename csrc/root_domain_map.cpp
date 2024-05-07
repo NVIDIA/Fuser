@@ -97,6 +97,22 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
   return std::make_pair(indexed_id, has_consumer_id);
 }
 
+// Add key-value iterdomain pair to the map.
+void updatePairwiseRootDomainMap (
+  IterDomain* map_key_id,
+  IterDomain* map_value_id,
+  const std::unordered_set<IterDomain*>& root_dims_to_map,
+  bool producer_to_consumer,
+  std::unordered_map<IterDomain*, IterDomain*>& dom_map
+) {
+  if (!producer_to_consumer) {
+    std::swap(map_key_id, map_value_id);
+  }
+  if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+    dom_map.insert(std::make_pair(map_key_id, map_value_id));
+  }
+}
+
 } // namespace
 
 std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
@@ -140,12 +156,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     for (auto inx : c10::irange(out_size)) {
       IterDomain* map_key_id = aligned_producer_id.at(inx);
       IterDomain* map_value_id = consumer_root.at(inx);
-      if (!producer_to_consumer) {
-        std::swap(map_key_id, map_value_id);
-      }
-      if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-        dom_map.insert(std::make_pair(map_key_id, map_value_id));
-      }
+      updatePairwiseRootDomainMap(map_key_id, map_value_id, root_dims_to_map, producer_to_consumer, dom_map);
     }
     return dom_map;
   }
@@ -237,13 +248,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     IterDomain* map_key_id = producer_id;
     IterDomain* map_value_id = consumer_id;
-    if (!producer_to_consumer) {
-      std::swap(map_key_id, map_value_id);
-    }
+    updatePairwiseRootDomainMap(map_key_id, map_value_id, root_dims_to_map, producer_to_consumer, dom_map);
 
-    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-      dom_map.insert(std::make_pair(map_key_id, map_value_id));
-    }
     itc++;
     itp++;
   }
