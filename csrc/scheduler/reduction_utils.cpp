@@ -258,9 +258,12 @@ TensorView* scheduleReductionTV(
             iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
       } else {
         // inner_parallel(iter_axis, rparams.block_dim_iter_dom);
-        NVF_ERROR(rparams.static_bdimx, "blockDim.x must be static");
-        inner_parallel_static(
-            iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());        
+        if(rparams.static_bdimx){
+          inner_parallel_static(
+              iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
+        }else{
+          inner_parallel(iter_axis, rparams.block_dim_iter_dom);
+        }
       }
     }
 

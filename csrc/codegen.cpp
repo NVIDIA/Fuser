@@ -2783,12 +2783,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto& par_dim_map = kernel_->summary().parallel_dimension_map;
     std::cout << "par_dim_map: " << par_dim_map.toString() << std::endl;
-    NVF_ERROR(par_dim_map.get(ParallelType::TIDx)->isConstInt());
-    NVF_ERROR(par_dim_map.get(ParallelType::TIDy)->isConstInt());
-
-    auto str_bdimx = genInline(par_dim_map.get(ParallelType::TIDx));
-    int int_bdimx = std::stoi(str_bdimx);
-
+    int int_bdimx = -1;
+    if(par_dim_map.get(ParallelType::TIDx)->isConstInt() && par_dim_map.get(ParallelType::TIDy)->isConstInt()){
+      auto str_bdimx = genInline(par_dim_map.get(ParallelType::TIDx));
+      int_bdimx = std::stoi(str_bdimx);
+    }
     if(std::getenv("USE_WARP") != nullptr && int_bdimx <= 32L && num_grouped_iterations >= 32 / int_bdimx) {
       std::cout << "Using warp reduction" << std::endl;
       ArgumentBuilder func_template_args;
