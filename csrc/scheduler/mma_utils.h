@@ -176,8 +176,7 @@ class WarpMmaSwizzler {
   // TODO: what is transpose? Why do we need it?
   static void scheduleOperandRead(
       TensorView* tv,
-      MmaInputSmemSwizzle swizzle,
-      bool transpose);
+      MmaInputSmemSwizzle swizzle);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:

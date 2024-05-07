@@ -1290,11 +1290,11 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
   }
 }
 
-void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose) {
+void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle, transpose);
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
 void TensorView::commitLeafToRFactor() {
