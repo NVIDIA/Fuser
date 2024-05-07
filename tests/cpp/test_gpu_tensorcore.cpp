@@ -1671,175 +1671,215 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereViewMatmulTN_CUDA) {
 }
 
 // Test an end-to-end matmul case with swizzled smem
-// data layout.
+// data layout. We run this for two typed in input B tensor.
+// First case B has the rfactor domain [N, K] and the second
+// case, rfactor [K, N] and allocation domain [N, K].
 TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto scheduleCompileAndRun = [](bool use_mkn_dim_order) {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  int M = 257, N = 511, K = 136;
+    int M = 257, N = 511, K = 136;
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  // [M,K]
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  // [N,K]
-  auto tv1 = makeContigTensor(2, DataType::Half);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+    // [M,K]
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    // [N,K] or [K, N] if use_mkn_dim_order is true
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    // Propagate the allocation domain post-broadcast.
+    if (use_mkn_dim_order) {
+      tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+    }
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
 
-  // [M,N,K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1, {true, false, false});
+    // [M,N,K] or [M, K, N] if use_mkn_dim_order is true
+    auto tv0b = use_mkn_dim_order ? broadcast(tv0, {false, false, true})
+                                  : broadcast(tv0, {false, true, false});
+    auto tv1b = broadcast(tv1, {true, false, false});
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+    // propagate the allocation domain in case there's one.
+    if (use_mkn_dim_order) {
+      tv1b->setAllocationDomain(
+          {tv1b->axis(0), tv1b->axis(2), tv1b->axis(1)}, true);
+    }
 
-  fusion.addOutput(tv2);
+    // [M, K, N] or [M, N, K]
+    auto tv2 = use_mkn_dim_order ? fusedMultiplySum(tv0b, tv1b, {1})
+                                 : fusedMultiplySum(tv0b, tv1b, {2});
 
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
-  NVF_CHECK(
-      1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
-      mma_ops.size());
-  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
+    fusion.addOutput(tv2);
 
-  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv2c = tv2->cacheBefore();
+    auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+    NVF_CHECK(
+        1 == mma_ops.size(),
+        "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+        mma_ops.size());
+    mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
-  // Make a CTA tile
-  // ------------------------------------------------------------------
-  // [M,N]
-  tv2->split(-2, gemm_tile.cta_tile.m);
-  tv2->split(-1, gemm_tile.cta_tile.n);
+    auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
+    auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
+    auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
+    auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
 
-  //  0   1    2   3
-  // [Mo,M128, No, N128]
-  tv2->reorder({{1, 2}, {2, 1}});
+    // In the case that input B has an (transposed [M, N, K] ) allocation domain
+    // and it's rfactor domain in of the order [M, K, N], reorder it to the
+    // expected [M, N, K] and propagate it backwards.
+    if (use_mkn_dim_order) {
+      tv2->reorder({{1, 2}, {2, 1}});
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          tv2, -1, {});
+    }
 
-  //  0   1    2   3
-  // [Mo,No, M128, N128]
-  tv0->computeAt(tv2, 2);
-  tv1->computeAt(tv2, 2);
+    auto tv2c = tv2->cacheBefore();
 
-  // Order K
-  //  0   1    2   3     4    5
-  // [Mo,No, M128, N128, Ko, K32]
-  tv2c->split(-1, gemm_tile.cta_tile.k);
-  tv2c->reorder({{2, 3}, {3, 4}, {4, 2}});
+    // Make a CTA tile
+    // ------------------------------------------------------------------
+    // [M,N]
+    tv2->split(-2, gemm_tile.cta_tile.m);
+    tv2->split(-1, gemm_tile.cta_tile.n);
 
-  //  0   1  2   3     4    5
-  // [Mo,No, Ko M128, N128, K32]
-  tv0cw->computeAt(tv2c, 3);
-  tv1cw->computeAt(tv2c, 3);
+    //  0   1    2   3
+    // [Mo,M128, No, N128]
+    tv2->reorder({{1, 2}, {2, 1}});
 
-  // Make warp tile:
-  //
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
-  //           -8   -7 -6 -5 -4 -3 -2 -1
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  tv0cr->computeAt(tv2c, -4);
-  tv1cr->computeAt(tv2c, -4);
+    //  0   1    2   3
+    // [Mo,No, M128, N128]
+    tv0->computeAt(tv2, 2);
+    tv1->computeAt(tv2, 2);
 
-  // Schedule gmem read and smem write:
-  //
-  // [Mo,Ko,M,K]
-  // Swizzle tv0: 128 x 32 tile:
-  tv0cw->split(-2, 8);
-  tv0cw->split(-2, 2);
-  tv0cw->split(-1, 8);
-  //        -5   -4 -3 -2 -1
-  // [Mo,Ko,Mo16,M4,M2,Ko4,K8]
-  tv0cw->swizzle(Swizzle2DType::XOR, -4, -2);
-  tv0cw->merge(-4);
-  tv0cw->merge(-3);
-  //         -3   -2  -1
-  // [Mo,Ko,Mo16,warp,K8]
-  tv0cw->split(-3, 4);
-  tv0cw->split(-3, 2);
-  //             -4  -3   -2  -1
-  // [Mo,Ko, S4, wz2, wy2, warp,K8]
-  tv0cw->axis(-4)->parallelize(ParallelType::TIDz);
-  tv0cw->axis(-3)->parallelize(ParallelType::TIDy);
-  tv0cw->axis(-2)->parallelize(ParallelType::TIDx);
-  tv0cw->axis(-1)->parallelize(ParallelType::Vectorize);
+    // Order K
+    //  0   1    2   3     4    5
+    // [Mo,No, M128, N128, Ko, K32]
+    tv2c->split(-1, gemm_tile.cta_tile.k);
+    tv2c->reorder({{2, 3}, {3, 4}, {4, 2}});
 
-  tv0cw->setMemoryType(MemoryType::Shared);
-  // [Mo,Ko,i,wy,wx,v]
+    //  0   1  2   3     4    5
+    // [Mo,No, Ko M128, N128, K32]
+    tv0cw->computeAt(tv2c, 3);
+    tv1cw->computeAt(tv2c, 3);
 
-  // [No,Ko,N,K]
-  // Swizzle tv0: 128 x 32 tile:
-  tv1cw->split(-2, 8);
-  tv1cw->split(-2, 2);
-  tv1cw->split(-1, 8);
-  //        -5   -4 -3 -2 -1
-  // [No,Ko,No16,N4,N2,Ko4,K8]
-  tv1cw->swizzle(Swizzle2DType::XOR, -4, -2);
-  tv1cw->merge(-4);
-  tv1cw->merge(-3);
-  //         -3   -2  -1
-  // [No,Ko,No16,warp,K8]
-  tv1cw->split(-3, 4);
-  tv1cw->split(-3, 2);
-  //             -4  -3   -2  -1
-  // [No,Ko, S4, wz2, wy2, warp,K8]
-  tv1cw->axis(-4)->parallelize(ParallelType::TIDz);
-  tv1cw->axis(-3)->parallelize(ParallelType::TIDy);
-  tv1cw->axis(-2)->parallelize(ParallelType::TIDx);
-  tv1cw->axis(-1)->parallelize(ParallelType::Vectorize);
+    // Make warp tile:
+    //
+    mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+    mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
+    //           -8   -7 -6 -5 -4 -3 -2 -1
+    // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+    tv0cr->computeAt(tv2c, -4);
+    tv1cr->computeAt(tv2c, -4);
 
-  tv1cw->setMemoryType(MemoryType::Shared);
-  // Schedule mma input
-  tv0cr->applyMmaSwizzle(MmaOperand::A);
+    // Schedule gmem read and smem write:
+    //
+    // [Mo,Ko,M,K]
+    // Swizzle tv0: 128 x 32 tile:
+    tv0cw->split(-2, 8);
+    tv0cw->split(-2, 2);
+    tv0cw->split(-1, 8);
+    //        -5   -4 -3 -2 -1
+    // [Mo,Ko,Mo16,M4,M2,Ko4,K8]
+    tv0cw->swizzle(Swizzle2DType::XOR, -4, -2);
+    tv0cw->merge(-4);
+    tv0cw->merge(-3);
+    //         -3   -2  -1
+    // [Mo,Ko,Mo16,warp,K8]
+    tv0cw->split(-3, 4);
+    tv0cw->split(-3, 2);
+    //             -4  -3   -2  -1
+    // [Mo,Ko, S4, wz2, wy2, warp,K8]
+    tv0cw->axis(-4)->parallelize(ParallelType::TIDz);
+    tv0cw->axis(-3)->parallelize(ParallelType::TIDy);
+    tv0cw->axis(-2)->parallelize(ParallelType::TIDx);
+    tv0cw->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  // [... Mi, Ni, Ki]
-  tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(MmaOperand::A);
+    tv0cw->setMemoryType(MemoryType::Shared);
+    // [Mo,Ko,i,wy,wx,v]
 
-  tv1cr->applyMmaSwizzle(MmaOperand::B);
-  tv1b->applyMmaSwizzle(MmaOperand::B);
+    // [No,Ko,N,K]
+    // Swizzle tv0: 128 x 32 tile:
+    tv1cw->split(-2, 8);
+    tv1cw->split(-2, 2);
+    tv1cw->split(-1, 8);
+    //        -5   -4 -3 -2 -1
+    // [No,Ko,No16,N4,N2,Ko4,K8]
+    tv1cw->swizzle(Swizzle2DType::XOR, -4, -2);
+    tv1cw->merge(-4);
+    tv1cw->merge(-3);
+    //         -3   -2  -1
+    // [No,Ko,No16,warp,K8]
+    tv1cw->split(-3, 4);
+    tv1cw->split(-3, 2);
+    //             -4  -3   -2  -1
+    // [No,Ko, S4, wz2, wy2, warp,K8]
+    tv1cw->axis(-4)->parallelize(ParallelType::TIDz);
+    tv1cw->axis(-3)->parallelize(ParallelType::TIDy);
+    tv1cw->axis(-2)->parallelize(ParallelType::TIDx);
+    tv1cw->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  // Schedule mma output
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+    tv1cw->setMemoryType(MemoryType::Shared);
+    // Schedule mma input
+    tv0cr->applyMmaSwizzle(MmaOperand::A);
 
-  // Parallelize
-  //  0   1  2  3   4   5  6   7  8  9  10
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  tv2c->axis(4)->parallelize(ParallelType::TIDz);
-  tv2c->axis(5)->parallelize(ParallelType::TIDy);
+    // [... Mi, Ni, Ki]
+    tv0b->reorder({{-2, -3}, {-3, -2}});
+    tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  // Parallelize
-  //  0  1  2   3   4   5  6  7
-  // [Mo No Mwo Nwo Mw Nw (Mi Ni)]
-  tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(1)->parallelize(ParallelType::BIDy);
-  tv2->axis(2)->parallelize(ParallelType::TIDz);
-  tv2->axis(3)->parallelize(ParallelType::TIDy);
+    tv1cr->applyMmaSwizzle(MmaOperand::B);
+    tv1b->applyMmaSwizzle(MmaOperand::B);
 
-  tv0cw->doubleBuffer();
-  tv1cw->doubleBuffer();
-  tv0cr->doubleBuffer();
-  tv1cr->doubleBuffer();
+    // Schedule mma output
+    tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+    tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({N, K}, options);
+    // Parallelize
+    //  0   1  2  3   4   5  6   7  8  9  10
+    // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+    tv2c->axis(4)->parallelize(ParallelType::TIDz);
+    tv2c->axis(5)->parallelize(ParallelType::TIDy);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({t0, t1});
+    // Parallelize
+    //  0  1  2   3   4   5  6  7
+    // [Mo No Mwo Nwo Mw Nw (Mi Ni)]
+    tv2->axis(0)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::BIDy);
+    tv2->axis(2)->parallelize(ParallelType::TIDz);
+    tv2->axis(3)->parallelize(ParallelType::TIDy);
 
-  auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
+    tv0cw->doubleBuffer();
+    tv1cw->doubleBuffer();
+    tv0cr->doubleBuffer();
+    tv1cr->doubleBuffer();
 
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    // Create input for either [M, K] @ [N, K] or [M, K] @ [K, N] (with strides)
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    auto t0 = at::randn({M, K}, options);
+    auto t1 = use_mkn_dim_order ? at::randn({K, N}, options)
+                                : at::randn({N, K}, options);
+    if (use_mkn_dim_order) {
+      t1 = t1.as_strided(t1.sizes(), {1, K});
+    }
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
+    auto cg_outputs = fe.runFusion({t0, t1});
+
+    // [M, K] @ [N, K] needs strides.
+    auto tref = use_mkn_dim_order
+        ? t0.to(at::kFloat).matmul(t1.to(at::kFloat))
+        : t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
+
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  };
+
+  // A[M, K] @ B[N, K]
+  scheduleCompileAndRun(false /* use_mkn_dim_order */);
+  // A[M, K] @ B[K, N] where B has allocation domain: [N, K]
+  scheduleCompileAndRun(true /* use_mkn_dim_order */);
 }
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
