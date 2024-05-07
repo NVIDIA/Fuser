@@ -1632,9 +1632,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         std::swap(leading_bytes, stride_bytes);
       }
     } else {
-      if (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT) {
-        std::swap(leading_bytes, stride_bytes);
-      } else {
+      std::swap(leading_bytes, stride_bytes);
+      if (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN) {
         stride_bytes = core_matrix_outer_size *
             /*number of core matrices, rounded up to handle padding */
             roundUpToMultiple(
