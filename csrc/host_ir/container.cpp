@@ -7,9 +7,9 @@
 // clang-format on
 
 #include <host_ir/container.h>
+#include <host_ir/host_ir.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <host_ir/host_ir.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
