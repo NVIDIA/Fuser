@@ -1732,7 +1732,15 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     // and it's rfactor domain in of the order [M, K, N], reorder it to the
     // expected [M, N, K] and propagate it backwards.
     if (use_mkn_dim_order) {
-      tv2->reorder({{1, 2}, {2, 1}});
+      // Get the permutation that describes the difference
+      // between the rfactor domain and allocation domain.
+      auto perm =
+          ir_utils::computePermutation(
+              tv1b->getMaybeRFactorDomain(), tv1b->getAllocationDomain())
+              .value();
+
+      // Reorder the output of the Mma Op and propage that backwards.
+      tv2->reorder(perm);
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           tv2, -1, {});
     }
