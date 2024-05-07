@@ -130,19 +130,8 @@ std::vector<at::Tensor> scheduleCompileAndRun(
             tvb->getMaybeRFactorDomain(), tvb->getAllocationDomain())
             .value();
 
-    // We have to convert the above permutation to a map of old2new.
-    // For RFactor [M, K, N] -> Alloc: [M, N, K], the map will be
-    // {{0, 0}, {1, 2}, {2, 1}}.
-    std::unordered_map<int64_t, int64_t> reorder_map;
-    int64_t idx = 0;
-    std::transform(
-        b_permutation.begin(),
-        b_permutation.end(),
-        std::inserter(reorder_map, reorder_map.end()),
-        [&idx](const int64_t v) { return std::make_pair(idx++, v); });
-
     // Reorder the ouput of Mma.
-    tv2->reorder(reorder_map);
+    tv2->reorder(b_permutation);
 
     // We have to propage the changes we made to then output back to the inputs
     // of the Mma Op. Just for the purpose of demonstration we also show how
@@ -152,7 +141,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           tv2, -1, {});
     } else {
-      tv1->reorder(reorder_map);
+      tv1->reorder(b_permutation);
     }
   }
 
