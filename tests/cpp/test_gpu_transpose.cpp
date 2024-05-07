@@ -47,6 +47,10 @@ class TransposeTest : public NVFuserTest {
   // For convenience, disable MarkAliasesPreparePass. Many tests in this file
   // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
   // would turn those fusions into a no-op, skipping the transpose scheduler.
+  //
+  // Disable AllocationDomainPass. Fusion with permutation would otherwise run
+  // through pointwise scheduler with allocation order pass trying to match
+  // output with the same layout as with its inputs.
   TransposeTest()
       : optimization_guard_(false), allocation_order_guard_(false) {}
 

@@ -15,7 +15,6 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/utils.h>
@@ -2027,9 +2026,6 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
-
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_order_guard_(false);
 
   // Set the problem size so that it can trigger the transpose
   // scheduler. The scheduler selection is validated below.

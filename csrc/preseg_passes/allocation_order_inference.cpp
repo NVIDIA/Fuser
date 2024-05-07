@@ -22,7 +22,7 @@ size_t countLoopIterDomains(const TensorView* tv) {
   return std::count_if(
       tv->getMaybeAllocationDomain().begin(),
       tv->getMaybeAllocationDomain().end(),
-      [&](auto ptr_id) {
+      [&](auto* ptr_id) {
         return !ptr_id->isBroadcast() && !ptr_id->isReduction();
       });
 }
@@ -68,7 +68,7 @@ size_t countLoopIterDomains(const TensorView* tv) {
 //   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
 void AllocationOrderMapping(
     const IdModel& id_model,
-    TensorView* ref,
+    const TensorView* ref,
     TensorView* target) {
   const DisjointSets<Val*>& val_sets =
       id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
@@ -83,15 +83,14 @@ void AllocationOrderMapping(
 
   // logic to preserve reduction iter domain in target to WAR issue #2202
 #if true
+  // mapping id between ref's allocation domain to target's rfactor domain
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
       // sharp-edges 0
       // avoid mapping a reduced dimension.
       if (!ref_id->isReduction() && id->isReduction()) {
-        // technically we don't need to skip this. But it's giving issues
         continue;
       }
-      // how do we resolve multiple mapping?
       if (val_sets.strictAreMapped(ref_id, id)) {
         mapped_id_vec.push_back(id);
         mapped_id_set.insert(id);
@@ -101,6 +100,8 @@ void AllocationOrderMapping(
   }
 
   // removing mapped ids and reduction ids to create unmapped_ids_vec.
+  // This means for the rest of ids in target_rfactor_domain that's not in mapped_id_set, they are either 1. a reduction domain, or; 2. in [unmapped_ids_vec.begin(), unmapped_ids_vec_end)
+  // This ensures that sharp-edges 1's loop would reconstruct a permutation of the target_rfactor_domain, hence a valid allocation domain for target.
   std::vector<IterDomain*> unmapped_ids_vec = target_rfactor_domain;
   auto unmapped_ids_vec_end = std::remove_if(
       unmapped_ids_vec.begin(),
@@ -111,6 +112,7 @@ void AllocationOrderMapping(
 
   auto mapped_id_iter = mapped_id_vec.begin();
   auto unmapped_id_iter = unmapped_ids_vec.begin();
+  // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_rfactor_domain.size(), nullptr);
   for (auto i : c10::irange(target_rfactor_domain.size())) {
@@ -121,7 +123,7 @@ void AllocationOrderMapping(
       target_alloc_domain[i] = target_rfactor_domain[i];
       continue;
     }
-    // push unmapped ids to outer dimension
+    // push unmapped ids to outer dimension until it's fully consumed
     if (unmapped_id_iter != unmapped_ids_vec_end) {
       target_alloc_domain[i] = *unmapped_id_iter++;
     } else {
@@ -130,9 +132,9 @@ void AllocationOrderMapping(
     }
   }
 #else
+  // mapping id between ref's allocation domain to target's rfactor domain
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
-      // how do we resolve multiple mapping?
       if (val_sets.permissiveAreMapped(ref_id, id)) {
         mapped_id_vec.push_back(id);
         mapped_id_set.insert(id);
@@ -140,14 +142,15 @@ void AllocationOrderMapping(
       }
     }
   }
-  // removing mapped ids and reduction ids to create unmapped_ids_vec.
   std::vector<IterDomain*> target_alloc_domain = target_rfactor_domain;
+  // removing mapped ids.
   auto unmapped_ids_vec_end = std::remove_if(
       target_alloc_domain.begin(),
       target_alloc_domain.end(),
       [&mapped_id_set](IterDomain* it) {
         return mapped_id_set.count(it) != 0;
       });
+  // appending mapped ids at the end of target_alloc_domain.
   std::copy(mapped_id_vec.begin(), mapped_id_vec.end(), unmapped_ids_vec_end);
 #endif
 
@@ -181,7 +184,7 @@ void AllocationOrderMapping(
 //         Note1: when we have multiple candidates with the same count of loop
 //         iter domains, we require there's no ambiguity by checking both
 //         candidates having the same iter domain mapping. Otherwise we'll stop
-//         the propagation.
+//         the propagation by leaving ref as nullptr.
 //     2.3 It does not have self mapping;
 //   3. Propagate memory format from selected reference in `srcs` to its
 //   corresponding target in `dsts`.
@@ -201,8 +204,8 @@ void inferenceAllocationOrder(
   // present
   auto id_model =
       IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const auto& val_sets = exact_graph.disjointValSets();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
   // populate the number of loop iter domains on srcs
   std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
@@ -241,13 +244,12 @@ void inferenceAllocationOrder(
         // TODO: if loop_iter_count is sorted, we can early return here.
         continue;
       }
-
       // new candidate found, update ref and high water mark
       if (iter.second > non_bc_high_water_mark) {
         ref = iter.first;
         non_bc_high_water_mark = iter.second;
+	continue;
       }
-
       // found multiple candidate with the same iterdomain count
       if (iter.second == non_bc_high_water_mark && ref != nullptr) {
         // ensure that there's no ambiguity on permutation mapping from multiple
