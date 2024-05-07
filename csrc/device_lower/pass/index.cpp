@@ -1588,7 +1588,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
         (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)
-        : getK(mma->macro()) : getM(mma->macro());
+        ? getK(mma->macro())
+        : getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
