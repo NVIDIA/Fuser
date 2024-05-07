@@ -2248,7 +2248,8 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   }
 }
 
-// Test matmul with sizes that are not divisible by 8 and with misaligned inputs
+// Test matmul with contiguous inputs but sizes that are not divisible by 8 and
+// with misaligned input pointers
 TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // TODO: parametrized test instead of nested loops (still use a loop over
@@ -2295,25 +2296,16 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
         FusionExecutorCache executor_cache(std::move(fusion));
 
-        for (const auto& [M, N, K, alignA, alignB, alignBias] :
-             std::vector<std::tuple<int, int, int, int, int, int>>{
-                 {504, 136, 248, 8, 8, 8}, // all fully vectorizable in all
-                                           // layouts
-                 {504, 136, 249, 8, 8, 8}, // odd K, operands not vectorizable
-                                           // in TN. output fully vectorizable
-                 {504, 137, 248, 8, 8, 8}, // A fully vectorizable, B fully
-                                           // vectorizable unless transposed,
-                                           // output not vectorizable
-                 {505, 136, 248, 8, 8, 8}, // B fully vectorizable, A
-                                           // vectorizable unless transposed,
-                                           // output fully vectorizable
-                 {505, 137, 248, 8, 8, 8}, // none vectorizable
-                 // Cases with vectorizable strides but misaligned base pointers
-                 {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
-                 {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
-                 // See https://github.com/NVIDIA/Fuser/issues/2169
-                 //{504, 136, 248, 8, 8, 2}, // epi not vec'able due to offset
-             }) {
+        auto run = [&](int M,
+                       int N,
+                       int K,
+                       // Pointer alignment
+                       int align_A,
+                       int align_B,
+                       int align_bias,
+                       int expected_vec_A,
+                       int expected_vec_B,
+                       int expected_vec_epilogue) {
           const auto maybeUnalign = [](const at::Tensor& t, int offset) {
             if (offset == 16 / t.element_size()) {
               // Already fully aligned
@@ -2326,10 +2318,10 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
           auto t0 = maybeUnalign(
               matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
-              alignA);
+              align_A);
           auto t1 = maybeUnalign(
               matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
-              alignB);
+              align_B);
 
           // TODO: add bias input
           // TODO: based on alignments,
@@ -2340,7 +2332,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
           if (add_2d_bias) {
             const auto options =
                 at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-            auto bias = maybeUnalign(at::randn({M, N}, options), alignBias);
+            auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
             tref = tref + bias;
             inputs.push_back(bias);
           }
@@ -2351,16 +2343,69 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
           auto outputs = executor_cache.runFusionWithInputs(inputs);
 
-          // expected to match whole fusion with single segment
-          EXPECT_FALSE(
-              executor_cache.getMostRecentKernelRuntime()->isSegmented());
+          FusionKernelRuntime* runtime =
+              executor_cache.getMostRecentKernelRuntime();
 
-          EXPECT_TRUE(isSchedulerInUse(
-              executor_cache.getMostRecentKernelRuntime(),
-              ScheduleHeuristic::Matmul));
+          ASSERT_NE(runtime, nullptr);
+
+          // expected to match whole fusion with single segment
+          EXPECT_FALSE(runtime->isSegmented());
+
+          ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+
+          // Check that supported_vec_size matches expected.
+          const MatmulParams& params = runtime->schedulerHeuristics()
+                                           ->heuristicsList()
+                                           .front()
+                                           ->matmulParams();
+
+          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+          EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 
           EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
-        }
+        };
+
+        [[maybe_unused]] bool contig_K_A =
+            layout == MmaLayout::TT || layout == MmaLayout::TN;
+        [[maybe_unused]] bool contig_K_B =
+            layout == MmaLayout::TN || layout == MmaLayout::NN;
+
+        // When not downcasting, outputs are Float
+        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
+
+        // all fully vectorizable in all layouts
+        run(504, 136, 248, 8, 8, 8, 8, 8, max_vec_epi);
+        // odd K. Operands vectorizable when K is not the contiguous axis.
+        // Output always fully vectorizable
+        run(504,
+            136,
+            249,
+            8,
+            8,
+            8,
+            contig_K_A ? 1 : 8,
+            contig_K_B ? 1 : 8,
+            max_vec_epi);
+        // Odd N. Output not vectorizable. A fully vectorizable. B fully
+        // vectorizable unless N is the contiguous dim.
+        run(504, 137, 248, 8, 8, 8, 8, contig_K_B ? 8 : 1, 1);
+        // Odd M. Output fully vectorizable. B fully vectorizable. A fully
+        // vectorizable unless M is the contiguous dim.
+        run(505, 136, 248, 8, 8, 8, contig_K_A ? 8 : 1, 8, max_vec_epi);
+        // Odd M and N. Output not vectorizable. A and B fully vectorizable
+        // unless K is not the contiguous dim.
+        run(505, 137, 248, 8, 8, 8, contig_K_A ? 8 : 1, contig_K_B ? 8 : 1, 1);
+        // Odd M, N, K. None vectorizable.
+        run(505, 137, 249, 8, 8, 8, 1, 1, 1);
+        // Cases with vectorizable strides but misaligned base pointers
+        // A not vectorizable due to pointer offset
+        run(504, 136, 248, 2, 8, 8, 2, 8, max_vec_epi);
+        // B not vectorizable due to pointer offset
+        run(504, 136, 248, 8, 2, 8, 8, 2, max_vec_epi);
+        // epilogue not vectorizable due to pointer offset
+        // Disabled temporarily: https://github.com/NVIDIA/Fuser/issues/2169
+        // run(504, 136, 248, 8, 8, 2, 8, 8, 2);
       }
     }
   }
