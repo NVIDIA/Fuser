@@ -1623,16 +1623,16 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t inner_size =
+        (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN)
+        ? getK(mma->macro())
+        : getN(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getN(mma->macro()) * /*bytes per item*/ 2L,
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN) {
-      stride_bytes = core_matrix_outer_size *
-          /*number of core matrices, rounded up to handle padding */
-          roundUpToMultiple(
-                         getK(mma->macro()) * /*bytes per item*/ 2L,
-                         getBytesFromSwizzle(swizzle));
+    if (swizzle == MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
