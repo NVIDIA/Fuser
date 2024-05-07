@@ -2416,6 +2416,10 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
                        int align_A,
                        int align_B,
                        int align_bias,
+                       // Whether to mark the TensorViews as contiguous
+                       bool contiguous_inner_dim_A,
+                       bool contiguous_inner_dim_B,
+                       bool contiguous_inner_dim_bias,
                        // Padding
                        int pad_A,
                        int pad_B,
@@ -2430,12 +2434,12 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
           // in the outer dim.
           auto tv0 = TensorViewBuilder()
                          .ndims(2)
-                         .contiguity({false, true})
+                         .contiguity({false, contiguous_inner_dim_A})
                          .dtype(DataType::Half)
                          .build();
           auto tv1 = TensorViewBuilder()
                          .ndims(2)
-                         .contiguity({false, true})
+                         .contiguity({false, contiguous_inner_dim_B})
                          .dtype(DataType::Half)
                          .build();
 
@@ -2447,7 +2451,11 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
           auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
           if (add_2d_bias) {
-            auto bias = makeContigTensor(2, DataType::Half);
+            auto bias = TensorViewBuilder()
+                            .ndims(2)
+                            .contiguity({false, contiguous_inner_dim_B})
+                            .dtype(DataType::Half)
+                            .build();
             fusion->addInput(bias);
             tv2 = add(tv2, bias);
           }
@@ -2562,15 +2570,57 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
 
         // Pad outer stride of A by 1. M and K are even, so no vectorization of
         // A is possible despite compatible sizes.
-        run(504, 136, 248, 8, 8, 8, 1, 0, 0, 1, 8, max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            1,
+            0,
+            0,
+            1,
+            8,
+            max_vec_epi);
         // Pad outer stride of B by 1. N and K are even, so no vectorization of
         // B is possible despite compatible sizes.
-        run(504, 136, 248, 8, 8, 8, 0, 1, 0, 8, 1, max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            0,
+            1,
+            0,
+            8,
+            1,
+            max_vec_epi);
         // Padding by 2 from a multiple of 8 means we can only vectorize at
         // width 2
         // NOTE: we do not pad bias here until we have addressed
         // https://github.com/NVIDIA/Fuser/issues/2169
-        run(504, 136, 248, 8, 8, 8, 2, 2, 0, 2, 2, max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            2,
+            2,
+            0,
+            2,
+            2,
+            max_vec_epi);
         // Incompatible sizes are not vectorized despite padding to compatible
         // strides
         run(505,
@@ -2579,13 +2629,65 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             8,
             8,
             8,
+            true,
+            true,
+            true,
             1,
             0,
             0,
             1,
             contig_K_B ? 1 : 8,
             max_vec_epi);
-        run(504, 137, 249, 8, 8, 8, 0, 1, 0, contig_K_A ? 1 : 8, 1, 1);
+        run(504,
+            137,
+            249,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            0,
+            1,
+            0,
+            contig_K_A ? 1 : 8,
+            1,
+            1);
+
+        // Test that declaring a tensor's inner dimension discontiguous in the
+        // Fusion means we don't hit an error even if the inputs would support
+        // vectorization.
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            false,
+            true,
+            true,
+            0,
+            0,
+            0,
+            1,
+            8,
+            max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            false,
+            true,
+            0,
+            0,
+            0,
+            8,
+            1,
+            max_vec_epi);
+        // run(504, 136, 248, 8, 8, 8, true, true, false, 0, 0, 0, 8, 8, 1);
       }
     }
   }
