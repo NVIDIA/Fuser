@@ -1882,11 +1882,9 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
     // use_mkn_dim_order flag
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     auto t0 = at::randn({M, K}, options);
-    auto t1 = use_mkn_dim_order ? at::randn({K, N}, options)
-                                : at::randn({N, K}, options);
-    if (use_mkn_dim_order) {
-      t1 = t1.as_strided(t1.sizes(), {1, K});
-    }
+    auto t1 = use_mkn_dim_order
+        ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+        : at::randn({N, K}, options);
 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
