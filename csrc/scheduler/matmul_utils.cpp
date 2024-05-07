@@ -336,20 +336,25 @@ int64_t maxRowVectorization(const at::Tensor& tens) {
     return vec_size;
   }
 
-  std::vector<int64_t> strides = tens.strides().vec();
-  std::sort(strides.begin(), strides.end());
-  NVF_ERROR(!strides.empty());
-  if (strides.front() != 1l) {
+  // Find innermost dimension
+  bool contiguous = false;
+  for (int64_t i : c10::irange(tens.ndimension())) {
+    int64_t stride = tens.stride(i);
+    int64_t size = tens.size(i);
+    if (stride == 1) {
+      // Innermost dimension
+      contiguous = true;
+      vec_size =
+          std::min(vec_size, scheduler_utils::maxVectorizationWidth(size));
+    } else {
+      vec_size =
+          std::min(vec_size, scheduler_utils::maxVectorizationWidth(stride));
+    }
+  }
+
+  if (!contiguous) {
     // Tensor is discontiguous
     return 1l;
-  }
-  strides.erase(strides.begin());
-  for (auto stride_i : strides) {
-    if (vec_size == 1l) {
-      break;
-    }
-    vec_size =
-        std::min(vec_size, scheduler_utils::maxVectorizationWidth(stride_i));
   }
 
   return vec_size;

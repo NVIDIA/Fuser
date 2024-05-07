@@ -67,13 +67,13 @@ class MatmulParams : public HeuristicParams {
   //! This is the maximum vectorization supported by the inputs.
   struct SupportedVectorization {
     // operands
-    int64_t a = 8;
-    int64_t b = 8;
+    int64_t a = 16;
+    int64_t b = 16;
     // This is the minimum vectorization factor between all epilogue tensor
     // inputs and output tensors. These are treated jointly since we inline the
     // epilogue with the output store and vectorize the inputs and outputs in
     // the same way.
-    int64_t epilogue = 4;
+    int64_t epilogue = 16;
 
     bool operator==(const SupportedVectorization& other) const {
       return other.a == a && other.b == b && other.epilogue == epilogue;
