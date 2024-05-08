@@ -192,7 +192,7 @@ bool detectComputeSanitizer() {
 
 } // namespace nvfuser
 
-#else
+#else // #if defined(__linux__)
 
 namespace nvfuser {
 
@@ -220,4 +220,4 @@ bool detectComputeSanitizer() {
 
 } // namespace nvfuser
 
-#endif
+#endif // #if defined(__linux__)
