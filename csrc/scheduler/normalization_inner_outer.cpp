@@ -162,12 +162,12 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (registry_utils::SchedulerTopologyChecker::
-          hasNonNormalizePostReductionBCast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "unsupported post reduction normalization");
-    return false;
-  }
+  // if (registry_utils::SchedulerTopologyChecker::
+  //         hasNonNormalizePostReductionBCast(fusion)) {
+  //   scheduler_debug_utils::canScheduleRejectReason(
+  //       heuristicType(), "unsupported post reduction normalization");
+  //   return false;
+  // }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
