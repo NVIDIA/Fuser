@@ -267,30 +267,6 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
-  // MmaOp inputs/outputs dependencies check
-  // TODO: check to be removed when more rules are added to TV roles
-  //  calculations
-  {
-    // Check the expected path between MmaOp input and fusion inputs
-    const auto areMmaOpInputDependeciesValid = [](const Val* val) {
-      if (val->definition()->isA<BroadcastOp>()) {
-        const auto& bcast_inputs = val->definition()->inputs();
-        // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput() ||
-            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
-             nullptr);
-      }
-      return false;
-    };
-
-    // MmaOp input is a result of broadcast op with input being fusion input
-    for (const auto* mma_in : mma_inputs) {
-      if (!areMmaOpInputDependeciesValid(mma_in)) {
-        return "MmaOp input has unsupported dependency";
-      }
-    }
-  }
-
   return "";
 }
 
