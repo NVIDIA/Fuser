@@ -74,7 +74,8 @@ IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool build_graphs,
-    bool allow_self_mapping) {
+    bool allow_self_mapping)
+    : allow_self_mapping_(allow_self_mapping) {
   std::copy_if(
       exprs.begin(),
       exprs.end(),
@@ -570,7 +571,13 @@ void IdModel::buildLoopGraph() {
 
   initializeLoopGraph(inlining_info);
 
+  validateLoopGraphHasNoSelfMappedLeafDomains();
+
   loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+
+  // New domains are added. Make sure there's still no self mapping in
+  // the leaf domains
+  validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
 }
@@ -645,10 +652,32 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       idGraph(IdMappingMode::LOOP),
       loop_promotion_map);
 
-  // This is not a right map to return but just a placeholder since
-  // the loop promotion map is not yet completely merged. It will be
-  // replaced by a proper map.
-  return final_iel_promotion_map;
+  // Step 5: Find the final promotion of each loop group based on the
+  // final IEL promotion map
+  auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
+      iel_graph,
+      final_iel_promotion_map,
+      idGraph(IdMappingMode::LOOP),
+      inlining_info);
+
+  // The promotion map produced in Step 5 only includes those are
+  // further propagated at Step 4, so the correct mappings produced at
+  // Step 3 may not be included in the Step-5 results. Any Step-3 mappings
+  // that are not found in the Step-5 results are already valid
+  // results, so merge them into the Step-5 results.
+
+  // Update the Step-3 map to the latest LOOP graph
+  loop_promotion_map =
+      updateValGroupIdMap(loop_promotion_map, idGraph(IdMappingMode::LOOP));
+
+  // Insert the updated Step-3 results into the Step-5 resutls. Note
+  // that this insertion does not overwrite the existing mappings.
+  final_iel_promotion_map.insert(
+      loop_promotion_map.begin(), loop_promotion_map.end());
+
+  sanityCheckLoopPromotionMap(final_loop_promotion_map);
+
+  return final_loop_promotion_map;
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
@@ -1226,10 +1255,10 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
     // Initialize output ids in map. The replay expr will be
     // registered as a definition by registerExpr
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      idGraph(mode).initializeVal(out_id, {}, {});
+      graph.initializeVal(out_id, {}, {});
     }
 
-    idGraph(mode).registerExpr(replay);
+    graph.registerExpr(replay);
 
     // Propagate through all the uses of the iter domain groups of the inputs
     // with the new expression.
@@ -1453,6 +1482,50 @@ VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
     }
   }
   return terminal_loop_ids;
+}
+
+void IdModel::sanityCheckLoopPromotionMap(
+    const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) const {
+  const auto& loop_graph = idGraph(IdMappingMode::LOOP);
+  for (const ValGroup& loop_group :
+       loop_graph.disjointValSets().disjointSets()) {
+    // Non-leaf loop groups are not guaranteed to have valid
+    // promotions. See for example FusionRepro1713, where root domains
+    // are all grouped together but there's no valid promotion.
+    if (loop_graph.hasUses(loop_group)) {
+      continue;
+    }
+    // Make sure the loop group is promoted to a domain that is mapped
+    // in the LOOP graph
+    auto promotion_it = loop_promotion_map.find(loop_group);
+    NVF_ERROR(
+        promotion_it != loop_promotion_map.end(),
+        "Loop promotion not found for ",
+        nvfuser::toString(loop_group));
+    IterDomain* promotion = promotion_it->second;
+    // Make sure the promotion domain is also loop-mapped
+    NVF_ERROR(
+        loop_group->has(promotion),
+        "Loop promotion not loop-mapped. Loop group: ",
+        nvfuser::toString(loop_group),
+        ". Promotion domain: ",
+        promotion->name());
+  }
+}
+
+void IdModel::validateLoopGraphHasNoSelfMappedLeafDomains() const {
+  for (auto tv : tvs_) {
+    auto self_mappped_leaf_pair =
+        detectSelfMapping(tv->domain()->leaf(), idGraph(IdMappingMode::LOOP));
+    NVF_ERROR(
+        !self_mappped_leaf_pair.has_value(),
+        "Detected leaf domains are mapped in the loop graph. Tensor: ",
+        tv->toString(),
+        ". Mapped leaf domains: ",
+        self_mappped_leaf_pair->first->toString(),
+        " and ",
+        self_mappped_leaf_pair->second->toString());
+  }
 }
 
 std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
