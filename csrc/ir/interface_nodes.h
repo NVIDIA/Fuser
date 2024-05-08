@@ -317,6 +317,14 @@ class NVF_API TensorView : public Val {
 
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  TensorView* reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
+
+  // Reorder axes based on the vector permutation.
+  // In terms of the function above, this can be seen as ol2new[index] =
+  // permutation[index]
+  TensorView* reorder(const std::vector<int64_t>& permutation);
+  TensorView* reorder(const std::initializer_list<int64_t>& permutation);
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
