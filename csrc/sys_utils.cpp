@@ -177,11 +177,7 @@ int detectComputeSanitizerCallback(
     size_t size,
     void* data) {
   std::string lib_name = info->dlpi_name;
-  if (lib_name.find("compute-sanitizer") != std::string::npos) {
-    return 1;
-  } else {
-    return 0;
-  }
+  return lib_name.find("compute-sanitizer") != std::string::npos;
 }
 
 } // namespace
