@@ -100,23 +100,16 @@ Communication::Communication(CommParams params, std::string name, bool has_root)
   }
 }
 
-std::string Communication::toString(int indent) const {
+std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
-  std::string ext_indent(" ", indent);
-  std::string indent1 = ext_indent + "  ";
-  std::string indent2 = ext_indent + "    ";
 
-  ss << ext_indent << "Communication " << collective_type_ << ": {\n";
-
+  indent(ss, indent_size) << "Communication " << collective_type_ << ": {"
+                          << std::endl;
   if (has_root_) {
-    ss << indent1 << "root: " << params_.root << ",\n";
+    indent(ss, indent_size + 2) << "root: " << params_.root << "," << std::endl;
   }
-  ss << indent1 << "team: {";
-  for (auto r : params_.team) {
-    ss << r << ", ";
-  }
-  ss << indent1 << "}\n";
-  ss << ext_indent << "}";
+  indent(ss, indent_size + 2) << "team: " << params_.team << "," << std::endl;
+  indent(ss, indent_sizes) << "}";
 
   return ss.str();
 }
