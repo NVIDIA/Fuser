@@ -14,6 +14,34 @@
 namespace nvfuser {
 namespace {
 
+inline void assertBufferCount(
+    const std::vector<at::Tensor>& bufs,
+    size_t count) {
+  NVF_ERROR(
+      bufs.size() == count,
+      "there must be ",
+      count,
+      " buffer(s), but ",
+      bufs.size(),
+      " were given");
+}
+
+inline void assertBuffersHaveSameSize(
+    const std::vector<at::Tensor>& bufs1,
+    const std::vector<at::Tensor>& bufs2) {
+  if (bufs1.empty() && bufs2.empty()) {
+    return;
+  }
+  const auto numel = (bufs1.empty() ? bufs2 : bufs1).at(0).numel();
+  for (const auto& bufs : {bufs1, bufs2}) {
+    for (const auto& buf : bufs) {
+      NVF_ERROR(
+          buf.numel() == numel,
+          "all buffers must have the same number of elements");
+    }
+  }
+}
+
 void post_common(Communication& self, Communicator& comm) {
   NVF_ERROR(
       std::find(
@@ -133,6 +161,12 @@ c10::intrusive_ptr<c10d::Work> Gather::post(
   post_common(*this, comm);
 
   if (comm.deviceId() == params_.root && !params_.is_root_in_mesh) {
+    // This is likely a suboptimal way to allocate tensors for nccl. To benefit
+    // from zero copy
+    // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
+    // tensors for nccl should be `ncclMemAlloc`ed and be `ncclCommRegister`ed.
+    // https://github.com/pytorch/pytorch/issues/124807 is one proposal trying
+    // to partially address this problem.
     input_tensor = at::empty_like(output_tensor.slice(0, 0, 1));
   }
   std::vector<at::Tensor> input_tensors({input_tensor});
@@ -144,14 +178,16 @@ c10::intrusive_ptr<c10d::Work> Gather::post(
     for (auto i : c10::irange(params_.team.size())) {
       if (root_relative_index_ == static_cast<DeviceIdxType>(i) &&
           !params_.is_root_in_mesh) {
-        output_tensors.front().push_back(input_tensor);
+        output_tensors[0].push_back(input_tensor);
         continue;
       }
-      output_tensors.front().push_back(output_tensor.slice(0, j, j + 1));
+      output_tensors[0].push_back(output_tensor.slice(0, j, j + 1));
       j++;
     }
   }
 
+  assertBufferCount(output_tensors[0], params_.team.size());
+  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   return comm.getBackendForTeam(params_.team, backend)
       ->gather(
           output_tensors, input_tensors, {.rootRank = root_relative_index_});
@@ -168,12 +204,11 @@ c10::intrusive_ptr<c10d::Work> Allgather::post(
   post_common(*this, comm);
 
   std::vector<at::Tensor> input_tensors({input_tensor});
-
-  // FIXME: use split
   std::vector<std::vector<at::Tensor>> output_tensors(1);
-  for (auto i : c10::irange(params_.team.size())) {
-    output_tensors[0].push_back(output_tensor.slice(0, i, i + 1));
-  }
+  output_tensors[0] = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
+
+  assertBufferCount(output_tensors[0], params_.team.size());
+  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   return comm.getBackendForTeam(params_.team, backend)
       ->allgather(output_tensors, input_tensors, {});
 }
@@ -207,6 +242,8 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(
     }
   }
 
+  assertBufferCount(input_tensors[0], params_.team.size());
+  assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   return comm.getBackendForTeam(params_.team, backend)
       ->scatter(
           output_tensors, input_tensors, {.rootRank = root_relative_index_});
@@ -273,21 +310,16 @@ c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
   post_common(*this, comm);
 
   std::vector<std::vector<at::Tensor>> input_tensors(1);
-  // FIXME: use split
   NVF_ERROR(
       params_.scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
       params_.scattered_axis)
-  const auto scattered_dim_size = input_tensor.size(params_.scattered_axis);
-  const auto team_size = static_cast<int64_t>(params_.team.size());
-  NVF_ERROR(
-      scattered_dim_size == team_size, scattered_dim_size, " vs ", team_size);
-  for (auto i : c10::irange(team_size)) {
-    input_tensors[0].push_back(
-        input_tensor.slice(params_.scattered_axis, i, i + 1));
-  }
+  input_tensors[0] =
+      at::split(input_tensor, /*split_size=*/1, /*dim=*/params_.scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
+
+  assertBufferCount(input_tensors[0], params_.team.size());
   return comm.getBackendForTeam(params_.team, backend)
       ->reduce_scatter(
           output_tensors, input_tensors, {.reduceOp = params_.redOp});

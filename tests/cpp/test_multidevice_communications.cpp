@@ -27,7 +27,7 @@ class CommunicationTest
   static constexpr DeviceIdxType root = 0;
   static constexpr int tensor_size = 1024;
   // This is so we test having multiple inflights collectives on the same
-  // buffers. This emulates more accurately the type of Workload we are
+  // buffers. This emulates more accurately the type of workload we are
   // targeting.
   static constexpr int num_repetitions = 8;
   // TODO: test other reduction op types.
