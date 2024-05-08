@@ -185,7 +185,7 @@ int detectComputeSanitizerCallback(
 } // namespace
 
 bool detectComputeSanitizer() {
-  return dl_iterate_phdr(detectComputeSanitizerCallback, NULL) != 0;
+  return dl_iterate_phdr(detectComputeSanitizerCallback, nullptr) != 0;
 }
 
 } // namespace nvfuser
