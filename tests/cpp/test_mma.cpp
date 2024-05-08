@@ -349,9 +349,6 @@ class HopperRS : public HopperBase,
     dtype = std::get<1>(GetParam());
     layout = std::get<2>(GetParam());
     swizzle_b = std::get<3>(GetParam());
-    if (layout != MmaLayout::TN) {
-      GTEST_SKIP() << "bugs to be fixed";
-    }
   }
 };
 
@@ -417,7 +414,7 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
+  tv1->applyMmaSwizzle(swizzle_b);
 
   naivelyParallelize(tv1);
 
@@ -490,9 +487,6 @@ class HopperSS : public HopperBase,
     layout = std::get<2>(GetParam());
     swizzle_a = std::get<3>(GetParam());
     swizzle_b = std::get<4>(GetParam());
-    if (layout != MmaLayout::TN) {
-      GTEST_SKIP() << "bugs to be fixed";
-    }
   }
 };
 
@@ -527,9 +521,6 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
-  bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
   auto shapes = matmulAtInputShape3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout);
@@ -602,9 +593,8 @@ TEST_P(HopperSS, SingleTile) {
   moveInnerBroadcastLeft(tv1);
 
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
-  tv0->applyMmaSwizzle(swizzle_a, !transpose_a);
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
