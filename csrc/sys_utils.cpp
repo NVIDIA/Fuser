@@ -5,6 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+// dl_iterate_phdr is only defined when _GNU_SOURCE is defined. The
+// macro needs to be defined before any header file is included. See
+// the man page for more info.
+#define _GNU_SOURCE
+#endif
+
 #include <exceptions.h>
 #include <executor_utils.h>
 #include <sys_utils.h>
@@ -18,16 +25,11 @@
 #include <vector>
 
 #include <dlfcn.h>
+#include <link.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
-// dl_iterate_phdr is only defined when _GNU_SOURCE is defined. See
-// the man page for more info.
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#include <link.h>
 
 namespace nvfuser {
 
