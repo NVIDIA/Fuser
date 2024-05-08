@@ -40,7 +40,7 @@ size_t countLoopIterDomains(const TensorView* tv) {
 //     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
 // 1. we project iter domains from targets' rfactor domain which has an exact
-// map to ref's allocation domain. (sharp-edge 0: we exlucde mapping from
+// map to ref's allocation domain. (sharp-edge 0: we exclude mapping from
 // iteration id on ref to reduction id on target to avoid unnecessary
 // re-ordering which exposes issue 2202).
 //   mapped_id_vec {ir5[i1], iS7[i2]}
