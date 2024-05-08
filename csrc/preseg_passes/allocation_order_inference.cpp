@@ -66,7 +66,7 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // 3. append mapped_id_vec at the end of unmapped_id_vec.
 //   target_alloc_domain
 //   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
-void AllocationOrderMapping(
+void mapAllocationDomain(
     const IdModel& id_model,
     const TensorView* ref,
     TensorView* target) {
