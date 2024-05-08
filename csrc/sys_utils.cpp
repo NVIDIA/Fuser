@@ -22,6 +22,8 @@
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
+// dl_iterate_phdr is only defined when _GNU_SOURCE is defined. See
+// the man page for more info.
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
