@@ -362,7 +362,93 @@ __device__ void blockIterGroupedReduce(
       init_val);
 }
 
+// This is just a wrapper of the above grid reduction routine to
+// measure the elapsed cycles. The measurement must be done just by
+// one thread, and in this case it should be done by one of the
+// threads in the last thread block.
+#ifdef NVFUSER_PROFILE_KERNEL
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    int N, // Number of elements per input array
+    typename T,
+    typename Func>
+__device__ void blockIterGroupedReduce(
+    T out[N],
+    const T inp_val[N],
+    Func reduction_op,
+    T* shared_mem,
+    bool read_pred,
+    bool write_pred,
+    T init_val,
+    int64_t& cycles,
+    int64_t& count) {
+  int64_t start_counter = 0;
 
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    start_counter = readCycleCounter();
+  }
+
+  blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
+    out,
+    inp_val,
+    reduction_op,
+    shared_mem,
+    read_pred,
+    write_pred,
+    init_val);
+
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    cycles += readCycleCounter() - start_counter;
+    ++count;
+  }
+}
+
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    typename T,
+    typename Func>
+__device__ void blockReduce(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    bool read_pred,
+    bool write_pred,
+    T init_val,
+    int64_t& cycles,
+    int64_t& count) {
+  int64_t start_counter = 0;
+
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    start_counter = readCycleCounter();
+  }
+
+  blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
+      out,
+      inp_val,
+      reduction_op,
+      shared_mem,
+      read_pred,
+      write_pred,
+      init_val);
+
+      
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    cycles += readCycleCounter() - start_counter;
+    ++count;
+  }
+}
+#endif // NVFUSER_PROFILE_KERNEL
 
 // clang-format off
 /*

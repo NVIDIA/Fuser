@@ -659,7 +659,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // grouped reduction needs 2 iterations to load 8 x fp32 data from register to
   // shared memory.
   const int64_t empirical_max_vect = 8L;
-  const int64_t opt_max_vect =
+  int64_t opt_max_vect =
       std::min(empirical_max_vect, (int64_t)vectorize_factor);
 
   // Leave some serial work on top of unroll to avoid using large unroll for
@@ -683,6 +683,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // start from a small vectorization factor to leave more for reduction
     // unroll
     iter_unroll_factor = std::min(2L, opt_max_vect);
+
+    if(std::getenv("VECT") != nullptr){
+      iter_unroll_factor = std::stoi(std::getenv("VECT"));
+      opt_max_vect = iter_unroll_factor;
+    }
 
     // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
@@ -708,6 +713,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       }
       gidim /= 2;
     }
+
 
     // For reduction dim, prioritize unroll, improves perf for cases with small
     // reduction dim e.g. 16 x 32768. If we know the computation cost is low, we
@@ -911,7 +917,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     rparams->block_dim_iter_dom = ParallelType::TIDx;
     // check why if static split, leads to more register usage
     // at 32768 x 6400, increase from 64 to 72
-    // rparams->static_bdimx = true;
+    if(std::getenv("USE_WARP") != nullptr){
+      rparams->static_bdimx = true;
+    }
   }
 
   rparams->grid_dim_iter_dom =
@@ -930,7 +938,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->cross_block_inner_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      // rparams->static_bdimy = true;
+      if(std::getenv("USE_WARP") != nullptr){
+        rparams->static_bdimy = true;
+      }
       rparams->block_dim_inner_reduction = ParallelType::TIDy;
     } else {
       rparams->block_dim_inner_reduction = ParallelType::TIDx;

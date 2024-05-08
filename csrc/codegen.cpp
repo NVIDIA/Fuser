@@ -1165,6 +1165,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockReduction(
+      const ReductionOp* rop,
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
       const Val* init,
@@ -1205,7 +1206,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
-
+    addProfileArguments(func_args, rop);
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
@@ -1232,6 +1233,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       genWarpReduction(output, input, rop->init(), op_type, rop->predicate());
     } else {
       genBlockReduction(
+          rop,
           output,
           input,
           rop->init(),
@@ -1605,6 +1607,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           kernel_->profile().getIndicesInProfileBuffer(expr);
       auto buffer = kernel_->profile().getBuffer();
       NVF_ERROR(buffer != nullptr);
+      std::cout << "Adding profile arguments buffer_indices " << buffer_indices.size() << "\n";
       for (const auto& index : buffer_indices) {
         func_args.arg(genVariableName(buffer))
             .append("[")
@@ -2731,6 +2734,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genIterGroupedBlockReduction(
+      const GroupedReductionOp* grouped_rop,
       const int num_grouped_iterations,
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
@@ -2810,11 +2814,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << genCall("blockIterGroupedWarpReduce", func_template_args, func_args)
                << ";\n";
     }else{
+      addProfileArguments(func_args, grouped_rop);
       indent() << genCall("blockIterGroupedReduce", template_args, func_args)
                << ";\n";
     }
   }
-
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
@@ -2836,6 +2840,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
       return genIterGroupedBlockReduction(
+          grouped_rop,
           (int)num_grouped_iterations,
           output,
           input,
@@ -2873,13 +2878,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             op_type,
             grouped_rop->predicate());
       } else {
-        genBlockReduction(
-            output,
-            input,
-            grouped_rop->initVal(i),
-            op_type,
-            grouped_rop->predicate(),
-            grouped_rop->writePredicate());
+        // genBlockReduction(
+        //     grouped_rop,
+        //     output,
+        //     input,
+        //     grouped_rop->initVal(i),
+        //     op_type,
+        //     grouped_rop->predicate(),
+        //     grouped_rop->writePredicate());
       }
     }
   }
