@@ -45,136 +45,6 @@ TensorView::TensorView(
       domain_(domain),
       memory_type_(mtype) {}
 
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<c10::TensorType>& tensor_type)
-    : Val(passkey,
-          ValType::TensorView,
-          aten_opt_type_map(tensor_type->scalarType())) {
-  NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-
-  NVF_CHECK(tensor_type->dim().has_value(), "Requires static rank for Tensor");
-
-  // [ Note -- stride_properties in tensor type ]
-  //
-  // `stride_properties()` returns a vector<optional<Stride>>, while
-  //     Stride {
-  //       optional<size_t> stride_index_;
-  //       optional<bool> contiguous_;
-  //       optional<size_t> stride_;
-  //     };
-  // To keep things simple, we ignore all the optional wrapper, as in reality,
-  // they would always be available unless we start doing multiple profiling
-  // runs.
-  //
-  //   `stride_properties()` returns the vector of Stride, where it is ordered
-  //   from the fastest to slowest dimensions. i.e. stride_properties()[i] would
-  //   give us the i-th fastest dimension. where:
-  //     1. `Stride::stride_index_` gives the index to the dimension;
-  //     2. `Stride::contiguous_` indicates whether this dimension is
-  //     memory-dense*;
-  //     3. `Stride::stride_` is the actual stride for the given dimension.
-  // * note that memory-dense means different things depending on the order of
-  // the dimension. checkout `TensorType::computeStrideProps` for details
-
-  std::vector<bool> is_stride_zero(*tensor_type->dim(), false);
-  std::vector<bool> is_size_one(*tensor_type->dim(), false);
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    is_size_one.at(i) = tensor_type->sizes()[i].has_value() &&
-        tensor_type->sizes()[i].value() == 1;
-    const auto& stride_property_i = tensor_type->stride_properties()[i];
-    if (stride_property_i.has_value() &&
-        stride_property_i->stride_index_.has_value() &&
-        stride_property_i->stride_.has_value()) {
-      is_stride_zero.at(*stride_property_i->stride_index_) =
-          (stride_property_i->stride_ == 0u);
-    }
-  }
-
-  std::vector<IterDomain*> sizes;
-  sizes.reserve(*tensor_type->dim());
-
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    if (is_stride_zero.at(i) || is_size_one.at(i)) {
-      // If stride is known to be 0, assuem it needs to be broadcasted.
-      auto builder =
-          IterDomainBuilder(
-              passkey.ir_container_->zeroVal(), passkey.ir_container_->oneVal())
-              .iter_type(IterType::Broadcast);
-      if (is_size_one.at(i)) {
-        sizes.push_back(builder.build());
-      } else {
-        // if size is not 1, need to expand
-        sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Val>(DataType::Index))
-                .build());
-      }
-    } else {
-      sizes.push_back(IterDomainBuilder(
-                          passkey.ir_container_->zeroVal(),
-                          IrBuilder::create<Val>(DataType::Index))
-                          .build());
-    }
-  }
-
-  // default to non_contiguous;
-  auto contig_info = TensorDomain::getContiguityFilledWith(sizes, false);
-
-  int64_t inner_most_non_broadcast = (int64_t)tensor_type->dim().value() - 1;
-  while (inner_most_non_broadcast >= 0) {
-    if (sizes.at(inner_most_non_broadcast)->isBroadcast()) {
-      inner_most_non_broadcast--;
-    } else {
-      break;
-    }
-  }
-  // if all broadcast, then inner_most_non_broadcast == -1
-
-  // we iterate through stride_index_, which goes from fastest changing
-  // dimension to slowest, instead of iterating through sizes. This allows
-  // easier contiguity check;
-  bool found_innermost_non_broadcast = false;
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    // if we don't have contiguous dimension at current stride index, don't
-    // bother;
-    const auto& stride_property_i = tensor_type->stride_properties()[i];
-    size_t index = 0;
-    if (stride_property_i.has_value() &&
-        stride_property_i->stride_index_.has_value()) {
-      index = stride_property_i->stride_index_.value();
-    } else {
-      continue;
-    }
-    if (sizes.at(index)->isBroadcast()) {
-      continue;
-    }
-    if (stride_property_i->contiguous_.has_value() &&
-        stride_property_i->contiguous_.value() == true) {
-      if (!found_innermost_non_broadcast) {
-        // mark fastest changing dimension collapsible only when it's
-        // "innermost"
-        contig_info.at(index) = ((int64_t)index == inner_most_non_broadcast);
-      } else {
-        // check the neighboring faster dimension, collapse if it is considered
-        // as inner dimension per stride_index
-        auto inner_index_opt =
-            tensor_type->stride_properties()[static_cast<int>(i) - 1]
-                ->stride_index_;
-        if (inner_index_opt.has_value() &&
-            inner_index_opt.value() == (index + 1)) {
-          // collapse if inner dimension has non-broadcasted strides
-          contig_info.at(index) = !sizes.at(index + 1)->isBroadcast();
-        }
-      }
-    }
-    found_innermost_non_broadcast = true;
-  }
-
-  domain_ = IrBuilder::create<TensorDomain>(sizes, contig_info);
-}
-
 NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
@@ -267,18 +137,9 @@ void TensorView::setCpuScalar(bool is_cpu_scalar) {
   cpu_scalar_ = is_cpu_scalar;
 }
 
-IterDomain* TensorView::axis(int pos) const {
+IterDomain* TensorView::axis(int64_t pos) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0) {
-    pos += (int)domain()->nDims();
-  }
-  NVF_CHECK(
-      pos >= 0 && (unsigned int)pos < domain()->nDims(),
-      "Tried to access position ",
-      pos,
-      " in domain: ",
-      domain());
-  return domain()->axis(pos);
+  return domain()->axis(wrapDim(pos));
 }
 
 void TensorView::inlineAt(
@@ -295,30 +156,21 @@ void TensorView::inlineAt(
     calc = calc_owner.get();
   }
 
-  if (pos < 0) {
-    pos += int64_t(nDims()) + 1;
-  }
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
-  NVF_ERROR(
-      pos >= 0 && pos <= (int64_t)nDims(),
-      "Invalid inline position for T",
-      name(),
-      ": ",
-      pos);
-
-  auto max_inline_pos = calc->getMaxPosAll(this, best_effort);
+  int64_t max_inline_pos = (int64_t)calc->getMaxPosAll(this, best_effort);
 
   if (best_effort) {
-    pos = std::min<int64_t>((int64_t)max_inline_pos, pos);
+    pos = std::min<int64_t>(max_inline_pos, pos);
   }
 
   // hoist inner most broadcast
-  while (pos > 0 && axis((int)pos - 1)->isBroadcast()) {
+  while (pos > 0 && axis(pos - 1)->isBroadcast()) {
     pos--;
   }
 
   NVF_ERROR(
-      pos <= (int64_t)max_inline_pos,
+      pos <= max_inline_pos,
       "Invalid inline position for T",
       name(),
       ": ",
@@ -352,10 +204,10 @@ namespace {
 // Try to find the aligned position on consumer's domain corresponding to a
 //  position of producer domain. No checking on actual
 //  producer-consumer relationship.
-unsigned int getConsumerPosAlignedToProducerCA(
+int64_t getConsumerPosAlignedToProducerCA(
     TensorView* consumer,
     TensorView* producer,
-    unsigned int producer_pos) {
+    int64_t producer_pos) {
   // Locate consumer's position that aligns with
   //  the producer's position. We need broadcast axes forwarded so we
   //  need to replay PasC as CasP will not forward braodcast dims. For example
@@ -372,9 +224,9 @@ unsigned int getConsumerPosAlignedToProducerCA(
 
   // Find the innermost position of consumer that has
   //  been mapped within the producer ca axis.
-  unsigned int consumer_pos = consumer->nDims();
+  int64_t consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
-    auto consumer_id = consumer->axis((int)consumer_pos - 1);
+    auto consumer_id = consumer->axis(consumer_pos - 1);
     auto p_dom = producer->getLeafDomain();
     if (std::any_of(
             p_dom.begin(),
@@ -419,7 +271,7 @@ void TensorView::updateMaxProducerPosition() {
 
 TensorView* TensorView::computeAt(
     TensorView* consumer,
-    int position,
+    int64_t position,
     ComputeAtMode mode) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
@@ -431,17 +283,17 @@ TensorView* TensorView::computeAt(
   // sure the result is within consumer->nDims() + 1. being at consumer->nDims()
   // means producer will be computed inline with consumer, hence the +1.
   if (position < 0) {
-    position += int(consumer->nDims()) + 1;
+    position += int64_t(consumer->nDims()) + 1;
   }
 
   NVF_CHECK(
-      (position >= 0 && (unsigned int)position < consumer->nDims() + 1) ||
+      (position >= 0 && position < consumer->nDims() + 1) ||
           mode == ComputeAtMode::BestEffort,
       "Compute at called on an position outside valid range.");
 
   if (mode == ComputeAtMode::BestEffort) {
-    position = std::max(-1, position);
-    position = std::min((int)consumer->nDims(), position);
+    position = std::max(-1L, position);
+    position = std::min(consumer->nDims(), position);
   }
 
   ComputeAt::runAt(this, consumer, (unsigned int)position, mode);
@@ -449,7 +301,7 @@ TensorView* TensorView::computeAt(
   return this;
 }
 
-void TensorView::computeWith(int pos, bool best_effort) {
+void TensorView::computeWith(int64_t pos, bool best_effort) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -463,22 +315,13 @@ void TensorView::computeWith(int pos, bool best_effort) {
       "There must be at least one consumer of this tensor to use computeWith: ",
       toString());
 
-  if (pos < 0) {
-    pos += int(nDims()) + 1;
-  }
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
-  NVF_ERROR(
-      pos >= 0 && pos <= (int)nDims(),
-      "Invalid inline position for ",
-      toString(),
-      ": ",
-      pos);
-
-  const auto max_inline_pos =
-      MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
+  const int64_t max_inline_pos =
+      (int64_t)MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
 
   if (best_effort) {
-    pos = std::min<int>((int)max_inline_pos, pos);
+    pos = std::min(max_inline_pos, pos);
   }
 
   // hoist inner most broadcast
@@ -487,7 +330,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
   }
 
   NVF_CHECK(
-      pos <= (int)max_inline_pos,
+      pos <= max_inline_pos,
       "Invalid computeWith position for T",
       name(),
       ": ",
@@ -497,7 +340,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
 
   // The position must be right of the computeAt position
   NVF_CHECK(
-      pos >= (int)getComputeAtPosition(),
+      pos >= getComputeAtPosition(),
       "Position must be right of the computeAt position. Position: ",
       pos,
       ", computeAt position: ",
@@ -505,7 +348,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
 
   // If it's already set to be computed with the consumer and the
   // position is higher, nothing to change
-  if ((int)getComputeWithPosition() >= pos) {
+  if (getComputeWithPosition() >= pos) {
     return;
   }
 
@@ -518,7 +361,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
 
   // If the given position is the same as the computeAt position, this
   // is a no-op
-  if (pos == (int)getComputeAtPosition()) {
+  if (pos == getComputeAtPosition()) {
     return;
   }
 
@@ -553,7 +396,7 @@ const std::vector<TensorView*>& TensorView::getComputeWithConsumers() const {
   return compute_with_consumers_;
 }
 
-unsigned int TensorView::getComputePosition(const TensorView* consumer) const {
+int64_t TensorView::getComputePosition(const TensorView* consumer) const {
   if (hasResolvedComputeWith() && isComputedWith(consumer)) {
     return getComputeWithPosition();
   } else {
@@ -621,7 +464,7 @@ void TensorView::clearComputeWith() {
 }
 
 TensorView* TensorView::split(
-    int axis_,
+    int64_t axis,
     Val* factor,
     bool inner_split,
     bool trim_out_of_bounds) {
@@ -633,37 +476,28 @@ TensorView* TensorView::split(
       "Tensor: ",
       toString());
 
-  if (axis_ < 0) {
-    axis_ += (int)domain()->nDims();
-  }
-
-  NVF_ERROR(
-      axis_ >= 0,
-      "Split axis is less than 0 even after adjusting for nDims: ",
-      axis_,
-      ". Tensor: ",
-      toString());
+  axis = wrapDim(axis);
 
   NVF_CHECK(
-      axis_ >= (int)getMaxComputePosition(),
+      axis >= getMaxComputePosition(),
       "Cannot split axis within compute at position. Axis = ",
-      axis_,
+      axis,
       " computePosition = ",
       getMaxComputePosition(),
       ". Tensor: ",
       toString());
 
   NVF_CHECK(
-      axis_ >= (int)getMaybeMaxProducerPosition(),
+      axis >= getMaybeMaxProducerPosition(),
       "Cannot split axis within max producer position. Axis = ",
-      axis_,
+      axis,
       " maxProducerPosition = ",
       getMaybeMaxProducerPosition(),
       ". Tensor: ",
       toString());
 
   NVF_CHECK(
-      axis(axis_)->getParallelType() == ParallelType::Serial,
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
       "Splitting an axis of non-Serial parallel type is not supported at this time."
       " Parallelization strategy must be set after calling split.",
       ". Tensor: ",
@@ -673,39 +507,36 @@ TensorView* TensorView::split(
     factor = castOp(DataType::Index, factor);
   }
 
-  domain()->split(axis_, factor, inner_split, trim_out_of_bounds);
+  domain()->split(axis, factor, inner_split, trim_out_of_bounds);
   return this;
 }
 
 TensorView* TensorView::split(
-    int axis,
-    unsigned int factor,
+    int64_t axis,
+    int64_t factor,
     bool inner_split,
     bool trim_out_of_bounds) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
+  NVF_CHECK(
+      factor > 0,
+      "Invalid factor for split. Factor must be greater than 0. Factor = ",
+      factor);
   split(
       axis,
-      IrBuilder::create<Val>((int64_t)factor, DataType::Index),
+      IrBuilder::create<Val>(factor, DataType::Index),
       inner_split,
       trim_out_of_bounds);
   return this;
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
-TensorView* TensorView::merge(int axis_o, int axis_i) {
+TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
-
-  if (axis_o < 0) {
-    axis_o += (int)domain()->nDims();
-  }
-
-  if (axis_i < 0) {
-    axis_i += (int)domain()->nDims();
-  }
+  axis_o = wrapDim(axis_o);
+  axis_i = wrapDim(axis_i);
 
   NVF_CHECK(
-      axis_o >= (int)getMaxComputePosition() &&
-          axis_i >= (int)getMaxComputePosition(),
+      axis_o >= getMaxComputePosition() && axis_i >= getMaxComputePosition(),
       false,
       "Cannot merge axes within compute at position. Either axis ",
       axis_o,
@@ -715,8 +546,8 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
       getMaxComputePosition());
 
   NVF_CHECK(
-      axis_o >= (int)getMaybeMaxProducerPosition() &&
-          axis_i >= (int)getMaybeMaxProducerPosition(),
+      axis_o >= getMaybeMaxProducerPosition() &&
+          axis_i >= getMaybeMaxProducerPosition(),
       "Cannot merge axes within max producer position. Either axis ",
       axis_o,
       " or ",
@@ -734,7 +565,8 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
   return this;
 }
 
-TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
+TensorView* TensorView::reorder(
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -743,9 +575,8 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
       "Tried to reorder a 0-dim TensorView");
 
   for (auto entry : old2new_) {
-    auto old_pos = entry.first < 0 ? entry.first + (int)nDims() : entry.first;
-    auto new_pos =
-        entry.second < 0 ? entry.second + (int)nDims() : entry.second;
+    auto old_pos = entry.first < 0 ? entry.first + nDims() : entry.first;
+    auto new_pos = entry.second < 0 ? entry.second + nDims() : entry.second;
     if (old_pos == new_pos) {
       continue;
     }
@@ -758,8 +589,8 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
         "Found \"new\" position that's less than 0 even though already adjusted by nDims: ",
         new_pos);
     NVF_CHECK(
-        old_pos >= (int)getMaxComputePosition() &&
-            new_pos >= (int)getMaxComputePosition(),
+        old_pos >= getMaxComputePosition() &&
+            new_pos >= getMaxComputePosition(),
         "Cannot reorder axes within compute at position. Either axis ",
         old_pos,
         " or ",
@@ -768,8 +599,8 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
         getMaxComputePosition());
 
     NVF_CHECK(
-        old_pos >= (int)getMaybeMaxProducerPosition() &&
-            new_pos >= (int)getMaybeMaxProducerPosition(),
+        old_pos >= getMaybeMaxProducerPosition() &&
+            new_pos >= getMaybeMaxProducerPosition(),
         "Cannot reorder axes within max producer position. Either axis ",
         old_pos,
         " or ",
@@ -782,13 +613,35 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   return this;
 }
 
-TensorView* TensorView::swizzle(SwizzleType swizzle_type, int x, int y) {
-  if (x < 0) {
-    x += (int)domain()->nDims();
-  }
-  if (y < 0) {
-    y += (int)domain()->nDims();
-  }
+TensorView* TensorView::reorder(
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+  return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+}
+
+// We have to convert the above permutation to a map of old2new.
+TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  int64_t idx = 0;
+  std::transform(
+      permutation.begin(),
+      permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+
+  return reorder(reorder_map);
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<int64_t>& permutation) {
+  return reorder(std::vector<int64_t>(permutation));
+}
+
+TensorView* TensorView::swizzle(
+    SwizzleType swizzle_type,
+    int64_t x,
+    int64_t y) {
+  x = wrapDim(x);
+  y = wrapDim(y);
 
   // Check swizzle specific constraints on the input axes:
   auto x_id = axis(x);
@@ -798,8 +651,8 @@ TensorView* TensorView::swizzle(SwizzleType swizzle_type, int x, int y) {
       x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
       "Only constant iterdomains supported on given swizzle type");
 
-  int in_x_size = (int)x_id->extent()->evaluate();
-  int in_y_size = (int)y_id->extent()->evaluate();
+  int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
+  int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
 
   // Check size constraints based on swizzle type
   if (swizzle_type == SwizzleType::XOR) {
@@ -819,16 +672,12 @@ TensorView* TensorView::swizzle(SwizzleType swizzle_type, int x, int y) {
 
 TensorView* TensorView::swizzle(
     Swizzle2DType swizzle_type,
-    int x,
-    int y,
+    int64_t x,
+    int64_t y,
     SwizzleMode swizzle_mode) {
   has_swizzle_op_ = true;
-  if (x < 0) {
-    x += (int)domain()->nDims();
-  }
-  if (y < 0) {
-    y += (int)domain()->nDims();
-  }
+  x = wrapDim(x);
+  y = wrapDim(y);
 
   NVF_CHECK(
       !(getMemoryType() == MemoryType::Global &&
@@ -836,14 +685,14 @@ TensorView* TensorView::swizzle(
       "Data swizzle on global memory is not supported.");
 
   NVF_CHECK(
-      x >= (int)getMaxComputePosition(),
+      x >= getMaxComputePosition(),
       "Cannot swizzle axes within compute at position. Axis ",
       x,
       " is within computePosition = ",
       getMaxComputePosition());
 
   NVF_CHECK(
-      y >= (int)getMaybeMaxProducerPosition(),
+      y >= getMaybeMaxProducerPosition(),
       "Cannot swizzle axes within max producer position. Axis ",
       y,
       " is within maxProducerPosition = ",
@@ -877,8 +726,8 @@ TensorView* TensorView::swizzle(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluate();
-    int in_y_size = (int)y_id->extent()->evaluate();
+    int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
+    int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
@@ -899,7 +748,7 @@ TensorView* TensorView::swizzle(
   return this;
 }
 
-TensorView* TensorView::rFactor(const std::vector<int>& axes) {
+TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -923,7 +772,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
 
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
-      "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int>& axes, const std::vector<TensorView*>& tvs)");
+      "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
 
   // Split tensor view into 2 parts
   auto domain_pair = domain()->rFactor(axes);
@@ -979,9 +828,9 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   return producer;
 }
 
-TensorView* TensorView::multiOutputRfactorHelper(
+TensorView* TensorView::multiOutputRFactorHelper(
     TensorView* tv,
-    const std::vector<int>& axes) {
+    const std::vector<int64_t>& axes) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1036,7 +885,7 @@ TensorView* TensorView::multiOutputRfactorHelper(
 }
 
 std::vector<TensorView*> TensorView::rFactor(
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     const std::vector<TensorView*>& tvs) {
   NVF_CHECK(
       !container()->isA<kir::Kernel>(),
@@ -1077,13 +926,13 @@ std::vector<TensorView*> TensorView::rFactor(
   //  replayed correctly
   for (const auto i : c10::irange(tvs.size())) {
     if (this != tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
   for (const auto i : c10::irange(tvs.size())) {
     if (this == tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
@@ -1372,17 +1221,43 @@ void TensorView::clearReductionIterDomains() {
       getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
+  const std::vector<IterDomain*>& root = getRootDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
+      "should not call clearReductionIterDomains on transformed allocation domain");
+
   std::vector<IterDomain*> new_root;
+  std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
+  for (const auto i : c10::irange(root.size())) {
+    auto root_i = root.at(i);
     if (!root_i->isReduction()) {
       new_root.push_back(root_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isReduction()) {
+      new_alloc.push_back(alloc_i);
       new_contig.push_back(domain()->contiguity().at(i));
     }
   }
 
-  setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  if (new_alloc == new_root) {
+    // if new allocation domain is identical to new root domain, we don't need
+    // to specify allocation domain
+    setDomain(
+        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  } else {
+    setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        new_root,
+        std::vector<IterDomain*>(),
+        new_alloc,
+        new_root,
+        new_contig));
+  }
 }
 
 void TensorView::doubleBuffer() {
@@ -1393,7 +1268,7 @@ void TensorView::doubleBuffer() {
   is_double_buffered_ = true;
 }
 
-void TensorView::circularBuffer(unsigned int stage) {
+void TensorView::circularBuffer(int64_t stage) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
@@ -1438,15 +1313,11 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
   }
 }
 
-void TensorView::applyMmaSwizzle(
-    MmaInputSmemSwizzle swizzle,
-    bool transpose,
-    bool transpose2) {
+void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
-      this, swizzle, transpose, transpose2);
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
 void TensorView::commitLeafToRFactor() {
@@ -1467,9 +1338,10 @@ void TensorView::commitLeafToRFactor() {
           true)));
 }
 
-TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
-  NVF_CHECK(shape_.empty() || shape_.size() == ndims);
-  NVF_CHECK(contiguity_.empty() || contiguity_.size() == ndims);
+TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {
+  NVF_CHECK(ndims >= 0);
+  NVF_CHECK(shape_.empty() || (int64_t)shape_.size() == ndims);
+  NVF_CHECK(contiguity_.empty() || (int64_t)contiguity_.size() == ndims);
   ndims_ = ndims;
   return *this;
 }
@@ -1499,8 +1371,8 @@ TensorViewBuilder& TensorViewBuilder::contiguity(bool contiguity) {
 TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
   NVF_CHECK(shape_.empty(), "Attempting to reset shape");
   if (!shape.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == shape.size());
-    ndims_ = shape.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)shape.size());
+    ndims_ = (int64_t)shape.size();
   }
   shape_.clear();
   shape_.reserve(shape.size());
@@ -1525,8 +1397,8 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
 TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
   NVF_CHECK(shape_.empty(), "Attempting to reset shape");
   if (!shape.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == shape.size());
-    ndims_ = shape.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)shape.size());
+    ndims_ = (int64_t)shape.size();
   }
   shape_ = std::move(shape);
   return *this;
@@ -1536,8 +1408,8 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
     std::vector<int64_t> stride_order) {
   NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
   if (!stride_order.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
-    ndims_ = stride_order.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)stride_order.size());
+    ndims_ = (int64_t)stride_order.size();
   }
 
   // TODO: this shouldn't be necessary. For details see issue
@@ -1560,8 +1432,8 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == expanded.size());
-    ndims_ = expanded.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)expanded.size());
+    ndims_ = (int64_t)expanded.size();
   }
   expanded_ = std::move(expanded);
   return *this;

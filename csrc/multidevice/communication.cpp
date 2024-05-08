@@ -5,12 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
-#ifdef USE_C10D_NCCL
+#include <multidevice/communication.h>
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
-
-#include <multidevice/communication.h>
 #include <utils.h>
 
 namespace nvfuser {
@@ -140,7 +138,6 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(
 
 Gather::Gather(CommParams params) : Communication(params, "gather") {
   assertBufferCount(params_.src_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Gather::post(
@@ -170,7 +167,6 @@ Allgather::Allgather(CommParams params)
     : Communication(params, "allgather", false) {
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, params_.team.size());
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(
@@ -189,7 +185,6 @@ c10::intrusive_ptr<c10d::Work> Allgather::post(
 
 Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Scatter::post(
@@ -234,7 +229,7 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
   c10d::ReduceOptions options = {
       .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   auto team_backend = comm.getBackendForTeam(params_.team, backend);
-#ifdef USE_C10D_NCCL
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(team_backend.get());
   if (nccl_backend) {
 #if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
@@ -272,7 +267,6 @@ ReduceScatter::ReduceScatter(CommParams params)
     : Communication(params, "reduce_scatter", false) {
   assertBufferCount(params_.src_bufs, params_.team.size());
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
@@ -324,5 +318,3 @@ c10::intrusive_ptr<c10d::Work> SendRecv::post(
 }
 
 } // namespace nvfuser
-
-#endif

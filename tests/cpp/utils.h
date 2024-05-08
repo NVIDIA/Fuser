@@ -325,7 +325,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayPasC(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateP2C(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateP2C(from, to);
@@ -333,7 +333,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateSibling(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateSibling(from, to);
@@ -604,24 +604,24 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
 // Utility to generate input shapes based on given layout
 std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
@@ -638,11 +638,11 @@ at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
-    const int M,
-    const int N,
-    const int K,
-    const int B = 0,
-    const int device = 0);
+    const int64_t M,
+    const int64_t N,
+    const int64_t K,
+    const int64_t B = 0,
+    const int64_t device = 0);
 
 // Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
 // insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
@@ -681,6 +681,6 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 
 // Get the number of SMs on the current device
-int getNumSMs();
+int64_t getNumSMs();
 
 } // namespace nvfuser

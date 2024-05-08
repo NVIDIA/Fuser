@@ -75,7 +75,8 @@ class FusionExecutor : public NonCopyable {
   //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
-      const KernelArgumentHolder& args);
+      const KernelArgumentHolder& args,
+      PrecomputedValues* evaluator_precomputed_values = nullptr);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -122,6 +123,12 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
+  //! Computes fusion outputs through expression evaluator.
+  std::vector<at::Tensor> evaluateFusionOutputs(
+      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs,
+      ExpressionEvaluator& expr_eval);
+
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -163,11 +170,21 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
+  // Function to query whether compilation was attempted for a `FusionExecutor`
+  bool isCompiled() const {
+    // Check at most one of fusion_ and lowered_ is null.
+    NVF_ERROR(!(fusion_ && lowered_));
+    return fusion_ || lowered_;
+  };
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool isCompiled() const {
+  bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
+      NVF_ERROR(
+          !fusion_,
+          "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
@@ -188,6 +205,17 @@ class FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
+    // The arguments to the kernel. These are configured in computeArgs and
+    // recomputeArgs.
+    // For the common case of a tensor argument, these correspond to the
+    // `struct Tensor` data in runtime/tensor.cu. That means each tensor
+    // element in `args` would be a sizeof(void*) + len(shape)*sizeof(int) +
+    // len(shape)*sizeof(int) byte array (here "int" is used in place of the
+    // index type, which varies in practice).
+    std::vector<std::vector<std::byte>> args;
+    // This is just the data() pointers to the above `args`; cuLaunchKernel
+    // requires an array of this form.
+    std::vector<void*> arg_ptrs;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -196,6 +224,13 @@ class FusionExecutor : public NonCopyable {
   kir::Kernel* kernel() const {
     NVF_ERROR(lowered_);
     return lowered_->kernel();
+  }
+
+  Fusion* fusion() const {
+    NVF_ERROR(
+        (lowered_ && !fusion_) || (!lowered_ && fusion_),
+        "Expected one and only one of fusion_ and lowered_ to be initialized.");
+    return lowered_ ? lowered_->kernel()->as<Fusion>() : fusion_.get();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -443,6 +478,17 @@ class FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+  // Creates the initial set of arguments to a kernel, based on the arguments
+  // to we have now.
+  void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
+      const;
+  // Updates an existing set of arguments based on the current arguments. It is
+  // is an error to call this before `computeArgs` has been invoked.
+  // recomputeArgs will fail if the arity of the function changes, or the rank
+  // of any tensor changes (as these are compiled-in to the generated kernel
+  // and therefore would require us to do a larger recompilation).
+  void recomputeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
+      const;
 
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
@@ -537,8 +583,9 @@ class FusionExecutor : public NonCopyable {
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
-  // Copy of lowered_->kernel()
-  Fusion* fusion_ = nullptr;
+
+  // Initialized for non-compiled fusions
+  std::unique_ptr<Fusion> fusion_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.

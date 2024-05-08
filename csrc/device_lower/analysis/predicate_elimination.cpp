@@ -210,6 +210,15 @@ class PredicateChcker : public IterVisitor {
       return false;
     }
 
+    if (expr->fusion()->hasManaged("don't predicate")) {
+      const auto& dont_predicate =
+          expr->fusion()->getManaged<std::unordered_set<Expr*>>(
+              "don't predicate");
+      if (dont_predicate.count(expr) > 0) {
+        return false;
+      }
+    }
+
     PredicateChcker checker(pred_elimination);
     checker.dispatch(expr);
     return checker.needs_predicate_;
@@ -487,7 +496,7 @@ class PredicateChcker : public IterVisitor {
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_leaf_ids;
     for (const auto i : c10::irange(tv->nDims())) {
-      auto leaf_id = tv->axis((int)i);
+      auto leaf_id = tv->axis(i);
       if (is_shared_mem && leaf_id->isThreadDim()) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
@@ -890,9 +899,7 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  // To avoid errors in analysis when using ATen evaluation for matmul, only use
-  // outputs that require codegen. See PR # 1775 and Issue #1812
-  traverseTo(lower_utils::getFusionOutputsRequiringCodegen(fusion));
+  traverseTo(fusion->outputs());
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {

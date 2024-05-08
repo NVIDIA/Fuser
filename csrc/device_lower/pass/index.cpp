@@ -1228,8 +1228,8 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
     return false;
   }
-  auto tidx = static_cast<int>(tidx_val->evaluate());
-  auto tidy = static_cast<int>(tidy_val->evaluate());
+  auto tidx = tidx_val->evaluate().as<int64_t>();
+  auto tidy = tidy_val->evaluate().as<int64_t>();
 
   // TIDz and BIDz must be unused or just 1. This contraint can be
   // lifted if necessary.
@@ -1252,14 +1252,14 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
     return false;
   }
 
-  int num_grouped_iterations = 1;
+  int64_t num_grouped_iterations = 1;
   for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       NVF_ERROR(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluate();
+      num_grouped_iterations *= axis->extent()->evaluate().as<int64_t>();
     }
   }
 
@@ -1575,6 +1575,7 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
+  constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
@@ -1583,13 +1584,19 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
-    int64_t stride_bytes =
-        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
-        /*number of core matrices*/ (getM(mma->macro()) / 8L) *
-        /*bytes per item*/ 2L;
-    if (swizzle != MmaInputSmemSwizzle::None) {
-      // TODO: why???!!!
+    int64_t leading_bytes = core_matrix_outer_size *
+        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t inner_size =
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)
+        ? getK(mma->macro())
+        : getM(mma->macro());
+    int64_t stride_bytes = core_matrix_outer_size *
+        /*number of core matrices, rounded up to handle padding */
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
+                          getBytesFromSwizzle(swizzle));
+    if (swizzle == MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
+      // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
@@ -1612,16 +1619,19 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int64_t stride_bytes =
-        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+    int64_t leading_bytes = core_matrix_outer_size *
+        getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t inner_size =
+        (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN)
+        ? getK(mma->macro())
+        : getN(mma->macro());
+    int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getN(mma->macro()) / 8L,
-                          getBytesFromSwizzle(swizzle) / 16L) *
-        /*bytes per item*/ 2L;
-    if (swizzle != MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
-      // TODO: why???!!!
+        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
+                          getBytesFromSwizzle(swizzle));
+    if (swizzle == MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
+      // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(

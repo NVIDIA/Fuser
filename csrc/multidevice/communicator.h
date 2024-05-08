@@ -6,13 +6,20 @@
  */
 // clang-format on
 #pragma once
-#ifdef NVFUSER_DISTRIBUTED
+
+#include <ATen/core/TensorBody.h>
+#include <ATen/core/ivalue.h>
+#include <c10/util/intrusive_ptr.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
-#include <torch/csrc/distributed/c10d/Store.hpp>
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <torch/csrc/distributed/c10d/Work.hpp>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
 #include <visibility.h>
 
 namespace nvfuser {
@@ -43,12 +50,10 @@ constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
-constexpr int comm_master_port_default =
-    c10d::TCPStoreOptions::kDefaultPort; // 29500
 
 class Communicator {
  public:
-  NVF_API Communicator(
+  Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
 
@@ -76,7 +81,7 @@ class Communicator {
   }
 
   // performs a send/receive p2p data transfer
-  NVF_API c10::intrusive_ptr<c10d::Work> sendRecv(
+  c10::intrusive_ptr<c10d::Work> sendRecv(
       DeviceIdxType receiver,
       DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
@@ -103,9 +108,16 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank associted with the current process,
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
   // returns world backend for communicator backend or default backend if not
   // specified.
-  NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(
+  c10::intrusive_ptr<c10d::Backend> getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation
@@ -150,5 +162,3 @@ class Communicator {
 };
 
 } // namespace nvfuser
-
-#endif

@@ -14,6 +14,19 @@ env:
   working_directory: .
 
 jobs:
+  check-license:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Look for missing license headers
+        working-directory: ${{ env.working_directory }}
+        run: |
+          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
+          # test that file is empty
+          test ! -s missing-header-files.txt
+
   clang-tidy:
     runs-on: ubuntu-latest
     steps:

@@ -62,9 +62,9 @@ class DomainMap {
 };
 
 // Returns number of non-reduction/non-broadcast dims in rfactor domain
-inline size_t nRootDims(const TensorView* tv) {
+inline int64_t nRootDims(const TensorView* tv) {
   auto root_dom = tv->getMaybeRFactorDomain();
-  size_t tv_n_dims = 0;
+  int64_t tv_n_dims = 0;
   for (auto dim : root_dom) {
     if (!dim->isReduction() && !dim->isBroadcast()) {
       tv_n_dims++;

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 T0 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
 T1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
 T2 = fd.define_tensor(symbolic_sizes=[-1, -1], contiguous=[True, True], dtype=DataType.Half)

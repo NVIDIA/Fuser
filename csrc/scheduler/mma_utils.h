@@ -31,7 +31,7 @@ namespace mma_utils {
 NVF_API void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
-    int vector_word,
+    int64_t vector_word,
     bool vectorize = true);
 
 //! Schedule utility for mma output in matmul main loop:
@@ -53,7 +53,7 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-void makeTile(TensorView* tv, std::vector<int> tile_sizes);
+void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //!  root domain. Also putting broadcast domains on the left.
@@ -64,7 +64,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes);
 void orderTiledConcreteIdAsRoot(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
+//! [Device, Batch, Previous Reduction, M, N, K]
 //!  for easier processing of later scheduling steps.
 //!
 //! This matching works on root domain only, and
@@ -173,12 +173,7 @@ class WarpMmaSwizzler {
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
-  // TODO: what is transpose2? Why do we need it?
-  static void scheduleOperandRead(
-      TensorView* tv,
-      MmaInputSmemSwizzle swizzle,
-      bool transpose,
-      bool transpose2);
+  static void scheduleOperandRead(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
@@ -199,8 +194,8 @@ class WarpMmaSwizzler {
 
 void checkDimSize(
     TensorView* tv,
-    std::vector<int> axis,
-    std::vector<int> expect);
+    std::vector<int64_t> axis,
+    std::vector<int64_t> expect);
 
 //! A constant with minimum number of fusion inputs that could be MMA inputs.
 //!  TODO: update for square matmuls where both inputs are the same tensor
@@ -404,6 +399,21 @@ int64_t computeExpectedSharedMemoryUsage(
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false);
+
+//! Encode DataType as character using the following mapping (not all are
+//! supported yet in nvFuser):
+//!  B = Int8
+//!  I = Int32
+//!  Q = FP8 (E4M3)
+//!  R = FP8 (E5M2)
+//!  T = BFloat16
+//!  H = Float16
+//!  F = TensorFloat32
+//!  S = Float32
+//!  D = Float64
+//!  C = complex<float>
+//!  Z = complex<double>
+char dtypeToChar(const DataType& dtype);
 
 } // namespace mma_utils
 
