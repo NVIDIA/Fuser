@@ -322,6 +322,9 @@ std::string isMatmulFusionDefinitionSupported(
 // If the argument has no contiguous dimensions, then a vectorization width of 1
 // is returned.
 //
+// The sizes and strides given should be in the same order as one another and
+// should match the no-reductions allocation domain of tv.
+//
 // These rows can start at any multiple of the non-contiguous strides, so we
 // seek the largest power of 2 that divides all those other dimensions (capped
 // to 16) as well as the data pointer.
@@ -341,20 +344,36 @@ int64_t maxRowVectorization(
   NVF_ERROR(sizes.size() == strides.size());
   NVF_ERROR(sizes.size() == tv->nDims());
 
-  // Find innermost dimension
-  bool contiguous = false;
-  for (int64_t i : c10::irange(sizes.size())) {
+  std::vector<std::optional<bool>> noreductions_contig;
+  for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
+    if (tv->getMaybeAllocationDomain()[i]->isReduction()) {
+      continue;
+    }
+    noreductions_contig.push_back(tv->getContiguity().at(i));
+  }
+
+  bool inner_contiguous = false;
+  for (size_t i : c10::irange(sizes.size())) {
     int64_t stride = strides.at(i);
     int64_t size = sizes.at(i);
     if (stride == 1) {
-      std::optional<bool> contig = tv->getContiguity().at(i);
+      std::optional<bool> contig = noreductions_contig.at(i);
       if (contig.has_value() && !contig.value()) {
         // If TensorView is marked discontiguous in inner dimension, we cannot
         // vectorize regardless of input.
         return 1l;
       }
-      // Innermost dimension
-      contiguous = true;
+      if (inner_contiguous) {
+        // There was already a contigous inner dimension, so that means there
+        // are multiple stride==1 dimensions in this tensor. This usually means
+        // that there will be overlapping rows offset from one another by a
+        // single element. In such cases we cannot vectorize. An exception is
+        // when an outer dimension has both stride==1 and size==1, in which
+        // case we could ignore its stride. Currently we ignore that case and
+        // just return 1 whenever we detect multiple stride==1 dimensions.
+        return 1l;
+      }
+      inner_contiguous = true;
       vec_size =
           std::min(vec_size, scheduler_utils::maxVectorizationWidth(size));
     } else {
@@ -363,7 +382,7 @@ int64_t maxRowVectorization(
     }
   }
 
-  if (!contiguous) {
+  if (!inner_contiguous) {
     // Tensor is discontiguous
     return 1l;
   }
@@ -382,14 +401,25 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       return 16;
     }
     for (TensorView* tv : it->second) {
-      // TODO: handle the case when tv is not a Fusion input
-      const std::vector<int64_t>& strides = runtime_info.getInputStrides(tv);
+      // TODO: handle the case when tv is not a Fusion input by filling default
+      // contiguous strides based on tv->getMaybeAllocationDomain() and data
+      // pointer aligned to 16 bytes.
+
+      std::vector<int64_t> strides = runtime_info.getInputStrides(tv);
+      // We need to reverse sort the strides so that they correspond to the
+      // order of the allocation domain and contiguity of tv.
+      std::sort(strides.begin(), strides.end(), std::greater<>());
+
       const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
       NVF_ERROR(alloc.size() == strides.size());
 
+      // Get sizes for non-reduction dims in allocation domain
       std::vector<int64_t> sizes;
       sizes.reserve(alloc.size());
-      for (int64_t i : c10::irange(alloc.size())) {
+      for (size_t i : c10::irange(alloc.size())) {
+        if (alloc[i]->isReduction()) {
+          continue;
+        }
         sizes.push_back(runtime_info.expressionEvaluator()
                             .evaluate(alloc[i]->extent())
                             .as<int64_t>());
