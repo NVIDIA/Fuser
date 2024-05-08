@@ -184,10 +184,11 @@ c10::intrusive_ptr<c10d::Work> Gather::post(
       output_tensors[0].push_back(output_tensor.slice(0, j, j + 1));
       j++;
     }
+
+    assertBufferCount(output_tensors[0], params_.team.size());
+    assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   }
 
-  assertBufferCount(output_tensors[0], params_.team.size());
-  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   return comm.getBackendForTeam(params_.team, backend)
       ->gather(
           output_tensors, input_tensors, {.rootRank = root_relative_index_});
