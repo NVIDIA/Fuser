@@ -1111,7 +1111,7 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   if (detectComputeSanitizer()) {
-    GTEST_SKIP() << "Skipped as compute-sanitzer conflicts with FusionProfiler";
+    GTEST_SKIP() << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
   }
 
   ProfilerOptionsGuard options_guard;
