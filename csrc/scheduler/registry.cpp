@@ -191,6 +191,9 @@ bool checkCanSchedule(
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
           fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::InnerOuterReduction:
+      return checkCanSchedule<InnerOuterReductionKernelScheduler>(
+          fusion, runtime_info, data_cache);          
     case ScheduleHeuristic::InnerPersistent:
       return checkCanSchedule<InnerPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -232,6 +235,10 @@ bool checkCanSchedule(
       scheduler_entry = std::make_unique<ReductionScheduler>(
           fusion, runtime_info, data_cache);
       break;
+    case ScheduleHeuristic::InnerOuterReduction:
+      scheduler_entry = std::make_unique<InnerOuterReductionKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;      
     case ScheduleHeuristic::InnerPersistent:
       scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -315,6 +322,10 @@ HeuristicSummary::HeuristicSummary(
       getReductionHeuristics(fusion, runtime_info, this);
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
+    case ScheduleHeuristic::InnerOuterReduction:
+      getInnerOuterReductionHeuristics(fusion, runtime_info, this);
+      InnerOuterReductionKernelScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      break;      
     case ScheduleHeuristic::InnerPersistent:
       getInnerPersistentHeuristics(fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
@@ -390,6 +401,10 @@ void HeuristicSummary::validate() const {
       NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+      break;
+    }
+    case ScheduleHeuristic::InnerOuterReduction: {
+      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       break;
     }
     case ScheduleHeuristic::InnerPersistent:

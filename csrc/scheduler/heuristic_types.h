@@ -52,6 +52,7 @@ enum class ScheduleHeuristic {
   PointWise,
   Matmul,
   Reduction,
+  InnerOuterReduction,
   InnerPersistent,
   InnerOuterPersistent,
   OuterPersistent,
@@ -59,7 +60,7 @@ enum class ScheduleHeuristic {
 };
 
 //! Define a schedule table to loop over all the heuristics in priority order.
-constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
+constexpr std::array<ScheduleHeuristic, 9> all_heuristics_in_priority_order = {
     ScheduleHeuristic::NoOp,
     ScheduleHeuristic::Matmul,
     ScheduleHeuristic::Reduction,
@@ -67,6 +68,7 @@ constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
     ScheduleHeuristic::PointWise,
     ScheduleHeuristic::InnerPersistent,
     ScheduleHeuristic::OuterPersistent,
+    ScheduleHeuristic::InnerOuterReduction,
     ScheduleHeuristic::InnerOuterPersistent};
 
 std::string toString(ScheduleHeuristic sh);

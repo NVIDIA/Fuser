@@ -13,4 +13,5 @@
 #include <scheduler/normalization_outer.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction.h>
+#include <scheduler/reduction_inner_outer.h>
 #include <scheduler/transpose.h>
