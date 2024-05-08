@@ -22,6 +22,10 @@
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <link.h>
 
 namespace nvfuser {
 
@@ -162,6 +166,28 @@ LibraryLoader::~LibraryLoader() {
   }
 }
 
+namespace {
+
+// Callback should return 0 to continue iterationg. A non-zero return
+// value would stop the iteration.
+int detectComputeSanitizerCallback(
+    struct dl_phdr_info* info,
+    size_t size,
+    void* data) {
+  std::string lib_name = info->dlpi_name;
+  if (lib_name.find("compute-sanitizer") != std::string::npos) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+} // namespace
+
+bool detectComputeSanitizer() {
+  return dl_iterate_phdr(detectComputeSanitizerCallback, NULL) != 0;
+}
+
 } // namespace nvfuser
 
 #else
@@ -183,6 +209,11 @@ void* LibraryLoader::getSymbol(const char* symbol_name) {
 
 LibraryLoader::~LibraryLoader {
   // TODO: implement non-linux versions of LibraryLoader
+}
+
+bool detectComputeSanitizer() {
+  // Not implemented. Just return false for now.
+  return false;
 }
 
 } // namespace nvfuser
