@@ -949,8 +949,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   // The loop map is built for loop_graph_copy. Update the map to the
   // latest loop graph
-  final_loop_promotion_map =
-      updateValGroupIdMap(final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+  final_loop_promotion_map = updateValGroupIdMap(
+      final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
@@ -1321,7 +1321,7 @@ Expr* findMatchingExpr(
             iel_expr->front(), maybe_promoted_input_use_group->front())) {
       continue;
     }
-    
+
     // This is just an extra sanity check. Make sure all exprs in
     // the use group are mapped
     NVF_ERROR(

@@ -197,7 +197,7 @@ class IdModelTester : public IdModel {
         iel_graph,
         s4_iel_promotion_map,
         idGraph(IdMappingMode::LOOP),
-        s3_original_loop_promotion_map);        
+        s3_original_loop_promotion_map);
 
     {
       std::stringstream ss;
