@@ -917,7 +917,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     rparams->block_dim_iter_dom = ParallelType::TIDx;
     // check why if static split, leads to more register usage
     // at 32768 x 6400, increase from 64 to 72
-    if(std::getenv("USE_WARP") != nullptr){
+    if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
       rparams->static_bdimx = true;
     }
   }
@@ -938,7 +938,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->cross_block_inner_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      if(std::getenv("USE_WARP") != nullptr){
+      if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
         rparams->static_bdimy = true;
       }
       rparams->block_dim_inner_reduction = ParallelType::TIDy;

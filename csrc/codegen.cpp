@@ -2792,7 +2792,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       auto str_bdimx = genInline(par_dim_map.get(ParallelType::TIDx));
       int_bdimx = std::stoi(str_bdimx);
     }
-    if(std::getenv("USE_WARP") != nullptr && int_bdimx <= 32L && num_grouped_iterations >= 32 / int_bdimx) {
+    if(isOptionEnabled(EnableOption::IterGroupedWarpReduction) && int_bdimx <= 32L && num_grouped_iterations >= 32 / int_bdimx) {
       std::cout << "Using warp reduction" << std::endl;
       ArgumentBuilder func_template_args;
       func_template_args.arg(isAligned());

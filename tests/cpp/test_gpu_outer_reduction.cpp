@@ -2322,4 +2322,88 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
   }
 }
 
+TEST_F(OuterReductionTest, IterGroupedWarpReduction) {
+  auto test = [](const int vect_factor, const int bdimx, const int bdimy) {
+    EnableOptionsGuard opt_guard;
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IterGroupedWarpReduction);
+    const int gdimx = 1;
+    const int gdimy = 1;
+
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    DataType dtype = DataType::Half;
+
+    auto tv0 = makeContigTensor(2, dtype);
+    fusion.addInput(tv0);
+
+    auto tv1 = castOp(DataType::Float, tv0);
+    auto tv2 = sum(tv1, {0});
+    auto tv3 = castOp(dtype, tv2);
+    fusion.addOutput(tv3);
+
+    std::vector<int64_t> shape({gdimy * bdimy, bdimx * gdimx * vect_factor});
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    auto t0 = at::randn(shape, options);
+
+    std::vector<c10::IValue> aten_inputs({t0});
+
+    auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
+    NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+
+    // Input is small, getReductionHeuristics may generate a heuristics without
+    // block reduction. In this test, enforce block reduction and disable grid
+    // reduction so we only test iter grouped block reduction.
+    heuristics_params->static_bdimx = true;
+    heuristics_params->static_bdimy = true;
+    heuristics_params->multiple_reds_per_blk = true;
+    heuristics_params->cross_block_inner_reduction = true;
+    heuristics_params->block_dim_iter_dom = ParallelType::TIDx;
+    heuristics_params->block_dim_inner_reduction = ParallelType::TIDy;
+    auto lparams = LaunchParams(
+        gdimx,
+        gdimy,
+        LaunchParams::UNINITIALIZED_VAL,
+        bdimx,
+        bdimy,
+        LaunchParams::UNINITIALIZED_VAL);
+    heuristics_params->lparams = lparams;
+    heuristics_params->cross_grid_inner_reduction = false;
+    heuristics_params->split_grid_dim_inner_reduction = false;
+    heuristics_params->vectorize_iter_dom = true;
+    heuristics_params->unroll_factor_iter_dom = vect_factor;
+    scheduleReduction(&fusion, *heuristics_params);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs, lparams);
+    auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        aten_inputs,
+        {t0.to(at::kFloat).sum(0)},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  // iteration grouped warp reduction requires:
+  // (1) bdimx <= 32 
+  // (2) vect >= 32 / bdimx
+  // (3) bdimx * bdimy / 32 >= vect
+  for (int vect : {2, 4, 8}){
+    for(int bdimx : {8, 16, 32}){
+      for(int bdimy : {8, 16, 32}){
+        if(vect * bdimx >= 32 && bdimx * bdimy >= 32 * vect){
+          test(vect, bdimx, bdimy);
+        }
+      }
+    }
+  }
+}
 } // namespace nvfuser

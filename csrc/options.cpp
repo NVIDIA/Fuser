@@ -161,6 +161,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
+      {"iter_grouped_warp_reduction", EnableOption::IterGroupedWarpReduction},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
   };
 
