@@ -364,13 +364,13 @@ int64_t maxRowVectorization(
         return 1l;
       }
       if (inner_contiguous) {
-        // There was already a contigous inner dimension, so that means there
-        // are multiple stride==1 dimensions in this tensor. This usually means
-        // that there will be overlapping rows offset from one another by a
-        // single element. In such cases we cannot vectorize. An exception is
-        // when an outer dimension has both stride==1 and size==1, in which
-        // case we could ignore its stride. Currently we ignore that case and
-        // just return 1 whenever we detect multiple stride==1 dimensions.
+        // There was already a contiguous inner dimension, so that means there
+        // are multiple stride==1 dimensions in this tensor. This means that
+        // there will be overlapping rows offset from one another by a single
+        // element. In such cases we cannot vectorize. An exception is when an
+        // outer dimension has both stride==1 and size==1, in which case we
+        // could ignore its stride. Currently we ignore that case and just
+        // return 1 whenever we detect multiple stride==1 dimensions.
         return 1l;
       }
       inner_contiguous = true;
