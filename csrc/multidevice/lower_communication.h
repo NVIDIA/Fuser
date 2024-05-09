@@ -17,10 +17,6 @@ namespace nvfuser {
 // of communication.
 bool isLowerableToCommunication(Expr* expr);
 
-// Returns whether we support transforming a given fusion into a series
-// of communication.
-bool isLowerableToCommunication(Fusion* fusion);
-
 // Lower a PipelineCommunication into a series of Communication, given a
 // device_index.
 std::vector<std::shared_ptr<Communication>> lowerCommunication(

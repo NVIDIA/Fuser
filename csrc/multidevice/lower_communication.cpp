@@ -394,12 +394,4 @@ bool isLowerableToCommunication(Expr* expr) {
   }
 }
 
-bool isLowerableToCommunication(Fusion* fusion) {
-  std::vector<Expr*> exprs = fusion->exprs();
-  if (exprs.size() != 1) {
-    return false;
-  }
-  return isLowerableToCommunication(exprs.front());
-}
-
 } // namespace nvfuser
