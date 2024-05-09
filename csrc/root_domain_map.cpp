@@ -124,16 +124,16 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto& consumer_root = consumer->root();
 
   // Add key-value iterdomain pair to the map.
-  auto updatePairwiseRootDomainMap = [&root_dims_to_map, producer_to_consumer, &dom_map](
-      IterDomain* map_key_id,
-      IterDomain* map_value_id) {
-      if (!producer_to_consumer) {
-        std::swap(map_key_id, map_value_id);
-      }
-      if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-        dom_map.insert(std::make_pair(map_key_id, map_value_id));
-      }
-  };
+  auto updatePairwiseRootDomainMap =
+      [&root_dims_to_map, producer_to_consumer, &dom_map](
+          IterDomain* map_key_id, IterDomain* map_value_id) {
+        if (!producer_to_consumer) {
+          std::swap(map_key_id, map_value_id);
+        }
+        if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+          dom_map.insert(std::make_pair(map_key_id, map_value_id));
+        }
+      };
 
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
@@ -156,9 +156,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     for (auto inx : c10::irange(out_size)) {
       IterDomain* map_key_id = aligned_producer_id.at(inx);
       IterDomain* map_value_id = consumer_root.at(inx);
-      updatePairwiseRootDomainMap(
-          map_key_id,
-          map_value_id);
+      updatePairwiseRootDomainMap(map_key_id, map_value_id);
     }
     return dom_map;
   }
@@ -250,9 +248,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     IterDomain* map_key_id = producer_id;
     IterDomain* map_value_id = consumer_id;
-    updatePairwiseRootDomainMap(
-        map_key_id,
-        map_value_id);
+    updatePairwiseRootDomainMap(map_key_id, map_value_id);
 
     itc++;
     itp++;
