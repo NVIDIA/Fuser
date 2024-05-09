@@ -4469,7 +4469,7 @@ std::string MatmulOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = matmul(" << inA()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "       " << inB()->toString() << ")\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString() << ")\n";
   return ss.str();
 }
 

@@ -40,19 +40,19 @@ IterType promoteIterType(IterType type1, IterType type2);
 // iterdomain corresponding to the output iterdomain at that index. If the
 // element is nullptr, there is no mapping between input-output at that index.
 // Based on the input dimensions following cases are possible:
-// 1. A/B is 1D: [M, K] x [K] -> [M]
-// Mapping A: {id_M}, Mapping B: {nullptr}
-// 2. A and B are 2D: [M, K] x [K, N] -> [M, N]
-// Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N}
-// 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
-// N] Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N}
+// 1. A/B is 1D: [M, K] x [K] -> [M] (Mapping A: {id_M}, Mapping B: {nullptr}) or [K] x [N, K] -> [N] (Mapping A: {nullptr}, Mapping B: {id_N})
+// 2. A and B are 2D: [M, K] x [K, N] -> [M, N] (Mapping A: {id_M, nullptr}, Mapping B: {nullptr, id_N})
+// 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M, N] (Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N})
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     MatmulRole input_role,
     size_t out_size);
 
+// Takes a vector of aligned input iterdomains to create the output iterdomain.
+// This is used if the input iterdomains are not trivially mapped to the output iterdomains. For eg: MatmulOp.
 IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
 
+// Takes a vector of tensorviews and assumes they are all aligned to create the output tensorview. For eg: BinaryOp.
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);

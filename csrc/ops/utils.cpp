@@ -195,7 +195,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     return mapping;
   }
   // Input A to matmul: {*, M, K}
-  // Input B to matmul: {*, K, N} / {K} (ndims = 1)
+  // Input B to matmul: {*, K, N}
   auto kpos = input_role == MatmulRole::INPUT_A ? inp_size - 1 : inp_size - 2;
 
   // If A/B is 1D, out_size < inp_size.

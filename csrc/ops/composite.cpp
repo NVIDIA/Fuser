@@ -311,8 +311,6 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
-  NVF_ERROR(ndims_a >= 1 && ndims_b >= 1);
-
   // Matmul output size is same as the higher dimensional input size if both A/B
   // > 1D.
   auto ndims_out = std::max(ndims_a, ndims_b);
@@ -354,8 +352,12 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 // python API backend. Keeping separate for now, to avoid breaking tests in
 // Thunder.
 TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
-  NVF_CHECK(tv_a->dtype() == tv_b->dtype());
+  NVF_CHECK(tv_a->nDims() > 0 && tv_b->nDims() > 0, "Expected inputs to be atleast 1D, got: ", tv_a->nDims(), " and ", tv_b->nDims());
 
+  // Note: torch.matmul reference does not restrict the inputs to the same dtype, but it fails for different input dtypes.
+  //       This condition may potentially be modified. The following condition should change accordingly.
+  NVF_CHECK(tv_a->dtype() == tv_b->dtype(), "Expected A and B dtypes to have the same dtype, got: ", tv_a->dtype(), " and ", tv_b->dtype());
+  
   if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
     // Return the dot product instead of creating the MatmulOp.
     // Cast back the output if needed since torch.matmul maintains input dtype.
