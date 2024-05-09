@@ -68,8 +68,12 @@ __device__ void blockReduce(
   unsigned int smem_offset = threadIdx.x + threadIdx.y * blockDim.x +
       threadIdx.z * blockDim.x * blockDim.y;
 
-  // The peer stride is the distance between the current element and its
-  // reduction peer, it depends on the reduction dimension.
+  // The peer stride represents the distance between the current element and its
+  // nearest reduction peer. It depends on the reduction dimension. A reduction
+  // peer refers to elements that belong to the same reduction segment. For
+  // example, if the reduction is across TIDy, all the elements in the same
+  // column (with the same TIDx) are considered peers of each other. The
+  // distance between an element and its nearest peer is blockDim.x.
   constexpr int num_redu_dims = (int)X_REDUCE + (int)Y_REDUCE + (int)Z_REDUCE;
   // reduction in 3 dimensions, XYZ, stride is 1
   unsigned int peer_stride = 1;
