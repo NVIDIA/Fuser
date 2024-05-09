@@ -81,4 +81,6 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
 
+TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b);
+
 } // namespace nvfuser
