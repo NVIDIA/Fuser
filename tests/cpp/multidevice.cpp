@@ -97,7 +97,7 @@ void MultiDeviceTest::SetUp() {
     return tensor;
   }
   auto sharded_dim = getShardedAxis(tv);
-  int i = tv->getDeviceMesh().idxOf(deviceId);
+  auto i = tv->getDeviceMesh().idxOf(deviceId);
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();

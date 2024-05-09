@@ -83,7 +83,7 @@ void lowerToScatter(
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  auto root = input_tv->getDeviceMesh().vector().at(0);
+  auto root = input_tv->getDeviceMesh().at(0);
   if (!isDeviceInvolved(my_device_index, root, receiver_mesh)) {
     return;
   }
@@ -159,7 +159,7 @@ void lowerToBroadcastOrP2P(
   }
   auto params = createParamsForBroadcastOrP2P(my_device_index, root, mesh);
   std::shared_ptr<Communication> comm;
-  if (mesh.vector().size() == 1) {
+  if (mesh.size() == 1) {
     comm = std::make_shared<SendRecv>(std::move(params));
   } else {
     comm = std::make_shared<Broadcast>(std::move(params));
@@ -182,20 +182,20 @@ void lowerToBroadcastOrP2P(
   if (is_sharded) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
-    for (auto i : c10::irange(sender_mesh.vector().size())) {
+    for (auto i : c10::irange(sender_mesh.size())) {
       NVF_ERROR(
-          sender_mesh.vector().size() == receiver_mesh.vector().size(),
+          sender_mesh.size() == receiver_mesh.size(),
           "the receiver and sender meshes have different sizes");
       lowerToBroadcastOrP2P(
           my_device_index,
-          sender_mesh.vector().at(i),
-          DeviceMesh({receiver_mesh.vector().at(i)}),
+          sender_mesh.at(i),
+          DeviceMesh({receiver_mesh.at(i)}),
           comms);
     }
   } else {
     // we arbitrarily choose the first device of the sender mesh to be the root
     lowerToBroadcastOrP2P(
-        my_device_index, sender_mesh.vector().at(0), receiver_mesh, comms);
+        my_device_index, sender_mesh.at(0), receiver_mesh, comms);
   }
 }
 
@@ -307,13 +307,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  const bool same_mesh = sender_mesh.vector() == receiver_mesh.vector();
+  const bool same_mesh = sender_mesh == receiver_mesh;
 
   // Stores whether the I/O has its first axis parallelized on Didx
-  const bool is_input_sharded =
-      isSharded(input_tv) && sender_mesh.vector().size() > 1;
+  const bool is_input_sharded = isSharded(input_tv) && sender_mesh.size() > 1;
   const bool is_output_sharded =
-      isSharded(output_tv) && receiver_mesh.vector().size() > 1;
+      isSharded(output_tv) && receiver_mesh.size() > 1;
 
   auto original_expr = output_tv->definition();
   NVF_ERROR(
@@ -331,7 +330,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();
     NVF_ERROR(
-        is_input_sharded || sender_mesh.vector().size() == 1,
+        is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
         "Insert a `set` before the reduction to reshard")
     if (is_output_sharded) {

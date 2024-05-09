@@ -35,7 +35,7 @@ class DeviceMesh final {
   std::string toString() const;
 
   // returns the number of devices in the mesh
-  int64_t size() {
+  int64_t size() const {
     return vector_.size();
   }
 
@@ -57,6 +57,11 @@ class DeviceMesh final {
       return std::distance(vector_.begin(), it);
     }
     return -1;
+  }
+
+  // Returns the device at a particular index in the mesh
+  DeviceIdxType at(int64_t index) const {
+    return vector_.at(index);
   }
 
   bool operator==(const DeviceMesh& other) const {
