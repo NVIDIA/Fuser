@@ -891,12 +891,13 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLeafDomain()) {
+  for (auto id : out_tv->getMaybeAllocationDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
     }
   }
+  NVF_ERROR(reduction_id != nullptr);
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
