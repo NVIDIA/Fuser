@@ -13,24 +13,18 @@
 
 namespace nvfuser {
 
-template <typename... Args>
-void vlog(const Args&... args) {
-  scheduler_debug_utils::log("[Expression Evaluator Scheduler] ", args...);
-}
-
 ExprEvalScheduler::ExprEvalScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry(heuristicType()) {
-  params_ = std::make_shared<ExprEvalHeuristic>("", runtime_info.getIndexType());
+  params_ = std::make_shared<HeuristicParams>();
 }
 
-//! Check if the no-op heuristics apply in given fusion
+// Check if the fusion has a single MatmulOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
-  // Check if the fusion has matmul node and accept
   auto exprs = fusion->exprs();
-  if (exprs->size() == 1 && exprs.front()->isA<MatmulOp>()){
+  if (exprs.size() == 1 && exprs.front()->isA<MatmulOp>()){
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
@@ -50,10 +44,4 @@ void ExprEvalScheduler::schedule(Fusion* fusion) {
         fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
 }
 
-void ExprEvalScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  return;
-}
 } // namespace nvfuser
