@@ -565,6 +565,20 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+TensorView* TensorView::flatten(int64_t from, int64_t to) {
+  NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
+  from = wrapDim(from);
+  to = wrapDim(to);
+  if (from > to) {
+    std::swap(from, to);
+  }
+  int64_t num_merges = to - from;
+  for (auto _ : c10::irange(num_merges)) {
+    (void)_;
+    merge(from);
+  }
+}
+
 TensorView* TensorView::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
