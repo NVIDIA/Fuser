@@ -20,10 +20,14 @@ using FeaturesTest = NVFuserTest;
 } // namespace
 
 TEST_F(FeaturesTest, DefaultFeatures) {
+  // Test looking up features by name
+  ASSERT_FALSE(nameToFeature("foo").has_value());
+  ASSERT_EQ(nameToFeature("index_hoist"), Feature::IndexHoist);
+
   FeatureSet feats;
 
-  // IndexHoist is enabled by default (this should fail if
-  // NVFUSER_DISABLE=index_hoist is given)
+  // IndexHoist is enabled by default (this should fail if the environment
+  // variable NVFUSER_DISABLE=index_hoist is present)
   ASSERT_TRUE(feats.has(Feature::IndexHoist));
 
   feats.set(Feature::IndexHoist, false);

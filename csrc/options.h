@@ -215,6 +215,12 @@ class FeatureSet : public EnumSet<Feature> {
   std::unordered_map<Feature, std::vector<std::string>> args_;
 };
 
+//! Get a mapping from all names to Features
+NVF_API const std::unordered_map<std::string, Feature>& nameToFeatureMap();
+
+//! Look up string name and return Feature, if it exists
+NVF_API std::optional<Feature> nameToFeature(std::string name);
+
 //! Types of features to enable
 //!
 //! These can be set through the `NVFUSER_ENABLE` environment variable

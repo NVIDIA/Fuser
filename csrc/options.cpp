@@ -416,19 +416,9 @@ const std::vector<std::string>& featureNames() {
   feature_names.at(toUnderlying(Feature::label)) = name;
     FOR_EACH_FEATURE(SET_FEATURE_NAME);
 #undef SET_FEATURE_NAME
-
     initialized = true;
   }
   return feature_names;
-}
-
-std::unordered_map<std::string, Feature> nameToFeature() {
-  std::unordered_map<std::string, Feature> named_features;
-#define INSERT_NAMED_FEATURE(name, label, enabled, cache_key, desc) \
-  named_features.emplace(name, Feature::label);
-  FOR_EACH_FEATURE(INSERT_NAMED_FEATURE);
-#undef INSERT_NAMED_FEATURE
-  return named_features;
 }
 
 void fillDefaultFeatures(FeatureSet* feats) {
@@ -442,9 +432,9 @@ void fillDefaultFeatures(FeatureSet* feats) {
   }
     FOR_EACH_FEATURE(ENABLE_DEFAULT_FEATURE);
 #undef ENABLE_DEFAULT_FEATURE
-    auto named_features = nameToFeature();
-    auto enabled = parseEnvOptions("ENABLE", named_features);
-    auto disabled = parseEnvOptions("DISABLE", named_features);
+    const auto& named_features_map = nameToFeatureMap();
+    const auto enabled = parseEnvOptions("ENABLE", named_features_map);
+    const auto disabled = parseEnvOptions("DISABLE", named_features_map);
     for (const auto& [feature, feature_args] : enabled) {
       size_t idx = (size_t)toUnderlying(feature);
       NVF_CHECK(
@@ -475,9 +465,31 @@ void fillDefaultFeatures(FeatureSet* feats) {
   feats->setArgs(all_args);
 }
 
+} // namespace
+
+const std::unordered_map<std::string, Feature>& nameToFeatureMap() {
+  static std::unordered_map<std::string, Feature> named_features_map;
+  static bool initialized = false;
+  if (!initialized) {
+#define INSERT_NAMED_FEATURE(name, label, enabled, cache_key, desc) \
+  named_features_map.emplace(name, Feature::label);
+    FOR_EACH_FEATURE(INSERT_NAMED_FEATURE);
+#undef INSERT_NAMED_FEATURE
+    initialized = true;
+  }
+  return named_features_map;
+}
+
 #undef FOR_EACH_FEATURE
 
-} // namespace
+std::optional<Feature> nameToFeature(std::string name) {
+  const auto& named_features_map = nameToFeatureMap();
+  auto it = named_features_map.find(name);
+  if (it != named_features_map.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
 
 FeatureSet::FeatureSet() {
   fillDefaultFeatures(this);
