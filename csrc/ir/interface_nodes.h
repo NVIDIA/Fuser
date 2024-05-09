@@ -315,6 +315,10 @@ class NVF_API TensorView : public Val {
     return merge(axis, axis + 1);
   }
 
+  // Flatten the axis from `from` to `to` into a single axis.
+  // Both `from` and `to` are inclusive.
+  TensorView* flatten(int64_t from = 0, int64_t to = -1);
+
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int64_t, int64_t>& old2new);
   TensorView* reorder(

@@ -83,9 +83,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
   // [N, C, H, W]
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   // [N*H*W*C]
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -123,9 +121,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
   // [N, C, H, W]
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   tv1->setAllocationDomain({tv1->axis(0)}, true);
   // [N*H*W*C]
   tv1->split(0, 128);
@@ -164,9 +160,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
   // [N, C, H, W]
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   // [N*H*W*C]
   tv1->split(0, 128);
   tv1->setAllocationDomain({tv1->axis(0), tv1->axis(1)}, true);
@@ -216,9 +210,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   // [N*H*W*C]
   tv1->split(0, 128);
   // [N*H*W*C/128, 128]
@@ -329,9 +321,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   // [N, C, H, W]
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   // [N*H*W*C]
   tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
@@ -392,9 +382,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   // [N, C, H, W]
   tv1->reorder({{1, -1}});
   // [N, H, W, C]
-  tv1->merge(0);
-  tv1->merge(0);
-  tv1->merge(0);
+  tv1->flatten();
   // [N*H*W*C]
   tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
@@ -641,9 +629,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
     // [N, C, H, W]
     tv->reorder({{1, -1}});
     // [N, H, W, C]
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
+    tv->flatten();
     // [N*H*W*C]
     tv->split(0, 4);
     tv->axis(1)->parallelize(ParallelType::Vectorize);
@@ -785,9 +771,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
     // [N, C, H, W]
     tv->reorder({{1, -1}});
     // [N, H, W, C]
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
+    tv->flatten();
     // [N*H*W*C]
     tv->split(0, 4);
     tv->axis(1)->parallelize(ParallelType::Vectorize);
@@ -930,9 +914,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
     // [N, C, H, W]
     tv->reorder({{1, -1}});
     // [N, H, W, C]
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
+    tv->flatten();
     // [N*H*W*C]
     tv->split(0, 4);
     tv->axis(1)->parallelize(ParallelType::Vectorize);
