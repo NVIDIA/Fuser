@@ -577,6 +577,7 @@ TensorView* TensorView::flatten(int64_t from, int64_t to) {
     (void)_;
     merge(from);
   }
+  return this;
 }
 
 TensorView* TensorView::reorder(
