@@ -9,49 +9,49 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
 #include <type.h>
 #include <visibility.h>
 
 namespace nvfuser {
 
-/*
-  This struct gathers all the parameters necessary for the
-  construction a communication
-*/
+// This struct gathers all the parameters necessary for the
+// construction a communication
 struct CommParams {
   DeviceIdxType root = -1;
-  std::vector<at::Tensor> src_bufs;
-  std::vector<at::Tensor> dst_bufs;
-  Team team; // should not have duplicate
+  bool is_root_in_mesh = true;
+  Team team; // should not have duplicates and should contain both the root and
+             // the mesh
   c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
+  int64_t scattered_axis = -1;
 };
 
-/*
-The class "Communication" represents a MPI-style communication
-communication operation to be executed on the network. The base class
-Communication should not be used directly but through its derived classes:
-Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will be
-added later.
+// The class "Communication" represents a MPI-style communication
+// communication operation to be executed on the network. The base class
+// Communication should not be used directly but through its derived classes:
+// Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will
+// be added later.
 
-CommParams contains the arguments for the communication constructors.
-Note that each process (associated with a device index given by
-communicator.deviceId()) will fill CommParams with different arguments,
-depending on the role they play in this communication. For example, the root of
-a Gather communication will have <team_size> destination buffers, whereas
-non-root will have no destination buffers. Also, the ranks not participating in
-the communication should not instantiate it.
+// CommParams contains the arguments for the communication constructors.
+// Note that each process (associated with a device index given by
+// communicator.deviceId()) will fill CommParams with different arguments,
+// depending on the role they play in this communication. For example, the root
+// of a Gather communication will have <team_size> destination buffers, whereas
+// non-root will have no destination buffers. Also, the ranks not participating
+// in the communication should not instantiate it.
 
-The method "post" triggers the execution of the communication. This call is
-non-blocking. The communication can be posted multiple times.
-It is assumed that the current device_index (given by
-communicator.deviceId()) belongs to the team of the communication,
-otherwise an error is thrown.
+// The method "post" triggers the execution of the communication. This call is
+// non-blocking. The communication can be posted multiple times.
+// It is assumed that the current device_index (given by
+// communicator.deviceId()) belongs to the team of the communication,
+// otherwise an error is thrown.
 
-NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
-scatter/gather operation.
-*/
-
+// NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
+// scatter/gather operation.
 class Communication {
  public:
   virtual ~Communication() = default;
@@ -66,6 +66,8 @@ class Communication {
   // The communication can be posted multiple times
   virtual c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) = 0;
 
  protected:
@@ -81,6 +83,7 @@ class Communication {
  private:
   // used for printing
   std::string collective_type_;
+  // FIXME: this seems to be redundant with `root_relative_index_`.
   // indicates if the communication is rooted
   bool has_root_ = true;
 };
@@ -99,6 +102,8 @@ class Broadcast : public Communication {
   Broadcast(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -118,6 +123,8 @@ class Gather : public Communication {
   Gather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -135,6 +142,8 @@ class Allgather : public Communication {
   Allgather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -153,6 +162,8 @@ class Scatter : public Communication {
   Scatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -170,6 +181,8 @@ class Reduce : public Communication {
   Reduce(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -185,6 +198,8 @@ class Allreduce : public Communication {
   Allreduce(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -200,6 +215,8 @@ class ReduceScatter : public Communication {
   ReduceScatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
@@ -223,6 +240,8 @@ class SendRecv : public Communication {
   SendRecv(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(
       Communicator& comm,
+      at::Tensor input_tensor,
+      at::Tensor output_tensor,
       std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
