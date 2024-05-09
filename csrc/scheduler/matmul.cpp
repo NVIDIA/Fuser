@@ -550,7 +550,7 @@ void scheduleProlog(
     shared_mem_tv->promoteReuse();
   }
 
-  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   swizzleSharedMemory(shared_mem_tv);
@@ -784,6 +784,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
+  const auto mma_layout_opt = mma->layout();
+  NVF_ERROR(
+      mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
+  // const auto mma_layout = mma_layout_opt.value();
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
+  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
+
+  const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
   const bool has_fusion_c_roles =
