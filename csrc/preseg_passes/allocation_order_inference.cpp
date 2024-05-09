@@ -70,8 +70,8 @@ void mapAllocationDomain(
     const IdModel& id_model,
     const TensorView* ref,
     TensorView* target) {
-  const DisjointSets<Val*>& val_sets =
-      id_model.idGraph(IdMappingMode::EXACT).disjointValSets();
+  const ValGraph& val_graph =
+      id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& target_rfactor_domain =
@@ -80,21 +80,33 @@ void mapAllocationDomain(
   // map target rfactor domain into ref's allocation domain
   nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
 
+  std::unordered_map<ValGroup, IterDomain*> vg_id_map;
+  for (auto* id : target_rfactor_domain) {
+    if (val_graph.hasGroup(id)) {
+      vg_id_map[val_graph.toGroup(id)] = id;
+    }
+  }
+
   // logic to preserve reduction iter domain in target to WAR #2202
 #if true
   // mapping id between ref's allocation domain to target's rfactor domain
   for (auto* ref_id : ref_alloc_domain) {
-    for (auto* id : target_rfactor_domain) {
-      // sharp-edges 0
-      // avoid mapping a reduced dimension.
-      if (!ref_id->isReduction() && id->isReduction()) {
-        continue;
-      }
-      if (val_sets.permissiveAreMapped(ref_id, id)) {
-        mapped_ids.pushBack(id);
-        break;
-      }
+    // skip when no ValGroup for ref_id to map.
+    if (!val_graph.hasGroup(ref_id)) {
+      continue;
     }
+    const ValGroup& vg = val_graph.toGroup(ref_id);
+    // skip when no mapping ValGroup found in target_rfactor_domain.
+    if (vg_id_map.count(vg) == 0) {
+      continue;
+    }
+    IterDomain* id = vg_id_map[vg];
+    // sharp-edges 0
+    // avoid mapping a reduced dimension.
+    if (!ref_id->isReduction() && id->isReduction()) {
+      continue;
+    }
+    mapped_ids.pushBack(id);
   }
 
   // removing mapped ids and reduction ids to create unmapped_ids.
@@ -133,12 +145,17 @@ void mapAllocationDomain(
 #else
   // mapping id between ref's allocation domain to target's rfactor domain
   for (auto* ref_id : ref_alloc_domain) {
-    for (auto* id : target_rfactor_domain) {
-      if (val_sets.permissiveAreMapped(ref_id, id)) {
-        mapped_ids.pushBack(id);
-        break;
-      }
+    // skip when no ValGroup for ref_id to map.
+    if (!val_graph.hasGroup(ref_id)) {
+      continue;
     }
+    const ValGroup& vg = val_graph.toGroup(ref_id);
+    // skip when no mapping ValGroup found in target_rfactor_domain.
+    if (vg_id_map.count(vg) == 0) {
+      continue;
+    }
+    IterDomain* id = vg_id_map[vg];
+    mapped_ids.pushBack(id);
   }
   std::vector<IterDomain*> target_alloc_domain = target_rfactor_domain;
   // removing mapped ids.
