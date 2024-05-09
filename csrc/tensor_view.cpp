@@ -565,19 +565,6 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
-TensorView* TensorView::flatten(int64_t from, int64_t to) {
-  NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
-  from = wrapDim(from);
-  to = wrapDim(to);
-  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
-  int64_t num_merges = to - from;
-  for (auto _ : c10::irange(num_merges)) {
-    (void)_;
-    merge(from);
-  }
-  return this;
-}
-
 TensorView* TensorView::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
@@ -828,8 +815,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->macro(),
-        this_mma->layout());
+        this_mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.

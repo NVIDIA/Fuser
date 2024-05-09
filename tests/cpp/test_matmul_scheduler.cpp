@@ -156,13 +156,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -255,13 +248,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -360,13 +346,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -461,13 +440,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -574,13 +546,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -675,13 +640,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -769,13 +727,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -876,13 +827,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -991,13 +935,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1121,13 +1058,6 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must be always TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1186,19 +1116,6 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must be always TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
@@ -1259,13 +1176,6 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must be always TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1324,13 +1234,6 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1389,13 +1292,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1456,13 +1352,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1532,13 +1421,6 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1616,13 +1498,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1706,13 +1581,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1800,13 +1668,6 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
@@ -1879,19 +1740,6 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
@@ -1967,19 +1815,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
@@ -2068,19 +1903,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
@@ -2157,19 +1979,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
@@ -2239,19 +2048,6 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(

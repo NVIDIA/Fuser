@@ -319,6 +319,8 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
 //! fusion has blockDim.x = 128, this function will return 3 instead of 128.
 Val* getNumThreadsInTensorView(TensorView* tv);
 
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

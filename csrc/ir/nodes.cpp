@@ -2082,8 +2082,6 @@ MmaOp::MmaOp(
   addDataAttribute(AxesData{});
   // ATTR_POS_BATCH_AXES
   addDataAttribute(AxesData{});
-  // ATTR_POS_INPUT_LAYOUT
-  addDataAttribute(MmaLayoutOpt{});
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -2098,7 +2096,6 @@ MmaOp::MmaOp(
   attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
   attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
   attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
-  attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = mma_details.input_layout;
 }
 
 MmaOp::MmaOp(
@@ -2107,24 +2104,9 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaMacro& macro,
-    const MmaLayoutOpt& input_layout)
+    const MmaMacro& macro)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
-
-  const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
-  if (input_layout_.has_value()) {
-    NVF_ERROR(input_layout.has_value());
-    NVF_ERROR(
-        input_layout_.value() == input_layout.value(),
-        "Input layout mismatch, infered attribute (",
-        nvfuser::toString(input_layout_.value()),
-        "), provided attribute (",
-        nvfuser::toString(input_layout.value()),
-        ")");
-  } else {
-    attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = input_layout;
-  }
 }
 
 std::string MmaOp::toString(int indent_size) const {

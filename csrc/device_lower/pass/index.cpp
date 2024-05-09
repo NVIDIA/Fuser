@@ -1578,6 +1578,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
+  auto layout = lower_utils::getMmaLayout(mma);
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -1587,15 +1588,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)
-        ? getK(mma->macro())
-        : getM(mma->macro());
+        layout[0] == UnitDim::K ? getK(mma->macro()) : getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
+    if (swizzle == MmaInputSmemSwizzle::None && layout[0] == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
@@ -1622,15 +1620,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN)
-        ? getK(mma->macro())
-        : getN(mma->macro());
+        layout[1] == UnitDim::K ? getK(mma->macro()) : getN(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
+    if (swizzle == MmaInputSmemSwizzle::None && layout[1] == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
@@ -1651,7 +1646,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(
-      out, a, b, mma->init(), mma->macro(), mma->layout());
+      out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
   if (mma->isHopper()) {

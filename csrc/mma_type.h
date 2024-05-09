@@ -203,6 +203,7 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 //! TN : M,K X N,K -> M,N
 //! NN : K,M X N,K -> M,N
 enum class MmaLayout { NT = 0, TT, TN, NN };
+enum class UnitDim { K, M_or_N };
 
 //! Utility to annotate which input of mma this option struct describes
 enum class MmaOperand { Accumulator = 0, A, B };
