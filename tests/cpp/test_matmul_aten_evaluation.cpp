@@ -445,8 +445,8 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
 
   const auto& [a_shape, b_shape] = GetParam();
 
-  auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
-  auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);
+  auto tv0 = makeSymbolicTensor(a_shape, DataType::Half);
+  auto tv1 = makeSymbolicTensor(b_shape, DataType::Half);
   auto tv2 = eagerMatmul(tv0, tv1);
 
   fusion->addInput(tv0);
@@ -479,8 +479,13 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             Sizes({k}),
             Sizes({m, k}),
+            Sizes({1, k}),
             Sizes({b, m, k}),
             Sizes({b, 1, m, k})),
-        testing::Values(Sizes({k}), Sizes({k, n}), Sizes({b, k, n}))));
+        testing::Values(
+            Sizes({k}),
+            Sizes({k, n}),
+            Sizes({k, 1}),
+            Sizes({b, k, n}))));
 
 } // namespace nvfuser
