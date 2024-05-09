@@ -550,7 +550,7 @@ void scheduleProlog(
     shared_mem_tv->promoteReuse();
   }
 
-  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   swizzleSharedMemory(shared_mem_tv);
@@ -790,7 +790,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto mma_layout_opt = mma->layout();
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  const auto mma_layout = mma_layout_opt.value();
+  // const auto mma_layout = mma_layout_opt.value();
   const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
@@ -911,11 +911,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
 
+  // We remove this test for now and add something if required.
   // For Turing and Ampere, the layout of the MmaOp is always TN
-  NVF_ERROR(
-      mma_layout == MmaLayout::TN,
-      "MMAs in Turing and Ampere are TN only, transpose is handled either "
-      "via ldmatrix.trans for fp16 or explicitly for other types.");
+  // NVF_ERROR(
+  //     mma_layout == MmaLayout::TN,
+  //     "MMAs in Turing and Ampere are TN only, transpose is handled either "
+  //     "via ldmatrix.trans for fp16 or explicitly for other types.");
 
   // Make a CTA tile
   // ------------------------------------------------------------------

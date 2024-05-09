@@ -402,11 +402,11 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
 
 namespace {
 
-std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
     IterDomain* id,
-    const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
+    const std::unordered_set<IterDomain*>& maybe_allocation_id_set) {
   // Root id defaults to an "innermost id".
-  while (id->definition() && !maybe_rfactor_id_set.count(id)) {
+  while (id->definition() && !maybe_allocation_id_set.count(id)) {
     if (auto split = dynamic_cast<Split*>(id->definition())) {
       if (id == split->inner()) {
         id = split->in();
@@ -422,16 +422,17 @@ std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
 
 } // namespace
 
-void orderTiledConcreteIdAsRoot(TensorView* tv) {
+void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   int64_t ndims = tv->nDims();
 
   // Keep track of the left most position where we will
   //  be reordering the axes.
   int64_t leftmost_pos = ndims;
 
-  // Pull the root id's of the given tv.
-  std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+  // Pull the maybe allocation domain id's of the given tv.
+  std::unordered_set<IterDomain*> id_set{
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.
@@ -440,9 +441,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  here for completeness.
   std::deque<int64_t> broadcast_or_reduction_pos;
 
-  // Map the root id's to their innermost concrete id's
+  // Map the id's to their innermost concrete id's
   //  on the leaf.
-  std::unordered_map<IterDomain*, int64_t> root_id_to_inner_leaf_pos;
+  std::unordered_map<IterDomain*, int64_t> id_to_inner_leaf_pos;
 
   // Try to re-order inner iterdomains from the innermost
   //  position backward. This utility only tries to re-order
@@ -466,18 +467,17 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
       leftmost_pos = i;
       continue;
     }
-    auto maybe_root =
-        getMaybeRootIfInnermostTiled(leaf_id, maybe_rfactor_id_set);
+    auto maybe_alloc_domain =
+        getMaybeAllocationIfInnermostTiled(leaf_id, id_set);
 
-    if (maybe_root.has_value()) {
+    if (maybe_alloc_domain.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
       NVF_ERROR(
-          root_id_to_inner_leaf_pos
-              .insert(std::make_pair(maybe_root.value(), i))
+          id_to_inner_leaf_pos.insert(std::make_pair(maybe_alloc_domain.value(), i))
               .second,
-          "Multiple \"innermost\" id seen for root id :",
-          maybe_root.value()->toString(),
+          "Multiple \"innermost\" id seen for id :",
+          maybe_alloc_domain.value()->toString(),
           " on ",
           tv->toString(),
           " very likely an invariant is broken.");
@@ -504,9 +504,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getMaybeRFactorDomain()) {
-    auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
-    if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
+  for (auto id : tv->getMaybeAllocationDomain()) {
+    auto leaf_id_pos_it = id_to_inner_leaf_pos.find(id);
+    if (leaf_id_pos_it != id_to_inner_leaf_pos.end()) {
       reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
     }
   }

@@ -57,11 +57,11 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //!  root domain. Also putting broadcast domains on the left.
-//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (root domain: I1,B,I0)
+//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (maybe allocation domain: I1,B,I0)
 //! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
 //! This is used to facilitate data layout swizzling and
 //!  defining vectorized loads.
-void orderTiledConcreteIdAsRoot(TensorView* tv);
+void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
 //! [Device, Batch, Previous Reduction, M, N, K]
