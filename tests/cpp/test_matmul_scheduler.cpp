@@ -2376,6 +2376,23 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// This test can be used to check that an external plugin has been loaded. It
+// is DISABLED_ so that the test suite will pass even if the user has not
+// provided a plugin via NVFUSER_MATMUL_HEURISTIC_PLUGIN. To check that a
+// plugin can be loaded properly, invoke the test suite like so:
+//
+//   export NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/plugin.so
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+
+  EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
+
+  MatmulParams params;
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
