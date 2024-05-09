@@ -318,6 +318,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // supported inputs layout
   // 3. Check if fusion represents expressions that are recognized by matmul
   // scheduler.
+  // 4. Check that epilogue contains only pointwise ops.
 
   // #1
   // Initializing the machinery to check if there's a Mul-Sum pair
@@ -347,6 +348,37 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         fusion, mma_from_mul_sums.front().insouts);
     if (!support_status.empty()) {
       return support_status;
+    }
+  }
+
+  // #4
+  {
+    std::vector<Val*> epilogue_inputs;
+    for (const mma_utils::MulSumProperties& props : mma_from_mul_sums) {
+      epilogue_inputs.push_back(props.insouts.out);
+      const auto& roles_map_opt =
+          mma_utils::getTensorsRoles(fusion, props.insouts);
+      // TODO: re-use the roles maps generated in
+      // isMatmulFusionDefinitionSupported, or move this functionality into
+      // that function
+      if (!roles_map_opt.isValid()) {
+        return roles_map_opt.getErrorMsg();
+      }
+      const auto& roles_map = roles_map_opt.getData();
+      auto c_inputs = roles_map.find(MatmulRole::INPUT_C);
+      if (c_inputs != roles_map.end()) {
+        epilogue_inputs.insert(
+            epilogue_inputs.end(),
+            c_inputs->second.begin(),
+            c_inputs->second.end());
+      }
+    }
+
+    for (Expr* e :
+         StmtSort::getExprsBetween(epilogue_inputs, fusion->outputs())) {
+      if (!e->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
+        return "epilogue must contain only pointwise operations";
+      }
     }
   }
 

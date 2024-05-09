@@ -2333,6 +2333,45 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// Test that we segment an unsupported matmul properly
+TEST_F(MatmulSchedulerTest, SegmentLinearUnsupportedEpilogueReduction) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  const int M = 504, N = 136, K = 248;
+
+  auto fusion = std::make_unique<Fusion>();
+
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = linear(tv0, tv1);
+
+  to tv3 = sum(tv2, {1});
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const auto options =
+      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+
+  auto tref = at::linear(t0, t1).sum(1);
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
+  
