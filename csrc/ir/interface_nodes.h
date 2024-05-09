@@ -105,10 +105,6 @@ class NVF_API TensorView : public Val {
       DataType dtype,
       MemoryType mtype = MemoryType::Local);
 
-  explicit TensorView(
-      IrBuilderPasskey passkey,
-      const std::shared_ptr<c10::TensorType>& tensor_type);
-
   TensorView(const TensorView* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
@@ -170,7 +166,7 @@ class NVF_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  std::optional<unsigned int> getReductionAxis() const {
+  std::optional<int64_t> getReductionAxis() const {
     return domain()->getReductionAxis();
   }
 
@@ -216,7 +212,7 @@ class NVF_API TensorView : public Val {
         std::move(new_allocation_domain), new_contiguity);
   }
 
-  IterDomain* axis(int pos) const;
+  IterDomain* axis(int64_t pos) const;
 
   // Does it share outer axes with other tensors?
   bool hasComputeAt() const {
@@ -227,8 +223,8 @@ class NVF_API TensorView : public Val {
     return max_producer_pos_ > 0;
   }
 
-  size_t nDims() const {
-    return domain()->nDims();
+  int64_t nDims() const {
+    return (int64_t)domain()->nDims();
   }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
@@ -250,17 +246,17 @@ class NVF_API TensorView : public Val {
   }
 
   // Returns the position that this tensor is produced at relative to its axes.
-  unsigned int getComputeAtPosition() const {
+  int64_t getComputeAtPosition() const {
     return compute_at_pos_;
   }
 
   // Returns the maximum position of producers are being computed at relative to
   // this tensor. This position dictates the clear expectations of producers.
-  unsigned int getMaxProducerPosition() const {
+  int64_t getMaxProducerPosition() const {
     return max_producer_pos_;
   }
 
-  unsigned int getMaybeMaxProducerPosition() const {
+  int64_t getMaybeMaxProducerPosition() const {
     return maybe_max_producer_pos_;
   }
 
@@ -281,7 +277,7 @@ class NVF_API TensorView : public Val {
   //! ignored, and the deepest possible position is searched.
   TensorView* computeAt(
       TensorView* consumer,
-      int position,
+      int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
 
   // Split "axis" into 2 axes
@@ -296,8 +292,8 @@ class NVF_API TensorView : public Val {
   //! When trim_out_of_bounds is true, only the inner domain defined by the
   //! start and stop positions is split.
   TensorView* split(
-      int axis,
-      unsigned int factor,
+      int64_t axis,
+      int64_t factor,
       bool inner_split = true,
       bool trim_out_of_bounds = false);
 
@@ -306,29 +302,41 @@ class NVF_API TensorView : public Val {
   // value instead of constant. This requires setting the symbolic value as an
   // input, or using a parallel dim from NamedScalar::getParallelDim
   TensorView* split(
-      int axis,
+      int64_t axis,
       Val* factor,
       bool inner_split = true,
       bool trim_out_of_bounds = false);
 
   // Merge axis_o and axis_i into 1 IterDomain
-  TensorView* merge(int axis_o, int axis_i);
+  TensorView* merge(int64_t axis_o, int64_t axis_i);
 
   // Merge axis and axis+1 into 1 IterDomain
-  TensorView* merge(int axis) {
+  TensorView* merge(int64_t axis) {
     return merge(axis, axis + 1);
   }
 
+  // Flatten the axis from `from` to `to` into a single axis.
+  // Both `from` and `to` are inclusive.
+  TensorView* flatten(int64_t from = 0, int64_t to = -1);
+
   // Reorder axes according to old2new[old_pos] = new_pos
-  TensorView* reorder(const std::unordered_map<int, int>& old2new);
+  TensorView* reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  TensorView* reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
+
+  // Reorder axes based on the vector permutation.
+  // In terms of the function above, this can be seen as ol2new[index] =
+  // permutation[index]
+  TensorView* reorder(const std::vector<int64_t>& permutation);
+  TensorView* reorder(const std::initializer_list<int64_t>& permutation);
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
-  TensorView* swizzle(SwizzleType swizzle_type, int x, int y);
+  TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
-      int x,
-      int y,
+      int64_t x,
+      int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
@@ -349,13 +357,13 @@ class NVF_API TensorView : public Val {
   //  TV2[I0, R1, I2, I3] = TV0[I0, I1, I2, I3]
   //  TV1[I0, R2, I3] = TV2[I0, R1, I2, I3]
   //
-  TensorView* rFactor(const std::vector<int>& axes);
+  TensorView* rFactor(const std::vector<int64_t>& axes);
 
   //! Multi-output version of rFactor, semantically similar with
   //! the reduction version except that the rfactor is done
   //! for all outputs in a consistent way
   std::vector<TensorView*> rFactor(
-      const std::vector<int>& axes,
+      const std::vector<int64_t>& axes,
       const std::vector<TensorView*>& tvs);
 
   //! Create a TensorView before the original tensor. A common use case is to
@@ -391,7 +399,7 @@ class NVF_API TensorView : public Val {
   void doubleBuffer();
 
   // Apply circular buffering transformation
-  void circularBuffer(unsigned int number_of_stage);
+  void circularBuffer(int64_t number_of_stage);
 
   // Returns true if this tensor is double buffered.
   bool isDoubleBuffered() const {
@@ -404,7 +412,7 @@ class NVF_API TensorView : public Val {
   }
 
   // Returns the depth of circular buffering if applicable.
-  unsigned int circularBufferDepth() const {
+  int64_t circularBufferDepth() const {
     NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
   }
@@ -415,11 +423,7 @@ class NVF_API TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
-  // TODO: what is transpose 2? Why do we need it?
-  void applyMmaSwizzle(
-      MmaInputSmemSwizzle swizzle,
-      bool transpose,
-      bool transpose2 = false);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -459,7 +463,7 @@ class NVF_API TensorView : public Val {
   //! consumer, then this call is a no-op. The actual position is
   //! computed in the same way as inlineAt, except that computeWith
   //! does not have the constraint of the persistent data-dependency pattern.
-  void computeWith(int pos, bool best_effort = false);
+  void computeWith(int64_t pos, bool best_effort = false);
 
   //! Set the actual consumer tensors that this tensor is
   //! computed with. Requires a topologically sorted list expressions,
@@ -483,11 +487,11 @@ class NVF_API TensorView : public Val {
   //! error to use this function without first resolving computeWith.
   const std::vector<TensorView*>& getComputeWithConsumers() const;
 
-  unsigned int getComputeWithPosition() const {
+  int64_t getComputeWithPosition() const {
     return compute_with_pos_;
   }
 
-  unsigned int getMaxComputePosition() const {
+  int64_t getMaxComputePosition() const {
     return std::max(getComputeWithPosition(), getComputeAtPosition());
   }
 
@@ -496,7 +500,7 @@ class NVF_API TensorView : public Val {
   //! which also means its computeWith needs to have been resolved, the
   //! computeWith position is returned. Otherwise, the default computeAt
   //! position is retured.
-  unsigned int getComputePosition(const TensorView* consumer) const;
+  int64_t getComputePosition(const TensorView* consumer) const;
 
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
@@ -550,25 +554,22 @@ class NVF_API TensorView : public Val {
   }
 
  private:
-  int64_t normalizeAxisPos(int64_t pos) const {
-    if (pos < 0) {
-      pos += (int64_t)nDims();
-    }
-    return pos;
+  int64_t wrapDim(int64_t dim) const {
+    return nvfuser::wrapDim(dim, nDims());
   }
 
   //! A helper function to maintain the consistency of schedules of
   //! multiple outputs wheen doing rfactor on multi-output reduction ops.
-  TensorView* multiOutputRfactorHelper(
+  TensorView* multiOutputRFactorHelper(
       TensorView* tv,
-      const std::vector<int>& axes);
+      const std::vector<int64_t>& axes);
 
   void clearComputeWith();
 
  private:
   TensorDomain* domain_ = nullptr;
-  unsigned int compute_at_pos_ = 0;
-  unsigned int max_producer_pos_ = 0;
+  int64_t compute_at_pos_ = 0;
+  int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   bool is_double_buffered_ = false;
 
@@ -576,7 +577,7 @@ class NVF_API TensorView : public Val {
   bool is_circular_buffered_ = false;
 
   //! Indicates the circular buffering stage depth if applicable.
-  unsigned int circular_buffer_stage_ = 0;
+  int64_t circular_buffer_stage_ = 0;
 
   // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that
   // only have one value). This is only used if on an input value, otherwise
@@ -597,7 +598,7 @@ class NVF_API TensorView : public Val {
   //! Position where this tensor is computed with the compute-with
   //! consumer tensors. It should be always be equal or greater than
   //! the computeAt position
-  unsigned int compute_with_pos_ = 0;
+  int64_t compute_with_pos_ = 0;
 
   //! Maximum position where producers may be computed at, including
   //! unresolved computeWith. This is equal to max_producer_pos_ when
@@ -605,7 +606,7 @@ class NVF_API TensorView : public Val {
   //! resolving computeWith so that no IterDomain should never be
   //! transformed when there may actually be a producer tensor that
   //! may be computed at.
-  unsigned int maybe_max_producer_pos_ = 0;
+  int64_t maybe_max_producer_pos_ = 0;
 
   //! When this is true, it indicates, if this is a shared memory tensor and
   //! there other shared memory tensors whose lifetimes do not overlap and come
@@ -633,7 +634,7 @@ class NVF_API TensorView : public Val {
 class NVF_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
-  TensorViewBuilder& ndims(size_t ndims);
+  TensorViewBuilder& ndims(int64_t ndims);
 
   //! Set the data type of the tensor (default DataType::Float)
   TensorViewBuilder& dtype(DataType dtype);
@@ -656,7 +657,7 @@ class NVF_API TensorViewBuilder {
   TensorView* build() const;
 
  private:
-  size_t ndims_ = 0;
+  int64_t ndims_ = 0;
   DataType dtype_ = DataType::Float;
 
   // contiguity_ is the vector that you will pass to the constructor of

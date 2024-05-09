@@ -40,7 +40,7 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
                     .getIterDomainEquivalence();
 
   for (const auto i : c10::irange(ref->nDims())) {
-    if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {
+    if (!replay.permissiveAreMapped(ref->axis(i), other->axis(i))) {
       return false;
     }
   }

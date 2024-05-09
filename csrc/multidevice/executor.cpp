@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
@@ -161,23 +160,26 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
+
+  auto communications = lowerCommunication(comm_.deviceId(), expr);
+
+  // Compute input_tensor and output_tensor.
   auto input_val = expr->inputs().at(0);
   auto output_val = expr->outputs().at(0);
-  at::Tensor input_tensor, output_tensor;
+  at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
   }
+  at::Tensor output_tensor;
   if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  auto communications =
-      lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
-
   // post and wait communications
   for (auto& communication : communications) {
-    auto work = communication->post(comm_);
-    if (work) {
+    c10::intrusive_ptr<c10d::Work> work =
+        communication->post(comm_, input_tensor, output_tensor);
+    if (work != nullptr) {
       work->wait();
     }
   }
@@ -256,12 +258,8 @@ std::ostream& MultiDeviceExecutor::print() {
   int communication_counter = 0;
   for (auto group : workspace.group_run_order) {
     if (is_resharding_[group]) {
-      debug() << "Communication " << communication_counter << ":{\n";
-      for (const auto& comm :
-           lowerCommunication(comm_.deviceId(), group->exprs().at(0), {}, {})) {
-        debug() << comm->toString(2) << "\n";
-      }
-      debug() << "}\n";
+      debug() << "Communication " << communication_counter << ": "
+              << group->exprs().at(0) << "\n";
       communication_counter++;
     } else {
       debug() << "Compute segment " << compute_segment_counter << ":{\n";
@@ -275,5 +273,3 @@ std::ostream& MultiDeviceExecutor::print() {
 }
 
 } // namespace nvfuser
-
-#endif

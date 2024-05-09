@@ -27,6 +27,9 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
+#include <mutex>
+#include <sstream>
+
 namespace nvfuser {
 
 namespace {
@@ -1212,7 +1215,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   kernel_time_ms_ += executor.kernelTimeMs();
 
   // Print relevant information all at once for easy debuging of perf
-  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) &&
+      executor.hasCompiledKernel()) {
     debug() << "\nRun kernel:\n";
     if (sg) {
       auto local_fusion = segmented_fusion_->makeFusion(sg).second;
@@ -1265,6 +1269,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
+  std::string thread_pool_error_message;
+  std::mutex thread_pool_error_message_mutex;
   for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
@@ -1290,7 +1296,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             args,
                             group_runtime_inputs,
                             group_to_run,
-                            &detect_exception_in_thread_pool]() {
+                            &detect_exception_in_thread_pool,
+                            &thread_pool_error_message,
+                            &thread_pool_error_message_mutex]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
@@ -1300,6 +1308,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
           detect_exception_in_thread_pool.store(true);
+          const std::lock_guard<std::mutex> lock(
+              thread_pool_error_message_mutex);
+          std::stringstream ss;
+          ss << thread_pool_error_message << "\nError from segmentation group "
+             << group_to_run->groupId() << ": " << e.what() << "\n";
+          thread_pool_error_message = ss.str();
         }
       });
     }
@@ -1320,8 +1334,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
-        "Detected exception while compiling fusion segments in parallel.\n",
-        "Use NVFUSER_DISABLE=parallel_compile to print exception message.");
+        "Detected exception while compiling fusion segments in parallel. ",
+        "Error messages from all threads are printed below.\n",
+        thread_pool_error_message,
+        "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
@@ -1379,7 +1395,6 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
-  NVF_ERROR(executors_.at(group_id).isCompiled());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
@@ -1610,15 +1625,10 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   FusionKernelRuntime::HeuristicsPtr heuristics =
       std::make_unique<FusionHeuristics>(num_groups);
 
-  // Store metadata copy of arguments for ArgumentManager
-  KernelArgumentHolder args_metadata = copyMetadataArg(args);
-
-  // ArgumentManager manipulates the KernelArgumentHolder argument.
-  // We make another metadata copy for the PrecomputedValues.
-  KernelArgumentHolder complete_fusion_metadata_args(args_metadata);
-
+  // We make a mutable copy of args so that we can use it in an ArgumentManager
+  KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
-      args_metadata, runtime_workspace_, segmented_fusion_->inputs());
+      mutable_args, runtime_workspace_, segmented_fusion_->inputs());
 
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
@@ -1642,7 +1652,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     // TODO Remove binding the original fusion inputs when creating heuristics
     // for fusion segment.
     evaluator_precomputed_values->bindValues(
-        group_to_run->getCompleteFusionInputs(), complete_fusion_metadata_args);
+        group_to_run->getCompleteFusionInputs(), args);
     evaluator_precomputed_values->evaluate();
 
     // Get all tensorviews for segmented fusion

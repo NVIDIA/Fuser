@@ -2930,7 +2930,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   const auto& in_root =
       TensorDomain::noReductions(in_val->getMaybeRFactorDomain());
   const auto& out_root = out_avg->getRootDomain();
-  std::vector<int> red_axes;
+  std::vector<int64_t> red_axes;
 
   NVF_ERROR(
       in_root.size() == out_root.size(),
@@ -2944,9 +2944,9 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   //  counting.
   Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
-  for (const auto i : c10::irange(in_root.size())) {
+  for (const auto i : c10::irange((int64_t)in_root.size())) {
     if (out_root.at(i)->isReduction()) {
-      red_axes.push_back((int)i);
+      red_axes.push_back(i);
       broadcast_mask[i] = true;
       num_features = mul(num_features, out_root.at(i)->extent());
     }
@@ -3463,14 +3463,14 @@ class CombineReductions {
 
       for (const auto i : c10::irange(root_domain_size_)) {
         if (root_domain[i]->isReduction()) {
-          reduction_axes_.push_back((int)i);
+          reduction_axes_.push_back(i);
         }
       }
     }
 
    private:
-    size_t root_domain_size_ = 0;
-    std::vector<int> reduction_axes_;
+    int64_t root_domain_size_ = 0;
+    std::vector<int64_t> reduction_axes_;
     bool has_reduction_ = false;
   };
 

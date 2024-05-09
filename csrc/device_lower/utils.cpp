@@ -725,7 +725,7 @@ BasicAllocInfo getAllocInformation(
       break;
     }
 
-    if (tv->axis((int)info.alloc_pos)->isReduction()) {
+    if (tv->axis(info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
@@ -758,12 +758,12 @@ BasicAllocInfo getAllocInformation(
     // Allocation of a double buffered tensor is placed outside its
     // double buffer axis.
     if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
-        tv->axis((int)info.alloc_pos) ==
+        tv->axis(info.alloc_pos) ==
             gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
       outer_alloc_found = true;
     }
 
-    auto local_id = tv->axis((int)info.alloc_pos);
+    auto local_id = tv->axis(info.alloc_pos);
 
     if (use_id_map) {
       auto id_it = id_map.find(local_id);

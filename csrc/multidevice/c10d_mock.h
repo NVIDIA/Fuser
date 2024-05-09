@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #pragma once
 
 #include <ATen/core/TensorBody.h>
@@ -11,7 +18,15 @@ class Work : public torch::CustomClassHolder {
 };
 
 struct ReduceOp : torch::CustomClassHolder {
-  enum RedOpType : uint8_t {
+  enum RedOpType {
+    SUM,
+    AVG,
+    PRODUCT,
+    MIN,
+    MAX,
+    BAND,
+    BOR,
+    BXOR,
     UNUSED,
   };
 

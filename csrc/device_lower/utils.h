@@ -277,7 +277,7 @@ struct BasicAllocInfo {
   // The allocation position relative to buffer IDs, it could be outside the
   // compute at position if it's shared memory with a compute at inside an
   // unswitch
-  size_t alloc_pos = 0;
+  int64_t alloc_pos = 0;
 };
 
 // Fill the above allocation struct based on provided information. id_map is

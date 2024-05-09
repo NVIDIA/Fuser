@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
@@ -105,6 +108,7 @@ def layernorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
 def test_layernorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,

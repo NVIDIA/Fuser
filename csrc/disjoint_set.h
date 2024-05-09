@@ -180,7 +180,7 @@ class VectorOfUniqueEntries {
   }
 
   // Returns the number of elements in this container
-  size_t size() const {
+  int64_t size() const {
     return vector_.size();
   }
 
@@ -246,11 +246,11 @@ class VectorOfUniqueEntries {
     return vector_.end();
   }
 
-  T& at(size_t pos) {
+  T& at(int64_t pos) {
     return vector_.at(pos);
   }
 
-  const T& at(size_t pos) const {
+  const T& at(int64_t pos) const {
     return vector_.at(pos);
   }
 

@@ -38,12 +38,12 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
-  inline int getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
-    int num_grouped_iterations = 1;
+  inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
+    int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
     for (auto axis : out_tv->getLeafDomain()) {
       if (axis->getParallelType() == ParallelType::Group) {
-        num_grouped_iterations *= (int)axis->extent()->value();
+        num_grouped_iterations *= axis->extent()->value().as<int64_t>();
       }
     }
     NVF_ERROR(
@@ -137,7 +137,7 @@ class KernelIrScanner : private IrVisitor {
     }
     // process iteration grouped reduction
     summary_.has_iter_grouped_reductions = true;
-    int num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
+    int64_t num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
   }
@@ -195,8 +195,8 @@ class KernelIrScanner : private IrVisitor {
           tidy_val->isConstInt(),
           "TIDy is expected to be a const int: ",
           tidy_val->toInlineString());
-      auto tidx = static_cast<int>(tidx_val->evaluate());
-      auto tidy = static_cast<int>(tidy_val->evaluate());
+      auto tidx = tidx_val->evaluate().as<int64_t>();
+      auto tidy = tidy_val->evaluate().as<int64_t>();
       summary_.outer_grouped_grid_welford_largest_smem_size = std::max(
           summary_.outer_grouped_grid_welford_largest_smem_size,
           grid_welford->getSmemBufferSize(tidx, tidy, 1));
@@ -443,7 +443,7 @@ void KernelPerformanceProfile::registerExpr(const Expr* expr) {
   expr_entry_map_.emplace(expr, slot);
 }
 
-int KernelPerformanceProfile::getNewIndex() {
+int64_t KernelPerformanceProfile::getNewIndex() {
   return num_profile_entries_++;
 }
 
@@ -451,21 +451,22 @@ bool KernelPerformanceProfile::isProfiled(const Expr* expr) const {
   return expr_entry_map_.find(expr) != expr_entry_map_.end();
 }
 
-std::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
+std::optional<int64_t> KernelPerformanceProfile::getIndex(
+    const Expr* expr) const {
   auto it = expr_entry_map_.find(expr);
   if (it == expr_entry_map_.end()) {
-    return std::optional<int>();
+    return std::optional<int64_t>();
   } else {
     return it->second;
   }
 }
 
-std::array<int, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
+std::array<int64_t, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
     const Expr* expr) const {
   NVF_ERROR(isProfiled(expr), "Not a profiled expression: ", expr->toString());
 
-  int cycle_index = getIndex(expr).value() * 2;
-  int count_index = cycle_index + 1;
+  int64_t cycle_index = getIndex(expr).value() * 2;
+  int64_t count_index = cycle_index + 1;
 
   return {cycle_index, count_index};
 }

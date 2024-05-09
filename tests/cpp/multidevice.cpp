@@ -5,7 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
+#include <sys/types.h>
+#include <unistd.h>
+#include <mutex>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -17,76 +20,95 @@
 
 namespace nvfuser {
 
-auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
-    testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
+MultiDeviceTest::MultiDeviceTest() {
+  communicator = getOrCreateCommunicator();
+  tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+  debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
-void MultiDeviceEnvironment::SetUp() {
-  communicator_ = std::make_unique<Communicator>();
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
-    do_barrier_at_test_ = true;
-  }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip_ = true;
+  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
+  if (rank_to_debug_str != nullptr) {
+    const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        waitForDebuggerAtRank(rank_to_debug);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
   }
 }
 
-void MultiDeviceEnvironment::TearDown() {
-  if (communicator_->is_available()) {
-    communicator_->barrier();
+MultiDeviceTest::~MultiDeviceTest() {
+  // Force all processes to synchronize at a barrier between tests. It slightly
+  // slows the tests down, but makes it much easier to isolate a failing test.
+  // Without this, if a test fails such that a subset of processes fail, then
+  // some processes will move onto another tests and timeout later.
+  if (communicator->is_available()) {
+    communicator->barrier();
   }
-  communicator_.reset();
+}
+
+void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
+  NVF_CHECK(
+      rank >= 0 && rank < communicator->size(),
+      "rank=",
+      rank,
+      " must be in the range of [0,",
+      communicator->size(),
+      ").");
+
+  if (communicator->deviceId() == rank) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+  }
+
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
 }
 
 void MultiDeviceTest::SetUp() {
+  // Set the same random seed for all processes.
   NVFuserTest::SetUp();
-  communicator = multidevice_env->communicator();
-  debug_print = multidevice_env->debugPrint();
-  do_barrier_at_test =
-      multidevice_env->doBarrierAtTest() && communicator->is_available();
-  disable_skip = multidevice_env->disableSkip();
-  if (!disable_skip &&
-      (!communicator->is_available() || communicator->size() < 2 ||
-       torch::cuda::device_count() < 2)) {
-    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
+
+  if (!disable_skip && !communicator->is_available()) {
+    GTEST_SKIP() << "This test needs an available communicator.";
   }
-  tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator->device());
 }
 
-void MultiDeviceTest::TearDown() {
-  if (do_barrier_at_test && communicator->is_available()) {
-    communicator->barrier();
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    TensorView* tv,
+    DeviceIdxType deviceId) {
+  if (!isSharded(tv)) {
+    return tensor;
   }
-  NVFuserTest::TearDown();
+  auto sharded_dim = getShardedAxis(tv);
+  int i = 0;
+  const auto& devices = tv->getDeviceMesh().vector();
+  auto it = std::find(devices.begin(), devices.end(), deviceId);
+  if (it != devices.end()) {
+    i = std::distance(devices.begin(), it);
+  }
+  return tensor.slice(sharded_dim, i, i + 1).contiguous();
 }
 
-void CommunicationTest::SetUp() {
-  MultiDeviceTest::SetUp();
-  if (!communicator->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
-  }
-  all_ranks = std::vector<DeviceIdxType>(communicator->size());
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-}
-
-void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
-  NVF_ERROR(
-      obtained.equal(expected),
-      "Device ",
-      communicator->deviceId(),
-      " expected tensor:\n",
-      expected,
-      "\nbut obtained tensor:\n",
-      obtained);
-}
-
-void CommunicationTest::resetDstBuffers() {
-  for (auto& buf : params.dst_bufs) {
-    buf.copy_(at::full(tensor_size, nan(""), tensor_options));
-  }
+/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
+  static Communicator* communicator = new Communicator();
+  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -179,12 +201,9 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-void PipelineTest::SetUp() {
-  MultiDeviceTest::SetUp();
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }
 
 } // namespace nvfuser
-
-#endif

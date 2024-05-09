@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 

@@ -31,7 +31,7 @@ namespace kir {
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct KernelSummary {
   //! Count of WAR (write-after-read) hazard barriers
-  int war_hazard_syncs_count = 0;
+  int64_t war_hazard_syncs_count = 0;
 
   //! List of global buffers
   std::vector<const kir::Allocate*> global_allocations;
@@ -74,13 +74,13 @@ struct KernelSummary {
   bool has_iter_grouped_reductions = false;
 
   //! number of grouped iters for grouped outer block reduction
-  int num_grouped_iterations = 1;
+  int64_t num_grouped_iterations = 1;
 
   //! Do we have any outer grouped grid welford op?
   bool has_outer_grouped_grid_welford = false;
 
   //! Largest shared memory buffer size of outer grouped grid welford
-  int outer_grouped_grid_welford_largest_smem_size = 0;
+  int64_t outer_grouped_grid_welford_largest_smem_size = 0;
 
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
@@ -103,7 +103,7 @@ struct KernelSummary {
 
   //! Track which tensor views are inputs or outputs of a vectorized operation
   //! and their maximum vectorized access size
-  std::unordered_map<TensorView*, int> vectorized_accesses;
+  std::unordered_map<TensorView*, int64_t> vectorized_accesses;
 
   // Sync map is needed to figure out if global memory buffers need to be marked
   // as volatile because they're used for communication.
@@ -117,7 +117,7 @@ struct KernelSummary {
   std::vector<VectorizedSetInfo> vectorized_set_info;
 
   //! Minimum compute capability of device that can execute this kernel
-  std::pair<int, int> min_device_version;
+  std::pair<int64_t, int64_t> min_device_version;
 
   //! Plain text description of why min_device_version_ is required
   std::string min_device_version_reason;
@@ -132,7 +132,7 @@ class KernelPerformanceProfile {
   bool isProfiled(const Expr* expr) const;
 
   //! Get the number of profiled expressions
-  int getNumberOfProfileEntries() const {
+  int64_t getNumberOfProfileEntries() const {
     return num_profile_entries_;
   }
 
@@ -147,19 +147,19 @@ class KernelPerformanceProfile {
   }
 
   //! Get the indices of the profile of an expression in the backing buffer
-  std::array<int, 2> getIndicesInProfileBuffer(const Expr* expr) const;
+  std::array<int64_t, 2> getIndicesInProfileBuffer(const Expr* expr) const;
 
   std::string toString(const at::Tensor& buffer) const;
 
  private:
   //! Get the new profile index
-  int getNewIndex();
+  int64_t getNewIndex();
 
   //! Get the profile index
-  std::optional<int> getIndex(const Expr* expr) const;
+  std::optional<int64_t> getIndex(const Expr* expr) const;
 
  private:
-  int num_profile_entries_ = 0;
+  int64_t num_profile_entries_ = 0;
 
   //! Backing buffer of Nx2 integer tensor, where N is the number of profiled
   //! regions. Each region has two integer values, one representing
@@ -167,11 +167,11 @@ class KernelPerformanceProfile {
   TensorView* buffer_ = nullptr;
 
   //! Map profiled expressions to profile entry offsets
-  std::unordered_map<const Expr*, int> expr_entry_map_;
+  std::unordered_map<const Expr*, int64_t> expr_entry_map_;
 
   // TODO: Allow profiling of ForLoops
   //! Map profiled ForLoop to profile entry offsets
-  // std::unordered_map<const kir::ForLoop*, int> loop_entry_map_;
+  // std::unordered_map<const kir::ForLoop*, int64_t> loop_entry_map_;
 };
 
 class KernelInternalProxy;

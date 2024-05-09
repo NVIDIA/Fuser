@@ -132,25 +132,27 @@ size_t merge_3d(TensorView* tv) {
 
 void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split, // (dim, size)
-    std::vector<size_t>& to_update) {
+    std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
+    std::vector<int64_t>& to_update) {
   std::stable_sort(
       to_split.begin(),
       to_split.end(),
-      [](const std::pair<size_t, size_t>& p1,
-         const std::pair<size_t, size_t>& p2) { return p1.first < p2.first; });
-  size_t dim_offset = 0;
-  size_t pending_dim_offset = 0;
-  size_t prev_dim = 0;
+      [](const std::pair<int64_t, int64_t>& p1,
+         const std::pair<int64_t, int64_t>& p2) {
+        return p1.first < p2.first;
+      });
+  int64_t dim_offset = 0;
+  int64_t pending_dim_offset = 0;
+  int64_t prev_dim = 0;
   for (auto entry : to_split) {
-    size_t dim = entry.first;
-    size_t size = entry.second;
+    int64_t dim = entry.first;
+    int64_t size = entry.second;
     if (dim != prev_dim) {
       dim_offset += pending_dim_offset;
       pending_dim_offset = 0;
     }
-    size_t actual_dim = dim_offset + dim;
-    tv->split((int)actual_dim, size);
+    int64_t actual_dim = dim_offset + dim;
+    tv->split(actual_dim, size);
     pending_dim_offset++;
     for (auto& i : to_update) {
       if (i > actual_dim) {
@@ -161,10 +163,10 @@ void splitDims(
   }
 }
 
-std::optional<size_t> mergeDims(
+std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge,
-    std::vector<size_t>& to_update) {
+    std::vector<int64_t> to_merge,
+    std::vector<int64_t>& to_update) {
   if (to_merge.empty()) {
     return std::nullopt;
   }
@@ -181,7 +183,7 @@ std::optional<size_t> mergeDims(
   // Otherwise this could results in misaligned memory access due to indexing.
   // This is because we compute vectorization width before applying scheduling
   // transformations.
-  for (size_t i = 1; i < to_merge.size(); i++) {
+  for (int64_t i = 1; i < (int64_t)to_merge.size(); i++) {
     auto outer = to_merge[i];
     // If outer > inner, the merge order conflicts with their order in leaf
     // domain
@@ -204,7 +206,7 @@ std::optional<size_t> mergeDims(
     tv->merge(static_cast<int>(outer), static_cast<int>(inner));
 
     // compensate future indices for the diminishing inner.
-    for (size_t j = i + 1; j < to_merge.size(); j++) {
+    for (int64_t j = i + 1; j < (int64_t)to_merge.size(); j++) {
       if (to_merge[j] > inner) {
         to_merge[j]--;
       }
@@ -221,9 +223,9 @@ std::optional<size_t> mergeDims(
   return inner;
 }
 
-size_t mergeReduction(TensorView* tv) {
+int64_t mergeReduction(TensorView* tv) {
   int prev_i = -1;
-  size_t num_merged = 0;
+  int64_t num_merged = 0;
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (!tv->axis(i)->isReduction()) {
       continue;
@@ -243,10 +245,10 @@ size_t mergeReduction(TensorView* tv) {
   return prev_i == -1 ? 0 : num_merged + 1;
 }
 
-size_t mergeNonReduction(TensorView* tv) {
+int64_t mergeNonReduction(TensorView* tv) {
   bool has_device_dim = false;
   int prev_i = -1;
-  size_t num_merged = 0;
+  int64_t num_merged = 0;
   if (tv->nDims() == 0) {
     return 0;
   }
@@ -312,19 +314,19 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i : c10::irange(tv->getLeafDomain().size())) {
+    for (const auto i : c10::irange((int64_t)tv->getLeafDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
-          tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
+          tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
         if (selected_parallel_types.empty() ||
             selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis((int)i)->parallelize(reference_parallel_type);
+          tv->axis(i)->parallelize(reference_parallel_type);
         }
         if (propagate_padding) {
           if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis((int)i)->padToMultipleOfWarp(
+            tv->axis(i)->padToMultipleOfWarp(
                 reference_id->getMaybeSizeAfterPadding());
           }
         }
@@ -509,8 +511,8 @@ TensorView* getBufferProjectableBroadcastsTv(
       // reduction.
       bool is_broadcast_after_reduction = true;
       for (auto i : c10::irange(reduction_tv->nDims())) {
-        if (reduction_tv->axis((int)i)->isReduction() &&
-            !tv->axis((int)i)->isBroadcast()) {
+        if (reduction_tv->axis(i)->isReduction() &&
+            !tv->axis(i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
           break;
         }
@@ -1546,7 +1548,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int, int>& rfactor_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
   if (rfactor_dom.empty()) {
     return {};
@@ -1561,10 +1563,10 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
   // 0, then as groups are discovered marching to the left their id will
   // increase. i.e. we could have something like [0, 3, 1, 2, 1, 0] as a
   // result.
-  std::vector<int> disjoint_group_ids(rfactor_dom.size(), -1);
+  std::vector<int64_t> disjoint_group_ids(rfactor_dom.size(), -1);
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_set_of_id(
       rfactor_dom.size(), nullptr);
-  int current_group_id = 0;
+  int64_t current_group_id = 0;
   int64_t ref_dim_i = (int64_t)rfactor_dom.size() - 1;
 
   while (ref_dim_i >= 0) {
@@ -1620,7 +1622,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
 BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int, int>& rfactor_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
   auto fusion = reference_tv->fusion();
   FusionGuard fg(fusion);
 
@@ -1747,7 +1749,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
 }
 
 //! Propagate current transformations on from_tv to all graphs
-void transformPropagateToAllFrom(TensorView* from_tv, int pos) {
+void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
   TransformPropagator propagator(from_tv, pos);
   MaxRootDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
 }
@@ -1886,7 +1888,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
 
 void BoundedDirectionalTransformPropagator::propagate(
     TensorView* from_tv,
-    int pos,
+    int64_t pos,
     std::unordered_set<TensorView*> included_tvs,
     Options options) {
   // Run transform propagation using the custom selector.
@@ -1906,7 +1908,7 @@ void BoundedDirectionalTransformPropagator::propagate(
 
 void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> to,
     std::optional<Options> options) {
   if (!options.has_value()) {
@@ -1926,7 +1928,7 @@ void BoundedDirectionalTransformPropagator::backward(
 
 void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> to,
     std::optional<Options> options) {
   if (!options.has_value()) {
@@ -1947,7 +1949,7 @@ void BoundedDirectionalTransformPropagator::forward(
 
 void BoundedDirectionalTransformPropagator::bothWays(
     TensorView* from,
-    int pos,
+    int64_t pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
     std::optional<Options> options) {
@@ -2004,24 +2006,25 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   return disjoint_rfactor_ids;
 }
 
-bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
+bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
   if (pos < 0) {
-    pos += (int)group_ids.size();
+    pos += (int64_t)group_ids.size();
   }
   NVF_ERROR(
-      pos >= 0 && pos <= (int)group_ids.size(),
+      pos >= 0 && pos <= (int64_t)group_ids.size(),
       "Invalid position, size of vec is ",
       group_ids.size(),
       " but position is ",
       pos);
 
-  if (pos == 0 || pos == (int)group_ids.size()) {
+  if (pos == 0 || pos == (int64_t)group_ids.size()) {
     return true;
   }
 
-  std::unordered_set<int> left_ints(group_ids.begin(), group_ids.begin() + pos);
+  std::unordered_set<int64_t> left_ints(
+      group_ids.begin(), group_ids.begin() + pos);
 
-  for (auto i = pos; i < (int)group_ids.size(); i++) {
+  for (auto i = pos; i < (int64_t)group_ids.size(); i++) {
     if (left_ints.count(group_ids[i]) > 0) {
       return false;
     }
@@ -2029,7 +2032,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
   return true;
 }
 
-std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
+std::unordered_map<int64_t, int64_t> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprsTo(
       {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
@@ -2091,8 +2094,8 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
     }
   }
 
-  std::unordered_map<int, int> old2new;
-  for (auto id_i : c10::irange((int)tv->getLeafDomain().size())) {
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (auto id_i : c10::irange((int64_t)tv->getLeafDomain().size())) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
@@ -2100,16 +2103,16 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         find_it != reordered_ids.end(),
         "Reordering map creation failed, uninitialized iterdomain,",
         " likely something is wrong with the transformations between the rfactor domain and the leaves.");
-    int new_pos = (int)std::distance(reordered_ids.begin(), find_it);
-    int old_pos = id_i;
+    int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
+    int64_t old_pos = id_i;
     old2new[old_pos] = new_pos;
   }
   return old2new;
 }
 
-std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeRfactorReorderAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int, int> ret;
+  std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
     return ret;
   }
@@ -2122,9 +2125,9 @@ std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(
           alloc_dom.begin(), alloc_dom.end(), maybe_rfactor_dom.begin())) {
     return ret;
   }
-  std::unordered_map<IterDomain*, int> alloc_index;
-  std::unordered_map<IterDomain*, int> rfactor_index;
-  for (auto i : c10::irange((int)alloc_dom.size())) {
+  std::unordered_map<IterDomain*, int64_t> alloc_index;
+  std::unordered_map<IterDomain*, int64_t> rfactor_index;
+  for (auto i : c10::irange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
     rfactor_index[maybe_rfactor_dom[i]] = i;
   }
@@ -2183,7 +2186,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
 
-    std::unordered_map<int, int> old2new;
+    std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
     // so they're consecutive starting from the left of domain. TODO: We could
     // improve this so that if there's transformations replayed after the
@@ -2201,9 +2204,9 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        auto old_pos = std::distance(tv->getLeafDomain().begin(), find_it);
+        int64_t old_pos = std::distance(tv->getLeafDomain().begin(), find_it);
 
-        old2new[(int)old_pos] = (int)old2new.size();
+        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2214,7 +2217,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // Propagate the view transformations
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
-    transformPropagateToAllFrom(tv, (int)old2new.size());
+    transformPropagateToAllFrom(tv, (int64_t)old2new.size());
   }
 }
 
@@ -2416,7 +2419,7 @@ void promoteProducerMemoryTypes(
     for (const auto i :
          c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
-          producer->axis((int)(i + producer->getComputeAtPosition()));
+          producer->axis((i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
       if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
         continue;

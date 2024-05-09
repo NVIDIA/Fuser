@@ -190,7 +190,7 @@ class CanScheduleTranspose {
 //!  stores the domain map of a fusion.
 class RfactorReorderMap {
  public:
-  using DataType = std::unordered_map<int, int>;
+  using DataType = std::unordered_map<int64_t, int64_t>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::RFACTOR_REORDER_MAP;
 };
