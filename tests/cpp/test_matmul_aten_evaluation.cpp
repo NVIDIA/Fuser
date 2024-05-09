@@ -488,4 +488,10 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({k, 1}),
             Sizes({b, k, n}))));
 
+// Test case where K=1
+INSTANTIATE_TEST_SUITE_P(
+    ReductionAxisIsOne,
+    ATenNodesParametrizedTest,
+    testing::Values(std::make_tuple(Sizes({m, 1}), Sizes({1, n}))));
+
 } // namespace nvfuser
