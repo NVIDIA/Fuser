@@ -8134,34 +8134,41 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
 
 // Test block reduction across TIDx and TIDz
 TEST_F(NVFuserTest, BlockReduction3D) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto test = [](const int tidx, const int tidy, const int tidz) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    std::vector<int64_t> shape({tidz, tidy, tidx});
 
-  const int tidx = 8;
-  const int tidy = 4;
-  const int tidz = 2;
-  std::vector<int64_t> shape({tidz, tidy, tidx});
+    auto tv0 = makeConcreteTensor(shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {0, 2});
+    fusion.addOutput(tv1);
 
-  auto tv0 = makeConcreteTensor(shape);
-  fusion.addInput(tv0);
-  auto tv1 = sum(tv0, {0, 2});
-  fusion.addOutput(tv1);
+    tv1->axis(0)->parallelize(ParallelType::TIDz);
+    tv1->axis(1)->parallelize(ParallelType::TIDy);
+    tv1->axis(2)->parallelize(ParallelType::TIDx);
 
+    scheduler_utils::parallelizeAllLike(tv1);
 
-  tv1->axis(0)->parallelize(ParallelType::TIDz);
-  tv1->axis(1)->parallelize(ParallelType::TIDy);
-  tv1->axis(2)->parallelize(ParallelType::TIDx);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn(shape, options);
 
-  scheduler_utils::parallelizeAllLike(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(shape, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
-  auto ref = t0.sum(0).sum(-1);
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t0});
+    auto cg_outputs = fe.runFusion({t0});
+    auto ref = t0.sum(0).sum(-1);
+    testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  };
+  // tested locally with i,j,k +=2, change to i,j,k *=2 to reduce CI time.
+  for (int i = 2; i <= 32; i *= 2) {
+    for (int j = 2; j <= 32; j *= 2) {
+      for (int k = 2; k <= 32; k *= 2) {
+        if (i * j * k <= 1024) {
+          test(i, j, k);
+        }
+      }
+    }
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
