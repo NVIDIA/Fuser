@@ -2887,6 +2887,60 @@ TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTransposeAndAlloc) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  const int M = 128, N = 256, K = 512;
+  // const auto layout = MmaLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+  // Input -B. No transpose in this case.
+  // tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv1t = transpose(tv1); // This has rfactor: {N, K}
+  // tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  // Propagate the allocation domain post-broadcast.
+  // Don't set it in the test, but make this part of the scheduler.
+  // tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
+
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion->addOutput(tv2);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 4;
+  scheduleMatmul(fusion.get(), params);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
