@@ -887,6 +887,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   }
   NVF_ERROR(isHopper(expr->macro()));
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;
 
   auto out_tv = ir_utils::getTv(expr->out());
