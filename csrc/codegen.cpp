@@ -2811,6 +2811,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       func_args.arg(genVariableName(input));
       func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+      addProfileArguments(func_args, grouped_rop);
       indent() << genCall("blockIterGroupedWarpReduce", func_template_args, func_args)
                << ";\n";
     }else{

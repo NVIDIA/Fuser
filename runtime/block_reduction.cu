@@ -391,15 +391,16 @@ __device__ void blockIterGroupedReduce(
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     start_counter = readCycleCounter();
   }
-
-  blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
-    out,
-    inp_val,
-    reduction_op,
-    shared_mem,
-    read_pred,
-    write_pred,
-    init_val);
+  for(int i = 0; i< 100; i++){
+    blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
+      out,
+      inp_val,
+      reduction_op,
+      shared_mem,
+      read_pred,
+      write_pred,
+      init_val);
+    }
 
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
@@ -432,15 +433,17 @@ __device__ void blockReduce(
     start_counter = readCycleCounter();
   }
 
-  blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
-      out,
-      inp_val,
-      reduction_op,
-      shared_mem,
-      read_pred,
-      write_pred,
-      init_val);
 
+  for(int i = 0; i< 100; i++){
+    blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
+        out,
+        inp_val,
+        reduction_op,
+        shared_mem,
+        read_pred,
+        write_pred,
+        init_val);
+  }
       
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
@@ -712,7 +715,7 @@ __device__ void blockReduce(
 
     // vectorized version
     // [BDIMX, N]
-    constexpr unsigned int total_loads = sizeof(T) * N / 16;
+    constexpr unsigned int total_loads = sizeof(T) * N / 16 > 1 ? sizeof(T) * N / 16 : 1;
     constexpr unsigned int elements_per_load = 16 / sizeof(T);
 
     if(warp_tidy==0){
@@ -737,3 +740,39 @@ __device__ void blockReduce(
     }
     block_sync::sync<Aligned>();
   }
+
+
+  // This is just a wrapper of the above grid reduction routine to
+// measure the elapsed cycles. The measurement must be done just by
+// one thread, and in this case it should be done by one of the
+// threads in the last thread block.
+#ifdef NVFUSER_PROFILE_KERNEL
+
+template <bool Aligned, int N, typename T, int BDIMX, int BDIMY>
+__inline__ __device__ void blockIterGroupedWarpReduce(
+  T out[N],
+  T inp_val[N],
+  T* smem,
+  int64_t& cycles,
+  int64_t& count) {
+  int64_t start_counter = 0;
+
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    start_counter = readCycleCounter();
+  }
+
+  for(int i = 0; i< 100; i++){
+    blockIterGroupedWarpReduce<Aligned, N, T, BDIMX, BDIMY>(
+      out,
+      inp_val,
+      smem);
+  }
+
+  if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
+      index_utils::maskedIsZero<true, true, true>(threadIdx)) {
+    cycles += readCycleCounter() - start_counter;
+    ++count;
+  }
+}
+#endif // NVFUSER_PROFILE_KERNEL
