@@ -34,7 +34,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Only accepts MatmulOp");
+          heuristicType(), "Fusion must contain a single expression of type MatmulOp");
   return false;
 }
 
