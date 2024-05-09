@@ -732,7 +732,7 @@ __device__ void blockReduce(
       for (unsigned int i = 0; i < total_loads; ++i) {
         loadGeneric<T, elements_per_load>(
           out + i * elements_per_load,
-          smem + N * threadIdx.x + i * elements_per_load);
+          smem + elements_per_load * threadIdx.x + i * BDIMX * elements_per_load);
       }      
     }
     block_sync::sync<Aligned>();
