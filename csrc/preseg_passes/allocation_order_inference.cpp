@@ -90,7 +90,7 @@ void mapAllocationDomain(
       if (!ref_id->isReduction() && id->isReduction()) {
         continue;
       }
-      if (val_sets.strictAreMapped(ref_id, id)) {
+      if (val_sets.permissiveAreMapped(ref_id, id)) {
         mapped_ids.pushBack(id);
         break;
       }
@@ -118,7 +118,7 @@ void mapAllocationDomain(
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_rfactor_domain[i]->isReduction() &&
-        mapped_ids.has(target_rfactor_domain[i])) {
+        !mapped_ids.has(target_rfactor_domain[i])) {
       target_alloc_domain[i] = target_rfactor_domain[i];
       continue;
     }
