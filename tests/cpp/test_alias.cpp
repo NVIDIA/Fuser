@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -1109,6 +1110,11 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  if (detectComputeSanitizer()) {
+    GTEST_SKIP()
+        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+  }
+
   ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
@@ -1179,6 +1185,11 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
 }
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
+  if (detectComputeSanitizer()) {
+    GTEST_SKIP()
+        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+  }
+
   ProfilerOptionsGuard option_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
