@@ -82,6 +82,10 @@ struct KernelSummary {
   //! Largest shared memory buffer size of outer grouped grid welford
   int64_t outer_grouped_grid_welford_largest_smem_size = 0;
 
+  //! Whether there are any grid serializations using
+  //! ReductionOp::requestSerialGridReduction()
+  bool has_grid_serialization = false;
+
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
 

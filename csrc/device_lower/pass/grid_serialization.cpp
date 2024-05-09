@@ -56,6 +56,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
   //! Record cur_expr_sync_pattern_ if this is a serial grid reduction
   void handle(ReductionOp* rop) override {
     if (rop->serialGridReductionRequested()) {
+      GpuLower::current()->gridSerializingExprs().push_back(rop);
       ParallelTypeBitmap sync_pattern;
       auto out = rop->out()->as<TensorView>();
       NVF_ERROR(out != nullptr);

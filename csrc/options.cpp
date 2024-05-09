@@ -158,6 +158,8 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"nondet_grid_serialization",
+       EnableOption::NondeterministicGridSerialization},
       {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},

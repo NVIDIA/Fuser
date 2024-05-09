@@ -95,6 +95,7 @@ enum class EnableOption {
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  NondeterministicGridSerialization, //! Use atomics for serial grid reductionop
   StaticFusionCount, //! Enable using single static count in kernel name
   ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill

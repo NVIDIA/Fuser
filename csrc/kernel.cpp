@@ -356,6 +356,8 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
+  summary_.has_grid_serialization =
+      !GpuLower::current()->gridSerializingExprs().empty();
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {

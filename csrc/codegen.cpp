@@ -346,6 +346,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_parallel_welford =
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford;
 
+    if (isOptionEnabled(EnableOption::NondeterministicGridSerialization) &&
+        kernel_summary.has_grid_serialization) {
+      indent() << "int64_t serialized_block_id = -1;\n";
+    }
+
     // Shared memory
     if (has_dynamic_smem || has_reductions || has_parallel_welford) {
       indent() << "alignas("
@@ -1708,6 +1713,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         "index_utils::maskedOffset",
         block_flags,
         ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+    if (isOptionEnabled(EnableOption::NondeterministicGridSerialization)) {
+      // This will be set by blockSerializeWaitAtomic in the nondeterministic
+      // case
+      idx_in_segment = "serialized_block_id";
+    }
     std::string segment_size = genCall(
         "index_utils::maskedSize",
         block_flags,
@@ -3278,10 +3288,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
 
-    auto sync_call = genCall(
-        "grid_sync::blockSerializeWait",
-        sync_call_template_parms,
-        sync_call_args);
+    auto sync_call =
+        isOptionEnabled(EnableOption::NondeterministicGridSerialization)
+        ? "serialized_block_id = " +
+            genCall(
+                "grid_sync::blockSerializeWaitAtomic",
+                sync_call_template_parms,
+                sync_call_args)
+        : genCall(
+              "grid_sync::blockSerializeWait",
+              sync_call_template_parms,
+              sync_call_args);
 
     indent() << sync_call << ";\n";
   }
@@ -3310,10 +3327,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
 
-    auto sync_call = genCall(
-        "grid_sync::blockSerializeRelease",
-        sync_call_template_parms,
-        sync_call_args);
+    std::string sync_call;
+    if (isOptionEnabled(EnableOption::NondeterministicGridSerialization)) {
+      auto segment_size = genCall(
+          "index_utils::maskedSize",
+          ArgumentBuilder().arg(bidx).arg(bidy).arg(bidz),
+          ArgumentBuilder().arg("gridDim"));
+      // Add argument containing new value to write
+      sync_call_args.arg(
+          "serialized_block_id == (" + segment_size +
+          " - 1) ? 0 : serialized_block_id + 1");
+      sync_call = genCall(
+          "grid_sync::blockSerializeReleaseAtomic",
+          sync_call_template_parms,
+          sync_call_args);
+    } else {
+      sync_call = genCall(
+          "grid_sync::blockSerializeRelease",
+          sync_call_template_parms,
+          sync_call_args);
+    }
 
     indent() << sync_call << ";\n";
   }

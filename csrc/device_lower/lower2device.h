@@ -211,6 +211,14 @@ class GpuLower : public NonCopyable {
     return cparams_.enable_magic_zero;
   }
 
+  const std::vector<Expr*>& gridSerializingExprs() const {
+    return grid_serializing_exprs_;
+  }
+
+  std::vector<Expr*>& gridSerializingExprs() {
+    return grid_serializing_exprs_;
+  }
+
   // This is an interface to propagate information after expression
   //  replacement on the kernel IR. E.g.:
   //    for ...
@@ -307,6 +315,7 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  std::vector<Expr*> grid_serializing_exprs_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

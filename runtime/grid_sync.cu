@@ -224,4 +224,71 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
   semaphoreRelease(semaphore, last_block ? 0 : block_idx_in_segment + 1);
 }
 
+// Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
+// This should be called at the beginning of the section to be serialized.
+// Assumes semaphore is initialized to zero. This function always synchronizes
+// the thread block.
+//
+// Returns the previous value of the semaphore. This function works by waiting
+// until the semaphore has a non-negative value. Once that happens we grab that
+// value and set the semaphore to -1 to reserve the slot. We return that
+// previous value. After the block is finished processing we should increment
+// the original value and write the new value back to the semaphore.
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
+__device__ int64_t blockSerializeWaitAtomic(int64_t* semaphore) {
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    int segment_size =
+        index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+    int block_idx_in_segment =
+        index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+    // This is similar to the implementation of atomicAdd using atomicCAS:
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#atomic-functions
+    int64_t old_val = 0l;
+    uint64_t expected_val = 0l;
+    do {
+      // Wait until the semaphore doesn't change so that we can properly compute
+      // the placeholder value.
+      // if old_val < 0, then we should wait for it to flip to positive
+      expected_val = (uint64_t)std::abs(old_val);
+      // assumed_val could be any non-negative number if semaphore is free.
+      // We'll eventually increment it, but first we use the negative
+      // incremented value as a placeholder to indicate that we've reserved the
+      // semaphore. This way we don't need to pass the old value to
+      // blockSerializeWaitAtomic.
+      int64_t signed_placeholder = -(int64_t)(expected_val + 1);
+      // Reinterprets negative ints as unsigned
+      auto placeholder_val = *reinterpret_cast<uint64_t*>(&signed_placeholder);
+      uint64_t old_val_unsigned = atomicCAS(
+          reinterpret_cast<uint64_t*>(semaphore),
+          expected_val,
+          placeholder_val);
+      // Convert back to int64_t to detect negative values
+      old_val = *reinterpret_cast<int64_t*>(&old_val_unsigned);
+    } while (old_val != (int64_t)expected_val);
+  }
+  __syncthreads();
+
+  // Each thread needs to wind up with the semaphore value. Ideally we would
+  // use smem to broadcast this instead of the gmem semaphore.
+  return -(*semaphore) - 1l;
+}
+
+// Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
+// This simply writes new_value to the semaphore using st.global.release.gpu
+// This should be called at the end of the section to be serialized. This
+// function always synchronizes the thread block.
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
+__device__ void blockSerializeReleaseAtomic(
+    int64_t* semaphore,
+    int64_t new_value) {
+  int segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+  int block_idx_in_segment =
+      index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  __syncthreads();
+  semaphoreRelease(semaphore, new_value);
+}
+
 } // namespace grid_sync
