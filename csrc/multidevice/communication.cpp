@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/iostream.h>
 #include <multidevice/communication.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -106,10 +107,10 @@ std::string Communication::toString(const int indent_size) const {
   indent(ss, indent_size) << "Communication " << collective_type_ << ": {"
                           << std::endl;
   if (has_root_) {
-    indent(ss, indent_size + 2) << "root: " << params_.root << "," << std::endl;
+    indent(ss, indent_size + 1) << "root: " << params_.root << "," << std::endl;
   }
-  indent(ss, indent_size + 2) << "team: " << params_.team << "," << std::endl;
-  indent(ss, indent_sizes) << "}";
+  indent(ss, indent_size + 1) << "team: " << params_.team << "," << std::endl;
+  indent(ss, indent_size) << "}";
 
   return ss.str();
 }
