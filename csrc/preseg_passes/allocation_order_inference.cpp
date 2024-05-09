@@ -18,7 +18,7 @@ namespace {
 
 // counting the number of non-broadcast & non-reduction iter domains in tv's
 // allocation domain.
-size_t countLoopIterDomains(const TensorView* tv) {
+int64_t countNonTrivialIterDomains(const TensorView* tv) {
   return std::count_if(
       tv->getMaybeAllocationDomain().begin(),
       tv->getMaybeAllocationDomain().end(),
@@ -43,27 +43,27 @@ size_t countLoopIterDomains(const TensorView* tv) {
 // map to ref's allocation domain. (sharp-edge 0: we exclude mapping from
 // iteration id on ref to reduction id on target to avoid unnecessary
 // re-ordering which exposes #2202).
-//   mapped_id_vec {ir5[i1], iS7[i2]}
+//   mapped_ids {ir5[i1], iS7[i2]}
 // 2. remove all projected ids and reduction iter domains from target's rfactor
 // domain:
-//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5]}
+//   unmapped_ids {iS3[i3], iS4[i4], iS6[i5]}
 // 3. iterating through unmodified target's rfactor domain to construct target
 // allocation domain:
 //   (sharp-edge 1: if target_rfactor_domain[i] is a reduction and is not
 //   mapped, we keep the reduction iter domain in the original position.) Push
 //   the front of unmapped_id_vec to the end of target allocation domain, if
-//   unmapped_id_vec isn't empty yet; Otherwise, push the frnot of mapped_id_vec
-//   at the end of target allocation domain.
+//   unmapped_id_vec isn't empty yet; Otherwise, push the frnot of mapped_ids at
+//   the end of target allocation domain.
 //
 // Note: we could be using a simplified logic below,
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
 // 1. we project iter domains from targets' rfactor domain which has an exact
 // map to ref's allocation domain.
-//   mapped_id_vec {ir5[i1], iS7[i2]}
+//   mapped_ids {ir5[i1], iS7[i2]}
 // 2. remove all projected iter domains from target's rfactor
 // domain:
-//   unmapped_ids_vec {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
-// 3. append mapped_id_vec at the end of unmapped_id_vec.
+//   unmapped_ids {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
+// 3. append mapped_ids at the end of unmapped_id_vec.
 //   target_alloc_domain
 //   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
 void mapAllocationDomain(
@@ -78,10 +78,9 @@ void mapAllocationDomain(
       target->getMaybeRFactorDomain();
 
   // map target rfactor domain into ref's allocation domain
-  std::vector<IterDomain*> mapped_id_vec;
-  std::unordered_set<IterDomain*> mapped_id_set;
+  nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
 
-  // logic to preserve reduction iter domain in target to WAR issue #2202
+  // logic to preserve reduction iter domain in target to WAR #2202
 #if true
   // mapping id between ref's allocation domain to target's rfactor domain
   for (auto* ref_id : ref_alloc_domain) {
@@ -92,29 +91,26 @@ void mapAllocationDomain(
         continue;
       }
       if (val_sets.strictAreMapped(ref_id, id)) {
-        mapped_id_vec.push_back(id);
-        mapped_id_set.insert(id);
+        mapped_ids.pushBack(id);
         break;
       }
     }
   }
 
-  // removing mapped ids and reduction ids to create unmapped_ids_vec.
+  // removing mapped ids and reduction ids to create unmapped_ids.
   // This means for the rest of ids in target_rfactor_domain that's not in
-  // mapped_id_set, they are either 1. a reduction domain, or; 2. in
-  // [unmapped_ids_vec.begin(), unmapped_ids_vec_end) This ensures that
-  // sharp-edges 1's loop would reconstruct a permutation of the
-  // target_rfactor_domain, hence a valid allocation domain for target.
-  std::vector<IterDomain*> unmapped_ids_vec = target_rfactor_domain;
+  // mapped_ids, they are either 1. a reduction domain, or; 2. in
+  // [unmapped_ids.begin(), unmapped_ids_vec_end) This ensures that sharp-edges
+  // 1's loop would reconstruct a permutation of the target_rfactor_domain,
+  // hence a valid allocation domain for target.
+  std::vector<IterDomain*> unmapped_ids = target_rfactor_domain;
   auto unmapped_ids_vec_end = std::remove_if(
-      unmapped_ids_vec.begin(),
-      unmapped_ids_vec.end(),
-      [&mapped_id_set](IterDomain* it) {
-        return mapped_id_set.count(it) != 0 || it->isReduction();
+      unmapped_ids.begin(), unmapped_ids.end(), [&mapped_ids](IterDomain* it) {
+        return mapped_ids.has(it) || it->isReduction();
       });
 
-  auto mapped_id_iter = mapped_id_vec.begin();
-  auto unmapped_id_iter = unmapped_ids_vec.begin();
+  auto mapped_id_iter = mapped_ids.begin();
+  auto unmapped_id_iter = unmapped_ids.begin();
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_rfactor_domain.size(), nullptr);
@@ -122,7 +118,7 @@ void mapAllocationDomain(
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_rfactor_domain[i]->isReduction() &&
-        mapped_id_set.count(target_rfactor_domain[i]) == 0) {
+        mapped_ids.has(target_rfactor_domain[i])) {
       target_alloc_domain[i] = target_rfactor_domain[i];
       continue;
     }
@@ -139,8 +135,7 @@ void mapAllocationDomain(
   for (auto* ref_id : ref_alloc_domain) {
     for (auto* id : target_rfactor_domain) {
       if (val_sets.permissiveAreMapped(ref_id, id)) {
-        mapped_id_vec.push_back(id);
-        mapped_id_set.insert(id);
+        mapped_ids.pushBack(id);
         break;
       }
     }
@@ -150,11 +145,9 @@ void mapAllocationDomain(
   auto unmapped_ids_vec_end = std::remove_if(
       target_alloc_domain.begin(),
       target_alloc_domain.end(),
-      [&mapped_id_set](IterDomain* it) {
-        return mapped_id_set.count(it) != 0;
-      });
+      [&mapped_ids](IterDomain* it) { return mapped_ids.has(it); });
   // appending mapped ids at the end of target_alloc_domain.
-  std::copy(mapped_id_vec.begin(), mapped_id_vec.end(), unmapped_ids_vec_end);
+  std::copy(mapped_ids.begin(), mapped_ids.end(), unmapped_ids_vec_end);
 #endif
 
   // skip trivial allocation domain
@@ -178,16 +171,16 @@ void mapAllocationDomain(
 //     1.3 It does not have self mapping;
 //   2. Among all entries in srcs, we pick reference that:
 //     2.1 It has a dependency towards dst;
-//     2.2 It has the highest count of loop (non-broadcast/non-reduction) iter
-//     domains in allocation domain.
+//     2.2 It has the highest no. of non-trivial (non-broadcast/non-reduction)
+//     iter domains in allocation domain.
 //         Note0: The reason to count behind this is that, we could have binary
 //         operation on a full-sized tensor with a broadcast vector tensor. In
 //         which case, we would want to propagate the layout of the full-sized
 //         tensor to the output, even though both candidates have the same rank.
-//         Note1: when we have multiple candidates with the same count of loop
-//         iter domains, we require there's no ambiguity by checking both
-//         candidates having the same iter domain mapping. Otherwise we'll stop
-//         the propagation by leaving ref as nullptr.
+//         Note1: when we have multiple candidates with the same count of
+//         non-trivial iter domains, we require there's no ambiguity by
+//         checking both candidates having the same iter domain mapping.
+//         Otherwise we'll stop the propagation by leaving ref as nullptr.
 //     2.3 It does not have self mapping;
 //   3. Propagate memory format from selected reference in `srcs` to its
 //   corresponding target in `dsts`.
@@ -210,12 +203,12 @@ void inferenceAllocationOrder(
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
-  // populate the number of loop iter domains on srcs
-  std::vector<std::pair<TensorView*, size_t>> loop_iter_count;
+  // populate the number of non-trivial iter domains on srcs
+  std::unordered_map<TensorView*, int64_t> non_trivial_iter_count;
   for (auto* tv : srcs) {
     // skip entry with self mapping.
     if (!hasSelfMapping(tv, exact_graph).has_value()) {
-      loop_iter_count.emplace_back(tv, countLoopIterDomains(tv));
+      non_trivial_iter_count[tv] = countNonTrivialIterDomains(tv);
     }
   }
 
@@ -236,34 +229,38 @@ void inferenceAllocationOrder(
     TensorView* ref = nullptr;
 
     // high water mark for candidate of ref.
-    size_t non_bc_high_water_mark = 0;
-    for (const auto& iter : loop_iter_count) {
+    int64_t non_bc_high_water_mark = 0;
+    for (auto* tv : srcs) {
+      // skip when non-trivial iter domain count is missing.
+      if (non_trivial_iter_count.count(tv) == 0) {
+        continue;
+      }
       // discard srcs for propagation which dst has no dependency on.
-      if (!DependencyCheck::isDependencyOf(iter.first, dst)) {
+      if (!DependencyCheck::isDependencyOf(tv, dst)) {
         continue;
       }
-      // discard srcs with lower iterdomain count than ref
-      if (iter.second < non_bc_high_water_mark) {
-        // TODO: if loop_iter_count is sorted, we can early return here.
+      // discard srcs with lower iterdomain count than ref.
+      if (non_trivial_iter_count[tv] < non_bc_high_water_mark) {
         continue;
       }
-      // new candidate found, update ref and high water mark
-      if (iter.second > non_bc_high_water_mark) {
-        ref = iter.first;
-        non_bc_high_water_mark = iter.second;
+      // new candidate found, update ref and high water mark.
+      if (non_trivial_iter_count[tv] > non_bc_high_water_mark) {
+        ref = tv;
+        non_bc_high_water_mark = non_trivial_iter_count[tv];
         continue;
       }
       // found multiple candidate with the same iterdomain count
-      if (iter.second == non_bc_high_water_mark && ref != nullptr) {
+      if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
+          ref != nullptr) {
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
         for (auto i : c10::irange(ref->nDims())) {
           if (!val_sets.permissiveAreMapped(
                   ref->getMaybeAllocationDomain()[i],
-                  iter.first->getMaybeAllocationDomain()[i])) {
+                  tv->getMaybeAllocationDomain()[i])) {
             // reset ref to nullptr, while keeping the iterdomain count high
-            // water mark. No propagatoin will occur unless we found another ref
+            // water mark. No propagation will occur unless we found another ref
             // candidate with a higher iterdomain count.
             ref = nullptr;
             break;
@@ -275,7 +272,7 @@ void inferenceAllocationOrder(
 
     // propagate allocation domain if we still have a candidate.
     if (ref) {
-      AllocationOrderMapping(id_model, ref, dst);
+      mapAllocationDomain(id_model, ref, dst);
     }
   }
 }

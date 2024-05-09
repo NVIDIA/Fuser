@@ -29,10 +29,7 @@ std::vector<int64_t> getAllocationDomainPermutation(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =
       ir_utils::computePermutation(
           tv->getMaybeRFactorDomain(), tv->getMaybeAllocationDomain());
-  if (permutation.has_value()) {
-    return permutation.value();
-  }
-  return {};
+  return permutation.value();
 }
 
 TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
