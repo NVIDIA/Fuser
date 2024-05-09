@@ -8160,10 +8160,13 @@ TEST_F(NVFuserTest, BlockReduction3D) {
     testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
   };
   // tested locally with i,j,k +=2, change to i,j,k *=2 to reduce CI time.
+  auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  int max_threads_per_blk = (int)properties->maxThreadsPerBlock;  
   for (int i = 2; i <= 32; i *= 2) {
     for (int j = 2; j <= 32; j *= 2) {
       for (int k = 2; k <= 32; k *= 2) {
-        if (i * j * k <= 1024) {
+        if (i * j * k <= max_threads_per_blk) {
           test(i, j, k);
         }
       }

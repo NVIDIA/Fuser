@@ -954,6 +954,7 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
+  nvrtc_compile_driver.setOption("--generate-line-info");
 
   // Suppress warnings for functions that are defined but unused, since we have
   // many unused functions in the preamble.
