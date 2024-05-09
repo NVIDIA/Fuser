@@ -474,13 +474,14 @@ constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 INSTANTIATE_TEST_SUITE_P(
     ,
     ATenNodesParametrizedTest,
-    testing::Values(
-        std::make_tuple(Sizes({k}), Sizes({k})),
-        std::make_tuple(Sizes({m, k}), Sizes({k, n})),
-        std::make_tuple(Sizes({k}), Sizes({k, n})),
-        std::make_tuple(Sizes({m, k}), Sizes({k})),
-        std::make_tuple(Sizes({k}), Sizes({b, k, n})),
-        std::make_tuple(Sizes({b, m, k}), Sizes({k})),
-        std::make_tuple(Sizes({b, 1, m, k}), Sizes({b, k, n}))));
+    testing::Combine(
+      testing::Values(
+        Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({b, 1, m, k})
+      ),
+      testing::Values(
+        Sizes({k}), Sizes({k, n}), Sizes({b, k, n})
+      )
+    )
+);
 
 } // namespace nvfuser
