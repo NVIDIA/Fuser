@@ -405,13 +405,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       // contiguous strides based on tv->getMaybeAllocationDomain() and data
       // pointer aligned to 16 bytes.
 
-      std::vector<int64_t> strides = runtime_info.getInputStrides(tv);
-      // We need to reverse sort the strides so that they correspond to the
-      // order of the allocation domain and contiguity of tv.
-      std::sort(strides.begin(), strides.end(), std::greater<>());
-
       const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-      NVF_ERROR(alloc.size() == strides.size());
 
       // Get sizes for non-reduction dims in allocation domain
       std::vector<int64_t> sizes;
@@ -426,7 +420,10 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       }
 
       int64_t v = maxRowVectorization(
-          tv, (int64_t)runtime_info.ptrOf(tv), sizes, strides);
+          tv,
+          (int64_t)runtime_info.ptrOf(tv),
+          sizes,
+          runtime_info.getInputStrides(tv));
       if (v < vec_size) {
         vec_size = v;
       }

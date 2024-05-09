@@ -69,13 +69,16 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
 
-  //! Returns strides of tensor, in elements instead of bytes. Only works for
-  //! complete Fusion inputs.
+  //! Returns strides of tensor in same order as allocation domain, in elements
+  //! instead of bytes. Only works for complete Fusion inputs whose allocation
+  //! domain is a permutation of their root domain.
   const std::vector<int64_t>& getInputStrides(TensorView* tv) {
     NVF_ERROR(
         isInputTv(tv),
-        "Cannot get stride of non-input TensorView ",
-        tv->toString());
+        "TensorView ",
+        tv->toString(),
+        " is not an input or its rfactor domain is not a permutation of its ",
+        "allocation domain");
     auto strides_it = input_strides_elements_.find(tv);
     NVF_ERROR(strides_it != input_strides_elements_.end());
     return strides_it->second;

@@ -68,6 +68,15 @@ class MatmulParams : public HeuristicParams {
   //! the number of data elements loaded simultaneously, not the number of
   //! bytes.
   struct SupportedVectorization {
+    // Note that by default these values are set to 16, which is the maximum
+    // vectorization factor one might encounter. Failing to set these
+    // appropriately will lead to lowering errors, so each operand and epilogue
+    // input/output should be examined to compute its maximum vectorization and
+    // the respective minimums of these values should be set for each of the
+    // variables below. They are initialized to a high value to facilitate this
+    // minimum computation and to signal errors where we fail to
+    // analyze/validate the inputs before scheduling.
+
     // operands
     int64_t a = 16;
     int64_t b = 16;

@@ -57,10 +57,26 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
+      std::optional<std::vector<int64_t>> alloc_perm_opt =
+          ir_utils::computePermutation(
+              input_tv->getMaybeRFactorDomain(),
+              input_tv->getMaybeAllocationDomain());
+      if (alloc_perm_opt.has_value()) {
+        // Save the strides in order of allocation domain in case the
+        // allocation domain is a permutation of RFactor domain
+        std::vector<int64_t> orig_strides = alloc_strides.vec();
+        std::vector<int64_t> ordered_strides;
+        ordered_strides.reserve(orig_strides.size());
+        NVF_ERROR(orig_strides.size() == alloc_perm_opt->size());
+        for (int64_t i : alloc_perm_opt.value()) {
+          ordered_strides.push_back(orig_strides[i]);
+        }
+        input_strides_elements_[fusion_inp] = ordered_strides;
+      }
+
       // find and push discontiguous stride
       int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
-      input_strides_elements_[fusion_inp] = alloc_strides.vec();
       int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
       for (int64_t dim = dims - 1; dim >= 0; dim--) {
