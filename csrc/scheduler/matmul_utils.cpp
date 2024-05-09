@@ -62,9 +62,8 @@ inline std::optional<MmaMacro> getMmaOp(
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:
-      break;
+      return std::nullopt;
   }
-  return std::nullopt;
 }
 
 //! A wrapper for core heuristics initialization.

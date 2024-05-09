@@ -1056,6 +1056,8 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
