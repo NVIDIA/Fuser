@@ -569,9 +569,7 @@ TensorView* TensorView::flatten(int64_t from, int64_t to) {
   NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
   from = wrapDim(from);
   to = wrapDim(to);
-  if (from > to) {
-    std::swap(from, to);
-  }
+  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
   int64_t num_merges = to - from;
   for (auto _ : c10::irange(num_merges)) {
     (void)_;
