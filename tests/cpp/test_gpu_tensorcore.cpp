@@ -97,6 +97,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -149,6 +150,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmperePrologueFusionBroadcast_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -206,6 +208,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereProloguePointwise_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -263,6 +266,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBFloat16_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -322,6 +326,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
@@ -391,6 +396,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -513,6 +519,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
@@ -1194,6 +1201,7 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
@@ -1870,6 +1878,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -1926,6 +1935,7 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Turing_16_16_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
@@ -1983,6 +1993,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_16_16;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
@@ -2058,6 +2069,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
           MatmulParams params;
+          params.supported_vec_size = {8, 8, 4};
           params.mma_macro = MmaMacro::Ampere_16_16_16;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
@@ -2129,6 +2141,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_16_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
@@ -2192,6 +2205,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -2245,6 +2259,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -2310,6 +2325,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
@@ -2456,6 +2472,7 @@ TEST_F(
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = MmaMacro::Ampere_16_8_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
@@ -2532,6 +2549,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 8};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -2626,6 +2644,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
@@ -2726,6 +2745,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitK_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2806,6 +2826,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitKBias_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2867,6 +2888,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitK_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2934,6 +2956,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2996,6 +3019,7 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = MmaMacro::Ampere_16_8_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
