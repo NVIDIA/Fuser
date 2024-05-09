@@ -370,10 +370,6 @@ TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->dtype());
 
-  // Note: torch.matmul reference does not restrict the inputs to the same dtype, but it fails for different input dtypes.
-  //       This condition may potentially be modified. The following condition should change accordingly.
-  NVF_CHECK(tv_a->dtype() == tv_b->dtype(), "Expected A and B dtypes to have the same dtype, got: ", tv_a->dtype(), " and ", tv_b->dtype());
-  
   if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
     // Return the dot product instead of creating the MatmulOp.
     // Cast back the output if needed since torch.matmul maintains input dtype.
