@@ -71,7 +71,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         for (int64_t i : alloc_perm_opt.value()) {
           ordered_strides.push_back(orig_strides[i]);
         }
-        input_strides_elements_[fusion_inp] = ordered_strides;
+        input_strides_elements_[fusion_inp] = std::move(ordered_strides);
       }
 
       // find and push discontiguous stride
