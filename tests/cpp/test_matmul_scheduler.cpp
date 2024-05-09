@@ -2374,4 +2374,3 @@ TEST_F(MatmulSchedulerTest, SegmentLinearUnsupportedEpilogueReduction) {
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
-  
