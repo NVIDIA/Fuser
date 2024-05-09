@@ -70,8 +70,7 @@ void mapAllocationDomain(
     const IdModel& id_model,
     const TensorView* ref,
     TensorView* target) {
-  const ValGraph& val_graph =
-      id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& target_rfactor_domain =
