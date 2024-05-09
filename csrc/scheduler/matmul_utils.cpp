@@ -342,7 +342,7 @@ int64_t maxRowVectorization(
   }
 
   NVF_ERROR(sizes.size() == strides.size());
-  NVF_ERROR(sizes.size() == tv->nDims());
+  NVF_ERROR((int64_t)sizes.size() == tv->nDims());
 
   std::vector<std::optional<bool>> noreductions_contig;
   for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
