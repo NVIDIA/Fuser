@@ -734,6 +734,13 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
+bool hasInnerTranspose(TensorView* out_tv) {
+  auto use_root_or_alloc = out_tv->hasAllocation()
+      ? out_tv->getAllocationDomain()
+      : out_tv->getRootDomain();
+  return use_root_or_alloc.back() != out_tv->getMaybeRFactorDomain().back();
+}
+
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
@@ -898,7 +905,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       ldst->setOpType(LoadStoreOpType::LdMatrix);
     }
   } else {
-    acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    if (hasInnerTranspose(acw_smem)) {
+      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
   }
   if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
     bcr = ldst->out()->as<TensorView>();
@@ -908,7 +919,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       ldst->setOpType(LoadStoreOpType::LdMatrix);
     }
   } else {
-    bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    if (hasInnerTranspose(bcw_smem)) {
+      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
   }
 
   // We remove this test for now and add something if required.
