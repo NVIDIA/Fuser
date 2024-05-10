@@ -51,6 +51,23 @@ TEST_F(FeaturesTest, DefaultFeatures) {
   FeatureSet feats_copy2 = feats;
   EXPECT_TRUE(feats_copy2.hasArgs(Feature::WarnRegisterSpill));
   EXPECT_EQ(feats_copy2.getArgs(Feature::WarnRegisterSpill).size(), 1);
+
+  {
+    FeatureSet f;
+    EXPECT_EQ(f.toString(), "FeatureSet[]");
+    f.insert(Feature::KernelDb);
+    // Enabling a non-default feature
+    EXPECT_EQ(f.toString(), "FeatureSet[+kernel_db]");
+    // Disabling a default feature
+    f.erase(Feature::ExprSimplify);
+    EXPECT_EQ(f.toString(), "FeatureSet[-expr_simplify, +kernel_db]");
+    std::stringstream ss;
+    ss << f;
+    EXPECT_EQ(f.toString(), ss.str());
+    // kernel_db does not affect execution, so it gets reset to default
+    EXPECT_EQ(
+        resetNonExecutionFeatures(f).toString(), "FeatureSet[-expr_simplify]");
+  }
 }
 
 } // namespace nvfuser

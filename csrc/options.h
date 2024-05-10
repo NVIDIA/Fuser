@@ -97,7 +97,7 @@ constexpr auto enumSize() {
 template <typename Enum>
 class EnumSet {
  public:
-  std::string toString() const {
+  virtual std::string toString() const {
     std::stringstream ss;
     ss << "{ ";
     bool first = true;
@@ -139,6 +139,8 @@ class EnumSet {
   const std::bitset<enumSize<Enum>()>& bitset() const {
     return bitset_;
   }
+
+  virtual ~EnumSet<Enum>() = default;
 
  private:
   std::bitset<enumSize<Enum>()> bitset_;
@@ -188,6 +190,8 @@ class FeatureSet : public EnumSet<Feature> {
   //! Inspect env vars and fall back to compile-time defaults for features.
   FeatureSet();
 
+  std::string toString() const override;
+
   //! Each feature can have an ordered collection of strings as "arguments". For
   //! example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
   //! more than 10 registers are spilled. This method checks whether such
@@ -215,11 +219,18 @@ class FeatureSet : public EnumSet<Feature> {
   std::unordered_map<Feature, std::vector<std::string>> args_;
 };
 
+std::ostream& operator<<(std::ostream& os, FeatureSet);
+
 //! Get a mapping from all names to Features
 NVF_API const std::unordered_map<std::string, Feature>& nameToFeatureMap();
 
 //! Look up string name and return Feature, if it exists
 NVF_API std::optional<Feature> nameToFeature(std::string name);
+
+//! Given a FeatureSet, resets all features that do not affect the generated
+//! CUDA kernel to their default value. This converts an arbitrary FeatureSet
+//! into one that can be safely used as a cache key.
+NVF_API FeatureSet resetNonExecutionFeatures(const FeatureSet& features);
 
 //! Types of features to enable
 //!

@@ -421,6 +421,10 @@ const std::vector<std::string>& featureNames() {
   return feature_names;
 }
 
+std::string featureName(const Feature& feat) {
+  return featureNames().at(toUnderlying(feat));
+}
+
 void fillDefaultFeatures(FeatureSet* feats) {
   static std::bitset<enumSize<Feature>()> bitset;
   static std::unordered_map<Feature, std::vector<std::string>> all_args;
@@ -480,6 +484,36 @@ const std::unordered_map<std::string, Feature>& nameToFeatureMap() {
   return named_features_map;
 }
 
+std::string FeatureSet::toString() const {
+  std::stringstream ss;
+  ss << "FeatureSet[";
+  bool first = true;
+#define MAYBE_PRINT_FEATURE(name, label, enabled, cache_key, desc) \
+  if (has(Feature::label) != enabled) {                            \
+    if (!first) {                                                  \
+      ss << ", ";                                                  \
+    }                                                              \
+    first = false;                                                 \
+    ss << (enabled ? '-' : '+');                                   \
+    ss << name;                                                    \
+  }
+  FOR_EACH_FEATURE(MAYBE_PRINT_FEATURE);
+#undef MAYBE_PRINT_FEATURE
+  ss << "]";
+  return ss.str();
+}
+
+FeatureSet resetNonExecutionFeatures(const FeatureSet& features) {
+  FeatureSet output = features;
+#define RESET_FEATURE(name, label, enabled, cache_key, desc) \
+  if (!cache_key) {                                          \
+    output.set(Feature::label, enabled);                     \
+  }
+  FOR_EACH_FEATURE(RESET_FEATURE);
+#undef RESET_FEATURE
+  return output;
+}
+
 #undef FOR_EACH_FEATURE
 
 std::optional<Feature> nameToFeature(std::string name) {
@@ -506,6 +540,11 @@ const std::vector<std::string>& FeatureSet::getArgs(Feature feat) const {
 
 std::ostream& operator<<(std::ostream& os, Feature f) {
   os << featureNames().at(toUnderlying(f));
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, FeatureSet feats) {
+  os << feats.toString();
   return os;
 }
 
