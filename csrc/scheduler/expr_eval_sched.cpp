@@ -18,7 +18,7 @@ ExprEvalScheduler::ExprEvalScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry(heuristicType()) {
-  params_ = std::make_shared<HeuristicParams>();
+  params_ = std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
 }
 
 // Check if the fusion has a single MatmulOp node
