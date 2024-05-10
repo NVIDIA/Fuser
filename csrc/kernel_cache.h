@@ -66,6 +66,7 @@ class FusionKernelRuntime {
   NVF_API explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
+      const FeatureSet& features = FeatureSet(),
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,

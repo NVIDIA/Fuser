@@ -843,6 +843,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
         args,
+        features,
         /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
@@ -1005,9 +1006,12 @@ void FusionExecutorCache::deserialize(
           ".");
 
       // 2. Construct new FusionKernelRuntime
+      // TODO(Jacob): properly deserialize features
+      FeatureSet features;
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
+          features,
           fb_fusion_kernel_runtime,
           std::nullopt,
           fusion_id_,
@@ -1034,6 +1038,7 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
+    const FeatureSet& features,
     const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
