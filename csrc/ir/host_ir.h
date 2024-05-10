@@ -10,6 +10,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/communication.h>
 
 namespace nvfuser {
 
@@ -62,7 +63,7 @@ class NVF_API PostOnStream : public Expr {
  public:
   using Expr::Expr;
   PostOnStream(IrBuilderPasskey passkey,
-               HostUnit* hu,
+               Expr* host_op,
                std::vector<Val*> inputs,
                std::vector<Val*> outputs);
 
@@ -81,8 +82,8 @@ class NVF_API PostOnStream : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  HostUnit* hostUnit() {
-    return attributes_.at(0)->as<HostUnit>();
+  Expr* hostOpToPost() {
+    return attributes_.at(0)->as<Expr>();
   }
 };
 
