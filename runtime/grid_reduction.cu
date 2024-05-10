@@ -667,6 +667,36 @@ __device__ void serialReductionStep(
   }
 }
 
+// check required transactions based on data type and vectorization factor
+// ensure each thread in each transaction has no more than 16 bytes which
+// is the maximum allowed vectorization width.
+template <typename T, int vec_size>
+constexpr __device__ int getTransactions() {
+  constexpr int total_bytes = vec_size * sizeof(T);
+  return total_bytes <= 16 ? 1 : total_bytes / 16;
+}
+
+template <typename T, int vec_size>
+constexpr __device__ int getElementsPerTransaction() {
+  return vec_size * sizeof(T) <= 16 ? vec_size : 16 / sizeof(T);
+}
+
+// calculate elements per section
+__inline__ __device__ nvfuser_index_t getElementsPerSection(
+    nvfuser_index_t row_len,
+    nvfuser_index_t col_len,
+    nvfuser_index_t elements_per_thread) {
+  return row_len * col_len * elements_per_thread;
+}
+
+// calculate offset within a section
+__inline__ __device__ nvfuser_index_t getOffsetWithinSection(
+    nvfuser_index_t row_len,
+    nvfuser_index_t row_id,
+    nvfuser_index_t col_id,
+    nvfuser_index_t elements_per_thread) {
+  return (row_id * row_len + col_id) * elements_per_thread;
+}
 // vectorized reduction
 template <
     bool X_THREAD,
@@ -683,7 +713,7 @@ __device__ void iterGroupedGridReduceLastBlock(
         grid_reduction_segment_size, // Number of reductions across
                                      // grid reduce dimensions
     const nvfuser_index_t
-        block_reduction_segment_size, // Number of reductions across the block
+        block_segment_size, // Number of reductions across the block
     Func reduction_op,
     T* shared_buf,
     bool write_pred,
@@ -739,35 +769,32 @@ __device__ void iterGroupedGridReduceLastBlock(
   // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
   // This layout ensures coalesced access to gmem and each transaction loads 128
   // bytes.
-  constexpr int total_bytes = vec_size * sizeof(T);
-  constexpr int n_transactions = total_bytes <= 16 ? 1 : total_bytes / 16;
-  constexpr int n_elements_per_transaction = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
-
-  // offset between different sections
-  // each thread holds [n_elements], threads count in each section is:
-  // [grid_reduction_segment_size * block_reduction_segment_size *
-  // grid_segment_size]
-  unsigned int gmem_offset_inter = grid_reduction_segment_size *
-      block_reduction_segment_size * grid_segment_size * n_elements;
+  constexpr auto n_transactions = getTransactions<T, vec_size>();
+  constexpr auto n_elements_per_transaction =
+      getElementsPerTransaction<T, vec_size>();
+  const auto elements_per_section = getElementsPerSection(
+      block_segment_size * grid_segment_size, // row len
+      grid_reduction_segment_size, // col len
+      n_elements_per_transaction);
   // Block stride across the reduction until we only have one value per thread
   for (nvfuser_index_t reduction_i = id_in_block_segment;
        reduction_i < grid_reduction_segment_size;
        reduction_i += input_stride_for_thread_in_segment) {
-    // index to global memory
-    auto work_buf_offset =
-        reduction_i * (block_reduction_segment_size * grid_segment_size) +
-        block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    unsigned int gmem_offset_intra = work_buf_offset * n_elements;
+    auto offset_in_section = getOffsetWithinSection(
+        block_segment_size * grid_segment_size, // row len
+        reduction_i, // row id
+        block_segment_size * idx_in_grid_segment + thread_offset, // col id
+        n_elements_per_transaction);
 
 #pragma unroll
-    for (int i = 0; i < n_loads; i++) {
-      int i_offset = i * n_elements;
-      T in_reg[n_elements];
-      loadGlobalToLocal<T, n_elements, true, CacheOp::Global>(
+    for (auto i = 0; i < n_transactions; i++) {
+      auto i_offset = i * n_elements_per_transaction;
+      T in_reg[n_elements_per_transaction];
+      loadGlobalToLocal<T, n_elements_per_transaction, true, CacheOp::Global>(
           &in_reg[0],
-          const_cast<T*>(in + gmem_offset_inter * i + gmem_offset_intra));
+          const_cast<T*>(in + elements_per_section * i + offset_in_section));
 #pragma unroll
-      for (int j = 0; j < n_elements; j++) {
+      for (auto j = 0; j < n_elements_per_transaction; j++) {
         reduction_op(inp[i_offset + j], in_reg[j]);
       }
     }
@@ -858,9 +885,8 @@ __device__ void iterGroupedGridReduce(
       index_utils::maskedOffset<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(
           blockIdx, gridDim);
 
-  // Number of threads we can use in final reduction, Seems to assume all
-  // threads in the block participate
-  const auto block_reduction_segment_size =
+  // Number of reductions in each block
+  const auto block_segment_size =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
   // Number of reductions in the grid
@@ -891,34 +917,37 @@ __device__ void iterGroupedGridReduce(
     // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
     // This layout ensures coalesced access to gmem and each transaction loads
     // 128 bytes.
-    constexpr int total_bytes = vec_size * sizeof(T);
-    constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-    constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
+    constexpr auto n_transactions = getTransactions<T, vec_size>();
+    constexpr auto n_elements_per_transaction =
+        getElementsPerTransaction<T, vec_size>();
 
-    // offset between different sections
-    // each thread holds [n_elements], threads count in each section is:
-    // [grid_reduction_segment_size * block_reduction_segment_size *
-    // grid_segment_size]
-    unsigned int gmem_offset_inter = grid_reduction_segment_size *
-        block_reduction_segment_size * grid_segment_size * n_elements;
+    // get elements per section, used to offset between different sections
+    // number of elements in each thread: [n_elements_per_transaction]
+    // number of threads in each row: [block_segment_size] * [grid_segment_size]
+    // number of rows in each section: [grid_reduction_segment_size]
+    auto elements_per_section = getElementsPerSection(
+        block_segment_size * grid_segment_size, // row len
+        grid_reduction_segment_size, // col len
+        n_elements_per_transaction);
 
     // index to the right position in [work_buf] to store block reduction
     // results. Consider a typical outer reduction case where iteration dim is
     // TIDx and BIDx and reduction dim is TIDy and BIDy. block_offset = BIDy
-    // block_reduction_segment_size = blockDim.x
+    // block_segment_size = blockDim.x
     // grid_segment_size = gridDim.x
     // idx_in_grid_segment = BIDx
     // thread_offset = TIDx
-    auto work_buf_offset =
-        block_offset * (block_reduction_segment_size * grid_segment_size) +
-        block_reduction_segment_size * idx_in_grid_segment + thread_offset;
-    unsigned int gmem_offset_intra = work_buf_offset * n_elements;
+    auto offset_in_section = getOffsetWithinSection(
+        block_segment_size * grid_segment_size, // row len
+        block_offset, // row id
+        block_segment_size * idx_in_grid_segment + thread_offset, // col id
+        n_elements_per_transaction);
 
 #pragma unroll
-    for (int i = 0; i < n_loads; i++) {
-      loadLocalToGlobal<T, n_elements, true>(
-          &work_buf[gmem_offset_inter * i + gmem_offset_intra],
-          &block_reduction_val[i * n_elements]);
+    for (int i = 0; i < n_transactions; i++) {
+      loadLocalToGlobal<T, n_elements_per_transaction, true>(
+          &work_buf[elements_per_section * i + offset_in_section],
+          &block_reduction_val[i * n_elements_per_transaction]);
     }
   }
 
@@ -946,7 +975,7 @@ __device__ void iterGroupedGridReduce(
         out,
         (T*)work_buf,
         grid_reduction_segment_size,
-        block_reduction_segment_size,
+        block_segment_size,
         reduction_op,
         shared_buf,
         write_pred,
