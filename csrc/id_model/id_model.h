@@ -68,10 +68,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // like: consumer[i0o, threadIdx.x{i0i}] = producer[i0o,
 // threadIdx.y{i0i}](computeAt = 1) which can easily happen when using shared
 // memory. Loop is actually defined for all iteration domains, and resembles
-// groups of iter domains that are effectively inlined with eachother. Therefore
-// iter domain's that are a common dependency of inlined leaf domains may be
-// loop mapped together. This map is developed in lowering from
-// bulidInlinePromotions and buildLoopPromotionMap.
+// groups of iter domains that are effectively inlined with each other.
+// Therefore iter domain's that are a common dependency of inlined leaf domains
+// may be loop mapped together.
 //
 // Loop promotion is a mechanism by which to capture inlined resolved
 // broadcasts. If a consumer resolves a broadcast of a producer, and the
@@ -94,8 +93,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
-//   dependent domains. Denotes groups of IterDomains that are
-//   promoted to a common iter domain
+//   dependent domains.
 class IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
@@ -248,24 +246,18 @@ class IdModel : public PolymorphicBase {
       const ValGraph& loop_graph,
       const StatefulInliningInfo& inlining_info);
 
-  void sanityCheckLoopPromotionMap(
-      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map);
-
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
   // within the loop group. Specifically, we examine each IEL group of
   // the loop group, and if an IEL group has a promotion, we consider it as a
   // candidate of the promotion of this loop group. If not, we include a
-  // domain of the IEL group as a candidate too. We also look at the
-  // inline promotion map since that may also contain the promotion the
-  // loop should be associated with. Once all candidates are obtained,
-  // we pick one that covers all the exact domains (cf. concrete domains
-  // in ComputeAtMap)
+  // domain of the IEL group as a candidate too. Once all candidates are
+  // obtained, we pick one that covers all the exact domains (cf. concrete
+  // domains in ComputeAtMap)
   IterDomain* findPromotionOfLoopGroup(
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map,
       const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
 
@@ -313,6 +305,16 @@ class IdModel : public PolymorphicBase {
   // TODO:
   // Update the LOOP ID disjoint sets with resolved computeWith
   void updateComputeWith(TensorView* compute_with_tv);
+
+  // Basic consistency check of the given loop promotion map
+  void sanityCheckLoopPromotionMap(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
+      const;
+
+  // Loop graph represents the loop structure of the given fusion, so
+  // there must not be any mapping between the leaf domains of each
+  // tensor.
+  void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
   // Replay Expr but with the inputs provided. ValGraphs will be updated
   // for all maps that have entries, adding the output iter domains of the
