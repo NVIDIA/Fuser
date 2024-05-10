@@ -27,8 +27,7 @@ namespace nvfuser {
 namespace hir {
 
 using HostIrTestParams = std::tuple<bool>;
-class HostIrTest : public NVFuserTest,
-                   public testing::WithParamInterface<HostIrTestParams> {};
+using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
 
 /*
     We propose a series of test illustrate how to manually write a Host program.

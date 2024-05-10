@@ -42,7 +42,7 @@ namespace hir {
   Note: Whether HostUnit should inherit from Expr or Val is debatable. Both are
   possible, I define it as an Expr for now here but am open to change it.
 */
-class NVF_API HostUnit : public Expr {
+class HostUnit : public Expr {
  public:
   using Expr::Expr;
   HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion);
@@ -72,7 +72,7 @@ class NVF_API HostUnit : public Expr {
 
 /*
   PostOnStream represents the host instruction of executing a HostUnit. Its I/O
-  represents in the host program the concrete I/O that will be binded at runtime
+  represents in the host program the concrete I/O that will be bound at runtime
   to the Fusion's I/O for compilation and execution. At runtime, PostOnStream
   will compile and launch the kernel lowered from the HostUnit's embedded
   Fusion.
@@ -84,7 +84,7 @@ class NVF_API HostUnit : public Expr {
   Note: later compilation and kernel launch will be separated and represented by
   distinct Host IRs
 */
-class NVF_API PostOnStream : public Expr {
+class PostOnStream : public Expr {
  public:
   using Expr::Expr;
   PostOnStream(
