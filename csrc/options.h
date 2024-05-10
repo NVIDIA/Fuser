@@ -121,7 +121,7 @@ class EnumSet {
     return bitset_;
   }
 
- private:
+ protected:
   std::bitset<enumSize<Enum>()> bitset_;
 };
 
@@ -171,12 +171,17 @@ class FeatureSet : public EnumSet<Feature> {
 
   std::string toString() const;
 
+  using ArgsMap = std::unordered_map<Feature, std::vector<std::string>>;
+
   //! Each feature can have an ordered collection of strings as "arguments". For
   //! example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
   //! more than 10 registers are spilled. This method checks whether such
   //! arguments were given.
   bool hasArgs(Feature feat) const {
-    return args_.find(feat) != args_.end();
+    if (args_ == nullptr) {
+      return false;
+    }
+    return args_->find(feat) != args_->end();
   }
 
   //! Get args vector for given feature. This should only be called if
@@ -185,13 +190,15 @@ class FeatureSet : public EnumSet<Feature> {
 
   //! Set args for a single feature
   void setArgs(Feature feat, const std::vector<std::string>& args) {
-    args_[feat] = args;
+    if (args_ == nullptr) {
+      args_ = std::make_unique<ArgsMap>();
+    }
+    (*args_)[feat] = args;
   }
 
   //! Set args for all features at once by copying a whole unordered_map
-  void setArgs(
-      const std::unordered_map<Feature, std::vector<std::string>>& all_args) {
-    args_ = all_args;
+  void setArgs(const ArgsMap& all_args) {
+    args_ = std::make_unique<ArgsMap>(all_args);
   }
 
   size_t hash() const {
@@ -200,15 +207,55 @@ class FeatureSet : public EnumSet<Feature> {
   }
 
   bool operator==(const FeatureSet& other) const {
-    return bitset() == other.bitset() && args_ == other.args_;
+    if (bitset() != other.bitset()) {
+      return false;
+    }
+    if (args_ == nullptr && other.args_ == nullptr) {
+      // Common case
+      return true;
+    }
+    if (args_ == nullptr && !other.args_->empty()) {
+      return false;
+    }
+    if (other.args_ == nullptr && !args_->empty()) {
+      return false;
+    }
+    return *args_ == *(other.args_);
   }
 
   bool operator!=(const FeatureSet& other) const {
     return !(operator==(other));
   }
 
+  FeatureSet(const FeatureSet& other) noexcept : EnumSet<Feature>(other) {
+    if (other.args_ != nullptr) {
+      args_ = std::make_unique<ArgsMap>(*other.args_);
+    }
+  }
+
+  FeatureSet& operator=(const FeatureSet& other) noexcept {
+    EnumSet<Feature>::operator=(other);
+    if (other.args_ != nullptr) {
+      args_ = std::make_unique<ArgsMap>(*other.args_);
+    }
+    return *this;
+  }
+
+  FeatureSet(FeatureSet&& other) noexcept
+      : EnumSet<Feature>(std::move(other)), args_(std::move(other.args_)) {}
+
+  FeatureSet& operator=(FeatureSet&& other) noexcept {
+    EnumSet<Feature>::operator=(other);
+    args_ = std::move(other.args_);
+    return *this;
+  }
+
+  ~FeatureSet() = default;
+
  private:
-  std::unordered_map<Feature, std::vector<std::string>> args_;
+  // A unique_ptr is used here since this functionality is rarely needed and
+  // unique_ptr is much smaller than unordered_map
+  std::unique_ptr<ArgsMap> args_;
 };
 
 std::ostream& operator<<(std::ostream& os, FeatureSet);

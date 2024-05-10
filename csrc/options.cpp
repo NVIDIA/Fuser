@@ -427,7 +427,7 @@ std::string featureName(const Feature& feat) {
 
 void fillDefaultFeatures(FeatureSet* feats) {
   static std::bitset<enumSize<Feature>()> bitset;
-  static std::unordered_map<Feature, std::vector<std::string>> all_args;
+  static FeatureSet::ArgsMap all_args;
   static bool initialized = false;
   if (!initialized) {
 #define ENABLE_DEFAULT_FEATURE(name, label, enabled, cache_key, desc) \
@@ -497,6 +497,7 @@ std::string FeatureSet::toString() const {
     ss << (enabled ? '-' : '+');                                   \
     ss << name;                                                    \
   }
+  // TODO: print args
   FOR_EACH_FEATURE(MAYBE_PRINT_FEATURE);
 #undef MAYBE_PRINT_FEATURE
   ss << "]";
@@ -530,7 +531,8 @@ FeatureSet::FeatureSet() {
 }
 
 const std::vector<std::string>& FeatureSet::getArgs(Feature feat) const {
-  auto it = args_.find(feat);
+  NVF_ERROR(args_ != nullptr);
+  auto it = args_->find(feat);
   NVF_ERROR(
       "Arguments requested for feature ",
       featureNames()[(size_t)toUnderlying(feat)],
