@@ -96,7 +96,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Subgraph of the permissive graph. Maps only CA and their
 //   dependent domains.
 class IdModel : public PolymorphicBase {
-  friend class LoopPromotionMapBuilder;
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
@@ -126,6 +125,16 @@ class IdModel : public PolymorphicBase {
   // been already built.
   const ValGraph& idGraph(IdMappingMode mode) const;
   ValGraph& idGraph(IdMappingMode mode);
+
+  const std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>>& idUses()
+      const {
+    return id_uses_;
+  }
+
+  const std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>>&
+  idDefinitions() const {
+    return id_definitions_;
+  }
 
   // TODO: Seems a bit unfortunate that this isn't IterDomain local information.
   const std::unordered_set<IterDomain*>& viewRfactorIds() const {
@@ -165,18 +174,23 @@ class IdModel : public PolymorphicBase {
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.
-  ValGraph initializeIdGraph(bool propagate_through_exprs = true);
+  ValGraph initializeIdGraph(bool propagate_through_exprs = true) const;
 
   // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
   // graph1.
   ValGraph buildIntersection(
       const ValGraph& graph0,
       const ValGraph& graph1,
-      bool propagate_exprs = true);
+      bool propagate_exprs = true) const;
 
   const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;
   }
+
+  // Replay Expr but with the inputs provided. ValGraphs will be updated
+  // for all maps that have entries, adding the output iter domains of the
+  // replayed expression and adding potential mappings through the expression.
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
@@ -197,7 +211,7 @@ class IdModel : public PolymorphicBase {
   // IterDomain picked from its IEL group.
   std::unordered_map<ValGroup, IterDomain*> buildInlineRootResolutionMap(
       const ValGraph& iel_graph,
-      const StatefulInliningInfo& info);
+      const StatefulInliningInfo& info) const;
 
   // Helper function for building loop promotion map.
   //
@@ -283,11 +297,6 @@ class IdModel : public PolymorphicBase {
   // there must not be any mapping between the leaf domains of each
   // tensor.
   void validateLoopGraphHasNoSelfMappedLeafDomains() const;
-
-  // Replay Expr but with the inputs provided. ValGraphs will be updated
-  // for all maps that have entries, adding the output iter domains of the
-  // replayed expression and adding potential mappings through the expression.
-  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
   // All tensor expressions that this model analyzes

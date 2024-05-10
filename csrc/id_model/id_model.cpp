@@ -226,7 +226,7 @@ std::string IdModel::toString() const {
   return ss.str();
 }
 
-ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
+ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   ValGraph id_graph(propagate_through_exprs);
 
   // To deterministically initialize the graph, the order of adding
@@ -716,7 +716,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
     const ValGraph& iel_graph,
-    const StatefulInliningInfo& info) {
+    const StatefulInliningInfo& info) const {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
 
   // This should probably work just on terminating inputs, as we shouldn't be
@@ -918,7 +918,7 @@ void IdModel::maybeBuildGraph(IdMappingMode mode) {
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
-    bool propagate_exprs) {
+    bool propagate_exprs) const {
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
