@@ -574,15 +574,13 @@ void IdModel::buildLoopGraph() {
 
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
-  loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+  loop_promotion_map_ = LoopPromotionMapBuilder::get(*this, inlining_info);
 
   // New domains are added. Make sure there's still no self mapping in
   // the leaf domains
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
-
-  auto loop_promotion_map2 = LoopPromotionMapBuilder::get(*this, inlining_info);
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
