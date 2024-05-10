@@ -160,26 +160,28 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   NVF_ERROR(
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
+
+  auto communications = lowerCommunication(comm_.deviceId(), expr);
+
+  // Compute input_tensor and output_tensor.
   auto input_val = expr->inputs().at(0);
   auto output_val = expr->outputs().at(0);
-  at::Tensor input_tensor, output_tensor;
+  at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
   }
+  at::Tensor output_tensor;
   if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  auto communications =
-      lowerCommunication(comm_.deviceId(), expr, input_tensor, output_tensor);
-
   // post and wait communications
-  for (auto communication : communications) {
-    auto backend =
+  for (Communication* communication : communications) {
+    c10::intrusive_ptr<c10d::Backend> backend =
         comm_.getBackendForTeam(communication->params().team, std::nullopt);
-    auto work =
-        postSingleCommunication(communication, comm_.deviceId(), backend);
-    if (work) {
+    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+        communication, comm_.deviceId(), backend, input_tensor, output_tensor);
+    if (work != nullptr) {
       work->wait();
     }
   }

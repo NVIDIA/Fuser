@@ -1055,6 +1055,49 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
+TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t M = 128, N = 256, K = 512;
+  TensorView* x = makeContigConcreteTensor({M, 1, K}, DataType::Half);
+  TensorView* y = makeContigConcreteTensor({1, N, K}, DataType::Half);
+  TensorView* z = fusedMultiplySum(x, y, {-1});
+
+  fusion->addInput(x);
+  fusion->addInput(y);
+  fusion->addOutput(z);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto x_ref = at::randn({M, 1, K}, options);
+  auto y_ref = at::randn({1, N, K}, options);
+  auto z_ref = atMatmul(x_ref, y_ref, MmaLayout::TN);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
+
+  NVF_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  NVF_CHECK(
+      isSchedulerInUse(
+          executor_cache.getMostRecentKernelRuntime(),
+          ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {x_ref, y_ref},
+      {z_ref},
+      __LINE__,
+      __FILE__);
+}
+
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
