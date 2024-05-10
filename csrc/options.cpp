@@ -503,7 +503,7 @@ std::string FeatureSet::toString() const {
   return ss.str();
 }
 
-FeatureSet resetNonExecutionFeatures(const FeatureSet& features) {
+FeatureSet resetNonCompilationFeatures(const FeatureSet& features) {
   FeatureSet output = features;
 #define RESET_FEATURE(name, label, enabled, cache_key, desc) \
   if (!cache_key) {                                          \

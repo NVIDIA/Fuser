@@ -66,7 +66,8 @@ TEST_F(FeaturesTest, DefaultFeatures) {
     EXPECT_EQ(f.toString(), ss.str());
     // kernel_db does not affect execution, so it gets reset to default
     EXPECT_EQ(
-        resetNonExecutionFeatures(f).toString(), "FeatureSet[-expr_simplify]");
+        resetNonCompilationFeatures(f).toString(),
+        "FeatureSet[-expr_simplify]");
   }
 }
 

@@ -768,7 +768,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
   // each pair of device ID and conc info
   FusionExecutorCache::CacheKey config = std::make_tuple(
-      resetNonExecutionFeatures(features), args.getDeviceIndex(), conc_info);
+      resetNonCompilationFeatures(features), args.getDeviceIndex(), conc_info);
   auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
   auto result = conc_info_id_map_.try_emplace(config, conc_info_id_map_.size());
   if (result.second) {

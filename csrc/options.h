@@ -227,7 +227,7 @@ NVF_API FeatureSet parseFeatures(
 //! Given a FeatureSet, resets all features that do not affect the generated
 //! CUDA kernel to their default value. This converts an arbitrary FeatureSet
 //! into one that can be safely used as a cache key.
-NVF_API FeatureSet resetNonExecutionFeatures(const FeatureSet& features);
+NVF_API FeatureSet resetNonCompilationFeatures(const FeatureSet& features);
 
 //! Types of features to enable
 //!
