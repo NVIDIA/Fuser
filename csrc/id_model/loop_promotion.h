@@ -84,7 +84,7 @@ class LoopPromotionMapBuilder {
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& loop_graph,
-      const StatefulInliningInfo& inlining_info);
+      const StatefulInliningInfo& inlining_info) const;
 
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
@@ -99,7 +99,7 @@ class LoopPromotionMapBuilder {
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
-      const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids);
+      const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const;
 
   // Terminal loop ids are iteration domains in each loop group that:
   // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
@@ -107,7 +107,7 @@ class LoopPromotionMapBuilder {
   //    is also in the same loop group
   // 2) Don't have a direct IterDomain consumer within the group
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
-      const StatefulInliningInfo& info);
+      const StatefulInliningInfo& info) const;
 
   // Basic consistency check of the given loop promotion map
   void sanityCheckLoopPromotionMap(

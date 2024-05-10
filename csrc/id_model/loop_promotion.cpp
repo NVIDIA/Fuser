@@ -606,7 +606,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const ValGraph& iel_graph,
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
         const ValGraph& loop_graph,
-        const StatefulInliningInfo& inlining_info) {
+        const StatefulInliningInfo& inlining_info) const {
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
       computeCoveredGroups(
           idGraph(IdMappingMode::EXACT), id_model_.viewRfactorIds());
@@ -638,7 +638,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     const ValGraph& iel_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
     const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
-    const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) {
+    const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
 
   // Grab all the (potentially promoted) terminal iter domains in this group.
@@ -703,7 +703,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
 }
 
 VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
-    computeTerminalLoopIds(const StatefulInliningInfo& info) {
+    computeTerminalLoopIds(const StatefulInliningInfo& info) const {
   VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
   for (const ValGroup& group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
