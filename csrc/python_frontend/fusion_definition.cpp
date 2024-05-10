@@ -105,7 +105,9 @@ void FusionDefinition::finalizeDefinition() {
   }
 }
 
-void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+void FusionDefinition::setupSchedule(
+    const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -113,7 +115,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
   NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
-  user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
+  user_sched_ =
+      fusionCache()->createUserSchedule(scheds, inputs, features, device);
 
   // Building a new Fusion container for scheduling with definition such that
   // the definition's tensor data members refer to the corresponding IR objects
@@ -129,7 +132,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 }
 
 void FusionDefinition::finalizeSchedule(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
@@ -144,6 +148,7 @@ void FusionDefinition::finalizeSchedule(
 
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
+  // TODO(Jacob): plumb features into executor here
   if (multidevice_executor_ == nullptr) {
     user_sched_->executor->compileFusion(
         user_sched_->schedule.get(),
@@ -172,6 +177,7 @@ void FusionDefinition::print(std::ostream& os) const {
 
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     bool override_user_schedule,
     bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
@@ -184,7 +190,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (multidevice_executor_) {
-    return multidevice_executor_->runWithInput(inputs.vec());
+    return multidevice_executor_->runWithInput(inputs.vec(), features);
   }
 
   std::vector<at::Tensor> outputs;
@@ -196,12 +202,14 @@ std::vector<at::Tensor> FusionDefinition::execute(
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device or don't match selection!");
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, inputs, features);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
+      // TODO(Jacob): runFusion(inputs, features)
       outputs = user_sched.executor->runFusion(inputs);
     }
   }
@@ -211,7 +219,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // through user scheduled kernel.
   if (outputs.empty()) {
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-        inputs, std::nullopt, selected_device);
+        inputs, /*forced_index_type=*/std::nullopt, selected_device, features);
   }
 
   if (capture_debug_output) {
@@ -251,6 +259,7 @@ std::string FusionDefinition::lastCudaCode(
 
 std::string FusionDefinition::cudaCodeFor(
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     bool intrinsic_code,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -261,7 +270,8 @@ std::string FusionDefinition::cudaCodeFor(
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, inputs, features);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
@@ -274,7 +284,8 @@ std::string FusionDefinition::cudaCodeFor(
       }
     }
   }
-  return scheds->auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
+  return scheds->auto_gen_schedules->getCodeFor(
+      inputs, features, intrinsic_code);
 }
 
 std::string FusionDefinition::lastScheduledFusionIr(
@@ -298,6 +309,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
 
 std::string FusionDefinition::scheduledFusionIrFor(
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     bool tensor_transforms,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -308,7 +320,8 @@ std::string FusionDefinition::scheduledFusionIrFor(
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, inputs, features);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
@@ -319,7 +332,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
     }
   }
   return scheds->auto_gen_schedules->getScheduledIrFor(
-      inputs, tensor_transforms);
+      inputs, features, tensor_transforms);
 }
 
 std::optional<size_t> FusionDefinition::id() const {

@@ -42,40 +42,6 @@ struct RuntimeWorkSpace {
   //! Pre-determined order to bind tensor input meta data
   std::vector<Val*> group_extent_binding_order;
 };
-//! Simple hasher for pair<T, const U*>. There is no default hasher for pairs,
-//! since there are a lot of options how to combine hashes. In a case where one
-//! element of the pair is unlikely to change much, the following hash is fast
-//! and effective.
-struct PairPointerHash {
-  template <typename T, typename U>
-  size_t operator()(const std::pair<T, const U*>& p) const {
-    auto hT = std::hash<T>{}(p.first);
-    // Using pointer as an optional
-    auto hU =
-        p.second ? std::hash<U>{}(*(p.second)) : std::hash<void*>{}(nullptr);
-    return hT ^ hU;
-  }
-};
-
-struct PairPointerEquals {
-  template <typename T, typename U>
-  bool operator()(
-      const std::pair<T, const U*>& lhs,
-      const std::pair<T, const U*>& rhs) const {
-    if (lhs.first != rhs.first) {
-      return false;
-    }
-    if (lhs.second == rhs.second) {
-      return true;
-    }
-    // Compare by dereference, but only if both pointers are non-null
-    if (!lhs.second || !rhs.second) {
-      // We've already compared pointers, so if either is null, they're not both
-      return false;
-    }
-    return *(lhs.second) == *(rhs.second);
-  }
-};
 
 // Perform a topological sort of different groups composiong the Segmented
 // Fusion
@@ -507,6 +473,40 @@ class InputsIdLookup : public NonCopyable {
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
 class FusionExecutorCache {
  public:
+  using CacheKey =
+      std::tuple<FeatureSet, int8_t, const DynamicTransformConcretizationInfo*>;
+
+  struct CacheKeyHash {
+    size_t operator()(const CacheKey& c) const {
+      const auto& [features, device, conc_info] = c;
+      // Using pointer as an optional
+      auto hptr = conc_info != nullptr
+          ? std::hash<DynamicTransformConcretizationInfo>{}(*(conc_info))
+          : std::hash<void*>{}(nullptr);
+      return features.hash() ^ std::hash<int8_t>{}(device) ^ hptr;
+    }
+  };
+
+  struct CacheKeyEquals {
+    bool operator()(const CacheKey& lhs, const CacheKey& rhs) const {
+      const auto& [features1, device1, conc_info1] = lhs;
+      const auto& [features2, device2, conc_info2] = rhs;
+      if (features1 != features2 || device1 != device2) {
+        return false;
+      }
+      if (conc_info1 == conc_info2) {
+        return true;
+      }
+      // Compare by dereference, but only if both pointers are non-null
+      if (conc_info1 == nullptr || conc_info2 == nullptr) {
+        // We've already compared pointers, so if either is null, they're not
+        // both
+        return false;
+      }
+      return *conc_info1 == *conc_info2;
+    }
+  };
+
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
@@ -523,11 +523,12 @@ class FusionExecutorCache {
   //! what inputs and the fusion look like. This may be useful in some
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
-  //! WARING: Correctness is not guaranteed.
+  //! WARNING: Correctness is not guaranteed.
   NVF_API std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
-      std::optional<int8_t> selected_device = std::nullopt);
+      std::optional<int8_t> selected_device = std::nullopt,
+      std::optional<FeatureSet> = std::nullopt);
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
@@ -538,7 +539,8 @@ class FusionExecutorCache {
   //! query if there's a kernel ready to go for given inputs
   NVF_API bool isCompiled(
       const at::ArrayRef<c10::IValue>& inputs,
-      int8_t device = 0);
+      int8_t device = 0,
+      std::optional<FeatureSet> features = std::nullopt);
 
   Fusion* fusion() {
     return fusion_.get();
@@ -565,6 +567,7 @@ class FusionExecutorCache {
   //! Get the kernel code for the given inputs
   std::string getCodeFor(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       bool intrinsic_code);
   //! Gets the Scheduled IR for the associated runtime
   std::string getScheduledIr(
@@ -575,6 +578,7 @@ class FusionExecutorCache {
   //! Get the Scheduled IR for the given inputs
   std::string getScheduledIrFor(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       bool tensor_transforms = false);
 
   // TODO: in a follow up we need a global logging structure
@@ -595,8 +599,8 @@ class FusionExecutorCache {
   //! the given device; otherwise count concretizations on all devices.
   size_t countConcretizations(int8_t device = -1) const {
     size_t concs = 0;
-    for (auto& it : kernel_runtimes_) {
-      if (device >= 0 && it.first.first != device) {
+    for (const auto& [key, val] : kernel_runtimes_) {
+      if (device >= 0 && std::get<1>(key) != device) {
         continue;
       }
       concs++;
@@ -609,11 +613,11 @@ class FusionExecutorCache {
   //! runtimes on all devices.
   size_t countRuntimes(int8_t device = -1) const {
     size_t runtimes = 0;
-    for (auto& it : kernel_runtimes_) {
-      if (device >= 0 && it.first.first != device) {
+    for (const auto& [key, value] : kernel_runtimes_) {
+      if (device >= 0 && std::get<1>(key) != device) {
         continue;
       }
-      runtimes += it.second.size();
+      runtimes += value.size();
     }
     return runtimes;
   }
@@ -686,6 +690,7 @@ class FusionExecutorCache {
   //! runtime no matter what sizes inputs have
   FusionKernelRuntime* getKernelRuntimeFor(
       const KernelArgumentHolder& inputs,
+      const FeatureSet& features,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Get initial concretization info (without inputs). This computes the info
@@ -702,9 +707,6 @@ class FusionExecutorCache {
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
-  using ConcreteInfo =
-      std::pair<int8_t, const DynamicTransformConcretizationInfo*>;
-
   //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
   //! map is a (device, concretization info) pair. In case fusion_ contains
   //! no dynamic transforms, the second part of the key is null. When a new set
@@ -713,10 +715,10 @@ class FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      ConcreteInfo,
+      CacheKey,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
-      PairPointerHash,
-      PairPointerEquals>
+      CacheKeyHash,
+      CacheKeyEquals>
       kernel_runtimes_;
 
   //! This class owns the initial info and concretization info associated to
@@ -726,11 +728,11 @@ class FusionExecutorCache {
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
   //! Map each pair of device_id and concretization info to an integer id
-  std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
+  std::unordered_map<CacheKey, int64_t, CacheKeyHash, CacheKeyEquals>
       conc_info_id_map_;
   //! For serialization, track a deterministic order for (device_id and
   //! concretization info) pair
-  std::vector<ConcreteInfo> deterministic_conc_info_;
+  std::vector<CacheKey> deterministic_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;

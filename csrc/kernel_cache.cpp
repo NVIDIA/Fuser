@@ -472,14 +472,18 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
 
 bool FusionExecutorCache::isCompiled(
     const at::ArrayRef<c10::IValue>& inputs,
-    int8_t device) {
+    int8_t device,
+    std::optional<FeatureSet> features_opt) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
   // Access kernels associated with the common device id
   KernelArgumentHolder args = prepareInputs(inputs);
   args.setDeviceIndex(device);
 
-  return getKernelRuntimeFor(args)->isCompiled();
+  return getKernelRuntimeFor(
+             args,
+             features_opt.has_value() ? features_opt.value() : FeatureSet())
+      ->isCompiled();
 }
 
 // Note [ Permutation support in nvfuser ]
@@ -518,12 +522,16 @@ bool FusionExecutorCache::isCompiled(
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
-    std::optional<int8_t> selected_device) {
+    std::optional<int8_t> selected_device,
+    std::optional<FeatureSet> features_opt) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
   // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
     FusionProfiler::start(isProfilerEnabledWithoutCupti());
   }
+
+  const FeatureSet features =
+      features_opt.has_value() ? features_opt.value() : FeatureSet();
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -543,7 +551,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
-  auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+  auto kernel_runtime = getKernelRuntimeFor(args, features, forced_index_type);
 
   if (isProfilerEnabled()) {
     FusionProfiler::createSegments(kernel_runtime->executors().size());
@@ -660,9 +668,10 @@ std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
 
 std::string FusionExecutorCache::getCodeFor(
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     bool intrinsic_code) {
   KernelArgumentHolder args = prepareInputs(inputs);
-  auto kernel_runtime = getKernelRuntimeFor(args);
+  auto kernel_runtime = getKernelRuntimeFor(args, features);
   return getCode(kernel_runtime, intrinsic_code);
 }
 
@@ -693,9 +702,10 @@ std::string FusionExecutorCache::getMostRecentScheduledIr(
 
 std::string FusionExecutorCache::getScheduledIrFor(
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     bool tensor_transforms) {
   KernelArgumentHolder args = prepareInputs(inputs);
-  auto kernel_runtime = getKernelRuntimeFor(args);
+  auto kernel_runtime = getKernelRuntimeFor(args, features);
   return getScheduledIr(kernel_runtime, tensor_transforms);
 }
 
@@ -722,6 +732,7 @@ DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
 
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
+    const FeatureSet& features,
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case
   auto unique_id_opt = args.getCacheId();
@@ -755,11 +766,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
-  // each pair of device ID and
-  auto config = std::make_pair(args.getDeviceIndex(), conc_info);
+  // each pair of device ID and conc info
+  FusionExecutorCache::CacheKey config = std::make_tuple(
+      resetNonExecutionFeatures(features), args.getDeviceIndex(), conc_info);
   auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  auto result =
-      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto result = conc_info_id_map_.try_emplace(config, conc_info_id_map_.size());
   if (result.second) {
     deterministic_conc_info_.emplace_back(config);
   }
@@ -881,7 +892,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
-    auto&& [device_id, conc_info] = config;
+    auto&& [features, device_id, conc_info] = config;
+    // TODO(Jacob): serialize features
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
         builder,
         device_id,
@@ -951,8 +963,9 @@ void FusionExecutorCache::deserialize(
       conc_info = cached_conc_info_.back().get();
     }
 
-    auto config =
-        std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
+    // TODO(Jacob): deserialize FeatureSet here instead of using default
+    auto config = std::make_tuple(
+        FeatureSet(), (int8_t)fb_device_runtimes->device_id(), conc_info);
     auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
     auto result =
         conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);

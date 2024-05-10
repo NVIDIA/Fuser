@@ -119,15 +119,20 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void finalizeDefinition();
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
-  NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void setupSchedule(
+      const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features);
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
-  NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void finalizeSchedule(
+      const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features);
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   NVF_API std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       bool override_user_schedule,
       bool capture_debug_output,
       std::optional<int8_t> device) const;
@@ -149,6 +154,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! Return the Cuda code for the given inputs
   NVF_API std::string cudaCodeFor(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       bool intrinsic_code,
       bool override_user_schedule) const;
   //! Return the Cuda code for the last executed set of inputs
@@ -158,6 +164,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! Return the Cuda code for the given inputs
   NVF_API std::string scheduledFusionIrFor(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition

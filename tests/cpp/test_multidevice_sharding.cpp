@@ -60,7 +60,7 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   auto x3 = shardTensor(
       at::sum(x0 + x0, {sharded_dim}), tv3, communicator->deviceId());
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
   testValidate(
       runtime.completeFusion(),
       outputs,
@@ -102,7 +102,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
       shardTensor(x1, tv0, communicator->deviceId())};
   auto x2 = x1 * 2;
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
   testValidate(
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }

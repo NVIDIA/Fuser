@@ -183,7 +183,8 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs, l_params);
+  FeatureSet features;
+  outputs = runtime->runWithInput(inputs, features, l_params);
 
   if (debug_print) {
     if (!communicator->deviceId()) {

@@ -163,7 +163,8 @@ class FusionCache {
   //! cause a modification to that data member for cache eviction.
   std::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
-      const at::ArrayRef<c10::IValue>& inputs);
+      const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features);
   //! Lookup the User Schedule based on Id
   const UserSchedule& queryUserSchedule(
       const FusionSchedules* scheds,
@@ -176,6 +177,7 @@ class FusionCache {
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       int device);
   //! Get the root Trie ptr
   NVF_API TrieNode* rootTriePtr();

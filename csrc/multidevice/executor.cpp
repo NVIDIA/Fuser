@@ -187,6 +187,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs,
+    const FeatureSet& features,
     const LaunchParams& launch_params) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
@@ -210,6 +211,8 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
         inputs.at(input_idx);
   }
+
+  // TODO(Jacob): Plumb features through this code
 
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {

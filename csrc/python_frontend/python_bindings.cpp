@@ -521,10 +521,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Instrumentation to mark the beginning of a schedule
             inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
             std::vector<c10::IValue> inputs;
+            // TODO(Jacob): accept feature enable/disable args here
+            FeatureSet features;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.setupSchedule(inputs);
+            self.setupSchedule(inputs, features);
           })
       .def(
           "_finalize_schedule",
@@ -533,7 +535,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.finalizeSchedule(inputs);
+            // TODO(Jacob): accept feature enable/disable args here
+            FeatureSet features;
+            self.finalizeSchedule(inputs, features);
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
@@ -570,8 +574,12 @@ void initNvFuserPythonBindings(PyObject* module) {
               NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
+            // TODO(Jacob): add enable_features= and disable_features= arguments
+            // here
+            FeatureSet features;
             return self.execute(
                 inputs,
+                features,
                 override_user_schedule,
                 capture_debug_output,
                 int8_device);
@@ -610,8 +618,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
+            // TODO(Jacob): accept feature enable/disable arguments
+            FeatureSet features;
             return self.cudaCodeFor(
-                inputs, intrinsic_code, override_user_schedule);
+                inputs, features, intrinsic_code, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("intrinsic_code") = false,
@@ -638,8 +648,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
+            // TODO(Jacob): accept enable/disable feature args here
+            FeatureSet features;
             return self.scheduledFusionIrFor(
-                inputs, tensor_transforms, override_user_schedule);
+                inputs, features, tensor_transforms, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("tensor_transforms") = false,

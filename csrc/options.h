@@ -97,25 +97,6 @@ constexpr auto enumSize() {
 template <typename Enum>
 class EnumSet {
  public:
-  virtual std::string toString() const {
-    std::stringstream ss;
-    ss << "{ ";
-    bool first = true;
-    for (auto i : c10::irange(enumSize<Enum>())) {
-      if (!bitset_[i]) {
-        continue;
-      }
-      if (!first) {
-        ss << ", ";
-      }
-      first = false;
-      // Note: this assumes Enum implements operator<<(std::ostream&, Enum)
-      ss << static_cast<Enum>(i);
-    }
-    ss << " }";
-    return ss.str();
-  }
-
   void set(Enum feat, bool value) {
     bitset_.set(toUnderlying(feat), value);
   }
@@ -139,8 +120,6 @@ class EnumSet {
   const std::bitset<enumSize<Enum>()>& bitset() const {
     return bitset_;
   }
-
-  virtual ~EnumSet<Enum>() = default;
 
  private:
   std::bitset<enumSize<Enum>()> bitset_;
@@ -190,7 +169,7 @@ class FeatureSet : public EnumSet<Feature> {
   //! Inspect env vars and fall back to compile-time defaults for features.
   FeatureSet();
 
-  std::string toString() const override;
+  std::string toString() const;
 
   //! Each feature can have an ordered collection of strings as "arguments". For
   //! example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
@@ -213,6 +192,19 @@ class FeatureSet : public EnumSet<Feature> {
   void setArgs(
       const std::unordered_map<Feature, std::vector<std::string>>& all_args) {
     args_ = all_args;
+  }
+
+  size_t hash() const {
+    // Ignores args_
+    return std::hash<std::bitset<enumSize<Feature>()>>{}(bitset());
+  }
+
+  bool operator==(const FeatureSet& other) const {
+    return bitset() == other.bitset() && args_ == other.args_;
+  }
+
+  bool operator!=(const FeatureSet& other) const {
+    return !(operator==(other));
   }
 
  private:
