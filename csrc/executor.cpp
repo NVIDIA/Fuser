@@ -1027,8 +1027,6 @@ at::Tensor allocateOutput(
       }
       return out_tensor;
     }
-    default:
-      NVF_ERROR(false, "Unrecognized AllocationType.");
   }
 }
 
