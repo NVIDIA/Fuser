@@ -155,7 +155,7 @@ std::string Communication::toString(const int indent_size) const {
                           << std::endl;
 
   if (hasRoot(params_.type)) {
-    indent(ss, indent_size + 1) << "root: " << params_.root << ",\n";
+    indent(ss, indent_size + 1) << "root: " << params_.root << "," << std::endl;
   }
   indent(ss, indent_size + 1) << "team: " << params_.team << "," << std::endl;
   indent(ss, indent_size) << "}";
