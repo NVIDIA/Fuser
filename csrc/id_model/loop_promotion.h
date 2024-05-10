@@ -28,7 +28,7 @@ class LoopPromotionMapBuilder {
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info);
 
-  void build();
+  std::unordered_map<ValGroup, IterDomain*> build();
 
   ValGraph& idGraph(IdMappingMode mode);
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -117,7 +117,6 @@ class LoopPromotionMapBuilder {
  private:
   IdModel& id_model_;
   const StatefulInliningInfo& inlining_info_;
-  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 };
 
 } // namespace nvfuser

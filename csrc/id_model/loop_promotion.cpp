@@ -26,7 +26,7 @@ const ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) const {
   return id_model_.idGraph(mode);
 }
 
-void LoopPromotionMapBuilder::build() {
+std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -97,7 +97,7 @@ void LoopPromotionMapBuilder::build() {
 
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
-  loop_promotion_map_ = projectIELPromotionToLoopGraph(
+  auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
       iel_graph,
       final_iel_promotion_map,
       idGraph(IdMappingMode::LOOP),
@@ -146,10 +146,12 @@ void LoopPromotionMapBuilder::build() {
 
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
-  loop_promotion_map_.insert(
+  final_loop_promotion_map.insert(
       initial_loop_promotion_map.begin(), initial_loop_promotion_map.end());
 
-  sanityCheckLoopPromotionMap(loop_promotion_map_);
+  sanityCheckLoopPromotionMap(final_loop_promotion_map);
+
+  return final_loop_promotion_map;
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
@@ -781,8 +783,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     IdModel& id_model,
     const StatefulInliningInfo& inlining_info) {
   LoopPromotionMapBuilder builder(id_model, inlining_info);
-  builder.build();
-  return builder.loop_promotion_map_;
+  return builder.build();
 }
 
 } // namespace nvfuser
