@@ -110,7 +110,7 @@ class EnumSet {
   }
 
   bool has(Enum feat) const {
-    return bitset_[toUnderlying(feat)];
+    return bitset_.test(toUnderlying(feat));
   }
 
   std::bitset<enumSize<Enum>()>& bitset() {
@@ -218,6 +218,11 @@ NVF_API const std::unordered_map<std::string, Feature>& nameToFeatureMap();
 
 //! Look up string name and return Feature, if it exists
 NVF_API std::optional<Feature> nameToFeature(std::string name);
+
+//! Given lists of feature names, parse into a FeatureSet object
+NVF_API FeatureSet parseFeatures(
+    const std::vector<std::string>& enable_features,
+    const std::vector<std::string>& disable_features);
 
 //! Given a FeatureSet, resets all features that do not affect the generated
 //! CUDA kernel to their default value. This converts an arbitrary FeatureSet

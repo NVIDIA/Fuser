@@ -76,6 +76,8 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
+        enable_features=[],
+        disable_features=[],
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -148,6 +150,8 @@ class FusionDefinition(_C._FusionDefinition):
                 override_user_schedule,
                 device=device,
                 capture_debug_output=capture_debug_output,
+                enable_features=enable_features,
+                disable_features=disable_features,
             )
         except Exception as err:
             msg = (

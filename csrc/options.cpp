@@ -538,6 +538,67 @@ const std::vector<std::string>& FeatureSet::getArgs(Feature feat) const {
   return it->second;
 }
 
+FeatureSet parseFeatures(
+    const std::vector<std::string>& enable_features,
+    const std::vector<std::string>& disable_features) {
+  FeatureSet features;
+  // Track already manually enabled or disabled features
+  auto enabled_bitset = features.bitset();
+  auto disabled_bitset = features.bitset();
+  enabled_bitset.reset();
+  disabled_bitset.reset();
+  const auto& map = nameToFeatureMap();
+  const auto& processFeatures =
+      [&map](
+          const std::vector<std::string>& feature_names,
+          std::bitset<enumSize<Feature>()>& bitset,
+          auto enable_or_disable_fn) {
+        for (const std::string& name : feature_names) {
+          auto it = map.find(name);
+          if (it == map.end()) {
+            std::vector<std::string> names;
+            names.reserve(map.size());
+            for (const auto& [k, v] : map) {
+              names.push_back(k);
+            }
+            std::sort(names.begin(), names.end());
+            std::stringstream ss;
+            bool first = true;
+            for (const auto& n : names) {
+              if (!first) {
+                ss << ", ";
+              }
+              first = false;
+              ss << n;
+            }
+            NVF_CHECK(
+                false,
+                "Unknown feature '",
+                name,
+                "'. Available features: ",
+                ss.str());
+          }
+          Feature f = it->second;
+          enable_or_disable_fn(f);
+          bitset.set(toUnderlying(f), true);
+        }
+      };
+  processFeatures(enable_features, enabled_bitset, [&features](Feature f) {
+    features.insert(f);
+  });
+  processFeatures(disable_features, disabled_bitset, [&features](Feature f) {
+    features.erase(f);
+  });
+  // Check that we didn't manually both insert and erase a feature
+  for (const size_t i : c10::irange(enumSize<Feature>())) {
+    NVF_CHECK(
+        !enabled_bitset.test(i) || !disabled_bitset.test(i),
+        "Feature ambiguously both enabled and disabled");
+  }
+
+  return features;
+}
+
 std::ostream& operator<<(std::ostream& os, Feature f) {
   os << featureNames().at(toUnderlying(f));
   return os;

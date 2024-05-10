@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import os
 
+import pytest
 import torch
 import torch.nn.functional as F
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
@@ -3814,7 +3815,6 @@ class TestNvFuserFrontend(TestCase):
             torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
             torch.ones(2**20, device="cuda"),
         ]
-        print(inputs[0].data_ptr(), inputs[0].data_ptr() % 16)
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -3827,6 +3827,43 @@ class TestNvFuserFrontend(TestCase):
 
         # Fails because vectorization 4 is set but only 1 supported
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test executing a fusion twice with different features
+    def test_execute_features(self):
+        inputs = [
+            torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
+            torch.ones(2**20, device="cuda"),
+        ]
+
+        with FusionDefinition() as fd:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_scalar(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+
+            fd.add_output(t2)
+
+        fd.execute(inputs)
+
+        # test basic functionality
+        fd.execute(inputs, disable_features=["index_hoist"])
+        fd.execute(inputs, enable_features=["kernel_db"])
+        fd.execute(
+            inputs, enable_features=["kernel_db"], disable_features=["index_hoist"]
+        )
+
+        with pytest.raises(Exception):
+            fd.execute(inputs, disable_features=["index_host"])
+            # disallow repeated entries
+            fd.execute(inputs, enable_features=["index_hoist", "index_hoist"])
+            fd.execute(inputs, disable_features=["index_hoist", "index_hoist"])
+            # ambiguous: can't both enable and disable a feature
+            fd.execute(
+                inputs,
+                disable_features=["index_hoist"],
+                enable_features=["index_hoist"],
+            )
 
 
 if __name__ == "__main__":
