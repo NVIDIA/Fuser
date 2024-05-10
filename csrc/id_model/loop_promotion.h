@@ -14,21 +14,31 @@ namespace nvfuser {
 class IdModel;
 struct StatefulInliningInfo;
 
+// Callback interface for LoopPromotionMapBuilder. Allow exposing the
+// temporary maps for testing and debugging
 class LoopPromotionMapBuilderCallback {
  public:
   virtual ~LoopPromotionMapBuilderCallback() = default;
 
+  // Called after Step 1 with the root resolution map and the
+  // corresponding IEL graph
   virtual void postStep1(
       const std::unordered_map<ValGroup, IterDomain*>& iel_root_resolution_map,
       const ValGraph& iel_graph) {}
+  // Called after Step 2 with the IEL promotion map and the
+  // corresponding IEL graph
   virtual void postStep2(
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& iel_graph) {}
+  // Called after Step 3 with the loop promotion map
   virtual void postStep3(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+  // Called after Step 4 with the IEL promotion map and the
+  // corresponding IEL graph
   virtual void postStep4(
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& iel_graph) {}
+  // Called after Step 3 with the final loop promotion map
   virtual void postStep5(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
 };
