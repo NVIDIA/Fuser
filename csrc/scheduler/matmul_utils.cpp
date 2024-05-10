@@ -328,11 +328,12 @@ std::string isMatmulFusionDefinitionSupported(
 // These rows can start at any multiple of the non-contiguous strides, so we
 // seek the largest power of 2 that divides all those other dimensions (capped
 // to 16) as well as the data pointer.
-int64_t maxRowVectorization(
+int64_t maxUnpredicatedRowVectorization(
     TensorView* tv,
     const int64_t data_ptr_int,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
+  // Check data pointer alignment
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
   vec_size = std::min(vec_size, 16l);
   vec_size /= dataTypeSize(tv->dtype());
@@ -341,50 +342,44 @@ int64_t maxRowVectorization(
     return vec_size;
   }
 
+  // Check that inner dimension is contiguous
   NVF_ERROR(sizes.size() == strides.size());
   NVF_ERROR((int64_t)sizes.size() == tv->nDims());
-
-  std::vector<std::optional<bool>> noreductions_contig;
-  for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
-    if (tv->getMaybeAllocationDomain()[i]->isReduction()) {
+  size_t inner_dim_pos = 0;
+  for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
+    IterDomain* id = tv->getMaybeAllocationDomain()[i];
+    if (id->isReduction() || id->isBroadcast()) {
       continue;
     }
-    noreductions_contig.push_back(tv->getContiguity().at(i));
-  }
-
-  bool inner_contiguous = false;
-  for (size_t i : c10::irange(sizes.size())) {
-    int64_t stride = strides.at(i);
-    int64_t size = sizes.at(i);
-    if (stride == 1) {
-      std::optional<bool> contig = noreductions_contig.at(i);
-      if (contig.has_value() && !contig.value()) {
-        // If TensorView is marked discontiguous in inner dimension, we cannot
-        // vectorize regardless of input.
-        return 1l;
-      }
-      if (inner_contiguous) {
-        // There was already a contiguous inner dimension, so that means there
-        // are multiple stride==1 dimensions in this tensor. This means that
-        // there will be overlapping rows offset from one another by a single
-        // element. In such cases we cannot vectorize. An exception is when an
-        // outer dimension has both stride==1 and size==1, in which case we
-        // could ignore its stride. Currently we ignore that case and just
-        // return 1 whenever we detect multiple stride==1 dimensions.
-        return 1l;
-      }
-      inner_contiguous = true;
-      vec_size =
-          std::min(vec_size, scheduler_utils::maxVectorizationWidth(size));
+    inner_dim_pos = i;
+    std::optional<bool> c = tv->getContiguity().at(i);
+    NVF_ERROR(c.has_value());
+    if (!c.value()) {
+      // If TensorView is marked discontiguous in inner dimension, we cannot
+      // vectorize regardless of input.
+      return 1l;
     } else {
-      vec_size =
-          std::min(vec_size, scheduler_utils::maxVectorizationWidth(stride));
+      NVF_CHECK(
+          strides[i] == 1,
+          "TensorView ",
+          tv->toString(),
+          " has marked contiguous inner dimension ",
+          id->toString(),
+          " but provided tensor has stride ",
+          strides[i],
+          " in that dimension.");
     }
+    break; // only check innermost realized dimension
   }
 
-  if (!inner_contiguous) {
-    // Tensor is discontiguous
-    return 1l;
+  // Account for misaligned rows due to outer strides
+  for (size_t i : c10::irange(inner_dim_pos)) {
+    if (sizes[i] == 1) {
+      // outer size-1 dimensions don't affect vectorizability
+      continue;
+    }
+    vec_size =
+        std::min(vec_size, scheduler_utils::maxVectorizationWidth(strides[i]));
   }
 
   return vec_size;
@@ -404,7 +399,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       // TODO: handle the case when tv is not a Fusion input by filling default
       // contiguous strides based on tv->getMaybeAllocationDomain() and data
       // pointer aligned to 16 bytes.
-      int64_t v = maxRowVectorization(
+      int64_t v = maxUnpredicatedRowVectorization(
           tv,
           (int64_t)runtime_info.ptrOf(tv),
           runtime_info.getInputAllocationSizes(tv),
