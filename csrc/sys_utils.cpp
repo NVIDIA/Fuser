@@ -5,6 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+// dl_iterate_phdr is only defined when _GNU_SOURCE is defined. The
+// macro needs to be defined before any header file is included. See
+// the man page for more info.
+#define _GNU_SOURCE
+#endif
+
 #include <exceptions.h>
 #include <executor_utils.h>
 #include <sys_utils.h>
@@ -18,6 +25,7 @@
 #include <vector>
 
 #include <dlfcn.h>
+#include <link.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
@@ -162,9 +170,27 @@ LibraryLoader::~LibraryLoader() {
   }
 }
 
+namespace {
+
+// Callback should return 0 to continue iterationg. A non-zero return
+// value would stop the iteration.
+int detectComputeSanitizerCallback(
+    struct dl_phdr_info* info,
+    size_t size,
+    void* data) {
+  std::string lib_name = info->dlpi_name;
+  return lib_name.find("compute-sanitizer") != std::string::npos;
+}
+
+} // namespace
+
+bool detectComputeSanitizer() {
+  return dl_iterate_phdr(detectComputeSanitizerCallback, nullptr) != 0;
+}
+
 } // namespace nvfuser
 
-#else
+#else // #if defined(__linux__)
 
 namespace nvfuser {
 
@@ -185,6 +211,11 @@ LibraryLoader::~LibraryLoader {
   // TODO: implement non-linux versions of LibraryLoader
 }
 
+bool detectComputeSanitizer() {
+  // Not implemented. Just return false for now.
+  return false;
+}
+
 } // namespace nvfuser
 
-#endif
+#endif // #if defined(__linux__)

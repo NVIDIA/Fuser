@@ -106,7 +106,8 @@ class Val;
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
-  f(Resize);
+  f(Resize);                      \
+  f(MatmulOp);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -134,6 +135,9 @@ class Val;
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
   f(EncodeTensorMapTiled);
+#define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
+  f(HostUnit);                        \
+  f(PostOnStream);
 
 // Forward declarations for all Val and Expr types
 
@@ -150,6 +154,14 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 
 } // namespace kir
+
+namespace hir {
+
+#define M(e) class e;
+DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
+
+} // namespace hir
 
 namespace assoc_comm {
 class FlattenedAssocCommOp;
@@ -177,6 +189,9 @@ class OptOutConstDispatch : public PolymorphicBase {
   DISPATCH_FOR_ALL_KIR_VALS(M)
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
+#define M(e) virtual void handle(const hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
 };
 
 class NVF_API OptOutDispatch : public PolymorphicBase {
@@ -198,6 +213,9 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
 #define M(e) virtual void handle(kir::e* stmt);
   DISPATCH_FOR_ALL_KIR_VALS(M)
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e) virtual void handle(hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 };
 
