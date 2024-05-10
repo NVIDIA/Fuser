@@ -372,6 +372,11 @@ int64_t maxUnpredicatedRowVectorization(
     break; // only check innermost realized dimension
   }
 
+  // Since this is unpredicated vectorization, the size of the innermost
+  // dimension must be a multiple of the vectorization factor.
+  vec_size = std::min(
+      vec_size, scheduler_utils::maxVectorizationWidth(sizes[inner_dim_pos]));
+
   // Account for misaligned rows due to outer strides
   for (size_t i : c10::irange(inner_dim_pos)) {
     if (sizes[i] == 1) {
