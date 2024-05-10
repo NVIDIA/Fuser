@@ -31,6 +31,21 @@ class MatmulATenEvaluationTest : public NVFuserTest {
       optimization_guard_;
 };
 
+using Sizes = std::vector<int64_t>;
+using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
+
+class ATenNodesParametrizedTest
+    : public NVFuserFixtureParamTest<MatmulNodeParamType> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  ATenNodesParametrizedTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+};
+
 // fd.ops.matmul (a, b) where a = [M,K], b = [K,N]
 TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
@@ -393,4 +408,90 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
+
+TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto& [a_shape, b_shape] = GetParam();
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  auto tv2 = eagerMatmul(tv0, tv1);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
+
+  FusionExecutor fe;
+  fusion->aliasOutputToInput(
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+  fe.compileFusion(fusion.get(), {t0, t1});
+  auto out = fe.runFusion({t0, t1});
+
+  // Verify that fusion compilation was skipped.
+  EXPECT_FALSE(fe.hasCompiledKernel());
+
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
+TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto& [a_shape, b_shape] = GetParam();
+
+  auto tv0 = makeSymbolicTensor(a_shape, DataType::Half);
+  auto tv1 = makeSymbolicTensor(b_shape, DataType::Half);
+  auto tv2 = eagerMatmul(tv0, tv1);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  at::Tensor out_ref = at::matmul(t0, t1);
+
+  FusionExecutor fe;
+  fusion->aliasOutputToInput(
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+  fe.compileFusion(fusion.get(), {t0, t1});
+  auto out = fe.runFusion({t0, t1});
+
+  // Verify that fusion compilation was skipped.
+  EXPECT_FALSE(fe.hasCompiledKernel());
+
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
+constexpr int64_t b = 128, m = 64, k = 32, n = 16;
+
+// Parametrize a_shape and b_shape
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ATenNodesParametrizedTest,
+    testing::Combine(
+        testing::Values(
+            Sizes({k}),
+            Sizes({m, k}),
+            Sizes({1, k}),
+            Sizes({b, m, k}),
+            Sizes({b, 1, m, k})),
+        testing::Values(
+            Sizes({k}),
+            Sizes({k, n}),
+            Sizes({k, 1}),
+            Sizes({b, k, n}))));
+
+// Test case where K=1
+INSTANTIATE_TEST_SUITE_P(
+    ReductionAxisIsOne,
+    ATenNodesParametrizedTest,
+    testing::Values(std::make_tuple(Sizes({m, 1}), Sizes({1, n}))));
+
 } // namespace nvfuser

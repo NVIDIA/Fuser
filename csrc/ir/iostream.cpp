@@ -10,6 +10,7 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -77,6 +78,39 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
 
 void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
+}
+
+void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
+  NVF_CHECK(host_fusion != nullptr);
+
+  // host_fusion declaration
+  os() << "\nHOST FUSION (";
+  for (auto in : host_fusion->inputs()) {
+    os() << in->toString(indent_size_);
+    if (in != host_fusion->inputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") -> (";
+  for (auto out : host_fusion->outputs()) {
+    os() << out->toString(indent_size_);
+    if (out != host_fusion->outputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") :\n";
+
+  // host_fusion body
+  indent_size_++;
+  for (auto expr : host_fusion->topLevelExprs()) {
+    os() << expr->toString(indent_size_);
+  }
+  indent_size_--;
+  os() << "END.\n\n";
+}
+
+void IrPrinter::handle(hir::HostIrContainer& host_fusion) {
+  handle(&host_fusion);
 }
 
 void IrTransformPrinter::handle(Fusion* f) {
