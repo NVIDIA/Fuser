@@ -665,6 +665,37 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
   // Step 3 may not be included in the Step-5 results. Any Step-3 mappings
   // that are not found in the Step-5 results are already valid
   // results, so merge them into the Step-5 results.
+  //
+  // For example, in the below case, nothing will be propated at Step
+  // 4.
+  //
+  // t0: [i0]
+  // t1: [i1, i2]
+  // t2 = broadcast(t0, {true, false})
+  // t3 = t2 + t1
+  //
+  // t2: [b3, i4]
+  // t3: [i5, i6]
+  //
+  // t3->merge(0)
+  // propagate-and-inline-most
+  //
+  // t0: [i0] ca_pos(1)
+  // t1: [i1*i2] ca_pos(1)
+  // t2: [b3*i4] ca_pos(1)
+  // t3: [i5*i6]
+  //
+  // In this case, all domains will be grouped together and there will
+  // be just a single group in the Loop graph:
+  //
+  // - {i0, i1, i2, b3, i4, i5, i6, i1*i2, b3*i4, i5*i6}
+  //
+  // Step 3 will identify i5*i6 is the promotion domain. Since all
+  // domains are promoted to i5*i6, there will be no propagation in
+  // Step 4 (i.e., loop_promote_inputs will be false). Since the
+  // result of Step 4 is empty, the Step 5 result will also be empty,
+  // but that just means there's no change is necessary from the Step
+  // 3 results.
 
   // Update the Step-3 map to the latest LOOP graph
   loop_promotion_map =
