@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <id_model/id_model.h>
+#include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <id_model/transform_replay.h>
 #include <id_model/validation_utils.h>
@@ -580,6 +581,8 @@ void IdModel::buildLoopGraph() {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
+
+  auto loop_promotion_map2 = LoopPromotionMapBuilder::get(*this, inlining_info);
 }
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
@@ -703,7 +706,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
-  final_iel_promotion_map.insert(
+  final_loop_promotion_map.insert(
       loop_promotion_map.begin(), loop_promotion_map.end());
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);

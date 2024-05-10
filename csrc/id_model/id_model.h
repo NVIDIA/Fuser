@@ -20,6 +20,7 @@
 namespace nvfuser {
 
 class ValGraph;
+class LoopPromotionMapBuilder;
 
 struct StatefulInliningInfo {
   // All producer ids within (including dependencies of) inlined leaf domains,
@@ -95,6 +96,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Subgraph of the permissive graph. Maps only CA and their
 //   dependent domains.
 class IdModel : public PolymorphicBase {
+  friend class LoopPromotionMapBuilder;
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
