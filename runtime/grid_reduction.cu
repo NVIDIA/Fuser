@@ -741,7 +741,7 @@ __device__ void iterGroupedGridReduceLastBlock(
   // bytes.
   constexpr int total_bytes = vec_size * sizeof(T);
   constexpr int n_loads = total_bytes <= 16 ? 1 : total_bytes / 16;
-  constexpr int n_elements = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
+  constexpr int n_elements_per_transaction = total_bytes <= 16 ? vec_size : 16 / sizeof(T);
 
   // offset between different sections
   // each thread holds [n_elements], threads count in each section is:
