@@ -108,7 +108,8 @@ class IdModel : public PolymorphicBase {
       const std::vector<TensorView*>& additional_tvs = {},
       bool build_graphs = true,
       bool allow_self_mapping = false,
-      LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback = nullptr);
+      LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
+          nullptr);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
@@ -121,7 +122,8 @@ class IdModel : public PolymorphicBase {
       bool build_graphs = true,
       bool allow_self_mapping = false,
       bool validate = true,
-      LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback = nullptr);
+      LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
+          nullptr);
 
   // Returns iter domain graph of provided mode. The graph must have
   // been already built.
@@ -232,7 +234,8 @@ class IdModel : public PolymorphicBase {
 
   // Optional callback for the loop promotion map builder for
   // debugging and testing
-  LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback_ = nullptr;
+  LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback_ =
+      nullptr;
 
   // By default, the permissive graph should map compliment domains as
   // well. See the design doc for more details

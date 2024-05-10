@@ -164,7 +164,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
   final_loop_promotion_map.insert(
-      updated_initial_loop_promotion_map.begin(), updated_initial_loop_promotion_map.end());
+      updated_initial_loop_promotion_map.begin(),
+      updated_initial_loop_promotion_map.end());
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 

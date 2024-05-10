@@ -24,10 +24,13 @@ class LoopPromotionMapBuilderCallback {
   virtual void postStep2(
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
       const ValGraph& iel_graph) {}
-  virtual void postStep3(const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
-  virtual void postStep4(const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-                         const ValGraph& iel_graph) {}
-  virtual void postStep5(const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+  virtual void postStep3(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+  virtual void postStep4(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& iel_graph) {}
+  virtual void postStep5(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
 };
 
 class LoopPromotionMapBuilder {
