@@ -2207,7 +2207,8 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 }
 
 TEST_F(OuterReductionTest, IterGroupedGridReduction) {
-  auto test = [](int vect,
+  auto test = [](DataType dtype,
+                 int vect,
                  int bdimx,
                  int gdimx,
                  int unroll,
@@ -2219,13 +2220,17 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
 
     Fusion fusion;
     FusionGuard fg(&fusion);
-    DataType dtype = DataType::Half;
     auto tv0 = makeContigTensor(2, dtype);
     fusion.addInput(tv0);
-    auto tv1 = castOp(DataType::Float, tv0);
+    auto tv1 = set(tv0);
+    if (dtype == DataType::Half) {
+      tv1 = castOp(DataType::Float, tv1);
+    }
     auto tv2 = sum(tv1, {0});
-    auto tv3 = castOp(dtype, tv2);
-    fusion.addOutput(tv3);
+    if (dtype == DataType::Half) {
+      tv2 = castOp(DataType::Half, tv2);
+    }
+    fusion.addOutput(tv2);
 
     // manually set how to schedule the fusion
     auto rparams = std::make_shared<ReductionParams>();
@@ -2291,7 +2296,7 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
         "",
         lparams);
   };
-  // shampoo over 7 paras in iter grouped grid reduction.
+  // Shmoo over data types and 7 heuristic paras in iter grouped grid reduction.
   // since grid reduction uses block recution, this test also covers iter
   // grouped block reduction. To avoid too many tests, gdimx, unroll, and
   // serial are tested with just 1 value since they are not directly related
@@ -2314,18 +2319,23 @@ TEST_F(OuterReductionTest, IterGroupedGridReduction) {
   // serial iteration, may use any value, but not directly related to
   // grid reduction, just test a small set.
   std::vector<int> serial_list({4});
-  for (int vect : vect_list) {
-    for (int bdimx : bdimx_list) {
-      for (int gdimx : gdimx_list) {
-        for (int unroll : unroll_list) {
-          for (int bdimy : bdimy_list) {
-            for (int gdimy : gdimy_list) {
-              for (int serial : serial_list) {
-                // skip invalid configures
-                if (bdimx * bdimy > 1024 || vect * unroll > 16) {
-                  continue;
+  for (DataType dtype : {DataType::Half, DataType::Float}) {
+    for (int vect : vect_list) {
+      if (dtype == DataType::Float && vect == 8) {
+        continue;
+      }
+      for (int bdimx : bdimx_list) {
+        for (int gdimx : gdimx_list) {
+          for (int unroll : unroll_list) {
+            for (int bdimy : bdimy_list) {
+              for (int gdimy : gdimy_list) {
+                for (int serial : serial_list) {
+                  // skip invalid configures
+                  if (bdimx * bdimy > 1024 || vect * unroll > 16) {
+                    continue;
+                  }
+                  test(dtype, vect, bdimx, gdimx, unroll, bdimy, gdimy, serial);
                 }
-                test(vect, bdimx, gdimx, unroll, bdimy, gdimy, serial);
               }
             }
           }
