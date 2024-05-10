@@ -426,7 +426,7 @@ std::string featureName(const Feature& feat) {
 }
 
 void fillDefaultFeatures(FeatureSet* feats) {
-  static std::bitset<enumSize<Feature>()> bitset;
+  static FeatureSet::Bitset bitset;
   static FeatureSet::ArgsMap all_args;
   static bool initialized = false;
   if (!initialized) {
@@ -553,7 +553,7 @@ FeatureSet parseFeatures(
   const auto& processFeatures =
       [&map](
           const std::vector<std::string>& feature_names,
-          std::bitset<enumSize<Feature>()>& bitset,
+          FeatureSet::Bitset& bitset,
           auto enable_or_disable_fn) {
         for (const std::string& name : feature_names) {
           auto it = map.find(name);

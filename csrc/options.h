@@ -97,6 +97,8 @@ constexpr auto enumSize() {
 template <typename Enum>
 class EnumSet {
  public:
+  using Bitset = std::bitset<enumSize<Enum>()>;
+
   void set(Enum feat, bool value) {
     bitset_.set(toUnderlying(feat), value);
   }
@@ -113,16 +115,16 @@ class EnumSet {
     return bitset_.test(toUnderlying(feat));
   }
 
-  std::bitset<enumSize<Enum>()>& bitset() {
+  Bitset& bitset() {
     return bitset_;
   }
 
-  const std::bitset<enumSize<Enum>()>& bitset() const {
+  const Bitset& bitset() const {
     return bitset_;
   }
 
  protected:
-  std::bitset<enumSize<Enum>()> bitset_;
+  Bitset bitset_;
 };
 
 //! These options control nvFuser behavior during scheduling and compilation.
@@ -203,7 +205,7 @@ class FeatureSet : public EnumSet<Feature> {
 
   size_t hash() const {
     // Ignores args_
-    return std::hash<std::bitset<enumSize<Feature>()>>{}(bitset());
+    return std::hash<Bitset>{}(bitset());
   }
 
   bool operator==(const FeatureSet& other) const {
