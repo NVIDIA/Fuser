@@ -15,8 +15,9 @@ namespace nvfuser {
 
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
     IdModel& id_model,
-    const StatefulInliningInfo& inlining_info)
-    : id_model_(id_model), inlining_info_(inlining_info) {}
+    const StatefulInliningInfo& inlining_info,
+    LoopPromotionMapBuilderCallback* callback)
+    : id_model_(id_model), inlining_info_(inlining_info), callback_(callback) {}
 
 ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) {
   return id_model_.idGraph(mode);
@@ -52,7 +53,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // (number of entries in groups ^ 2)
   //
   // iel stands for Intersection of the Exact and Loop graphs.
-  ValGraph iel_graph = id_model_.buildIntersection(
+  const ValGraph iel_graph = id_model_.buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
   // Step 1: Build a map of the IEL groups of root broadcast domains
@@ -60,11 +61,19 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionMap(iel_graph, inlining_info_);
 
+  if (callback_) {
+    callback_->postStep1(iel_promotion_map, iel_graph);
+  }
+
   // Step 2: Propagate the root promotions to intermediate and leaf groups.
   // At this point, the promotion may not be final as the analysis is
   // localized to IEL groups. The map is used in the next step to
   // build mappings of the loop groups.
   propagatePromotionsInIELGraph(iel_graph, iel_promotion_map);
+
+  if (callback_) {
+    callback_->postStep2(iel_promotion_map, iel_graph);
+  }
 
   // Step 3: Determine the promotion of each loop graph based on the
   // IEL promotion map. For each loop group, examine all the IEL
@@ -76,6 +85,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
           iel_promotion_map,
           idGraph(IdMappingMode::LOOP),
           inlining_info_);
+
+  if (callback_) {
+    callback_->postStep3(initial_loop_promotion_map);
+  }
 
   // At this point, most of loop groups should have correct promoted
   // IDs. However, non-inlined loop groups may miss promotion that
@@ -94,6 +107,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
       final_iel_promotion_map,
       idGraph(IdMappingMode::LOOP),
       initial_loop_promotion_map);
+
+  if (callback_) {
+    callback_->postStep4(final_iel_promotion_map, iel_graph);
+  }
 
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
@@ -150,6 +167,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
       updated_initial_loop_promotion_map.begin(), updated_initial_loop_promotion_map.end());
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
+
+  if (callback_) {
+    callback_->postStep5(final_loop_promotion_map);
+  }
 
   return final_loop_promotion_map;
 }
@@ -781,8 +802,9 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     IdModel& id_model,
-    const StatefulInliningInfo& inlining_info) {
-  LoopPromotionMapBuilder builder(id_model, inlining_info);
+    const StatefulInliningInfo& inlining_info,
+    LoopPromotionMapBuilderCallback* callback) {
+  LoopPromotionMapBuilder builder(id_model, inlining_info, callback);
   return builder.build();
 }
 

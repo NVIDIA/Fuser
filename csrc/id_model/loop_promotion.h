@@ -14,6 +14,22 @@ namespace nvfuser {
 class IdModel;
 struct StatefulInliningInfo;
 
+class LoopPromotionMapBuilderCallback {
+ public:
+  virtual ~LoopPromotionMapBuilderCallback() = default;
+
+  virtual void postStep1(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_root_resolution_map,
+      const ValGraph& iel_graph) {}
+  virtual void postStep2(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& iel_graph) {}
+  virtual void postStep3(const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+  virtual void postStep4(const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+                         const ValGraph& iel_graph) {}
+  virtual void postStep5(const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) {}
+};
+
 class LoopPromotionMapBuilder {
  public:
   // Build a map of loop groups to IterDomains that represent actual
@@ -21,12 +37,14 @@ class LoopPromotionMapBuilder {
   // root domains between inlined producer and consumer tensors.
   static std::unordered_map<ValGroup, IterDomain*> get(
       IdModel& id_model,
-      const StatefulInliningInfo& inlining_info);
+      const StatefulInliningInfo& inlining_info,
+      LoopPromotionMapBuilderCallback* callback = nullptr);
 
  private:
   LoopPromotionMapBuilder(
       IdModel& id_model,
-      const StatefulInliningInfo& inlining_info);
+      const StatefulInliningInfo& inlining_info,
+      LoopPromotionMapBuilderCallback* callback = nullptr);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
@@ -117,6 +135,7 @@ class LoopPromotionMapBuilder {
  private:
   IdModel& id_model_;
   const StatefulInliningInfo& inlining_info_;
+  LoopPromotionMapBuilderCallback* callback_ = nullptr;
 };
 
 } // namespace nvfuser

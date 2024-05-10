@@ -75,8 +75,9 @@ IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool build_graphs,
-    bool allow_self_mapping)
-    : allow_self_mapping_(allow_self_mapping) {
+    bool allow_self_mapping,
+    LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
+    : allow_self_mapping_(allow_self_mapping), loop_promotion_map_builder_callback_(loop_promotion_map_builder_callback) {
   std::copy_if(
       exprs.begin(),
       exprs.end(),
@@ -103,8 +104,11 @@ IdModel::IdModel(
     Fusion* fusion,
     bool build_graphs,
     bool allow_self_mapping,
-    bool validate)
-    : allow_self_mapping_(allow_self_mapping), validate_(validate) {
+    bool validate,
+    LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
+    : allow_self_mapping_(allow_self_mapping),
+      validate_(validate),
+      loop_promotion_map_builder_callback_(loop_promotion_map_builder_callback) {
   auto all_exprs = fusion->exprs();
   std::copy_if(
       all_exprs.begin(),
@@ -574,7 +578,7 @@ void IdModel::buildLoopGraph() {
 
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
-  loop_promotion_map_ = LoopPromotionMapBuilder::get(*this, inlining_info);
+  loop_promotion_map_ = LoopPromotionMapBuilder::get(*this, inlining_info, loop_promotion_map_builder_callback_);
 
   // New domains are added. Make sure there's still no self mapping in
   // the leaf domains
