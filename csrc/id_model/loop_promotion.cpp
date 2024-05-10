@@ -70,7 +70,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // IEL promotion map. For each loop group, examine all the IEL
   // promotions and find the most representative one that captures all
   // the dependent input domains of the loop group
-  std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
+  const std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
       projectIELPromotionToLoopGraph(
           iel_graph,
           iel_promotion_map,
@@ -141,13 +141,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // 3 results.
 
   // Update the Step-3 map to the latest LOOP graph
-  initial_loop_promotion_map = updateValGroupIdMap(
+  const auto updated_initial_loop_promotion_map = updateValGroupIdMap(
       initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
   final_loop_promotion_map.insert(
-      initial_loop_promotion_map.begin(), initial_loop_promotion_map.end());
+      updated_initial_loop_promotion_map.begin(), updated_initial_loop_promotion_map.end());
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
