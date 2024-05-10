@@ -404,26 +404,11 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
       // TODO: handle the case when tv is not a Fusion input by filling default
       // contiguous strides based on tv->getMaybeAllocationDomain() and data
       // pointer aligned to 16 bytes.
-
-      const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-
-      // Get sizes for non-reduction dims in allocation domain
-      std::vector<int64_t> sizes;
-      sizes.reserve(alloc.size());
-      for (size_t i : c10::irange(alloc.size())) {
-        if (alloc[i]->isReduction()) {
-          continue;
-        }
-        sizes.push_back(runtime_info.expressionEvaluator()
-                            .evaluate(alloc[i]->extent())
-                            .as<int64_t>());
-      }
-
       int64_t v = maxRowVectorization(
           tv,
           (int64_t)runtime_info.ptrOf(tv),
-          sizes,
-          runtime_info.getInputStrides(tv));
+          runtime_info.getInputAllocationSizes(tv),
+          runtime_info.getInputAllocationStrides(tv));
       if (v < vec_size) {
         vec_size = v;
       }

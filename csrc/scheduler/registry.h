@@ -69,10 +69,27 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
 
+  //! Returns sizes of tensor dimensions in same order as allocation domain,
+  //! ignoring any IterType::Reduction domains in the allocation domain. This
+  //! only works for complete Fusion inputs whose allocation domain is a
+  //! permutation of their root domain and will raise an exception otherwise.
+  const std::vector<int64_t>& getInputAllocationSizes(TensorView* tv) {
+    NVF_ERROR(
+        isInputTv(tv),
+        "TensorView ",
+        tv->toString(),
+        " is not an input or its rfactor domain is not a permutation of its ",
+        "allocation domain");
+    auto sizes_it = input_sizes_.find(tv);
+    NVF_ERROR(sizes_it != input_sizes_.end());
+    return sizes_it->second;
+  }
+
   //! Returns strides of tensor in same order as allocation domain, in elements
   //! instead of bytes. Only works for complete Fusion inputs whose allocation
-  //! domain is a permutation of their root domain.
-  const std::vector<int64_t>& getInputStrides(TensorView* tv) {
+  //! domain is a permutation of their root domain and will raise an exception
+  //! otherwise.
+  const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) {
     NVF_ERROR(
         isInputTv(tv),
         "TensorView ",
@@ -131,7 +148,12 @@ class SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Support output tensor pointers
   std::unordered_map<Val*, size_t> input_ptrs_;
 
-  // Copy of aten input tensor strides (in elements)
+  // Copy of aten input tensor sizes ordered like the TensorView's allocation
+  // domain
+  std::unordered_map<Val*, std::vector<int64_t>> input_sizes_;
+
+  // Copy of aten input tensor strides (in elements) ordered like the
+  // TensorView's allocation domain
   std::unordered_map<Val*, std::vector<int64_t>> input_strides_elements_;
 
   // Copy of aten input tensor strides (in bytes) for only discontiguous
