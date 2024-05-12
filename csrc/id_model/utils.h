@@ -18,6 +18,11 @@
 
 namespace nvfuser {
 
+class Fusion;
+class TensorView;
+class Expr;
+class IterDomain;
+
 // Temporary logging utility
 class DebugStream {
  public:
@@ -51,5 +56,25 @@ inline DebugStream verbose(int line) {
 inline DebugStream warn(int line) {
   return DebugStream() << "[WARN@" << line << "] ";
 }
+
+class TransformToDot {
+ public:
+  static std::string get(Fusion* fusion);
+
+ private:
+  void handle(Fusion*);
+  void handle(TensorView*);
+  void handle(Expr*);
+  void handle(IterDomain*);
+  void handle(const std::vector<IterDomain*>&, std::string);
+  void markRfactor(TensorView* tv);
+  void enforceRootOrder(TensorView* tv);
+  std::stringstream& indent();
+
+ private:
+  std::stringstream buf_;
+  int indent_ = 0;
+  std::unordered_set<Val*> printed_vals_;
+};
 
 } // namespace nvfuser
