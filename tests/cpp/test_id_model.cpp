@@ -19,9 +19,12 @@
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
 #include <inlining.h>
+#include <ir/graphviz.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -1975,6 +1978,47 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   };
 
   checkStep5Results(tester, s5_reference_map);
+}
+
+TEST_F(IdModelTest, LoopPromotionTwoStepFailureRepro) {
+  std::vector<int64_t> input_shape{2, 3, 2 * 2, 5};
+  std::vector<int64_t> output_shape{1, 2 * 3, 1, -1, 2, 5, 1};
+
+  auto inferred_shapes = inferViewShapes(input_shape, output_shape);
+  auto inferred_input = inferred_shapes.first;
+  auto inferred_output = inferred_shapes.second;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(inferred_input.size());
+  TensorView* bias = makeSymbolicTensor(inferred_output.size());
+  fusion.addInput(x);
+  fusion.addInput(bias);
+
+  auto x_gelu = gelu(x);
+  auto x_reshape = reshape(x_gelu, inferred_input, inferred_output);
+  auto y = add(x_reshape, bias);
+  fusion.addOutput(y);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(inferred_input, options);
+  at::Tensor at_bias = at::randn(inferred_output, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+
+  auto lparams = schedulePointwise(&fusion, aten_inputs);
+
+  fusion.print();
+
+  std::ofstream ofs("transform.dot", std::ofstream::trunc);
+  ofs << TransformToDot::get(&fusion);
+  ofs.close();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // A repro that produces an invalid loop graph due to the compliment
