@@ -1052,14 +1052,13 @@ inline void resolveTvToMatmulDomainsMapping(
 
 } // anonymous namespace
 
-ProblemIterDomainsOpt getProblemIterDomains(
-    const mma_utils::MulSumProperties::InputsOutputs& props) {
+ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern) {
   // NOTE: the iter domains of MMA output should be [...,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
   IterDomain* k = nullptr;
 
-  const auto& leaf_domains = props.out->getLeafDomain();
+  const auto& leaf_domains = pattern.output->getLeafDomain();
   const auto concrete = TensorDomain::noDevices(
       TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains)));
   if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
@@ -1103,7 +1102,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
 
 MatmulProblemLayoutOpt getMmaLayout(
     Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props) {
+    const MatmulPattern& pattern) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1111,7 +1110,7 @@ MatmulProblemLayoutOpt getMmaLayout(
     return {"Failed to find any TV that is fusion input"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(props);
+  const auto mma_output_domains = getProblemIterDomains(pattern);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1196,9 +1195,7 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
        static_cast<TensorView*>(mma_exprs.front()->out())});
 }
 
-RolesMapOpt getTensorsRoles(
-    Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props) {
+RolesMapOpt getTensorsRoles(Fusion* fusion, const MatmulPattern& pattern) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1211,7 +1208,7 @@ RolesMapOpt getTensorsRoles(
     return {"Failed to find any TV that is fusion output"};
   }
 
-  const auto mma_output_domains = getProblemIterDomains(props);
+  const auto mma_output_domains = getProblemIterDomains(pattern);
   if (!mma_output_domains.isValid()) {
     return mma_output_domains.getErrorMsg();
   }
@@ -1339,15 +1336,6 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
 
 namespace {
 
-void addMMAOp(Fusion* fusion_, std::vector<MulSumProperties>& props) {
-  for (auto prop : props) {
-    auto* init =
-        IrBuilder::create<Val>(0.0, prop.insouts.out->getDataType().value());
-    IrBuilder::create<MmaOp>(
-        prop.insouts.out, prop.insouts.a, prop.insouts.b, init);
-  }
-}
-
 // Check the val (in) is the output of broadcast.
 // Then check the output of the broadcast is 3D (4D for bmm).
 bool hasValidBroadcastOp(TensorView* bcast_out) {
@@ -1438,90 +1426,7 @@ TensorView* getTensorviewPriorToCast(TensorView* in) {
   return in;
 }
 
-// Check if the Mul-Sum pair represents a matmul. If so, add the properties
-// of the mma op which can be a tentatice substitue. This checks that the output
-// of sum has on reduction axis, and the inputs to mul are valid broadcasts.
-std::optional<MulSumProperties> getMulSumInsOutsBcasts(
-    BinaryOp* mop,
-    ReductionOp* redop) {
-  auto a = getTensorviewPriorToCast(static_cast<TensorView*>(mop->lhs()));
-  auto b = getTensorviewPriorToCast(static_cast<TensorView*>(mop->rhs()));
-
-  // Get the dimension of the reduction in the output. If not present, bail.
-  // Also ensure there is only only reduction axis.
-  auto red_axis = static_cast<TensorView*>(redop->out())->getReductionAxis();
-  auto num_reduction_dims =
-      static_cast<TensorView*>(redop->out())->domain()->nDims() -
-      static_cast<TensorView*>(redop->out())->domain()->noReductions().size();
-  if (!red_axis.has_value() || num_reduction_dims > 1) {
-    return std::nullopt;
-  }
-
-  if (broadcastsAreValid(a, b, *red_axis)) {
-    MulSumProperties props = {
-        {mop, redop},
-        {a, b, static_cast<TensorView*>(redop->output(0))},
-        {dynamic_cast<BroadcastOp*>(a->definition()),
-         dynamic_cast<BroadcastOp*>(b->definition())}};
-    return props;
-  }
-  return std::nullopt;
-}
 } // namespace
-
-void CombineMulSum::handle(ReductionOp* stmt) {
-  // Check if operation is a sum.
-  if (stmt->getReductionOpType() == BinaryOpType::Add) {
-    auto* inputOfSum = stmt->in();
-    if (inputOfSum != nullptr) {
-      auto* expr = inputOfSum->definition();
-      // Then check if the prodcer of the sum is a mul.
-      if (auto bOp = dynamic_cast<BinaryOp*>(expr)) {
-        // If it'a mul followed by a sum, put this in a list.
-        if (bOp->getBinaryOpType() == BinaryOpType::Mul) {
-          // If the Mul-Sum is a valid representation of a matmul,
-          // then get the properties of the replacement Mma op.
-          auto props = getMulSumInsOutsBcasts(bOp, stmt);
-          if (props.has_value()) {
-            mul_sum_props_.push_back(*props);
-          }
-        }
-      }
-    }
-  }
-};
-
-void CombineMulSum::generateMulSumCanidates() {
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion_);
-  if (mma_exprs.size() == 1) {
-    mma_utils::MulSumProperties props;
-    props.insouts = {
-        static_cast<TensorView*>(mma_exprs.front()->inA()),
-        static_cast<TensorView*>(mma_exprs.front()->inB()),
-        static_cast<TensorView*>(mma_exprs.front()->out())};
-    mul_sum_props_.push_back(props);
-  } else {
-    traverse(fusion_);
-  }
-  is_valid_ = (mul_sum_props_.size() == 1) ? true : false;
-}
-
-const std::vector<MulSumProperties>& CombineMulSum::getMulSumCanidates(
-    const bool refresh_data) {
-  if (refresh_data) {
-    mul_sum_props_.clear();
-    generateMulSumCanidates();
-  }
-  return mul_sum_props_;
-}
-
-void CombineMulSum::replaceWithMmaOp() {
-  // Recreate the mul-sum pairs since someone
-  // may run this function more than once.
-  generateMulSumCanidates();
-  addMMAOp(fusion_, mul_sum_props_);
-  return;
-}
 
 char dtypeToChar(const DataType& dtype) {
   if (dtype == DataType::Half) {
@@ -1591,12 +1496,21 @@ class MatmulPatternMatcher : IterVisitor {
       // These sizes should match since ops::maybeBroadcast places BroadcastOps
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
+      const std::vector<IterDomain*>& red_root =
+          rop->out()->as<TensorView>()->getRootDomain();
+      NVF_ERROR(red_root.size() == lrf.size());
       bool has_m = false, has_n = false;
       for (size_t i : c10::irange(lrf.size())) {
         if (lrf[i]->isBroadcast() && !rrf[i]->isBroadcast()) {
           has_m = true;
         } else if (!lrf[i]->isBroadcast() && rrf[i]->isBroadcast()) {
           has_n = true;
+        }
+        if (red_root[i]->isReduction()) {
+          // matmul must be contraction of non-broadcast dimensions
+          if (!lrf[i]->isIteration() || !rrf[i]->isIteration()) {
+            return;
+          }
         }
       }
       if (!has_m || !has_n) {
