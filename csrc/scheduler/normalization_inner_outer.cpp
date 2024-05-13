@@ -48,10 +48,14 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  if (normalization_scheduler_utils::getPersistentHeuristicFor(
-          reduction_type) != heuristicType()) {
+  const ScheduleHeuristic persistent_heuristic =
+      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
+  if (persistent_heuristic != heuristicType()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "heuristicType() doesn't match with reduction type.");
+        heuristicType(),
+        "heuristicType() doesn't match with reduction type `",
+        persistent_heuristic,
+        "`.");
     return false;
   }
   std::vector<TensorView*> inner_reduction_tvs;
