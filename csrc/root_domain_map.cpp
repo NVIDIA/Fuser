@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 
 #include <sstream>
@@ -121,6 +122,45 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto producer_root =
       TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
+
+  // Add key-value iterdomain pair to the map.
+  auto updatePairwiseRootDomainMap =
+      [&root_dims_to_map, producer_to_consumer, &dom_map](
+          IterDomain* map_key_id, IterDomain* map_value_id) {
+        if (!producer_to_consumer) {
+          std::swap(map_key_id, map_value_id);
+        }
+        if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+          dom_map.insert(std::make_pair(map_key_id, map_value_id));
+        }
+      };
+
+  // For MatmulOp, use the corresponding mapped input iterdomains.
+  if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
+    // Check if the producer is lhs/rhs input
+    MatmulRole input_role =
+        producer->sameAs(op->inA()) ? MatmulRole::INPUT_A : MatmulRole::INPUT_B;
+    auto out_size = consumer_root.size();
+
+    // For MatmulOp, the input iterdomains at a given index do not necessarily
+    // map to the output iterdomain at that index `mapMatmulOpIterDomains`
+    // outputs a vector of the input iterdomains aligned to the output domain
+    // which can be used to create a pairwise map between input-output. For eg:
+    // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between
+    // input and output for index=2
+    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
+    // maps to the third output iterdomain.
+    const std::vector<IterDomain*>& aligned_producer_id =
+        ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
+
+    for (auto inx : c10::irange(out_size)) {
+      IterDomain* map_key_id = aligned_producer_id.at(inx);
+      IterDomain* map_value_id = consumer_root.at(inx);
+      updatePairwiseRootDomainMap(map_key_id, map_value_id);
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
     IterDomain* producer_id = producer_root.at(itp);
@@ -208,13 +248,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     IterDomain* map_key_id = producer_id;
     IterDomain* map_value_id = consumer_id;
-    if (!producer_to_consumer) {
-      std::swap(map_key_id, map_value_id);
-    }
+    updatePairwiseRootDomainMap(map_key_id, map_value_id);
 
-    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-      dom_map.insert(std::make_pair(map_key_id, map_value_id));
-    }
     itc++;
     itp++;
   }

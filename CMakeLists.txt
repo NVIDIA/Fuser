@@ -131,6 +131,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
@@ -606,6 +609,9 @@ if(BUILD_TEST)
 
   add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
   list(APPEND TEST_BINARIES tutorial)
+
+  add_test(test_host_ir "${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp" "")
+  list(APPEND TEST_BINARIES test_host_ir)
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
