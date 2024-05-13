@@ -10,7 +10,7 @@
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <host_ir_container.h>
+#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>

@@ -315,8 +315,20 @@ class NVF_API TensorView : public Val {
     return merge(axis, axis + 1);
   }
 
+  // Flatten the axis from `from` to `to` into a single axis.
+  // Both `from` and `to` are inclusive.
+  TensorView* flatten(int64_t from = 0, int64_t to = -1);
+
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  TensorView* reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
+
+  // Reorder axes based on the vector permutation.
+  // In terms of the function above, this can be seen as ol2new[index] =
+  // permutation[index]
+  TensorView* reorder(const std::vector<int64_t>& permutation);
+  TensorView* reorder(const std::initializer_list<int64_t>& permutation);
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
@@ -411,11 +423,7 @@ class NVF_API TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
-  // TODO: what is transpose 2? Why do we need it?
-  void applyMmaSwizzle(
-      MmaInputSmemSwizzle swizzle,
-      bool transpose,
-      bool transpose2 = false);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle

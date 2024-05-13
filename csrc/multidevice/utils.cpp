@@ -20,6 +20,14 @@
 
 namespace nvfuser {
 
+NVF_API bool distributedEnabled() {
+#ifdef NVFUSER_DISTRIBUTED
+  return true;
+#else
+  return false;
+#endif
+}
+
 namespace {
 
 std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
@@ -124,6 +132,13 @@ bool isSharded(TensorView* tv) {
     }
   }
   return is_sharded;
+}
+
+int64_t numDeviceDims(TensorView* tv) {
+  return std::count_if(
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
 bool isResharding(Expr* expr) {

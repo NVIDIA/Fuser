@@ -15,7 +15,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>
-#include <host_ir_container.h>
+#include <host_ir/container.h>
 
 #include <iostream>
 
@@ -342,6 +342,7 @@ std::string Asm::parameters() const {
       ss << "[%" << counter++ << "]";
     } else if (dtype == DataType::Bool) {
       ss << "p" << bool_counter++;
+      counter++;
     } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
       ss << "%" << counter++;
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {

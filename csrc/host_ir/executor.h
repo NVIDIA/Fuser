@@ -9,14 +9,27 @@
 
 #include <dispatch.h>
 #include <executor.h>
-#include <host_ir_container.h>
-#include <ir/host_ir.h>
+#include <host_ir/container.h>
+#include <host_ir/host_ir.h>
 #include <kernel_cache.h>
 
 namespace nvfuser {
 
 namespace hir {
 
+/*
+a HostIrExecutor executes a host programs represented through a HostIrContainer
+It is instantiated with the desired HostIrContainer, and runs the Host program
+with concrete inputs by calling the method runWithInput.
+
+For now HostIrExecutor is an interpreter; later we could rather compile host
+code.
+
+Note: most of the implementation is copy pasted for MultiDeviceExecutor. This
+duplication will be resolved in the future.
+*/
+
+// Set of parameters that control the behavior of HostIrExecutor
 struct HostIrExecutorParams {
   // Experimental: whether to use FusionExecutorCache rather than
   // FusionExecutor.
@@ -30,12 +43,11 @@ struct HostIrExecutorParams {
   bool cache_fusion_executor = false;
 };
 
-class PostOnStreamExecutor;
-
 class HostIrExecutor final : public OptInDispatch {
-
  public:
-  HostIrExecutor(std::unique_ptr<HostIrContainer> container, HostIrExecutorParams = HostIrExecutorParams());
+  HostIrExecutor(
+      std::unique_ptr<HostIrContainer> container,
+      HostIrExecutorParams = HostIrExecutorParams());
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
  private:
@@ -44,9 +56,11 @@ class HostIrExecutor final : public OptInDispatch {
 
   std::unique_ptr<HostIrContainer> container_;
   HostIrExecutorParams params_;
-  std::unique_ptr<PostOnStreamExecutor> post_executor_;
-    // Stores concrete computed values,
+  // Stores concrete computed values
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+  // Cache Fusions, FusionExecutors
+  std::unordered_map<PostOnStream*, FusionExecutor> fe_;
+  std::unordered_map<PostOnStream*, FusionExecutorCache> fec_;
 };
 
 } // namespace hir

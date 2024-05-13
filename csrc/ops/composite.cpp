@@ -299,5 +299,87 @@ TensorView* view_as_real(TensorView* x) {
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);
 }
+namespace {
+
+//! Create new output for matmul
+static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+  auto orig_domain_a =
+      TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
+  auto orig_domain_b =
+      TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
+
+  auto ndims_a = orig_domain_a.size();
+  auto ndims_b = orig_domain_b.size();
+
+  // Matmul output size is same as the higher dimensional input size if both A/B
+  // > 1D.
+  auto ndims_out = std::max(ndims_a, ndims_b);
+  if (std::min(ndims_a, ndims_b) == 1) {
+    // If one of the inputs is 1D, the output size is 1 less than the higher
+    // dimensional input size, since either M/N axis will be missing in the
+    // output. For eg: [M, K] x [K] -> [M]
+    ndims_out = std::max(ndims_a, ndims_b) - 1;
+  }
+
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
+      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
+  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
+      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+
+  for (auto idx : c10::irange(ndims_out)) {
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(2);
+    if (mapping_a[idx] != nullptr) {
+      input_ids.emplace_back(mapping_a[idx]);
+    }
+    if (mapping_b[idx] != nullptr) {
+      input_ids.emplace_back(mapping_b[idx]);
+    }
+    out_domain[idx] = ops::newOutputIterDomain(input_ids);
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+}
+
+} // namespace
+
+// TODO (Priya): This will be renamed to matmul once we are ready to modify the
+// python API backend. Keeping separate for now, to avoid breaking tests in
+// Thunder.
+TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b) {
+  NVF_CHECK(
+      tv_a->nDims() > 0 && tv_b->nDims() > 0,
+      "Expected inputs to be atleast 1D, got: ",
+      tv_a->nDims(),
+      " and ",
+      tv_b->nDims());
+
+  // Note: torch.matmul reference does not restrict the inputs to the same
+  // dtype, but it fails for different input dtypes.
+  //       This condition may potentially be modified. The following condition
+  //       should change accordingly.
+  NVF_CHECK(
+      tv_a->dtype() == tv_b->dtype(),
+      "Expected A and B dtypes to have the same dtype, got: ",
+      tv_a->dtype(),
+      " and ",
+      tv_b->dtype());
+
+  if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
+    // Return the dot product instead of creating the MatmulOp.
+    // Cast back the output if needed since torch.matmul maintains input dtype.
+    return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
+  }
+
+  // For all other cases, create a new MatmulOp
+  TensorView* out = newForMatmul(tv_a, tv_b);
+  IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
+  return out;
+}
 
 } // namespace nvfuser
