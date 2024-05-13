@@ -141,8 +141,7 @@ class Communication : public Expr {
   // the constructor that takes IrCloner aren't needed.
   bool sameAs(const Statement* other) const override;
 
-  // TODO: const CommParams&.
-  auto params() const {
+  const CommParams& params() const {
     return params_;
   }
 
