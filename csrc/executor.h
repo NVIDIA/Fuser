@@ -58,6 +58,7 @@ class FusionExecutor : public NonCopyable {
   // slight modifications of a generated kernel
   void debugCompileFusionFromStr(
       Fusion* fusion,
+      const FeatureSet& features,
       const std::string& code,
       const std::string& name,
       int64_t fusion_id,
@@ -83,6 +84,7 @@ class FusionExecutor : public NonCopyable {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compileFusion(
       Fusion* fusion,
+      const FeatureSet& features,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
@@ -97,18 +99,20 @@ class FusionExecutor : public NonCopyable {
   //! tests.
   void compileFusion(
       Fusion* fusion,
+      const FeatureSet& features,
       const at::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams()) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(fusion, args, launch_constraints, compile_params);
+    compileFusion(fusion, features, args, launch_constraints, compile_params);
   }
 
   //! Used by user defined schedules in python frontend
   void compileFusion(
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       int64_t fusion_id,
       int64_t concrete_id) {
     KernelArgumentHolder args =
@@ -116,6 +120,7 @@ class FusionExecutor : public NonCopyable {
     compileFusion(
         fusion,
         args,
+        features,
         LaunchParams(),
         CompileParams(),
         ScheduleHeuristic::None,
@@ -138,6 +143,7 @@ class FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
+      const FeatureSet& features,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
@@ -146,15 +152,18 @@ class FusionExecutor : public NonCopyable {
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
-    return runFusion(args, launch_constraints, compile_params, outputs);
+    return runFusion(
+        args, features, launch_constraints, compile_params, outputs);
   }
 
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
+      const FeatureSet& features,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
-    return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
+    return runFusion(
+        inputs, {}, features, launch_constraints, compile_params, opt_code);
   }
 
   // Register a lowering hooks that are called to modify the GpuLower object
@@ -201,6 +210,7 @@ class FusionExecutor : public NonCopyable {
   //
   struct ExecutorEntry {
     bool init = false;
+    FeatureSet features;
     LaunchParams launch_params;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
@@ -360,7 +370,8 @@ class FusionExecutor : public NonCopyable {
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
-      int64_t group_id = 0) {
+      int64_t group_id = 0,
+      bool use_static_fusion_count = false) {
     NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
     NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
     NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
@@ -374,7 +385,7 @@ class FusionExecutor : public NonCopyable {
     ++global_fusion_count_;
 
     std::stringstream ss;
-    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
+    if (use_static_fusion_count) {
       ss << global_fusion_count_.load();
     } else {
       ss << toString(heuristic_);
@@ -594,7 +605,8 @@ class FusionExecutor : public NonCopyable {
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.
-  std::unordered_map<size_t, ExecutorEntry> executor_entry_lookup_;
+  std::unordered_map<std::pair<FeatureSet, size_t>, ExecutorEntry>
+      executor_entry_lookup_;
 
   // Compile time information caching. This is used for shape inference
   //  support. The cache stores graph information that are available

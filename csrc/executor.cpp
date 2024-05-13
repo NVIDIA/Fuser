@@ -190,6 +190,7 @@ std::string FusionExecutor::getStructuredCode() const {
 // TODO: come up with a more user friendly interface
 void FusionExecutor::debugCompileFusionFromStr(
     Fusion* fusion,
+    const FeatureSet& features,
     const std::string& code,
     const std::string& name,
     int64_t fusion_id,
@@ -217,7 +218,12 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_->run();
   const auto kernel = lowered_->kernel();
   createKernelId(
-      ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
+      ScheduleHeuristic::None,
+      fusion_id,
+      concrete_id,
+      runtime_id,
+      group_id,
+      features.has(Feature::StaticFusionCount));
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -245,6 +251,7 @@ void FusionExecutor::debugCompileFusionFromStr(
 void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
+    const FeatureSet& features,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     ScheduleHeuristic heuristic,
@@ -344,7 +351,13 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId(
+      heuristic,
+      fusion_id,
+      concrete_id,
+      runtime_id,
+      group_id,
+      features.has(Feature::StaticFusionCount));
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -1870,6 +1883,7 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
+    const FeatureSet& features,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
@@ -1932,7 +1946,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   ExecutorEntry* executor_entry =
       args.getCacheId().has_value() && !disable_parameter_cache_
-      ? &executor_entry_lookup_[*args.getCacheId()]
+      ? &executor_entry_lookup_[{features, *args.getCacheId()}]
       : &temporary_executor_entry;
 
   // Initialize the executor entry if not initlized
