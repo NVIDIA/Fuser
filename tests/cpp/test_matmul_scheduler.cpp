@@ -1121,15 +1121,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 
   auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
-
-  NVF_CHECK(
-      isSchedulerInUse(
-          executor_cache.getMostRecentKernelRuntime(),
-          ScheduleHeuristic::Matmul),
-      "matmul scheduler was not used to handle prepared fusion");
+  checkUnsegmentedVectorization(executor_cache, 8l, 8l, 4l);
 
   testValidate(
       executor_cache.fusion(),
