@@ -427,14 +427,8 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutor fe;
-  fusion->aliasOutputToInput(
-      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-  fe.compileFusion(fusion.get(), {t0, t1});
-  auto out = fe.runFusion({t0, t1});
-
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(fe.hasCompiledKernel());
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -457,14 +451,8 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutor fe;
-  fusion->aliasOutputToInput(
-      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-  fe.compileFusion(fusion.get(), {t0, t1});
-  auto out = fe.runFusion({t0, t1});
-
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(fe.hasCompiledKernel());
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }

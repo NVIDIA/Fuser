@@ -152,16 +152,28 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // input and output for index=2
     // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
     // maps to the third output iterdomain.
-    const std::vector<IterDomain*>& aligned_producer_id =
+    const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
 
     for (auto inx : c10::irange(out_size)) {
-      IterDomain* map_key_id = aligned_producer_id.at(inx);
-      IterDomain* map_value_id = consumer_root.at(inx);
-      if (map_key_id != nullptr){
-        updatePairwiseRootDomainMap(map_key_id, map_value_id);
+      IterDomain* producer_id = aligned_producer_ids.at(inx);
+      IterDomain* consumer_id = consumer_root.at(inx);
+
+      if (producer_id == nullptr){
+        continue;
       }
+      if (!map_broadcast_ &&
+        producer_id->isBroadcast() != consumer_id->isBroadcast()){
+          continue;
+      }
+      if (!map_symbolic_ &&
+        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
+        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+      continue;
+      }
+      updatePairwiseRootDomainMap(producer_id, consumer_id);
     }
+    
     return dom_map;
   }
 
