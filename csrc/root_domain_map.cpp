@@ -125,13 +125,42 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
 
-  // Add key-value iterdomain pair to the map.
+  // Check following conditions and add key-value iterdomain pair to domain map:
+  // 1. Do not map broadcast ID to non-broadcast ID unless map_broadcast_ = true.
+  // 2. Do not map Symbolic ID if the extents are not identical unless map_symbolic_ = true.
   auto updatePairwiseRootDomainMap =
-      [&root_dims_to_map, producer_to_consumer, &dom_map](
-          IterDomain* map_key_id, IterDomain* map_value_id) {
+      [&](
+          IterDomain* producer_id, IterDomain* consumer_id) {
+        if (!map_broadcast_ &&
+          producer_id->isBroadcast() != consumer_id->isBroadcast()){
+          return;
+        }
+
+        // Condition: At least one ID is symbolic.
+        //
+        // If map_symbolic_ is true:
+        //   Map these IDs regardless of other considerations.
+        //
+        // If map_symbolic_ is false (default):
+        //   Map these only if their extents are identical. IterType::Symbolic
+        //   reflects that the extent might evaluate to 1 for some inputs, in which
+        //   case it may be valid to use those domains in a broadcast op. If the
+        //   extents are exactly the same between two aligned IterDomains, the
+        //   Symbolic one will be concretized to the same IterType as the other, so
+        //   they should be mapped with one another.
+        if (!map_symbolic_ &&
+          (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
+          (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+          return;
+          }
+        
+        IterDomain* map_key_id = producer_id;
+        IterDomain* map_value_id = consumer_id;
+
         if (!producer_to_consumer) {
           std::swap(map_key_id, map_value_id);
         }
+
         if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
           dom_map.insert(std::make_pair(map_key_id, map_value_id));
         }
@@ -158,18 +187,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     for (auto inx : c10::irange(out_size)) {
       IterDomain* producer_id = aligned_producer_ids.at(inx);
       IterDomain* consumer_id = consumer_root.at(inx);
-
       if (producer_id == nullptr){
         continue;
-      }
-      if (!map_broadcast_ &&
-        producer_id->isBroadcast() != consumer_id->isBroadcast()){
-          continue;
-      }
-      if (!map_symbolic_ &&
-        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
-        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
-      continue;
       }
       updatePairwiseRootDomainMap(producer_id, consumer_id);
     }
@@ -187,8 +206,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torch_gather)
     // 3. Squeeze and unsqueeze
-    // 4. Broadcast and non broadcast
-    // 5. Symbolic ID with different extent from other ID
 
     // Condition 1: when the producer ID is the dim of a select-like op
     if (producer_id == indexed_producer_id) {
@@ -233,38 +250,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       continue;
     }
 
-    // Condition 4
-    if (!map_broadcast_ &&
-        producer_id->isBroadcast() != consumer_id->isBroadcast()) {
-      itc++;
-      itp++;
-      continue;
-    }
-
-    // Condition 5
-    // At least one ID is symbolic.
-    //
-    // If map_symbolic_ is true:
-    //   Map these IDs regardless of other considerations.
-    //
-    // If map_symbolic_ is false (default):
-    //   Map these only if their extents are identical. IterType::Symbolic
-    //   reflects that the extent might evaluate to 1 for some inputs, in which
-    //   case it may be valid to use those domains in a broadcast op. If the
-    //   extents are exactly the same between two aligned IterDomains, the
-    //   Symbolic one will be concretized to the same IterType as the other, so
-    //   they should be mapped with one another.
-    if (!map_symbolic_ &&
-        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
-        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
-      itc++;
-      itp++;
-      continue;
-    }
-
-    IterDomain* map_key_id = producer_id;
-    IterDomain* map_value_id = consumer_id;
-    updatePairwiseRootDomainMap(map_key_id, map_value_id);
+    updatePairwiseRootDomainMap(producer_id, consumer_id);
 
     itc++;
     itp++;
