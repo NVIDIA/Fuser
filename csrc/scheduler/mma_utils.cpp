@@ -10,6 +10,7 @@
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/printer.h>
+#include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
@@ -1549,22 +1550,22 @@ class MatmulPatternMatcher : IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(MatmulOp* mop) {
-    patterns_.emplace_back(
-        {mop->inA()->as<TensorView>(),
-         mop->inB()->as<TensorView>(),
-         mop->out()->as<TensorView>()});
+  void handle(MatmulOp* mop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = mop->inA()->as<TensorView>();
+    pattern.B = mop->inB()->as<TensorView>();
+    pattern.output = mop->out()->as<TensorView>();
   }
 
   // Handle the case when no translation is needed.
-  void handle(MmaOp* mop) {
-    patterns_.emplace_back(
-        {mop->inA()->as<TensorView>(),
-         mop->inB()->as<TensorView>(),
-         mop->out()->as<TensorView>()});
+  void handle(MmaOp* mop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = mop->inA()->as<TensorView>();
+    pattern.B = mop->inB()->as<TensorView>();
+    pattern.output = mop->out()->as<TensorView>();
   }
 
-  void handle(ReductionOp* rop) {
+  void handle(ReductionOp* rop) override {
     // Check if operation is a sum.
     if (rop->getReductionOpType() != BinaryOpType::Add) {
       return;
@@ -1589,7 +1590,7 @@ class MatmulPatternMatcher : IterVisitor {
       // These sizes should match since ops::maybeBroadcast places BroadcastOps
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
-      bool has_m=false, has_n=false;
+      bool has_m = false, has_n = false;
       for (size_t i : c10::irange(lrf.size())) {
         if (lrf[i]->isBroadcast() && !rrf[i]->isBroadcast()) {
           has_m = true;
@@ -1602,8 +1603,10 @@ class MatmulPatternMatcher : IterVisitor {
         return;
       }
 
-      MatmulPattern& pattern =
-          patterns_.emplace_back({ltv, rtv, bop->out()->as<TensorView>()});
+      MatmulPattern& pattern = patterns_.emplace_back();
+      pattern.A = ltv;
+      pattern.B = rtv;
+      pattern.output = rop->out()->as<TensorView>();
     }
   }
 
@@ -1611,17 +1614,17 @@ class MatmulPatternMatcher : IterVisitor {
   std::vector<MatmulPattern> patterns_;
 };
 
-}
+} // namespace
 
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion) {
   return MatmulPatternMatcher::run(fusion);
 }
 
 void MatmulPattern::translateToMmaOp() {
-  if (dynamic_cast<MmaOp>(output->definition())) {
+  if (dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
     return;
-  } else if (auto mop = dynamic_cast<MatmulOp>(output->definition())) {
+  } else if (auto mop = dynamic_cast<MatmulOp*>(output->definition())) {
     // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
     // must transpose B then broadcast both operands before creating the final
     // op.
@@ -1630,28 +1633,23 @@ void MatmulPattern::translateToMmaOp() {
     // whose matches that of the inputs. We will most commonly then also need to
     // cast the output of the MmaOp to produce the output TensorView.
     TensorView* Btrans = transpose(B);
-    std::vector<bool> bcast_dims(A.size() + 1, false);
-    bcast_dims[A.size() - 2] = true;
-    TensorView* Abcast = broadcast(A, bcast_dims);
-    bcast_dims[A.size() - 2] = false;
-    bcast_dims[A.size() - 3] = true;
-    TensorView* Bbcast = broadcast(Btrans, bcast_dims);
+    TensorView* Abcast = unsqueeze(A, -2);
+    TensorView* Bbcast = unsqueeze(Btrans, -3);
     TensorView* fms = fusedMultiplySum(Abcast, Bbcast, {-1});
     // Update operands to keep the pattern minimal
     A = Abcast;
     B = Bbcast;
     if (output->dtype() != fms->dtype()) {
       // Redefine output as cast of MmaOp->out()
-      IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms->out());
+      IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
       // Update output so that cast is part of the epilogue
-      output = fms->out();
+      output = fms;
     } else {
       // No cast needed, for example the inputs might be Float
       ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
     }
-  } else if (auto rop = dynamic_cast<ReductionOp>(output->definition())) {
-    Val* init =
-        IrBuilder::create<Val>(0.0, output->dtype());
+  } else if (auto rop = dynamic_cast<ReductionOp*>(output->definition())) {
+    Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
     IrBuilder::create<MmaOp>(output, A, B, init);
   }
