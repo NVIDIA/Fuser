@@ -47,16 +47,6 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul function which takes in tensors with the shapes
-// A[M,K] B[K,N], but the tensors may have different layouts
-// via strides. All restrictions from the matmul APIs also
-// apply here.
-TensorView* matmul(TensorView* a, TensorView* b);
-// This second matmul function is not exposed via
-// the Python interface, but it does the guts of the work and
-// can be used to create mamtuls without a cast operation following it.
-TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
-
 // Linear functions which takes in two tensors of shapes A[M,K] and
 // B[N,K]. Takes in a options bias of shape [N] and performs
 // out = A * B_Transpose + bias. The output dtype matches the dtype
@@ -81,6 +71,6 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
 
-TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b);
+TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
 } // namespace nvfuser

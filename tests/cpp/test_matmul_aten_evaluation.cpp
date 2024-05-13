@@ -417,7 +417,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
 
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
-  auto tv2 = eagerMatmul(tv0, tv1);
+  auto tv2 = matmul(tv0, tv1);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -441,7 +441,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
 
   auto tv0 = makeSymbolicTensor(a_shape, DataType::Half);
   auto tv1 = makeSymbolicTensor(b_shape, DataType::Half);
-  auto tv2 = eagerMatmul(tv0, tv1);
+  auto tv2 = matmul(tv0, tv1);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
