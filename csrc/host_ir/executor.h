@@ -43,6 +43,8 @@ struct HostIrExecutorParams {
   bool cache_fusion_executor = false;
 };
 
+class PostOnStreamExecutor;
+
 class HostIrExecutor final : public OptInDispatch {
  public:
   HostIrExecutor(
@@ -58,9 +60,6 @@ class HostIrExecutor final : public OptInDispatch {
   HostIrExecutorParams params_;
   // Stores concrete computed values
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
-  // Cache Fusions, FusionExecutors
-  std::unordered_map<PostOnStream*, FusionExecutor> fe_;
-  std::unordered_map<PostOnStream*, FusionExecutorCache> fec_;
 };
 
 } // namespace hir

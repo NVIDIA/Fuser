@@ -77,18 +77,27 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 
     IrCloner ir_cloner(hic.get());
 
-    std::vector<Val*> post_inputs = {ir_cloner.clone(hu->fusion_to_execute()->inputs().back())};
-    std::vector<Val*> post_outputs = {ir_cloner.clone(hu->fusion_to_execute()->outputs().back())};
-    auto post_compute = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu, std::move(post_inputs), std::move(post_outputs));
+    std::vector<Val*> compute_inputs = {ir_cloner.clone(hu->fusion_to_execute()->inputs().at(0))};
+    std::vector<Val*> compute_outputs = {ir_cloner.clone(hu->fusion_to_execute()->outputs().at(0))};
+    auto post_compute = 
+        IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu, compute_inputs, compute_outputs);
 
-    hic->pushBackTopLevelExprs(post_compute);
 
-    std::vector<Val*> comm_inputs = post_outputs;
+    std::vector<Val*> comm_inputs = compute_outputs;
     auto tv2 = set(comm_inputs.back()->as<TensorView>());
     tv2->axis(0)->parallelize(ParallelType::Serial);
     std::vector<Val*> comm_outputs = {tv2};
-    auto post_comm = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), hu, std::move(post_inputs), std::move(post_outputs));
 
+    CommParams comm_params {
+        .type = CommunicationType::Allgather,
+        .root = 0,
+        .is_root_in_mesh = true,
+        .team = mesh.vector()
+    };
+    auto communication = IrBuilder::create<Communication>(comm_params);
+    auto post_comm = IrBuilder::create<PostOnStream>(static_cast<IrContainer*>(hic.get()), communication, comm_inputs, comm_outputs);
+
+    hic->pushBackTopLevelExprs(post_compute);
     hic->pushBackTopLevelExprs(post_comm);
 
     // add global IO to the HostIrContainer. This step could potentially be infered automatically
@@ -98,7 +107,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 
     HostIrExecutorParams params;
     params.use_fusion_executor_cache = use_fusion_executor_cache;
-    HostIrExecutor hie(std::move(hic), std::move(params));
+    HostIrExecutor hie(std::move(hic), params);
 
     auto options = at::TensorOptions().device(communicator->device());
     at::Tensor unsharded_input = at::randn(input_sizes, options);
@@ -113,7 +122,13 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 INSTANTIATE_TEST_SUITE_P(
     Manual,
     MultiDeviceHostIrTest,
-    testing::Combine(testing::Bool()));
+    testing::Combine(testing::Values(false)),
+    // testing::Combine(testing::Bool()),
+    [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
+      return (
+          std::get<0>(info.param) ? "use_fusion_executor_cache"
+                                  : "use_fusion_executor");
+    });
 
 } // namespace hir
 

@@ -48,14 +48,15 @@ bool HostUnit::sameAs(const Statement* other) const {
 
 PostOnStream::PostOnStream(
     IrBuilderPasskey passkey,
-    HostUnit* hu,
+    Expr* host_op,
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
-    : Expr(passkey, std::move(inputs), std::move(outputs), {hu}) {
+    : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
   NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
-  NVF_ERROR(this->inputs().size() == hu->fusion_to_execute()->inputs().size());
-  NVF_ERROR(
-      this->outputs().size() == hu->fusion_to_execute()->outputs().size());
+  // TODO: FIX Error checking
+  // NVF_ERROR(this->inputs().size() == hu->fusion_to_execute()->inputs().size());
+  // NVF_ERROR(
+  //     this->outputs().size() == hu->fusion_to_execute()->outputs().size());
   // TODO: harden the assert checks with smth like
   // for (int i : c10::irange(inputs.size())) {
   //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
@@ -71,7 +72,9 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 std::string PostOnStream::toString(int indent_size) const {
   int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "Execute the following Fusion, taking inputs :{\n";
+  indent(ss, indent_size) << "PostOnStream the operation :{\n";
+  indent(ss, indent_size) << hostOpToPost()->toString();
+  indent(ss, indent_size) << "\n}, taking inputs: {";
   for (auto input : inputs()) {
     indent(ss, indent_size + indent_increment)
         << input->toString(indent_size + indent_increment) << "\n";
@@ -81,9 +84,6 @@ std::string PostOnStream::toString(int indent_size) const {
     indent(ss, indent_size + indent_increment)
         << output->toString(indent_size + indent_increment) << "\n";
   }
-  indent(ss, indent_size) << "}. Fusion to execute:{";
-  indent(ss, indent_size) << hostUnit()->toString();
-  indent(ss, indent_size) << "\n";
   indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
 }

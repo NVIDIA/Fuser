@@ -127,6 +127,8 @@ TEST_P(HostIrTest, SingleFusion) {
   hic->addInput(post_on_stream->inputs().at(0));
   hic->addOutput(post_on_stream->outputs().at(0));
 
+  hic->print(debug());
+
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
@@ -225,6 +227,8 @@ TEST_P(HostIrTest, TwoFusions) {
   // [Step 7)] Define the Host program's global I/O
   hic->addInput(post_on_stream_0->inputs().at(0));
   hic->addOutput(post_on_stream_1->outputs().at(0));
+
+  hic->print(debug());
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
@@ -350,6 +354,8 @@ TEST_P(HostIrTest, ThreeFusions) {
   // [Step 7)] Define the Host program's global I/O
   hic->addInput(post_on_stream_0->inputs().at(0));
   hic->addOutput(post_on_stream_2->outputs().at(0));
+
+  hic->print(debug());
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;

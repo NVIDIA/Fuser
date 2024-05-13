@@ -13,10 +13,60 @@ namespace nvfuser {
 
 namespace hir {
 
+class PostOnStreamExecutor final : public OptInDispatch {
+  public:
+    PostOnStreamExecutor() = default;
+    std::vector<at::Tensor> post(Expr* op, std::vector<c10::IValue>& inputs, HostIrExecutorParams& params) {
+      outputs_ = {};
+      inputs_ = inputs;
+      params_ = params;
+      dispatch(op);
+      return outputs_; //TODO: USE OUTPUT INSTEAD
+    }
+
+  private:
+    std::vector<c10::IValue> inputs_;
+    std::vector<at::Tensor> outputs_; //TODO: USE OUTPUT INSTEAD
+    HostIrExecutorParams params_;
+    // Cache Fusions, FusionExecutors
+    std::unordered_map<HostUnit*, FusionExecutor> fe_;
+    std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
+
+    using OptInDispatch::handle;
+    void handle(HostUnit* hu) override {
+      // Compile the fusion and execute it with FusionExecutor(Cache)
+      // Check if the executor has been cached. If not, create and cache it
+      if (params_.use_fusion_executor_cache) {
+        fec_.try_emplace(
+            hu,
+            std::make_unique<Fusion>(*hu->fusion_to_execute()),
+            0,
+            !params_.skip_auto_scheduling);
+        outputs_ = fec_.at(hu).runFusionWithInputs(inputs_); //TODO: USE OUTPUT INSTEAD
+      } else {
+        auto [it, has_emplaced] = fe_.try_emplace(hu);
+        auto& fe = it->second;
+        if (has_emplaced) {
+          fe.compileFusion(
+              hu->fusion_to_execute(), inputs_);
+        }
+        outputs_ = fe.runFusion(inputs_); //TODO: USE OUTPUT INSTEAD
+        if (!params_.cache_fusion_executor) {
+          fe_.erase(hu);
+        }
+      }
+
+    }
+
+    void handle(Communication* communication) override {
+      std::cout << "POSTING A Communication" << std::endl;
+    }
+};
+
 HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     HostIrExecutorParams params)
-    : container_(std::move(container)), params_(params){};
+  : container_(std::move(container)), params_(std::move(params)) {};
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {
@@ -55,29 +105,8 @@ void HostIrExecutor::handle(PostOnStream* post) {
     input_IValues.push_back(val_to_IValue_.at(input));
   }
 
-  // placeholder for storing the outputs
-  std::vector<at::Tensor> outputs;
-
-  // Compile the fusion and execute it with FusionExecutor(Cache)
-  // Check if the executor has been cached. If not, create and cache it
-  if (params_.use_fusion_executor_cache) {
-    fec_.try_emplace(
-        post,
-        std::make_unique<Fusion>(*post->hostUnit()->fusion_to_execute()),
-        0,
-        !params_.skip_auto_scheduling);
-    outputs = fec_.at(post).runFusionWithInputs(input_IValues);
-  } else {
-    auto [it, has_emplaced] = fe_.try_emplace(post);
-    auto& fe = it->second;
-    if (has_emplaced) {
-      fe.compileFusion(post->hostUnit()->fusion_to_execute(), input_IValues);
-    }
-    outputs = fe.runFusion(input_IValues);
-    if (!params_.cache_fusion_executor) {
-      fe_.erase(post);
-    }
-  }
+  PostOnStreamExecutor post_executor;
+  std::vector<at::Tensor> outputs = post_executor.post(post->hostOpToPost(), input_IValues, params_);
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
