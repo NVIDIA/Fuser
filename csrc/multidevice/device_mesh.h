@@ -36,7 +36,7 @@ class DeviceMesh final {
 
   // returns the number of devices in the mesh
   int64_t size() const {
-    return vector_.size();
+    return static_cast<int64_t>(vector_.size());
   }
 
   // returns a vector containing the device indices of the mesh
