@@ -205,6 +205,17 @@ class FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
+    // The arguments to the kernel. These are configured in computeArgs and
+    // recomputeArgs.
+    // For the common case of a tensor argument, these correspond to the
+    // `struct Tensor` data in runtime/tensor.cu. That means each tensor
+    // element in `args` would be a sizeof(void*) + len(shape)*sizeof(int) +
+    // len(shape)*sizeof(int) byte array (here "int" is used in place of the
+    // index type, which varies in practice).
+    std::vector<std::vector<std::byte>> args;
+    // This is just the data() pointers to the above `args`; cuLaunchKernel
+    // requires an array of this form.
+    std::vector<void*> arg_ptrs;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -421,14 +432,6 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
-  //! Check if compilation was skipped (fusion segment marked for EE).
-  bool isExprEval() const {
-    NVF_ERROR(
-        fusion_ == nullptr || !lowered_,
-        "Expected GPU lowering to be skipped.");
-    return fusion_ != nullptr;
-  }
-
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -475,6 +478,17 @@ class FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+  // Creates the initial set of arguments to a kernel, based on the arguments
+  // to we have now.
+  void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
+      const;
+  // Updates an existing set of arguments based on the current arguments. It is
+  // is an error to call this before `computeArgs` has been invoked.
+  // recomputeArgs will fail if the arity of the function changes, or the rank
+  // of any tensor changes (as these are compiled-in to the generated kernel
+  // and therefore would require us to do a larger recompilation).
+  void recomputeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
+      const;
 
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(

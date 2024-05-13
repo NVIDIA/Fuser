@@ -24,11 +24,11 @@ namespace nvfuser {
 //   using Struct = std::unordered_map<std::string, T>;
 //   using PolymorphicValue = DynamicType<Containers<Struct>, ...>;
 // However, the performance of this approach is not ideal. So instead of making
-// the struct support truely dynamic fields by using a map, we decide to make it
+// the struct support truly dynamic fields by using a map, we decide to make it
 // semi-dynamic: each struct type in nvFuser must be backed by a real struct in
 // C++, which mean, the fields have static storage types. But, on the other
 // hand, struct fields can also be accessed dynamically, that is, you can get or
-// set a struct field without knowning the actual C++ struct and the type of the
+// set a struct field without knowing the actual C++ struct and the type of the
 // field. Instead, by using solely the string name of the field, you shall be
 // able to access fields as a PolymorphicValue. For example, if your struct is
 // defined as:

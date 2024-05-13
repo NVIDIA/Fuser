@@ -23,7 +23,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <mma_type.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -493,9 +492,7 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
   fusion->addOutput(tv_out);
 
   // multi device scheduling:
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   for (auto tv : {tv0, tv1, tv_out}) {
     tv->setDeviceMesh(mesh);
   }

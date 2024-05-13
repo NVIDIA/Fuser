@@ -59,12 +59,12 @@ inline std::optional<MmaMacro> getMmaOp(
     case 80:
     case 86:
     case 89:
+    case 90: // NOTE: temp use ampere matmul for hopper
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:
-      break;
+      return std::nullopt;
   }
-  return std::nullopt;
 }
 
 //! A wrapper for core heuristics initialization.
@@ -285,30 +285,6 @@ std::string isMatmulFusionDefinitionSupported(
         fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
     if (in_out_tvs_count != tvs_with_roles.size()) {
       return "Detected input/output TVs without assigned roles";
-    }
-  }
-
-  // MmaOp inputs/outputs dependencies check
-  // TODO: check to be removed when more rules are added to TV roles
-  //  calculations
-  {
-    // Check the expected path between MmaOp input and fusion inputs
-    const auto areMmaOpInputDependeciesValid = [](const Val* val) {
-      if (val->definition()->isA<BroadcastOp>()) {
-        const auto& bcast_inputs = val->definition()->inputs();
-        // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput() ||
-            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
-             nullptr);
-      }
-      return false;
-    };
-
-    // MmaOp input is a result of broadcast op with input being fusion input
-    for (const auto* mma_in : mma_inputs) {
-      if (!areMmaOpInputDependeciesValid(mma_in)) {
-        return "MmaOp input has unsupported dependency";
-      }
     }
   }
 

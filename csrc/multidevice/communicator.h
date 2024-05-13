@@ -53,7 +53,7 @@ constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  NVF_API Communicator(
+  Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
 
@@ -80,14 +80,6 @@ class Communicator {
     default_backend_ = backend;
   }
 
-  // performs a send/receive p2p data transfer
-  NVF_API c10::intrusive_ptr<c10d::Work> sendRecv(
-      DeviceIdxType receiver,
-      DeviceIdxType sender,
-      std::vector<at::Tensor>& tensor,
-      std::optional<CommunicatorBackend> backend = std::nullopt,
-      int tag = 0);
-
   // performs a blocking barrier in the communicator
   void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
     getWorld(backend)->barrier()->wait();
@@ -108,9 +100,16 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank associted with the current process,
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
   // returns world backend for communicator backend or default backend if not
   // specified.
-  NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(
+  c10::intrusive_ptr<c10d::Backend> getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation

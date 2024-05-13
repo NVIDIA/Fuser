@@ -2374,8 +2374,12 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   std::vector<int64_t> out_shape;
   out_shape.reserve(out_rfactor.size());
   for (IterDomain* id : out_rfactor) {
-    out_shape.push_back(
-        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+    if (id->isDeviceDim()) {
+      out_shape.push_back(1);
+    } else {
+      out_shape.push_back(
+          ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+    }
   }
 
   // TODO: check allocation domain and contiguity.
@@ -3153,8 +3157,9 @@ void IterDomain::parallelize(ParallelType t) {
 
   if (t == ParallelType::Group) {
     NVF_CHECK(
-        getIterType() == IterType::Iteration,
-        "Grouping IterDomain of non Iteration type is not allowed. ",
+        getIterType() == IterType::Iteration ||
+            getIterType() == IterType::GatherScatter,
+        "Grouping IterDomain of non Iteration / GatherScatter type is not allowed. ",
         getIterType());
   }
 
@@ -3764,6 +3769,17 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
       std::back_inserter(noBroadcastDomain),
       [](IterDomain* id) { return !id->isBroadcast(); });
   return noBroadcastDomain;
+}
+
+std::vector<IterDomain*> TensorDomain::noDevices(
+    const std::vector<IterDomain*>& td) {
+  std::vector<IterDomain*> noDeviceDomain;
+  std::copy_if(
+      td.begin(),
+      td.end(),
+      std::back_inserter(noDeviceDomain),
+      [](IterDomain* id) { return !id->isDeviceDim(); });
+  return noDeviceDomain;
 }
 
 /*static*/ std::vector<std::optional<bool>> TensorDomain::
@@ -4454,6 +4470,35 @@ std::vector<PolymorphicValue> CatOp::evaluate(
     unpadded_inputs.push_back(eval_i.as<at::Tensor>());
   }
   return {at::cat(unpadded_inputs, concat_dim)};
+}
+
+MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MatmulOp)
+
+std::string MatmulOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = matmul(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MatmulOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> MatmulOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+  return {at::matmul(a, b)};
 }
 
 } // namespace nvfuser
