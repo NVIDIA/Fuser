@@ -142,19 +142,49 @@ int64_t numDeviceDims(TensorView* tv) {
 }
 
 bool isResharding(Expr* expr) {
-  std::unordered_set<TensorView*> tvs;
-  for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    tvs.insert(tv);
+  // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
+  // which is too costly
+  for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      // exit early in the unsharded case for performance
+      if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
+        continue;
+      }
+      // If device mesh are different, the Expr is resharding
+      if (producer->getDeviceMesh().vector() !=
+          consumer->getDeviceMesh().vector()) {
+        return true;
+      }
+
+      // Create a map between producer's and consumer's IterDomains. We iterate
+      // over producer's iterdomain and compare sharding type with consumer's
+      // iterdomain
+      const auto p2c_map =
+          PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+      for (auto p_id :
+           TensorDomain::noReductions(producer->getMaybeRFactorDomain())) {
+        auto p2c_map_it = p2c_map.find(p_id);
+        if (p2c_map_it == p2c_map.end()) {
+          NVF_ERROR(
+              !p_id->isDeviceDim(),
+              "the producer ",
+              producer,
+              " has a sharded dimension ",
+              p_id,
+              " that is not mapped to its consumer ",
+              consumer);
+          continue;
+        }
+        auto c_id = p2c_map_it->second;
+        if (p_id->getParallelType() != c_id->getParallelType() &&
+            (p_id->isDeviceDim() || c_id->isDeviceDim())) {
+          // Mismatch found
+          return true;
+        }
+      }
+    }
   }
-  for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    tvs.insert(tv);
-  }
-  if (tvs.empty()) {
-    return false;
-  }
-  auto tv_ref = *tvs.begin();
-  tvs.erase(tv_ref);
-  return !getTvsWithDifferentSharding(tv_ref, tvs).empty();
+  return false;
 }
 
 bool isInnerResharding(Expr* expr) {
