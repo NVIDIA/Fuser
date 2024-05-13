@@ -1580,8 +1580,9 @@ class MatmulPatternMatcher : IterVisitor {
 
       // Check that the inputs have broadcasts that are not all in common, i.e.
       // that there is at least one M and at least one N dimension.
-      TensorView* ltv = bop->lhs()->as<TensorView>();
-      TensorView* rtv = bop->rhs()->as<TensorView>();
+      TensorView* ltv = getTensorviewPriorToCast(bop->lhs()->as<TensorView>());
+      TensorView* rtv = getTensorviewPriorToCast(bop->rhs()->as<TensorView>());
+
       std::vector<IterDomain*> lrf =
           TensorDomain::noReductions(ltv->getMaybeRFactorDomain());
       std::vector<IterDomain*> rrf =

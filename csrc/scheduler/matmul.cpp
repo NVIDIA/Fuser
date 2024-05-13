@@ -755,11 +755,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       patterns.size() == 1,
       "Only a single matmul pattern can currently be fused");
-  fusion->printMath();
   for (mma_utils::MatmulPattern& pattern : patterns) {
     pattern.translateToMmaOp();
   }
-  fusion->printMath();
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
 
