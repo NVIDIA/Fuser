@@ -749,12 +749,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  mma_utils::CombineMulSum combiner(fusion);
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (combiner.isValid() && mma_ops.empty()) {
-    combiner.replaceWithMmaOp();
-    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  for (mma_utils::MatmulPattern& pattern : patterns) {
+    pattern.translateToMmaOp();
   }
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
 
   NVF_ERROR(
       mma_ops.size() == 1,

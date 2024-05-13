@@ -390,6 +390,32 @@ class CombineMulSum : public IterVisitor {
   bool is_valid_ = false;
 };
 
+//! This represents a single matmul operation, without a prologue or epilogue.
+//! Each matmul has two inputs which might not be fusion inputs: A and B. It
+//! also has one output, which can be Float or reduced precision. For MatmulOp
+//! and LinearOp, the output is the same dtype as the inputs; so output does not
+//! necessarily correspond to the output of a translated MmaOp and it might not
+//! be a fusion output.
+struct MatmulPattern {
+  TensorView* A;
+  TensorView* B;
+  // This is not necessarily a Fusion output, but rather is the immediate output
+  // representing a matmul in the current Fusion. The definition of this tensor
+  // determines what kind of translation is needed, if any. Possible definition
+  // Expr types are: MmaOp, ReductionOp (for mul-sum patterns), MatmulOp, and
+  // LinearOp.
+  TensorView* output;
+
+  //! If the pattern is not already represented by an MmaOp, for example if
+  //! there is a MatmulOp instead, this function modifies the fusion to insert
+  //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
+  //! updated to reflect the replacement tensor.
+  void translateToMmaOp();
+};
+
+//! Traverse the fusion to find supported matmul patterns
+std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
+
 //! Compute the amount of shared memory we expect to need. The actual amount
 //! allocated will be determined by aliasing (see alias_memory.cpp). This
 //! function is useful for testing that we provide accurate information to our
