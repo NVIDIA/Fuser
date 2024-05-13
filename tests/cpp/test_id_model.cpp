@@ -2131,4 +2131,34 @@ TEST_F(IdModelTest, PermutedDifferently) {
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(2), t1->axis(2)));
 }
 
+// Make sure domains of sibling tensors are all mapped together in the
+// LOOP graph even when those tensors are not inlined.
+TEST_F(IdModelTest, LoopGraphWithSibling) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto welford_out_tvs = Welford(tv0, {1});
+  auto avg = welford_out_tvs.avg;
+  fusion.addOutput(avg);
+
+  avg->split(-1, 4);
+  TransformPropagatorWithCheck propagator(avg);
+  MaxRootDomainInfoSpanningTree(avg).traverse(&propagator);
+
+  IdModel id_model(&fusion);
+
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+
+  for (auto welford_out : {welford_out_tvs.var_sum, welford_out_tvs.n}) {
+    for (const auto i : c10::irange(avg->nDims())) {
+      ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(
+          avg->axis(i), welford_out->axis(i)))
+          << "Unmapped siblings: " << avg->axis(i)->toString() << ", "
+          << welford_out->axis(i)->toString();
+    }
+  }
+}
+
 } // namespace nvfuser
