@@ -15,6 +15,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <ops/normalization.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
@@ -1555,6 +1556,136 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   fe.compileFusion(&fusion, {t}, {}, index32bit);
   std::vector<at::Tensor> outputs = fe.runFusion({t});
   ASSERT_TRUE(at::equal(t.t(), outputs[0]));
+}
+
+TEST_F(Tutorial, NormalizeTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  constexpr int dim0 = 4096, dim1 = 4096;
+  constexpr at::ScalarType dtype = at::ScalarType::BFloat16;
+  constexpr int64_t correction = 1;
+  constexpr bool keepdim = true;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto var_mean = variance_mean(tv0, {-1}, correction);
+  auto tv0_cast = castOp(DataType::Float, tv0);
+  auto tv0_diff = sub(tv0_cast, var_mean.mean);
+  auto tv0_norm = div(tv0_diff, sqrt(var_mean.var));
+  auto output = castOp(DataType::BFloat16, tv0_norm);
+  fusion->addOutput(output);
+
+  // Create cache_tvs
+  auto tv0_cache_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_cache_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv0_cache_lmem = tv0_cache_smem->cacheAfter();
+
+  auto output_cache_lmem = output->cacheBefore();
+
+  std::vector<TensorView*> reduction_tvs = 
+	  scheduler_utils::getReductionTvs(fusion.get());
+
+  auto reference_tv = output;
+
+  // boxDim array, which specifies number of elements to be traversed along each of the tensorRank dimensions, 
+  // must be non-zero and less than or equal to 256
+  constexpr int64_t width = 256;
+  constexpr int64_t vectorize = 8;
+  constexpr int64_t elem_per_compute_thread = dim1 / width / vectorize;
+
+  // Define TMA Box
+  // split: [I0, I2, 256]
+  // load entire example in shared memory
+  tv0_cache_smem->split(-1, 256);
+  
+  // Schedule reference_tv
+  //   root domain: [I1, I2]
+  //         split: [I1, I2/V (width / tdx), V]
+  reference_tv->split(-1, vectorize);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), V]
+  reference_tv->split(-2, elem_per_compute_thread, /*inner_split=*/false);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), U, V]
+  reference_tv->split(-2, 1);
+  //         reorder: [I1, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->reorder({{-4, -3}, {-3, -4}});
+
+  TransformPropagator propagator(reference_tv);
+  auto all_tvs_except_cache = ir_utils::allTvsExcept(
+		  fusion.get(),
+		  {tv0_cache_smem});
+  SetSelector selector({all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+  MaxRootDomainInfoSpanningTree(reference_tv, &selector).traverse(&propagator);
+
+  std::vector<TensorView*> rfactor_tvs;
+  rfactor_tvs.reserve(reduction_tvs.size());
+  std::transform(reduction_tvs.begin(),
+		 reduction_tvs.end(),
+		 std::back_inserter(rfactor_tvs),
+		 [](TensorView* tv){ return tv->rFactor({-3, -2, -1}); });
+
+  // Define Parallelization Schema
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(1)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(-2)->parallelize(ParallelType::Unroll);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  // Vectorize Cache
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // TMA Tensor
+  tv0_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // ComputeAt
+  // Inline all operations except caching
+  inlineSelectedAt({all_tvs_except_cache.begin(), all_tvs_except_cache.end()},
+		  reference_tv,
+		  /*reference_pos=*/-1,
+      /*best_effort=*/true);
+
+  // TMA load from global memory to shared memory
+  inlineSelectedAt(
+    {tv0_cache_smem},
+    tv0_cache_lmem,
+    1);
+
+  // Vectorize write from registers to global memory
+  inlineSelectedAt(
+    {output_cache_lmem},
+    output,
+    -2);
+
+  if (verbose_) {
+    fusion->printMath();
+    fusion->printKernel();
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = fe.runFusion({at_tv0});
+
+  auto at_var_mean = at::var_mean(at_tv0, {-1}, correction, keepdim);
+  auto at_var = std::get<0>(at_var_mean);
+  auto at_mean = std::get<1>(at_var_mean);
+  auto at_output = (at_tv0 - at_mean) / sqrt(at_var);
+
+  testValidate(
+      fusion.get(),
+      outputs,
+      {at_tv0},
+      {at_output},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
