@@ -94,11 +94,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
     bool ignore_occupancy_drop) {
-  const auto properties = at::cuda::getCurrentDeviceProperties();
-  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
-  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
-  const size_t shared_memory_available =
-      device_smem_limit - shared_memory_overhead;
+  const size_t shared_memory_available = deviceAvailableSharedMemoryBytes();
 
   // We clip smem_double_buffer_stage to 1 since we will always load operands
   // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
@@ -148,8 +144,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // use additional shared memory for epilogue if occupancy is not changed.
   // occupancy is estimated using register and shared memory usage.
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
   const auto threads_per_block =
-      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+      warp_dims.m * warp_dims.n * warp_dims.k * warp_size;
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
@@ -856,12 +853,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
 void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool transpose,
-    bool transpose2) {
-  if (transpose) {
-    tv->reorder({{-2, -1}});
-  }
+    MmaInputSmemSwizzle swizzle) {
   if (swizzle == MmaInputSmemSwizzle::None) {
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
     // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
@@ -871,16 +863,9 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    if (transpose2) {
-      tv->reorder({{-2, -1}});
-    }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
     // For example, [K, M]
-    if (transpose2) {
-      tv->reorder({{-2, -1}});
-      // [M, K]
-    }
     tv->split(-2, 8);
     tv->split(-1, 8);
     // For example transpose2 == false
@@ -894,10 +879,8 @@ void WarpMmaSwizzler::scheduleOperandRead(
     tv->split(-4, 8 / swizzle_size);
     // [Ko, K2, K4, Moo, Mo2, M8]
     tv->swizzle(SwizzleType::XOR, -5, -2);
-    if (!transpose2) {
-      tv->reorder({{-3, -5}});
-      // [Ko, Moo, K2, K4, Mo2, M8]
-    }
+    tv->reorder({{-3, -5}});
+    // [Ko, Moo, K2, K4, Mo2, M8]
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }

@@ -20,6 +20,14 @@
 
 namespace nvfuser {
 
+NVF_API bool distributedEnabled() {
+#ifdef NVFUSER_DISTRIBUTED
+  return true;
+#else
+  return false;
+#endif
+}
+
 namespace {
 
 std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {

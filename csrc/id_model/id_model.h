@@ -64,6 +64,19 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // considered the exact same size operating on matching dimensions from the root
 // domain mapping.
 //
+// LOOP mode is important to resolve inlined broadcassts. If we have something
+// like: consumer[i0o, threadIdx.x{i0i}] = producer[i0o,
+// threadIdx.y{i0i}](computeAt = 1) which can easily happen when using shared
+// memory. Loop is actually defined for all iteration domains, and resembles
+// groups of iter domains that are effectively inlined with each other.
+// Therefore iter domain's that are a common dependency of inlined leaf domains
+// may be loop mapped together.
+//
+// Loop promotion is a mechanism by which to capture inlined resolved
+// broadcasts. If a consumer resolves a broadcast of a producer, and the
+// producer's broadcast is inlined (in total or partially). Then the producer's
+// iter domain will be "promoted" to the size of the consumers iter domain.
+//
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -80,8 +93,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
-//   dependent domains
-//
+//   dependent domains.
 class IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
@@ -259,6 +271,16 @@ class IdModel : public PolymorphicBase {
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // Basic consistency check of the given loop promotion map
+  void sanityCheckLoopPromotionMap(
+      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
+      const;
+
+  // Loop graph represents the loop structure of the given fusion, so
+  // there must not be any mapping between the leaf domains of each
+  // tensor.
+  void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
   // Replay Expr but with the inputs provided. ValGraphs will be updated
   // for all maps that have entries, adding the output iter domains of the

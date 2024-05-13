@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
@@ -16,28 +17,6 @@
 namespace nvfuser {
 
 namespace {
-
-template <typename T>
-inline T getInitialValue(BinaryOpType op) {
-  // TODO: add other ops
-  switch (op) {
-    case BinaryOpType::Add:
-      // case BinaryOpType::BitwiseOr:
-      // case BinaryOpType::BitwiseXor:
-      return 0;
-    case BinaryOpType::Mul:
-      return 1;
-    case BinaryOpType::Max:
-      return std::numeric_limits<T>::min();
-    case BinaryOpType::Min:
-      return std::numeric_limits<T>::max();
-    // case BinaryOpType::BitwiseAnd:
-    //   return ~(T)0;
-    default:
-      NVF_ERROR(false, "invalid binary op type");
-      return 0;
-  }
-}
 
 // TODO: handle `c10d::RedOpType::reduceOp::AVG` and
 // `c10d::RedOpType::reduceOp::PREMUL_SUM`
@@ -77,22 +56,6 @@ inline bool isDeviceInvolved(
   return sender_mesh.has(my_device_index) || receiver_mesh.has(my_device_index);
 }
 
-// Creates a dummy tensor for scatter/gather communications,
-// see 'createParamsForGatherScatter'
-inline at::Tensor createDummyTensor(at::Tensor reference) {
-  return at::empty_like(reference, reference.options());
-}
-
-inline at::Tensor createDummyTensor(
-    at::Tensor reference,
-    BinaryOpType op_type) {
-  // TODO: support other types
-  NVF_ERROR(
-      reference.scalar_type() == at::kFloat,
-      "only float tensors are supported");
-  return createDummyTensor(reference).fill_(getInitialValue<float>(op_type));
-}
-
 // Utility function used for setting up a scatter or gather communication
 // params. Since most  of the steps are somewhat similar/opposite in those
 // cases, we gathered the two implementations into one function. The argument
@@ -101,36 +64,16 @@ CommParams createParamsForGatherScatter(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
     TensorView* root_tv, // is_scatter ? input_tv : output_tv
-    at::Tensor root_buf, // is_scatter? input buf : output buf
-    at::Tensor buf, // is_scatter? output buf : input buf
     bool is_scatter) {
   const DeviceMesh& mesh = root_tv->getDeviceMesh();
   CommParams params;
+  params.type =
+      is_scatter ? CommunicationType::Scatter : CommunicationType::Gather;
   params.root = root;
   params.team = mesh.vector();
-  bool is_root_in_mesh = mesh.has(root);
-  if (!is_root_in_mesh) {
+  if (!mesh.has(root)) {
+    params.is_root_in_mesh = false;
     params.team.push_back(root);
-  }
-
-  if (mesh.has(my_device_index)) {
-    ((is_scatter) ? params.dst_bufs : params.src_bufs) = {buf};
-  }
-
-  if (my_device_index == root) {
-    for (auto i : c10::irange(mesh.vector().size())) {
-      auto sliced_buf = root_buf.slice(0, i, i + 1);
-      ((is_scatter) ? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
-    }
-    // The scatter/gather semantics imposes the root to be both
-    // sender and receiver. If the root is not in the mesh, we thus
-    // have to artificially make it send and receive a dummy buffer
-    // Since it is an "inplace" operation, this should not cause any overhead
-    if (!is_root_in_mesh) {
-      at::Tensor dummy = createDummyTensor(root_buf.slice(0, 0, 1));
-      params.src_bufs.push_back(dummy);
-      params.dst_bufs.push_back(dummy);
-    }
   }
   return params;
 }
@@ -140,18 +83,16 @@ void lowerToScatter(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   auto root = input_tv->getDeviceMesh().vector().at(0);
   if (!isDeviceInvolved(my_device_index, root, receiver_mesh)) {
     return;
   }
-  auto params = createParamsForGatherScatter(
-      my_device_index, root, output_tv, input_tensor, output_tensor, true);
-  comms.push_back(std::make_shared<Scatter>(std::move(params)));
+  auto params =
+      createParamsForGatherScatter(my_device_index, root, output_tv, true);
+  comms.push_back(IrBuilder::create<Communication>(std::move(params)));
 }
 
 /*
@@ -164,18 +105,16 @@ void lowerToGather(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   for (auto root : output_tv->getDeviceMesh().vector()) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
     }
-    auto params = createParamsForGatherScatter(
-        my_device_index, root, input_tv, output_tensor, input_tensor, false);
-    comms.push_back(std::make_shared<Gather>(std::move(params)));
+    auto params =
+        createParamsForGatherScatter(my_device_index, root, input_tv, false);
+    comms.push_back(IrBuilder::create<Communication>(std::move(params)));
   }
 }
 
@@ -184,45 +123,32 @@ void lowerToAllgather(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
 
   CommParams params;
+  params.type = CommunicationType::Allgather;
   params.team = mesh.vector();
-  for (auto i : c10::irange(mesh.vector().size())) {
-    params.dst_bufs.push_back(
-        output_tensor.index({at::indexing::Slice(i, i + 1), "..."}));
-  }
-  params.src_bufs = {input_tensor};
-
-  comms.push_back(std::make_shared<Allgather>(std::move(params)));
+  comms.push_back(IrBuilder::create<Communication>(std::move(params)));
 }
 
 // Creates and set the CommParams for a Broadcast or Send/Recv communication
 CommParams createParamsForBroadcastOrP2P(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
-    const DeviceMesh& mesh, // receiver devices
-    at::Tensor input_tensor,
-    at::Tensor output_tensor) {
+    // receiver devices
+    const DeviceMesh& mesh) {
   CommParams params;
   params.root = root;
   params.team = mesh.vector();
   if (!mesh.has(root)) {
+    params.is_root_in_mesh = false;
     params.team.push_back(root);
   }
-
-  if (my_device_index == root) {
-    params.src_bufs = {input_tensor};
-  }
-  if (mesh.has(my_device_index)) {
-    params.dst_bufs = {output_tensor};
-  }
+  params.type = CommunicationType::Broadcast;
 
   return params;
 }
@@ -232,21 +158,12 @@ void lowerToBroadcastOrP2P(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
     const DeviceMesh& mesh, // receiver devices
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   if (!isDeviceInvolved(my_device_index, root, mesh)) {
     return;
   }
-  auto params = createParamsForBroadcastOrP2P(
-      my_device_index, root, mesh, input_tensor, output_tensor);
-  std::shared_ptr<Communication> comm;
-  if (mesh.vector().size() == 1) {
-    comm = std::make_shared<SendRecv>(std::move(params));
-  } else {
-    comm = std::make_shared<Broadcast>(std::move(params));
-  }
-  comms.push_back(comm);
+  auto params = createParamsForBroadcastOrP2P(my_device_index, root, mesh);
+  comms.push_back(IrBuilder::create<Communication>(std::move(params)));
 }
 
 // Adds several Broadcast or Send/Recv communications to the vector 'comms'
@@ -257,10 +174,8 @@ void lowerToBroadcastOrP2P(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
     bool is_sharded,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   if (is_sharded) {
@@ -274,19 +189,12 @@ void lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
-          input_tensor,
-          output_tensor,
           comms);
     }
   } else {
     // we arbitrarily choose the first device of the sender mesh to be the root
     lowerToBroadcastOrP2P(
-        my_device_index,
-        sender_mesh.vector().at(0),
-        receiver_mesh,
-        input_tensor,
-        output_tensor,
-        comms);
+        my_device_index, sender_mesh.vector().at(0), receiver_mesh, comms);
   }
 }
 
@@ -295,34 +203,18 @@ CommParams createParamsForReduce(
     DeviceIdxType root,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
     BinaryOpType op_type) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   CommParams params;
+  params.type = CommunicationType::Reduce;
   params.root = root;
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
-  bool is_root_in_mesh = mesh.has(root);
-  if (!is_root_in_mesh) {
+  if (!mesh.has(root)) {
+    params.is_root_in_mesh = false;
     params.team.push_back(root);
   }
-
-  auto sharded_dim = output_tv->getReductionAxis().value();
-  if (mesh.has(my_device_index)) {
-    params.src_bufs = {input_tensor.squeeze(sharded_dim)};
-  }
-
-  if (my_device_index == root) {
-    params.dst_bufs = {output_tensor};
-    // The reduce semantics imposes the root to be both
-    // sender and receiver. If the root is not in the mesh, we thus
-    // have to artificially make it send and receive a dummy buffer
-    if (!is_root_in_mesh) {
-      at::Tensor dummy = createDummyTensor(output_tensor, op_type);
-      params.src_bufs.push_back(dummy);
-    }
-  }
+  // FIXME: we may want to store sharded_dim to params for speed.
   return params;
 }
 
@@ -330,10 +222,8 @@ void lowerToReduce(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
     BinaryOpType op_type,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   // we create as many Reduces as there are devices in the receiver mesh
@@ -342,14 +232,8 @@ void lowerToReduce(
       continue;
     }
     auto params = createParamsForReduce(
-        my_device_index,
-        root,
-        input_tv,
-        output_tv,
-        input_tensor,
-        output_tensor,
-        op_type);
-    comms.push_back(std::make_shared<Reduce>(std::move(params)));
+        my_device_index, root, input_tv, output_tv, op_type);
+    comms.push_back(IrBuilder::create<Communication>(std::move(params)));
   }
 }
 
@@ -357,38 +241,35 @@ void lowerToAllreduce(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
     BinaryOpType op_type,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
+
   CommParams params;
+  params.type = CommunicationType::Allreduce;
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
-  params.dst_bufs = {output_tensor};
-  params.src_bufs = {input_tensor.view(output_tensor.sizes())};
-  comms.push_back(std::make_shared<Allreduce>(params));
+  comms.push_back(IrBuilder::create<Communication>(params));
 }
 
 void lowerToReduceScatter(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
     BinaryOpType op_type,
-    std::vector<std::shared_ptr<Communication>>& comms) {
+    std::vector<Communication*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   if (!mesh.has(my_device_index)) {
     return;
   }
+
   CommParams params;
+  params.type = CommunicationType::ReduceScatter;
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
-  params.dst_bufs = {output_tensor};
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedAxis(output_tv);
   // The output tensor is sharded on scattered_axis and needs to be mapped
@@ -398,13 +279,9 @@ void lowerToReduceScatter(
   if (reduction_axis <= scattered_axis) {
     scattered_axis++;
   }
-  for (auto i : c10::irange(mesh.vector().size())) {
-    auto slice =
-        input_tensor.slice(scattered_axis, i, i + 1).squeeze(reduction_axis);
-    params.src_bufs.push_back(slice);
-  }
+  params.scattered_axis = scattered_axis;
 
-  comms.push_back(std::make_shared<ReduceScatter>(params));
+  comms.push_back(IrBuilder::create<Communication>(params));
 }
 
 } // namespace
@@ -418,12 +295,10 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<std::shared_ptr<Communication>> lowerCommunication(
+std::vector<Communication*> lowerCommunication(
     DeviceIdxType my_device_index,
-    Expr* c,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor) {
-  std::vector<std::shared_ptr<Communication>> comms;
+    Expr* c) {
+  std::vector<Communication*> comms;
   NVF_ERROR(
       c->inputs().size() == 1 && c->inputs().at(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->outputs().at(0)->isA<TensorView>(),
@@ -454,19 +329,6 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       original_expr->toString());
   bool is_reduction = original_expr->isA<ReductionOp>();
 
-  auto input_sharded_dim = getShardedAxis(input_tv);
-  auto output_sharded_dim = getShardedAxis(output_tv);
-  NVF_ERROR(
-      !is_input_sharded || !input_tensor.numel() ||
-          static_cast<size_t>(input_tensor.size(input_sharded_dim)) == 1,
-      "Sharded dimension should have allocation size 1, but is ",
-      input_tensor.size(input_sharded_dim));
-  NVF_ERROR(
-      !is_output_sharded || !output_tensor.numel() || is_reduction ||
-          static_cast<size_t>(output_tensor.size(output_sharded_dim)) == 1,
-      "Sharded dimension should have allocation size 1, but is ",
-      output_tensor.size(output_sharded_dim));
-
   if (is_reduction) {
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();
@@ -480,70 +342,26 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
       lowerToReduceScatter(
-          my_device_index,
-          input_tv,
-          output_tv,
-          input_tensor,
-          output_tensor,
-          op_type,
-          comms);
+          my_device_index, input_tv, output_tv, op_type, comms);
     } else {
       if (same_mesh) {
-        lowerToAllreduce(
-            my_device_index,
-            input_tv,
-            output_tv,
-            input_tensor,
-            output_tensor,
-            op_type,
-            comms);
+        lowerToAllreduce(my_device_index, input_tv, output_tv, op_type, comms);
       } else {
-        lowerToReduce(
-            my_device_index,
-            input_tv,
-            output_tv,
-            input_tensor,
-            output_tensor,
-            op_type,
-            comms);
+        lowerToReduce(my_device_index, input_tv, output_tv, op_type, comms);
       }
     }
   } else {
     if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(
-          my_device_index,
-          input_tv,
-          output_tv,
-          input_tensor,
-          output_tensor,
-          comms);
+      lowerToScatter(my_device_index, input_tv, output_tv, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(
-            my_device_index,
-            input_tv,
-            output_tv,
-            input_tensor,
-            output_tensor,
-            comms);
+        lowerToAllgather(my_device_index, input_tv, output_tv, comms);
       } else {
-        lowerToGather(
-            my_device_index,
-            input_tv,
-            output_tv,
-            input_tensor,
-            output_tensor,
-            comms);
+        lowerToGather(my_device_index, input_tv, output_tv, comms);
       }
     } else {
       lowerToBroadcastOrP2P(
-          my_device_index,
-          input_tv,
-          output_tv,
-          input_tensor,
-          output_tensor,
-          is_input_sharded,
-          comms);
+          my_device_index, input_tv, output_tv, is_input_sharded, comms);
     }
   }
   return comms;

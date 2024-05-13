@@ -565,6 +565,19 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+TensorView* TensorView::flatten(int64_t from, int64_t to) {
+  NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
+  from = wrapDim(from);
+  to = wrapDim(to);
+  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
+  int64_t num_merges = to - from;
+  for (auto _ : c10::irange(num_merges)) {
+    (void)_;
+    merge(from);
+  }
+  return this;
+}
+
 TensorView* TensorView::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
@@ -611,6 +624,29 @@ TensorView* TensorView::reorder(
 
   domain()->reorder(old2new_);
   return this;
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+  return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+}
+
+// We have to convert the above permutation to a map of old2new.
+TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  int64_t idx = 0;
+  std::transform(
+      permutation.begin(),
+      permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+
+  return reorder(reorder_map);
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<int64_t>& permutation) {
+  return reorder(std::vector<int64_t>(permutation));
 }
 
 TensorView* TensorView::swizzle(
@@ -1198,17 +1234,43 @@ void TensorView::clearReductionIterDomains() {
       getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
+  const std::vector<IterDomain*>& root = getRootDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
+      "should not call clearReductionIterDomains on transformed allocation domain");
+
   std::vector<IterDomain*> new_root;
+  std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
+  for (const auto i : c10::irange(root.size())) {
+    auto root_i = root.at(i);
     if (!root_i->isReduction()) {
       new_root.push_back(root_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isReduction()) {
+      new_alloc.push_back(alloc_i);
       new_contig.push_back(domain()->contiguity().at(i));
     }
   }
 
-  setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  if (new_alloc == new_root) {
+    // if new allocation domain is identical to new root domain, we don't need
+    // to specify allocation domain
+    setDomain(
+        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  } else {
+    setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        new_root,
+        std::vector<IterDomain*>(),
+        new_alloc,
+        new_root,
+        new_contig));
+  }
 }
 
 void TensorView::doubleBuffer() {
@@ -1264,15 +1326,11 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
   }
 }
 
-void TensorView::applyMmaSwizzle(
-    MmaInputSmemSwizzle swizzle,
-    bool transpose,
-    bool transpose2) {
+void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
-      this, swizzle, transpose, transpose2);
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
 void TensorView::commitLeafToRFactor() {
