@@ -2832,224 +2832,102 @@ TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
   MatmulParams params;
 }
 
-TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTransposeAndAlloc) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+class AllocationDomainTest
+    : public NVFuserFixtureParamTest<std::tuple<bool, bool>> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  AllocationDomainTest() : optimization_guard_(false) {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+
+  DisableOptionsGuard option_guard_;
+};
+
+// This tests fusions where inputs to a Matmul will have the root domains
+// [M, K] and [K, N], and all possible combinations of allocation domains.
+// Please note that inpout in B is transposed prior to creating a Mma op.
+TEST_P(AllocationDomainTest, BasicMatmul) {
+  bool a_has_allocation = std::get<0>(GetParam());
+  bool b_has_allocation = std::get<0>(GetParam());
+
+  auto setupFusion = [](Fusion* fusion, TensorView* tv0, TensorView* tv1) {
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    // This has rfactor: {N, K}
+    auto tv1t = transpose(tv1);
+
+    // Propagate the allocation domain of B accross the transpose.
+    if (tv1->hasAllocation()) {
+      tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
+    }
+
+    // [M, N, K]
+    auto tv0b = broadcast(tv0, {false, true, false});
+    auto tv1b = broadcast(tv1t, {true, false, false});
+
+    auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+    fusion->addOutput(tv2);
+  };
+
+  auto schedule = [](Fusion* fusion) {
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(fusion, params);
+  };
+
   const int M = 128, N = 256, K = 512;
-  // const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  // Input -B.
-  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
+  if (a_has_allocation) {
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+  }
 
-  auto tv1t = transpose(tv1); // This has rfactor: {N, K}
-  tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1t, {true, false, false});
-  // Propagate the allocation domain post-broadcast.
-  // Don't set it in the test, but make this part of the scheduler.
-  // tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
+  if (b_has_allocation) {
+    tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  }
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-
-  fusion->addOutput(tv2);
+  setupFusion(fusion.get(), tv0, tv1);
+  schedule(fusion.get());
 
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({K, N}, options);
-  t1 = t1.as_strided(t1.sizes(), {1, K});
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  MatmulParams params;
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(fusion.get(), params);
+  auto t0 = a_has_allocation
+      ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+      : at::randn({M, K}, options);
+  auto t1 = b_has_allocation
+      ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+      : at::randn({K, N}, options);
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTranspose) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
-  const int M = 128, N = 256, K = 512;
-  // const auto layout = MmaLayout::TT;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
-  auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  // Input -B. No transpose in this case.
-  // tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv1t = transpose(tv1); // This has rfactor: {N, K}
-  // tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1t, {true, false, false});
-  // Propagate the allocation domain post-broadcast.
-  // Don't set it in the test, but make this part of the scheduler.
-  // tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-
-  fusion->addOutput(tv2);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({K, N}, options);
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  MatmulParams params;
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(fusion.get(), params);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({t0, t1});
-  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-}
-
-TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTransposeWithAllocDomainForA) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
-  const int M = 128, N = 256, K = 512;
-  // const auto layout = MmaLayout::TT;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
-  auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv1t = transpose(tv1); // This has rfactor: {N, K}
-  
-  // tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1t, {true, false, false});
-  // Propagate the allocation domain post-broadcast.
-  // Don't set it in the test, but make this part of the scheduler.
-  // tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-
-  fusion->addOutput(tv2);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options).as_strided({M, K}, {1, M});
-  auto t1 = at::randn({K, N}, options);
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  MatmulParams params;
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(fusion.get(), params);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({t0, t1});
-  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-}
-
-TEST_F(MatmulSchedulerPluginTest, SimpleMatmulWithTransposeWithAllocDomainForAandB) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
-  const int M = 128, N = 256, K = 512;
-  // const auto layout = MmaLayout::TT;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
-  auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
-  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv1t = transpose(tv1); // This has rfactor: {N, K}
-  tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-  
-  // tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-  // [M, N, K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1t, {true, false, false});
-  // Propagate the allocation domain post-broadcast.
-  // Don't set it in the test, but make this part of the scheduler.
-  // tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-
-  fusion->addOutput(tv2);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options).as_strided({M, K}, {1, M});
-  auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  MatmulParams params;
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(fusion.get(), params);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({t0, t1});
-  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-}
+INSTANTIATE_TEST_SUITE_P(
+    MatmulSchedulerTest,
+    AllocationDomainTest,
+    testing::Combine(testing::Bool(), testing::Bool()));
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
