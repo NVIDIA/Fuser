@@ -12,7 +12,6 @@
 #include <ops/utils.h>
 #include <root_domain_map.h>
 #include <ops/utils.h>
-#include <root_domain_map.h>
 
 #include <sstream>
 
