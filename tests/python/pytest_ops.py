@@ -26,12 +26,16 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
-    if opinfo.symbolic_parameter_list is None:
-        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    assert len(opinfo.symbolic_parameter_list) == len(args)
+    symbolic_parameter_list = (
+        opinfo.symbolic_parameter_list
+        if opinfo.symbolic_parameter_list is not None
+        else [ArgumentType.Symbolic] * len(args)
+    )
+
+    assert len(symbolic_parameter_list) == len(args)
 
     result = []
-    for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
+    for arg_type, a in zip(symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
             if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)

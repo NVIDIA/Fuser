@@ -1531,12 +1531,14 @@ def linear_input_generator(
 
     # Cases without bias
     shapes_input = ((K), (M, K), (B, M, K))
-    # shapes_weight = ((K), (N, K))
-    # for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
-    #     yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
+    shapes_weight = ((K), (N, K))
+    for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
+        yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
 
     # Cases with bias
     shape_weight = (N, K)
     shape_bias = (N,)
     for shape_input in shapes_input:
-        yield SampleInput(make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias))
+        yield SampleInput(
+            make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
+        )
