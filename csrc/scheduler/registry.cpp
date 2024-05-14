@@ -207,7 +207,8 @@ bool checkCanSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::ExprEval:
-      return checkCanSchedule<ExprEvalScheduler>(fusion, runtime_info, data_cache);
+      return checkCanSchedule<ExprEvalScheduler>(
+          fusion, runtime_info, data_cache);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
@@ -424,11 +425,9 @@ void HeuristicSummary::validate() const {
           entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
       break;
     }
+    case ScheduleHeuristic::ExprEval:
     case ScheduleHeuristic::Matmul: {
-      // TODO: add a proper set of checks
-      break;
-    }    
-    case ScheduleHeuristic::ExprEval: {
+      // TODO: add a proper set of checks for matmul
       break;
     }
     default:

@@ -1487,7 +1487,10 @@ def vector_at_error_generator(
             make_arg(error_case["tensor_shape"]), index=error_case["index"]
         ), error_type, error_msg
 
-def matmul_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs):
+
+def matmul_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor,
         dtype=dtype,
@@ -1497,25 +1500,17 @@ def matmul_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool =
         requires_grad=requires_grad,
     )
 
-    B = 64 
+    B = 64
     M = 512
     N = 256
     K = 32
 
-    # shape_a, shape_b
-    cases = (
-        ((K,), (K,)),
-        ((K,), (K, N)),
-        ((M, K), (K,)),
-        ((K,), (B, K, N)),
-        ((B, M, K), (K,)),
-        ((M, K), (K, N)),
-        ((B, M, K), (B, K, N)),
-        ((B, 1, M, K), (B, K, N)),
-    )
+    shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))
+    shapes_b = ((K,), (K, N), (K, 1), (B, K, N))
 
-    for shape_a, shape_b in cases:
+    for shape_a, shape_b in itertools.product(shapes_a, shapes_b):
         yield SampleInput(make_arg(shape_a), make_arg(shape_b))
+
 
 def linear_input_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -1543,6 +1538,4 @@ def linear_input_generator(
     for M, N, K in itertools.product(M, N, K):
         lhs_shape = (M, K)
         rhs_shape = (N, K)
-        yield (
-            SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,)))
-        )
+        yield (SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,))))

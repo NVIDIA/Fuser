@@ -16,19 +16,21 @@ class Fusion;
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-// ExprEval scheduler represents the case where we allocate outputs directly using EE. No code is generated.
+// ExprEval scheduler represents the case where we allocate outputs directly
+// using EE. No code is generated.
 class ExprEvalScheduler : public SchedulerEntry {
  public:
   explicit ExprEvalScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr): SchedulerEntry(heuristicType()) {
-  params_ = std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
-}
+      HeuristicSummary* data_cache = nullptr)
+      : SchedulerEntry(heuristicType()) {
+    params_ =
+        std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
+  }
 
   // This scheduler only accepts MatmulOp.
   static bool canScheduleCompileTime(Fusion* fusion);
-
 
   static bool canScheduleRunTime(
       Fusion* fusion,
@@ -43,6 +45,5 @@ class ExprEvalScheduler : public SchedulerEntry {
 
   void schedule(Fusion* fusion) override;
 };
-
 
 } // namespace nvfuser

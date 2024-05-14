@@ -49,7 +49,7 @@ from pytest_input_generators import (
     vector_at_error_generator,
     where_error_generator,
     matmul_input_generator,
-    linear_input_generator
+    linear_input_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,

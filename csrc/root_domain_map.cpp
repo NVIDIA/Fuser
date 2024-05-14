@@ -11,7 +11,6 @@
 #include <iter_visitor.h>
 #include <ops/utils.h>
 #include <root_domain_map.h>
-#include <ops/utils.h>
 
 #include <sstream>
 
@@ -125,51 +124,54 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto& consumer_root = consumer->root();
 
   // Check following conditions and add key-value iterdomain pair to domain map:
-  // 1. Do not map broadcast ID to non-broadcast ID unless map_broadcast_ = true.
-  // 2. Do not map Symbolic ID if the extents are not identical unless map_symbolic_ = true.
-  auto updatePairwiseRootDomainMap =
-      [&](
-          IterDomain* producer_id, IterDomain* consumer_id) {
-        if (!map_broadcast_ &&
-          producer_id->isBroadcast() != consumer_id->isBroadcast()){
-          return;
-        }
+  // 1. Do not map broadcast ID to non-broadcast ID unless map_broadcast_ =
+  // true.
+  // 2. Do not map Symbolic ID if the extents are not identical unless
+  // map_symbolic_ = true.
+  auto updatePairwiseRootDomainMap = [&](IterDomain* producer_id,
+                                         IterDomain* consumer_id) {
+    if (!map_broadcast_ &&
+        producer_id->isBroadcast() != consumer_id->isBroadcast()) {
+      return;
+    }
 
-        // Condition: At least one ID is symbolic.
-        //
-        // If map_symbolic_ is true:
-        //   Map these IDs regardless of other considerations.
-        //
-        // If map_symbolic_ is false (default):
-        //   Map these only if their extents are identical. IterType::Symbolic
-        //   reflects that the extent might evaluate to 1 for some inputs, in which
-        //   case it may be valid to use those domains in a broadcast op. If the
-        //   extents are exactly the same between two aligned IterDomains, the
-        //   Symbolic one will be concretized to the same IterType as the other, so
-        //   they should be mapped with one another.
-        if (!map_symbolic_ &&
-          (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
-          (!producer_id->extent()->sameAs(consumer_id->extent()))) {
-          return;
-          }
-        
-        IterDomain* map_key_id = producer_id;
-        IterDomain* map_value_id = consumer_id;
+    // Condition: At least one ID is symbolic.
+    //
+    // If map_symbolic_ is true:
+    //   Map these IDs regardless of other considerations.
+    //
+    // If map_symbolic_ is false (default):
+    //   Map these only if their extents are identical. IterType::Symbolic
+    //   reflects that the extent might evaluate to 1 for some inputs, in which
+    //   case it may be valid to use those domains in a broadcast op. If the
+    //   extents are exactly the same between two aligned IterDomains, the
+    //   Symbolic one will be concretized to the same IterType as the other, so
+    //   they should be mapped with one another.
+    if (!map_symbolic_ &&
+        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
+        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+      return;
+    }
 
-        if (!producer_to_consumer) {
-          std::swap(map_key_id, map_value_id);
-        }
+    IterDomain* map_key_id = producer_id;
+    IterDomain* map_value_id = consumer_id;
 
-        if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-          dom_map.insert(std::make_pair(map_key_id, map_value_id));
-        }
-      };
+    if (!producer_to_consumer) {
+      std::swap(map_key_id, map_value_id);
+    }
+
+    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+      dom_map.insert(std::make_pair(map_key_id, map_value_id));
+    }
+  };
 
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
     MatmulRole input_role =
-        producer->sameAs(op->inA()->as<TensorView>()->domain()) ? MatmulRole::INPUT_A : MatmulRole::INPUT_B;
+        producer->sameAs(op->inA()->as<TensorView>()->domain())
+        ? MatmulRole::INPUT_A
+        : MatmulRole::INPUT_B;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily
@@ -186,12 +188,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     for (auto inx : c10::irange(out_size)) {
       IterDomain* producer_id = aligned_producer_ids.at(inx);
       IterDomain* consumer_id = consumer_root.at(inx);
-      if (producer_id == nullptr){
+      if (producer_id == nullptr) {
         continue;
       }
       updatePairwiseRootDomainMap(producer_id, consumer_id);
     }
-    
+
     return dom_map;
   }
 

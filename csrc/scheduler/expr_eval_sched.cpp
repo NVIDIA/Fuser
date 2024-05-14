@@ -16,17 +16,18 @@ namespace nvfuser {
 // Check if the fusion has a single MatmulOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  if (exprs.size() == 1 && exprs.front()->isA<MatmulOp>()){
+  if (exprs.size() == 1 && exprs.front()->isA<MatmulOp>()) {
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Fusion must contain a single expression of type MatmulOp");
+      heuristicType(),
+      "Fusion must contain a single expression of type MatmulOp");
   return false;
 }
 
 void ExprEvalScheduler::schedule(Fusion* fusion) {
   fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
 }
 
 } // namespace nvfuser
