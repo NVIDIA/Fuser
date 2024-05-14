@@ -221,6 +221,43 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   return mapping;
 }
 
+std::vector<IterDomain*> mapLinearOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    MatmulRole input_role,
+    size_t out_size) {
+
+  std::vector<IterDomain*> mapping(out_size, nullptr);
+  auto inp_size = input_domain.size();
+
+  // Input A: {*, M, K}
+  // Input B: {*, N, K} / {K}
+  // Bias: {N} / {}
+
+  switch (input_role) {
+      case MatmulRole::INPUT_A: {
+        // Linear output is same as input for all but the last dimension
+        for (auto inx : c10::irange(inp_size - 1)) {
+          mapping[inx] = input_domain[inx];
+        }
+        break;
+      }
+      case MatmulRole::INPUT_B: {
+        if (inp_size == 1) {
+          // out_features is not present, no mapping required.
+          break;
+        }
+      }
+      case MatmulRole::INPUT_C: {
+        // The last dimension of LinearOp is out_features.
+        mapping[out_size - 1] = input_domain[0];
+        break;
+      }
+      default:
+        NVF_ERROR("Unexpected input type.");
+  }
+  return mapping;
+}
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -310,6 +347,25 @@ IterDomain* newOutputIterDomain(
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+
+std::vector<IterDomain*> newOutputDomain(const std::vector<std::vector<IterDomain*>>& input_ids) {
+  NVF_CHECK(
+      !input_ids.empty(),
+      "Tried to create new output Tensorview but received empty list.");
+
+  std::vector<IterDomain*> out_domain(input_ids.front().size(), nullptr);
+
+  for (const auto dim_i : c10::irange(out_domain.size())) {
+    std::vector<IterDomain*> ids_i;
+    ids_i.reserve(input_ids.size());
+    for (auto ids : input_ids) {
+      if (ids[dim_i] != nullptr)
+        ids_i.emplace_back(ids[dim_i]);
+    }
+    out_domain[dim_i] = newOutputIterDomain(ids_i);
+  }
+  return out_domain;
+}
 
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;

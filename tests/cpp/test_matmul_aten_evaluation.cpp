@@ -35,12 +35,12 @@ class MatmulATenEvaluationTest : public NVFuserTest {
 using Sizes = std::vector<int64_t>;
 using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
 
-class ATenNodesParametrizedTest
+class MatmulNodeParametrizedTest
     : public NVFuserFixtureParamTest<MatmulNodeParamType> {
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  ATenNodesParametrizedTest() : optimization_guard_(false) {}
+  MatmulNodeParametrizedTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -539,7 +539,7 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
+TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -596,7 +596,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
 
   FusionExecutorCache fec(std::move(fusion));
 
-  d::vector<at::Tensor> out = {};
+  std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
     out = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
@@ -646,7 +646,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    ou t = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
     out = fec.runFusionWithInputs({t0, t1});
   }
@@ -657,7 +657,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   // Verify that fusion compilation was skipped.
   EXPECT_FALSE(executors.front().hasCompiledKernel());
 
-  EXPECT(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;
@@ -665,7 +665,7 @@ constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 // Parametrize a_shape and b_shape
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ATenNodesParametrizedTest,
+    MatmulNodeParametrizedTest,
     testing::Combine(
         testing::Values(
             Sizes({k}),
@@ -700,15 +700,15 @@ INSTANTIATE_TEST_SUITE_P(
     LinearWithoutBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
-        testing::Values(Sizes({k}), Sizes({n, k})),
+        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({1, k}), Sizes({b, 1, k})),
+        testing::Values(Sizes({k}), Sizes({n, k}), Sizes({1, k})),
         testing::Values(std::nullopt)));
 
-NTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_SUITE_P(
     LinearWithBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
+        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({1, k}), Sizes({b, 1, k})),
         testing::Values(Sizes({n, k})),
         testing::Values(Sizes({n}))));
 

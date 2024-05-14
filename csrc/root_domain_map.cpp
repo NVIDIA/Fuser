@@ -217,30 +217,18 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // bias (INPUT_C) = {out_features} / {}
     // output = {*, out_features} / {*}
 
-    switch (input_role) {
-      case MatmulRole::INPUT_A: {
-        // Linear output is same as input for all but the last dimension
-        for (auto inx : c10::irange(producer_root.size() - 1)) {
-          updatePairwiseRootDomainMap(
-              producer_root.at(inx), consumer_root.at(inx));
-        }
-        break;
+    const std::vector<IterDomain*>& aligned_producer_ids =
+        ops::mapLinearOpIterDomains(producer_root, input_role, out_size);
+
+    for (auto inx : c10::irange(out_size)) {
+      IterDomain* producer_id = aligned_producer_ids.at(inx);
+      IterDomain* consumer_id = consumer_root.at(inx);
+      if (producer_id == nullptr) {
+        continue;
       }
-      case MatmulRole::INPUT_B: {
-        if (producer_root.size() == 1) {
-          // out_features is not present, no mapping required.
-          break;
-        }
-      }
-      case MatmulRole::INPUT_C: {
-        // The last dimension of LinearOp is out_features.
-        updatePairwiseRootDomainMap(
-            producer_root.at(0), consumer_root.at(out_size - 1));
-        break;
-      }
-      default:
-        NVF_ERROR("Unexpected input type.");
+      updatePairwiseRootDomainMap(producer_id, consumer_id);
     }
+
     return dom_map;
   }
 
