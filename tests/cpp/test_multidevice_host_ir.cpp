@@ -118,8 +118,8 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
       hu->fusion_to_execute()->inputs().at(0)->as<TensorView>());
   auto tv1 = ir_cloner.clone(
       hu->fusion_to_execute()->outputs().at(0)->as<TensorView>());
-  auto tv2 = set(tv1);
-  tv2->axis(0)->parallelize(ParallelType::Serial);
+  auto tv2 = makeConcreteTensor(unsharded_input_sizes);
+  tv2->setDeviceMesh(mesh);
 
   // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion and
   // the Communication
@@ -145,13 +145,12 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // [Step 7)] Define the Host program's global I/O
   hic->addInput(post_compute->inputs().back());
   hic->addOutput(post_communication->outputs().back());
-  hic->print(debug());
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   if (with_sharding_annotations && use_fusion_executor_cache) {
-    // sharding + autoscheduler is not supported at his point
+    // sharding + autoscheduler is not supported at this point
     params.skip_auto_scheduling = true;
   }
   HostIrExecutor hie(std::move(hic), communicator, params);
