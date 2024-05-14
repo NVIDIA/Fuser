@@ -71,6 +71,9 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
 
+// Matmul function which takes in tensors with the shapes
+// A[*, M, K] / A[K] and B[*, K, N] / B[K], but the tensors may have different layouts
+// via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
 } // namespace nvfuser

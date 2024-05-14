@@ -22,15 +22,20 @@ class ExprEvalScheduler : public SchedulerEntry {
   explicit ExprEvalScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr): SchedulerEntry(heuristicType()) {
+  params_ = std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
+}
 
   // This scheduler only accepts MatmulOp.
   static bool canScheduleCompileTime(Fusion* fusion);
 
-  static bool canScheduleRunTime(
+
+  static bool ExprEvalScheduler::canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache) {
+    return true;
+  }
 
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::ExprEval;

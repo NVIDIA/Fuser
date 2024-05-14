@@ -1511,7 +1511,7 @@ def matmul_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool =
         ((B, M, K), (K,)),
         ((M, K), (K, N)),
         ((B, M, K), (B, K, N)),
-        ((B, B, M, K), (B, B, K, N)),
+        ((B, 1, M, K), (B, K, N)),
     )
 
     for shape_a, shape_b in cases:

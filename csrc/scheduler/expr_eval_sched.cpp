@@ -32,12 +32,6 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   return false;
 }
 
-bool ExprEvalScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  return true;
-}
 
 void ExprEvalScheduler::schedule(Fusion* fusion) {
   fusion->aliasOutputToInput(

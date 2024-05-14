@@ -30,7 +30,7 @@ class HeuristicParams : public PolymorphicBase {
   };
 
   virtual bool sameAs(const std::shared_ptr<HeuristicParams>& other) const {
-    if (!other->isA<HeuristicParams>()) {
+    if (!other->isStrictlyA<HeuristicParams>()) {
       return false;
     }
     return other->cparams == cparams;
