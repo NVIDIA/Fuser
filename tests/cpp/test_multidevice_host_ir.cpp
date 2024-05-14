@@ -63,12 +63,15 @@ public testing::WithParamInterface<MultiDeviceHostIrTestParams> {};
     tv2 = Allgather(tv1_fusion)
 
     tv2: output
+
+    Note that the Fusion may or may not be multi-device scheduled for achieving the same result. We test both cases.
 */
 
 TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
     auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();
     
-    std::vector<int64_t> unsharded_input_sizes = {2, 8, 32};
+    const int64_t communicator_size = communicator->size();
+    std::vector<int64_t> unsharded_input_sizes = {communicator_size, 8, 32};
     std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
     sharded_input_sizes[0] = 1;
 
@@ -81,7 +84,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
     fusion->addInput(tv0_fusion);
     fusion->addOutput(tv1_fusion);
 
-    DeviceMesh mesh({0,1});
+    DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
     if (with_sharding_annotations) {
         for (auto tv: {tv0_fusion,tv1_fusion}){
             tv->setDeviceMesh(mesh);
