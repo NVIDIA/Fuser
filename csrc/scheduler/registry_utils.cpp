@@ -627,20 +627,20 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             // mmake sure the expanded extent is the same as the reduction dim
             // otherwise, we can't efficiently schedule this fusion since the
             // feature dimension is different.
-            if(p_id->hasExpandedExtent()){
-              std::cout << "\nadd hasExpandedExtent: " << p_id->toString() << " -> "
-                        << c_id->toString() << std::endl;
-              bool map_with_reduction_input = p_id->extent()->sameAs(c_id->extent());
-              if(map_with_reduction_input){
-                continue;
-              }else{
-                return false;
-              }
-            }else{
+            // if(p_id->hasExpandedExtent()){
+            //   std::cout << "\nadd hasExpandedExtent: " << p_id->toString() << " -> "
+            //             << c_id->toString() << std::endl;
+            //   bool map_with_reduction_input = p_id->extent()->sameAs(c_id->extent());
+            //   if(map_with_reduction_input){
+            //     continue;
+            //   }else{
+            //     return true;
+            //   }
+            // }else{
               std::cout << "\nadd ids_to_resolve: " << forward_running_producer->toString() << " -> "
                         << forward_running_consumer->toString() << std::endl;
               ids_to_resolve.emplace_back(c_id, c_id);
-            }
+            // }
           }
         }
 
