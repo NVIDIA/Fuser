@@ -13,15 +13,15 @@
 
 namespace nvfuser {
 
-// Check if the fusion has a single MatmulOp node
+// Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  if (exprs.size() == 1 && exprs.front()->isA<MatmulOp>()) {
+  if (exprs.size() == 1 && (exprs.front()->isA<MatmulOp>() || exprs.front()->isA<LinearOp>())) {
     return true;
   }
   scheduler_debug_utils::canScheduleRejectReason(
       heuristicType(),
-      "Fusion must contain a single expression of type MatmulOp");
+      "Fusion must contain a single expression of type MatmulOp or LinearOp");
   return false;
 }
 

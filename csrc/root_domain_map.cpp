@@ -198,6 +198,48 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     return dom_map;
   }
 
+  // For LinearOp, all but the last dimension are the same shape as the input.
+  // The last dimension is out_features (if present).
+  if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
+    auto out_size = consumer_root.size();
+
+    // Check if the producer is A, B or bias.
+    MatmulRole input_role;
+    if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_A;
+    } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_B;
+    } else {
+      input_role = MatmulRole::INPUT_C;
+    }
+
+    switch (input_role) {
+      case MatmulRole::INPUT_A: {
+        for (auto inx : c10::irange(producer_root.size() - 1)) {
+          updatePairwiseRootDomainMap(
+            producer_root.at(inx),
+            consumer_root.at(inx));
+        }
+        break;
+      }
+      case MatmulRole::INPUT_B: {
+        if (producer_root.size() == 1) {
+          // out_features is not present, no mapping required.
+          break;
+        }
+      }
+      case MatmulRole::INPUT_C: {
+        updatePairwiseRootDomainMap(
+            producer_root.at(0),
+            consumer_root.at(out_size - 1));
+        break;
+      }
+      default:
+        NVF_ERROR("Unexpected input type.");
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
     IterDomain* producer_id = producer_root.at(itp);

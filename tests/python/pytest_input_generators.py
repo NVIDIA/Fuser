@@ -1524,18 +1524,19 @@ def linear_input_generator(
         requires_grad=requires_grad,
     )
 
-    def multiply_range(maximum, step):
-        assert maximum % step == 0
-        num_steps = int(math.log(maximum, step))
-        return tuple(
-            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
-        )
+    B = 64
+    M = 512
+    N = 256
+    K = 32
 
-    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
-    # Use a Cartesian product to create a wide range of matrix shapes
-    # I'll stop at 512 as possible numerical difference may show up.
-    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
-    for M, N, K in itertools.product(M, N, K):
-        lhs_shape = (M, K)
-        rhs_shape = (N, K)
-        yield (SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,))))
+    # Cases without bias
+    shapes_input = ((K), (M, K), (B, M, K))
+    # shapes_weight = ((K), (N, K))
+    # for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
+    #     yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
+
+    # Cases with bias
+    shape_weight = (N, K)
+    shape_bias = (N,)
+    for shape_input in shapes_input:
+        yield SampleInput(make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias))

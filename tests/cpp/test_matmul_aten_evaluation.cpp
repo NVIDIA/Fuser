@@ -594,21 +594,21 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutor fe;
-  fusion->aliasOutputToInput(
-      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-
+  FusionExecutorCache fec(std::move(fusion));
+  
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()){
-    fe.compileFusion(fusion.get(), {t0, t1, bias_opt});
-    out = fe.runFusion({t0, t1, bias_opt});
+    out = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    fe.compileFusion(fusion.get(), {t0, t1});
-    out = fe.runFusion({t0, t1});
+    out = fec.runFusionWithInputs({t0, t1});
   }
 
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(fe.hasCompiledKernel());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
@@ -642,21 +642,21 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutor fe;
-  fusion->aliasOutputToInput(
-      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-
+  FusionExecutorCache fec(std::move(fusion));
+  
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()){
-    fe.compileFusion(fusion.get(), {t0, t1, bias_opt});
-    out = fe.runFusion({t0, t1, bias_opt});
+    out = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    fe.compileFusion(fusion.get(), {t0, t1});
-    out = fe.runFusion({t0, t1});
+    out = fec.runFusionWithInputs({t0, t1});
   }
 
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(fe.hasCompiledKernel());
+  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
