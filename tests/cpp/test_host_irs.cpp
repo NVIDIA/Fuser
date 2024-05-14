@@ -81,7 +81,7 @@ using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
 
     8) We instantiate HostIrExecutor and run the Host program with concrete
    inputs using HostIrExecutor::runWithInput
-*/
+{}*/
 
 TEST_P(HostIrTest, SingleFusion) {
   // [Step 1)] Define the Fusion we want to execute
@@ -133,14 +133,14 @@ TEST_P(HostIrTest, SingleFusion) {
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), params);
+  HostIrExecutor hie(std::move(hic), nullptr, params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   c10::IValue input = at::randn(input_sizes, options);
   auto ref_output = at::sum(input.toTensor() * 2, {0});
 
-  auto outputs = hie.runWithInput({input});
+  auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), input}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
@@ -234,7 +234,7 @@ TEST_P(HostIrTest, TwoFusions) {
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), std::move(params));
+  HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -242,7 +242,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto ref_output =
       at::sum(at::relu(input.toTensor()), at::OptionalIntArrayRef({0, 1})) * 2;
 
-  auto outputs = hie.runWithInput({input});
+  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), input}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
@@ -363,7 +363,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), std::move(params));
+  HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -377,7 +377,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto tv1_2_ref = tv2_1_ref;
   auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
 
-  auto outputs = hie.runWithInput({tv0_0_ref_ivalue});
+  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));

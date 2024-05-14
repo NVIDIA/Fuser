@@ -58,9 +58,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    std::vector<int64_t> input_sizes = {2, 8, 32};
+    std::vector<int64_t> unsharded_input_sizes = {2, 8, 32};
 
-    auto tv0 = makeConcreteTensor(input_sizes);
+    auto tv0 = makeConcreteTensor(unsharded_input_sizes);
     auto tv1 = add(tv0, tv0);
     fusion->addInput(tv0);
     fusion->addOutput(tv1);
@@ -107,14 +107,16 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 
     HostIrExecutorParams params;
     params.use_fusion_executor_cache = use_fusion_executor_cache;
-    HostIrExecutor hie(std::move(hic), params);
+    HostIrExecutor hie(std::move(hic), communicator, params);
 
     auto options = at::TensorOptions().device(communicator->device());
-    at::Tensor unsharded_input = at::randn(input_sizes, options);
+    at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
     c10::IValue input = shardTensor(unsharded_input, tv0, communicator->deviceId());
+    at::Tensor output = at::empty(unsharded_input_sizes, options);
     auto ref_output = unsharded_input * 2;
 
-    auto outputs = hie.runWithInput({input});
+    auto outputs = hie.runWithInput({{post_compute->inputs().back(), input},
+        {post_comm->outputs().back(), output}});
 
     GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
 }
