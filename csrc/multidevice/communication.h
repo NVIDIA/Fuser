@@ -161,11 +161,4 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor input_tensor,
     at::Tensor output_tensor);
 
-// Triggers the execution of the communication. This is a non-blocking call.
-// The communication can be posted multiple times
-c10::intrusive_ptr<c10d::Work> postCommunication(
-    Communication* communication,
-    DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend);
-
 } // namespace nvfuser

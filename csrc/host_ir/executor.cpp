@@ -17,13 +17,11 @@ HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
     HostIrExecutorParams params)
-  : container_(std::move(container)), communicator_(communicator), params_(std::move(params)) {};
+    : container_(std::move(container)), communicator_(communicator), params_(params) {};
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
-  // TODO: assert that it is valid
-  // TODO: use expression evaluator?
   val_to_IValue_ = std::move(val_to_IValue);
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -97,12 +95,6 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
 }
 
 void HostIrExecutor::postCommunication(PostOnStream* post) {
-  NVF_ERROR(
-      post->inputs().size() == 1, "Communication must have exactly one input");
-  NVF_ERROR(
-      post->outputs().size() == 1,
-      "Communication must have exactly one output");
-
   auto input_val = post->inputs().at(0); // TODO: add checks
   auto output_val = post->outputs().at(0);
   at::Tensor input_tensor;

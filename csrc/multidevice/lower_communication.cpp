@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
-#include <ir/builder.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
@@ -143,8 +142,6 @@ CommParams createParamsForBroadcastOrP2P(
     // receiver devices
     const DeviceMesh& mesh) {
   CommParams params;
-  // TODO: Lower to P2P SendRecv if possible
-  params.type = CommunicationType::Broadcast;
   params.root = root;
   params.team = mesh.vector();
   if (!mesh.has(root)) {

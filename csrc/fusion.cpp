@@ -392,18 +392,18 @@ void Fusion::validateInputs() {
   }
 }
 
-std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms, int indent_size)
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
-  indent(os, indent_size) << "\n%kernel {\n";
-  IrMathPrinter op_exprs(os, indent_size);
+  os << "\n%kernel {\n";
+  IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
   if (include_tensor_transforms) {
-    indent(os, indent_size) << "\nTransformPrinter : \n";
-    IrTransformPrinter t_exprs(os, indent_size);
+    os << "\nTransformPrinter : \n";
+    IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  indent(os, indent_size) << "}\n";
+  os << "}\n";
 
   return os;
 }

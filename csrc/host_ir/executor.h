@@ -44,8 +44,6 @@ struct HostIrExecutorParams {
   bool cache_fusion_executor = false;
 };
 
-class PostOnStreamExecutor;
-
 class HostIrExecutor final : public OptInDispatch {
  public:
   HostIrExecutor(

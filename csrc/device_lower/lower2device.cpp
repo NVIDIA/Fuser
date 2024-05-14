@@ -306,7 +306,7 @@ kir::Kernel* GpuLower::run() {
   LowerGuard lower_guard(this);
   // Reorder expressions for loop-nest generation respecting computeAt
   // relationships
-  auto exprs_lowered = reorderExprsForComputeAt(); // where top level exprs are computed
+  auto exprs_lowered = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
 
   commonScalarMap().initialize(exprs_lowered);

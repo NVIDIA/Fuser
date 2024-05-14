@@ -53,7 +53,6 @@ void CommunicationTest::SetUp() {
   if (!communicator->isBackendAvailable(GetParam())) {
     GTEST_SKIP() << "Backend not available";
   }
-  backend = communicator->getBackendForTeam(all_ranks, GetParam());
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {

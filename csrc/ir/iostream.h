@@ -48,10 +48,12 @@ inline std::ostream& indent(std::ostream& os, int indent_size) {
 class IrPrinter {
  public:
   explicit IrPrinter(std::ostream& os, int indent_size = 0)
-      : indent_size(indent_size), os_(os){}
+      : os_(os), indent_size_(indent_size) {}
   virtual ~IrPrinter() = default;
 
-  int indent_size;
+  void resetIndent() {
+    indent_size_ = 0;
+  }
 
   bool printInline() const {
     return print_inline_;
@@ -79,12 +81,13 @@ class IrPrinter {
 
  protected:
   std::ostream& os() {
-    return indent(os_, indent_size);
+    return os_;
   }
 
  private:
   std::ostream& os_;
   bool print_inline_ = false;
+  int indent_size_ = 0;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);

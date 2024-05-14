@@ -41,8 +41,9 @@ void checkInlineable(const Expr* expr) {
 
 void IrPrinter::handle(Fusion* fusion) {
   FUSER_PERF_SCOPE("IrPrinter");
+  resetIndent();
   for (const Expr* expr : fusion->exprs()) {
-    os() << expr->toString(indent_size);
+    os_ << expr->toString();
   }
 }
 
@@ -50,29 +51,29 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
   NVF_CHECK(kernel != nullptr);
 
   // kernel declaration
-  os() << "\nKERNEL (";
+  os_ << "\nKERNEL (";
   for (auto in : kernel->inputs()) {
-    os() << in->toString(indent_size);
+    os_ << in->toString();
     if (in != kernel->inputs().back()) {
-      os() << ", ";
+      os_ << ", ";
     }
   }
-  os() << ") -> (";
+  os_ << ") -> (";
   for (auto out : kernel->outputs()) {
-    os() << out->toString(indent_size);
+    os_ << out->toString();
     if (out != kernel->outputs().back()) {
-      os() << ", ";
+      os_ << ", ";
     }
   }
-  os() << ") :\n";
+  os_ << ") :\n";
 
   // kernel body
-  indent_size++;
+  indent_size_++;
   for (auto expr : kernel->topLevelExprs()) {
-    os() << expr->toString(indent_size);
+    os_ << expr->toString();
   }
-  indent_size--;
-  os() << "END.\n\n";
+  indent_size_--;
+  os_ << "END.\n\n";
 }
 
 void IrPrinter::handle(kir::Kernel& kernel) {
@@ -85,14 +86,14 @@ void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
   // host_fusion declaration
   os() << "\nHOST FUSION (";
   for (auto in : host_fusion->inputs()) {
-    os() << in->toString(indent_size);
+    os() << in->toString(indent_size_);
     if (in != host_fusion->inputs().back()) {
       os() << ", ";
     }
   }
   os() << ") -> (";
   for (auto out : host_fusion->outputs()) {
-    os() << out->toString(indent_size);
+    os() << out->toString(indent_size_);
     if (out != host_fusion->outputs().back()) {
       os() << ", ";
     }
@@ -100,12 +101,11 @@ void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
   os() << ") :\n";
 
   // host_fusion body
-  indent_size++;
-  // for (auto expr : host_fusion->unordered_exprs()) {
+  indent_size_++;
   for (auto expr : host_fusion->topLevelExprs()) {
-    os() << expr->toString(indent_size);
+    os() << expr->toString(indent_size_);
   }
-  indent_size--;
+  indent_size_--;
   os() << "END.\n\n";
 }
 
@@ -117,7 +117,7 @@ void IrTransformPrinter::handle(Fusion* f) {
   auto all_vals = f->usedMathVals();
 
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    os() << tv->toString(indent_size);
+    os() << tv->toString();
     os() << "\n";
     printTransforms(tv);
   }
@@ -142,7 +142,7 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
         {rfactor_domain.begin(), rfactor_domain.end()});
 
     for (const auto exp : all_exp) {
-      os() << "  " << exp->toString(indent_size);
+      os() << "  " << exp->toString();
     }
 
     os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
@@ -156,7 +156,7 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 
   for (const auto exp : all_exp) {
-    os() << "  " << exp->toString(indent_size);
+    os() << "  " << exp->toString();
   }
   os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
 }

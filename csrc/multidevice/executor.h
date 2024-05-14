@@ -116,7 +116,7 @@ class MultiDeviceExecutor {
   // params_.use_fusion_executor_cache = false
   void postKernel(SegmentedGroup* group, const LaunchParams& launch_params);
   // execute a SegmentedGroup representing inter-device communication
-  void postResharding(SegmentedGroup* group);
+  void postCommunication(SegmentedGroup* group);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
