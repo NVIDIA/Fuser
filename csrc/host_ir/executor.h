@@ -50,7 +50,8 @@ class HostIrExecutor final : public OptInDispatch {
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = nullptr,
       HostIrExecutorParams = HostIrExecutorParams());
-  std::vector<at::Tensor> runWithInput(std::unordered_map<Val*, c10::IValue> val_to_IValue);
+  std::vector<at::Tensor> runWithInput(
+      std::unordered_map<Val*, c10::IValue> val_to_IValue);
 
  private:
   using OptInDispatch::handle;

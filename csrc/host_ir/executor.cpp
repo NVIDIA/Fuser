@@ -17,7 +17,9 @@ HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
     HostIrExecutorParams params)
-    : container_(std::move(container)), communicator_(communicator), params_(params) {};
+    : container_(std::move(container)),
+      communicator_(communicator),
+      params_(params){};
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
@@ -63,11 +65,16 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
     input_IValues.push_back(val_to_IValue_.at(input));
   }
 
-  NVF_ERROR(post->hostOpToPost()->isA<HostUnit>(), "op must be a HostUnit: ", post->hostOpToPost());
-  auto hu= post->hostOpToPost()->as<HostUnit>();
+  // placeholder for storing the outputs
+  std::vector<at::Tensor> outputs;
+
+  NVF_ERROR(
+      post->hostOpToPost()->isA<HostUnit>(),
+      "op must be a HostUnit: ",
+      post->hostOpToPost());
+  auto hu = post->hostOpToPost()->as<HostUnit>();
   // Compile the fusion and execute it with FusionExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
-  std::vector<at::Tensor> outputs;
   if (params_.use_fusion_executor_cache) {
     fec_.try_emplace(
         hu,
@@ -79,8 +86,7 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
     auto& fe = it->second;
     if (has_emplaced) {
-      fe.compileFusion(
-          hu->fusion_to_execute(), input_IValues);
+      fe.compileFusion(hu->fusion_to_execute(), input_IValues);
     }
     outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
@@ -95,12 +101,19 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
 }
 
 void HostIrExecutor::postCommunication(PostOnStream* post) {
-  NVF_ERROR(communicator_ != nullptr && communicator_->is_available(), "A valid communicator must be provided");
-  NVF_ERROR(post->hostOpToPost()->isA<Communication>(), "op must be a Communication: ", post->hostOpToPost());
-  auto communication= post->hostOpToPost()->as<Communication>();
   NVF_ERROR(
-      std::find(communication->params().team.begin(), communication->params().team.end(), communicator_->deviceId()) !=
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+  NVF_ERROR(
+      post->hostOpToPost()->isA<Communication>(),
+      "op must be a Communication: ",
+      post->hostOpToPost());
+  auto communication = post->hostOpToPost()->as<Communication>();
+  NVF_ERROR(
+      std::find(
+          communication->params().team.begin(),
           communication->params().team.end(),
+          communicator_->deviceId()) != communication->params().team.end(),
       "current device index ",
       communicator_->deviceId(),
       " must be present in the communication's team");
@@ -116,10 +129,14 @@ void HostIrExecutor::postCommunication(PostOnStream* post) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  c10::intrusive_ptr<c10d::Backend> backend =
-      communicator_->getBackendForTeam(communication->params().team, std::nullopt);
+  c10::intrusive_ptr<c10d::Backend> backend = communicator_->getBackendForTeam(
+      communication->params().team, std::nullopt);
   c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
-      communication, communicator_->deviceId(), backend, input_tensor, output_tensor);
+      communication,
+      communicator_->deviceId(),
+      backend,
+      input_tensor,
+      output_tensor);
   if (work != nullptr) {
     work->wait();
   }

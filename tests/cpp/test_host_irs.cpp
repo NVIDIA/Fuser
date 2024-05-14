@@ -371,7 +371,8 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto tv1_2_ref = tv2_1_ref;
   auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
 
-  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
+  auto outputs =
+      hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
@@ -382,9 +383,8 @@ INSTANTIATE_TEST_SUITE_P(
     HostIrTest,
     testing::Combine(testing::Bool()),
     [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
-      return
-          std::get<0>(info.param) ? "useFusionExecutorCache"
-                                  : "useFusionExecutor";
+      return std::get<0>(info.param) ? "useFusionExecutorCache"
+                                     : "useFusionExecutor";
     });
 
 } // namespace hir
