@@ -217,8 +217,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       case MatmulRole::INPUT_A: {
         for (auto inx : c10::irange(producer_root.size() - 1)) {
           updatePairwiseRootDomainMap(
-            producer_root.at(inx),
-            consumer_root.at(inx));
+              producer_root.at(inx), consumer_root.at(inx));
         }
         break;
       }
@@ -230,8 +229,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       }
       case MatmulRole::INPUT_C: {
         updatePairwiseRootDomainMap(
-            producer_root.at(0),
-            consumer_root.at(out_size - 1));
+            producer_root.at(0), consumer_root.at(out_size - 1));
         break;
       }
       default:

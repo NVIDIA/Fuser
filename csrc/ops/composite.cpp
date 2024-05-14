@@ -56,28 +56,36 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 namespace {
 
-static TensorView* newForLinear(TensorView* input, TensorView* weight, TensorView* bias) {
-  auto input_domain = TensorDomain::noReductions(input->getMaybeRFactorDomain());
-  auto weight_domain = TensorDomain::noReductions(weight->getMaybeRFactorDomain());
-  
-  // Linear: inputs = {*, in_features}, weight = {out_features, in_features} / {in_features}
-  // For the linear output, all but the last dimension are the same shape as the input.
-  // The last dimension is out_features (if present).
-  auto ndims_out = (input_domain.size() - 1)+ (weight_domain.size() - 1);
-  
-  std::vector<IterDomain*> out_domain(ndims_out, nullptr);  
+static TensorView* newForLinear(
+    TensorView* input,
+    TensorView* weight,
+    TensorView* bias) {
+  auto input_domain =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain());
+  auto weight_domain =
+      TensorDomain::noReductions(weight->getMaybeRFactorDomain());
+
+  // Linear: inputs = {*, in_features}, weight = {out_features, in_features} /
+  // {in_features} For the linear output, all but the last dimension are the
+  // same shape as the input. The last dimension is out_features (if present).
+  auto ndims_out = (input_domain.size() - 1) + (weight_domain.size() - 1);
+
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
   for (auto idx : c10::irange(input_domain.size() - 1)) {
     out_domain[idx] = ops::newOutputIterDomain({input_domain.at(idx)});
   }
 
-  if (weight_domain.size() == 2){
+  if (weight_domain.size() == 2) {
     // Add out_features to output domain.
     if (bias != nullptr) {
-      auto bias_domain = TensorDomain::noReductions(bias->getMaybeRFactorDomain());
-      out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.at(0), bias_domain.at(0)});
+      auto bias_domain =
+          TensorDomain::noReductions(bias->getMaybeRFactorDomain());
+      out_domain[ndims_out - 1] =
+          ops::newOutputIterDomain({weight_domain.at(0), bias_domain.at(0)});
     } else {
-      out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.at(0)});
+      out_domain[ndims_out - 1] =
+          ops::newOutputIterDomain({weight_domain.at(0)});
     }
   }
 

@@ -574,14 +574,14 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
   auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
   TensorView* bias = nullptr;
-  if (bias_shape.has_value()){
+  if (bias_shape.has_value()) {
     bias = makeConcreteTensor(*bias_shape, DataType::Half);
   }
   auto tv2 = linear(tv0, tv1, bias);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  if (bias_shape.has_value()){
+  if (bias_shape.has_value()) {
     fusion->addInput(bias);
   }
   fusion->addOutput(tv2);
@@ -595,10 +595,10 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
   FusionExecutorCache fec(std::move(fusion));
-  
-  std::vector<at::Tensor> out = {};
+
+  d::vector<at::Tensor> out = {};
   if (bias_shape.has_value()){
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+     out = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
     out = fec.runFusionWithInputs({t0, t1});
   }
@@ -608,21 +608,25 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
   EXPECT_FALSE(executors.front().hasCompiledKernel());
-  
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+
+
+
+  CT_TRUE(at::allclose(out[0], out_ref));
 }
 TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const auto& [a_shape, b_shape, bias_shape] = GetParam();
+
   
-  auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
+
+  v0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
   auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);
 
   TensorView* bias = nullptr;
   if (bias_shape.has_value()){
-    bias = makeSymbolicTensor(*bias_shape, DataType::Half);
+     bias = makeSymbolicTensor(*bias_shape, DataType::Half);
   }
 
   auto tv2 = linear(tv0, tv1, bias);
@@ -630,7 +634,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   if (bias_shape.has_value()){
-    fusion->addInput(bias);
+     fusion->addInput(bias);
   }
   fusion->addOutput(tv2);
 
@@ -643,10 +647,12 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
   FusionExecutorCache fec(std::move(fusion));
-  
-  std::vector<at::Tensor> out = {};
+
+  st
+
+  tor<at::Tensor> out = {};
   if (bias_shape.has_value()){
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    ou t = fec.runFusionWithInputs({t0, t1, bias_opt});
   } else {
     out = fec.runFusionWithInputs({t0, t1});
   }
@@ -656,8 +662,10 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
   EXPECT_FALSE(executors.front().hasCompiledKernel());
-  
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+
+  EXPE
+
+  E(at::allclose(out[0], out_ref));
 }
 
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;
@@ -700,18 +708,25 @@ INSTANTIATE_TEST_SUITE_P(
     LinearWithoutBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-      testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
-      testing::Values(Sizes({k}), Sizes({n, k})),
-      testing::Values(std::nullopt)
+      tes
+        alues(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
+      tes
+        alues(Sizes({k}), Sizes({n, k})),
+      tes
+        alues(std::nullopt)
     ));
 
-INSTANTIATE_TEST_SUITE_P(
+NTIATE_TEST_SUITE_P(
     LinearWithBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-      testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})), 
-      testing::Values(Sizes({n, k})), 
-      testing::Values(Sizes({n}))
+      tes
+        alues(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
+      tes
+        lues(Sizes({n, k})),
+      test
+        ues(Sizes({n}))
     ));
 
-} // namespace nvfuser
+} mespace nvfuser
+            

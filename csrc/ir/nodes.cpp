@@ -4501,13 +4501,18 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   return {at::matmul(a, b)};
 }
 
-LinearOp::LinearOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b, Val* bias)
+LinearOp::LinearOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b,
+    Val* bias)
     : Expr(passkey) {
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
 
-  if (bias != nullptr){
+  if (bias != nullptr) {
     addInput(bias);
   }
 }
@@ -4519,8 +4524,8 @@ std::string LinearOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << inB()->toString();
-  if (has_bias()){
-    indent(ss, indent_size + 1) << ",\n          " << bias()->toString(); 
+  if (has_bias()) {
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
   }
   indent(ss, indent_size + 1) << ")\n";
   return ss.str();
@@ -4542,6 +4547,5 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   }
   return {at::linear(a, b)};
 }
-
 
 } // namespace nvfuser
