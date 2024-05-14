@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_utils.h>
+#include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -57,20 +59,20 @@ inline std::optional<MmaMacro> getMmaOp(
     case 80:
     case 86:
     case 89:
+    case 90: // NOTE: temp use ampere matmul for hopper
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:
-      break;
+      return std::nullopt;
   }
-  return std::nullopt;
 }
 
-//! A wrapper for core heuristics initialization
+//! A wrapper for core heuristics initialization.
+//! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const MmaMacro& mma_op,
     const ProblemShape& problem_shape) {
-  const GemmTile instruction_tile = getMmaOpShape(mma_op);
+  const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
 
@@ -116,13 +118,12 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
   // stages and async mem copy
   {
     // NOTE: compilation errors when async is enabled on Turing devices
-    if (isAmpere(mma_op)) {
+    if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
       params->async_gmem_load_operands = true;
@@ -266,30 +267,6 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
-  // MmaOp inputs/outputs dependencies check
-  // TODO: check to be removed when more rules are added to TV roles
-  //  calculations
-  {
-    // Check the expected path between MmaOp input and fusion inputs
-    const auto areMmaOpInputDependeciesValid = [](const Val* val) {
-      if (val->definition()->isA<BroadcastOp>()) {
-        const auto& bcast_inputs = val->definition()->inputs();
-        // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput() ||
-            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
-             nullptr);
-      }
-      return false;
-    };
-
-    // MmaOp input is a result of broadcast op with input being fusion input
-    for (const auto* mma_in : mma_inputs) {
-      if (!areMmaOpInputDependeciesValid(mma_in)) {
-        return "MmaOp input has unsupported dependency";
-      }
-    }
-  }
-
   return "";
 }
 
@@ -358,7 +335,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     HeuristicSummary* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
-  (void)runtime_info;
   auto params = std::make_shared<MatmulParams>();
 
   // Set kernel index mode
@@ -385,20 +361,42 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
   NVF_ERROR(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
+  params->mma_macro = mma_op.value();
 
-  // Populate heuristic details
-  auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
-  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  const auto& roles_map_opt =
+      mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
+  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
+  const auto roles_map = roles_map_opt.getData();
+
+  if (matmul_heuristic_plugin::hasPlugin()) {
+    const mma_utils::MatmulProblemLayoutOpt layout_opt =
+        mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
+    NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
+    const MmaLayout layout = layout_opt.getData();
+
+    // Fill in proper values using plugin
+    matmul_heuristic_plugin::updateMatmulParams(
+        *params,
+        /*M=*/problem_shape[0],
+        /*N=*/problem_shape[1],
+        /*K=*/problem_shape[2],
+        /*batch_size=*/1, // TODO: extract actual batch size
+        layout,
+        roles_map);
+  } else {
+    TORCH_WARN_ONCE(
+        "Scheduling a matmul without heuristic plugin. "
+        "Specify plugin location like this: "
+        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+    // Populate heuristic details
+    auto status = initCoreHeuristics(params, problem_shape);
+    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  }
 
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
 
   // Set whether to use shared memory for epilogue
-  const auto& roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
-  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-
-  const auto roles_map = roles_map_opt.getData();
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,

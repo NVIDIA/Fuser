@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 # Fuser
 
 A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
@@ -32,10 +38,23 @@ PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 Docs: https://github.com/NVIDIA/Fuser/wiki
 
 Supported compilers:
-- gcc 11.4+
-- clang14+
+
+**GCC:**
+
+We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
+As of 5/3/2024, they are:
+
+- gcc 11.4
+- gcc 12.3
+- gcc 13.2
+- gcc 14.1
+
+**Clang:**
+
+- clang 14+
 
 Supported C++ standard:
+
 - C++17
 - C++20
 

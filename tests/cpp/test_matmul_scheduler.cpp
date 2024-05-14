@@ -14,22 +14,26 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/matmul_heuristic_plugin.h>
+#include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+
+#include <memory>
 
 namespace nvfuser {
 
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
-  // Allocation order set by the pass breaks matmul tests
-  // see issue https://github.com/NVIDIA/Fuser/issues/1810
   MatmulSchedulerTest() : optimization_guard_(false) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
  private:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
   // RAII style options guard. This is used to disable
@@ -1050,6 +1054,49 @@ INSTANTIATE_TEST_SUITE_P(
       os << get_type_letter(std::get<2>(info.param));
       return os.str();
     });
+
+TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t M = 128, N = 256, K = 512;
+  TensorView* x = makeContigConcreteTensor({M, 1, K}, DataType::Half);
+  TensorView* y = makeContigConcreteTensor({1, N, K}, DataType::Half);
+  TensorView* z = fusedMultiplySum(x, y, {-1});
+
+  fusion->addInput(x);
+  fusion->addInput(y);
+  fusion->addOutput(z);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto x_ref = at::randn({M, 1, K}, options);
+  auto y_ref = at::randn({1, N, K}, options);
+  auto z_ref = atMatmul(x_ref, y_ref, MmaLayout::TN);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
+
+  NVF_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  NVF_CHECK(
+      isSchedulerInUse(
+          executor_cache.getMostRecentKernelRuntime(),
+          ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {x_ref, y_ref},
+      {z_ref},
+      __LINE__,
+      __FILE__);
+}
 
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
@@ -2242,6 +2289,108 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     //  verification caused by different way of calculating reference
     NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
   }
+}
+
+class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
+  void configure() override {
+    // Set load_stages to 0, which is an allowed value (with a warning), but not
+    // one that will be set by our default scheduler. This lets us use it as a
+    // sentinel to check that this heuristic was run.
+    load_stages = (uint8_t)0;
+  }
+};
+
+std::unique_ptr<matmul_heuristic_plugin::KernelConfig> testConfigFactory() {
+  return std::unique_ptr<matmul_heuristic_plugin::KernelConfig>(
+      new TestKernelConfig);
+}
+
+class MatmulSchedulerPluginTest : public NVFuserTest {
+ protected:
+  MatmulSchedulerPluginTest()
+      : optimization_guard_(false), factory_guard_(testConfigFactory) {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+  }
+
+ private:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+  matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
+
+  // RAII style options guard. This is used to disable
+  // (via set) options in the constructor.
+  DisableOptionsGuard option_guard_;
+};
+
+// Test that our fake plugin works to override the default heuristic
+TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  const int M = 128, N = 256, K = 512;
+  const auto layout = MmaLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+  tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion->addOutput(tv2);
+
+  auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto tref = atMatmul(t0, t1, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // enable profiling so that executor logs are captured
+  executor_cache.profile(true);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  ASSERT_NE(runtime, nullptr);
+
+  NVF_CHECK(
+      !runtime->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  NVF_CHECK(
+      isSchedulerInUse(runtime, ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<MatmulParams>());
+  MatmulParams* mmheur = heur->as<MatmulParams>();
+  EXPECT_EQ(mmheur->double_buffer_options.smem_double_buffer_stage, 0);
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
+// This test can be used to check that an external plugin has been loaded. It
+// is DISABLED_ so that the test suite will pass even if the user has not
+// provided a plugin via NVFUSER_MATMUL_HEURISTIC_PLUGIN. To check that a
+// plugin can be loaded properly, invoke the test suite like so:
+//
+//   export NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/plugin.so
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+
+  EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
+
+  MatmulParams params;
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD

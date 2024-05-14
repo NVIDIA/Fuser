@@ -551,4 +551,19 @@ V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
   return i == map.end() ? V() : i->second;
 }
 
+size_t deviceAvailableSharedMemoryBytes();
+
+inline int64_t wrapDim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  NVF_CHECK(
+      dim >= 0 && dim < ndim,
+      "Tried to access out of boundary index ",
+      dim,
+      ". total index: ",
+      ndim);
+  return dim;
+}
+
 } // namespace nvfuser

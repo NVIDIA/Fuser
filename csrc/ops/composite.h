@@ -57,6 +57,18 @@ TensorView* matmul(TensorView* a, TensorView* b);
 // can be used to create mamtuls without a cast operation following it.
 TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
 
+// Linear functions which takes in two tensors of shapes A[M,K] and
+// B[N,K]. Takes in a options bias of shape [N] and performs
+// out = A * B_Transpose + bias. The output dtype matches the dtype
+// ofthe inputs which should match.
+TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
+// This is an implementation detail to reflect when linear is called
+// without a bias. This calls the above function. We use this function
+// since it simplifies creating a Python API which takes optional arguments.
+// Other options include using lambdas or creating a new RecordFunctor for
+// Linear.
+TensorView* linear(TensorView* a, TensorView* b);
+
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
 TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
@@ -68,5 +80,7 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
 TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
+
+TensorView* eagerMatmul(TensorView* tv_a, TensorView* tv_b);
 
 } // namespace nvfuser

@@ -69,7 +69,7 @@ class ValidateSiblings : public IterVisitor {
           sibling->toString());
 
       for (const auto i : c10::irange(ref_ndims)) {
-        validateParallelTypes(ref_output->axis((int)i), sibling->axis((int)i));
+        validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
@@ -466,10 +466,10 @@ class VectorizeValidator : public OptInDispatch {
         v_id->extent()->isConstInt(),
         "Vectorizing a domain requires a constant integer size.");
 
-    auto vector_word_size = v_id->extent()->evaluate();
+    auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
     auto vector_size =
-        ((int64_t)dataTypeSize(
-            tv->getDataType().value(), GpuLower::current()->indexType())) *
+        dataTypeSize(
+            tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
     // Allow half2, float2, float4 and same sized vtypes.
@@ -496,10 +496,9 @@ class VectorizeValidator : public OptInDispatch {
     if (consumer_word_size_it !=
         GpuLower::current()->vectorizedAccesses().end()) {
       consumer_word_size_it->second =
-          std::max((int)vector_word_size, consumer_word_size_it->second);
+          std::max(vector_word_size, consumer_word_size_it->second);
     } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          tv, (int)vector_word_size);
+      GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
     auto tv_def = tv->definition();
@@ -513,10 +512,10 @@ class VectorizeValidator : public OptInDispatch {
     if (producer_word_size_it !=
         GpuLower::current()->vectorizedAccesses().end()) {
       producer_word_size_it->second =
-          std::max((int)vector_word_size, producer_word_size_it->second);
+          std::max(vector_word_size, producer_word_size_it->second);
     } else {
       GpuLower::current()->vectorizedAccesses().emplace(
-          producer_tv, (int)vector_word_size);
+          producer_tv, vector_word_size);
     }
 
     VectorizedSetInfo vectorized_set_info;
@@ -525,7 +524,7 @@ class VectorizeValidator : public OptInDispatch {
     // Note that VectorizedSetInfo is about each instance of
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
-    vectorized_set_info.word_size = (int)vector_word_size;
+    vectorized_set_info.word_size = vector_word_size;
     vectorized_set_info.vectorized_leaf_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
@@ -574,7 +573,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     bool has_misaligned_vectorize_dim = false;
 
     for (const auto i : c10::irange(tv->nDims())) {
-      IterDomain* id = tv->axis((int)i);
+      IterDomain* id = tv->axis(i);
       IterDomain* concrete_id =
           GpuLower::current()->caMap()->getConcreteMappedID(
               id, IdMappingMode::LOOP);
@@ -1000,16 +999,16 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
     return;
   }
 
-  int byte_size = 1;
+  int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      byte_size = static_cast<int>(id->extent()->evaluate());
+      byte_size = id->extent()->evaluate().as<int64_t>();
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(
-      *output->getDataType(), GpuLower::current()->indexType());
+  byte_size *=
+      dataTypeSize(*output->getDataType(), GpuLower::current()->indexType());
 
   switch (ldst->cacheOp()) {
     case CacheOp::Global:
@@ -1030,12 +1029,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion) {
-  // To avoid errors in analysis when using ATen evaluation for matmul, only
-  // validate expressions that require codegen. See PR # 1775 and Issue #1812
-  std::vector<Val*> outs_requiring_codegen =
-      lower_utils::getFusionOutputsRequiringCodegen(fusion);
-  auto exprs = StmtSort::getExprsBetween(
-      GpuLower::current()->allKnownVals(), outs_requiring_codegen);
+  auto exprs = StmtSort::getExprs(fusion);
 
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -1125,7 +1119,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
-      const auto id = tv->axis((int)id_idx);
+      const auto id = tv->axis(id_idx);
       auto ptype = GpuLower::current()
                        ->caMap()
                        ->getConcreteMappedID(id, IdMappingMode::LOOP)
@@ -1138,9 +1132,11 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       // Remember if a grouped ID is found
       is_grouped = true;
 
-      // Grouping only makes sense for the normal iteration type
+      // Grouping only makes sense for the normal iteration or gather scatter
+      // type
       NVF_CHECK(
-          id->getIterType() == IterType::Iteration,
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::GatherScatter,
           "Invalid use of ParallelType::Group.",
           " Grouping of ",
           id->getIterType(),
@@ -1255,11 +1251,11 @@ void validateGroupedReductions(Fusion* fusion) {
     if (auto grouped_reduction_op = dynamic_cast<GroupedReductionOp*>(expr)) {
       const auto num_exprs =
           grouped_reduction_op->numHorizontallyGroupedExprs();
-      int num_grouped_iterations = 1;
+      int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
       for (auto axis : out_tv->getLeafDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
-          num_grouped_iterations *= (int)axis->extent()->value();
+          num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
       }
       NVF_CHECK(

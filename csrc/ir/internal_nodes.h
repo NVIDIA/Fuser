@@ -2125,18 +2125,18 @@ class PadOp : public Expr {
 
   //! Return axes that are actually paded, i.e., those that have
   //! non-zero pad widths
-  std::vector<int> getPaddedAxes() const;
+  std::vector<int64_t> getPaddedAxes() const;
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int axis) const;
+  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
-  int getPadWidthInputOffset() const {
+  int64_t getPadWidthInputOffset() const {
     return 2;
   }
 
@@ -2253,6 +2253,39 @@ class NVF_API CatOp : public Expr {
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
   Val* getPred(int input_idx) const;
+};
+
+//! Matmul Operator to be expression evaluated without decomposition.
+class MatmulOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  MatmulOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MatmulOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* inA() const {
+    return input(0);
+  }
+
+  Val* inB() const {
+    return input(1);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

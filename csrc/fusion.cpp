@@ -117,6 +117,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     }
   }
 
+  to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
+
   return ir_cloner;
 }
 
@@ -417,7 +419,9 @@ void Fusion::printKernel(const CompileParams& compile_params) {
   debug() << codegen::generateCudaKernel(lower.kernel());
 }
 
-std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+std::unordered_map<
+    TensorView*,
+    std::pair<std::vector<int64_t>, std::vector<int64_t>>>
 Fusion::bankConflictInfo(const CompileParams& compile_params) {
   std::vector<TensorView*> smem_tvs;
   for (auto v : usedMathVals()) {
@@ -458,7 +462,9 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
     return smem_tvs.at(index);
   };
 
-  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       result;
   result.reserve(info.size());
   for (auto i : info) {
@@ -829,6 +835,13 @@ const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
 
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
+}
+
+bool isExpressionEvaluated(Fusion* fusion) {
+  return std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
 }
 
 } // namespace nvfuser

@@ -405,6 +405,11 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
 
+  //! ParallelType used for scheduling
+  //! Note that we are only using this for multidevice at this point
+  py::enum_<ParallelType>(nvfuser, "ParallelType")
+      .value("mesh_x", ParallelType::DIDx);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -471,6 +476,10 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+
+  py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
+  device_mesh_class.def(
+      "__repr__", [](DeviceMesh& self) { return self.toString(); });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {
@@ -1143,6 +1152,45 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
+
+  nvf_ops.def(
+      "linear",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor arg2,
+         std::optional<Tensor> bias = std::nullopt) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.linear");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+
+        if (bias.has_value()) {
+          fd->defineRecord(
+              new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                  {fd->recordingState(arg1()),
+                   fd->recordingState(arg2()),
+                   fd->recordingState(bias.value()())},
+                  {fd->recordingState(output())},
+                  ("ops.linear"),
+                  serde::RecordType::Ternary_TV,
+                  static_cast<
+                      TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                      linear)));
+        } else {
+          fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+              {fd->recordingState(arg1()), fd->recordingState(arg2())},
+              {fd->recordingState(output())},
+              ("ops.linear"),
+              serde::RecordType::Binary_TV,
+              static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
+        }
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      py::return_value_policy::reference);
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
@@ -1910,7 +1958,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = 0;                                                     \
-        std::vector<int> dims(arg.dims);                                      \
+        std::vector<int64_t> dims(arg.dims);                                  \
         std::iota(dims.begin(), dims.end(), 0);                               \
         Tensor output = fd->defineTensor(ndims);                              \
         fd->defineRecord(new ReductionOpRecord(                               \
@@ -1919,7 +1967,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             dims,                                                             \
@@ -1949,7 +1997,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             {dim},                                                            \
@@ -1966,7 +2014,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self,                                   \
          Tensor arg,                                                          \
-         const std::vector<int>& dims,                                        \
+         const std::vector<int64_t>& dims,                                    \
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
@@ -1981,7 +2029,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             ("ops." op_str),                                                  \
             record_type,                                                      \
             static_cast<TensorView* (*)(TensorView*,                          \
-                                        const std::vector<int>&,              \
+                                        const std::vector<int64_t>&,          \
                                         bool,                                 \
                                         DataType)>(op_name),                  \
             dims,                                                             \
@@ -2667,7 +2715,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& dims,
+         std::vector<int64_t>& dims,
          int64_t correction,
          bool keepdim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.var");
@@ -2693,7 +2741,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var_mean",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int>& dims,
+         std::vector<int64_t>& dims,
          int64_t correction,
          bool keepdim) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.var_mean");
@@ -2726,6 +2774,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_create_device_mesh",
+      [](FusionDefinition::SchedOperators& self,
+         const std::vector<int64_t>& devices) { return DeviceMesh(devices); },
+      py::arg("devices"),
+      py::return_value_policy::reference);
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_set_device_mesh",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const DeviceMesh& mesh) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setDeviceMesh(mesh);
+      },
+      py::arg("tensor"),
+      py::arg("mesh"));
+  //! experimental API for multidevice support
+  nvf_sched.def(
+      "_parallelize",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int axis,
+         const ParallelType& parallel_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto tv = fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->axis(axis)->parallelize(parallel_type);
+      },
+      py::arg("tensor"),
+      py::arg("axis"),
+      py::arg("parallel_type"));
   nvf_sched.def(
       "merge",
       [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
@@ -2742,7 +2829,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"));
   auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
                                   Tensor arg,
-                                  const std::vector<int>& dims) -> Tensor {
+                                  const std::vector<int64_t>& dims) -> Tensor {
     FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
     NVF_CHECK(
         self.validUse(),
@@ -2768,7 +2855,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "reorder",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
-         const std::unordered_map<int, int>& old2new) {
+         const std::unordered_map<int64_t, int64_t>& old2new) {
         FUSER_PERF_SCOPE("SchedOperators.reorder");
         NVF_CHECK(
             self.validUse(),
@@ -2784,8 +2871,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "split",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
-         int dim,
-         unsigned int factor,
+         int64_t dim,
+         int64_t factor,
          bool inner_split,
          bool trim_out_of_bounds) {
         FUSER_PERF_SCOPE("SchedOperators.split");
