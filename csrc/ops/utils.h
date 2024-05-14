@@ -51,11 +51,14 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     MatmulRole input_role,
     size_t out_size);
 
+// For LinearOp, the output is the same as the first input (A[*, in_features])for all but the last dimension.
+// If the second input is 2D (B[out_features, in_features]), the last dimension of output is out_features.
+// If bias is 1D (bias[out_features]) it maps to the last dimension of the output.
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     MatmulRole input_role,
     size_t out_size);
-    
+
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
 // iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will

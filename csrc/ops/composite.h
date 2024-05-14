@@ -47,10 +47,8 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Linear functions which takes in two tensors of shapes A[M,K] and
-// B[N,K]. Takes in a options bias of shape [N] and performs
-// out = A * B_Transpose + bias. The output dtype matches the dtype
-// ofthe inputs which should match.
+// Linear functions which takes in two tensors of shapes A[* , in_features], B[out_features, in_features] / [in_features] and an optional bias of shape [out_features] or 0D scalar.
+// Bias can only be given if B is a 2-D tensor. 
 TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
 // This is an implementation detail to reflect when linear is called
 // without a bias. This calls the above function. We use this function
