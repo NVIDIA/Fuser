@@ -712,4 +712,12 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(Sizes({n, k})),
         testing::Values(Sizes({}), Sizes({n}))));
 
+INSTANTIATE_TEST_SUITE_P(
+    LinearReductionAxisIsOne,
+    LinearNodeParametrizedTest,
+    testing::Combine(
+        testing::Values(Sizes({m, 1}), Sizes({b, m, 1}))),
+        testing::Values(Sizes({n, 1})),
+        testing::Values(Sizes({}), Sizes({n})));
+
 } // namespace nvfuser
