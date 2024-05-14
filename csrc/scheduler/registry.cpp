@@ -57,6 +57,27 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
+      std::optional<std::vector<int64_t>> alloc_perm_opt =
+          ir_utils::computePermutation(
+              TensorDomain::noReductions(input_tv->getMaybeRFactorDomain()),
+              TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
+      if (alloc_perm_opt.has_value()) {
+        // Save the strides in order of allocation domain in case the
+        // allocation domain is a permutation of RFactor domain
+        std::vector<int64_t> orig_sizes = alloc_sizes.vec();
+        std::vector<int64_t> orig_strides = alloc_strides.vec();
+        std::vector<int64_t> ordered_sizes, ordered_strides;
+        ordered_sizes.reserve(orig_sizes.size());
+        ordered_strides.reserve(orig_strides.size());
+        NVF_ERROR(orig_strides.size() == alloc_perm_opt->size());
+        for (int64_t i : alloc_perm_opt.value()) {
+          ordered_sizes.push_back(orig_sizes[i]);
+          ordered_strides.push_back(orig_strides[i]);
+        }
+        input_sizes_[fusion_inp] = std::move(ordered_sizes);
+        input_strides_elements_[fusion_inp] = std::move(ordered_strides);
+      }
+
       // find and push discontiguous stride
       int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
@@ -206,6 +227,9 @@ bool checkCanSchedule(
     case ScheduleHeuristic::Matmul:
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::ExprEval:
+      return checkCanSchedule<ExprEvalScheduler>(
+          fusion, runtime_info, data_cache);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
@@ -251,6 +275,10 @@ bool checkCanSchedule(
     case ScheduleHeuristic::Matmul:
       scheduler_entry =
           std::make_unique<MatmulScheduler>(fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::ExprEval:
+      scheduler_entry =
+          std::make_unique<ExprEvalScheduler>(fusion, runtime_info, data_cache);
       break;
     default:
       NVF_ERROR(false, "unreachable");
@@ -342,6 +370,9 @@ HeuristicSummary::HeuristicSummary(
       NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
       break;
     }
+    case ScheduleHeuristic::ExprEval:
+      ExprEvalScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      break;
     default:
       NVF_ERROR(false, "unknown heuristic");
   }
@@ -415,8 +446,9 @@ void HeuristicSummary::validate() const {
           entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
       break;
     }
+    case ScheduleHeuristic::ExprEval:
     case ScheduleHeuristic::Matmul: {
-      // TODO: add a proper set of checks
+      // TODO: add a proper set of checks for matmul
       break;
     }
     default:
