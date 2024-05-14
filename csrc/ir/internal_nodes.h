@@ -2288,7 +2288,8 @@ class MatmulOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-//! Linear Operator to be expression evaluated without decomposition.
+// Linear Operator to be expression evaluated without decomposition.
+// This node has the same functionality as F.linear (https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)
 class LinearOp : public Expr {
  public:
   using Expr::Expr;

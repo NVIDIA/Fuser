@@ -590,7 +590,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   std::optional<at::Tensor> bias_opt = std::nullopt;
   if (bias_shape.has_value()) {
-    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
+    bias_opt = bias_shape.value().empty() ? at::scalar_tensor(3.14).to(at::kHalf).cuda(): at::randn(*bias_shape, at::kHalf).cuda();
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
@@ -638,7 +638,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   std::optional<at::Tensor> bias_opt = std::nullopt;
   if (bias_shape.has_value()) {
-    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
+    bias_opt = bias_shape.value().empty() ? at::scalar_tensor(3.14).to(at::kHalf).cuda() : at::randn(*bias_shape, at::kHalf).cuda();
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
@@ -710,6 +710,6 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({1, k}), Sizes({b, 1, k})),
         testing::Values(Sizes({n, k})),
-        testing::Values(Sizes({n}))));
+        testing::Values(Sizes({}), Sizes({n}))));
 
 } // namespace nvfuser

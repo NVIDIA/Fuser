@@ -232,7 +232,6 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   // Input A: {*, M, K}
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
-
   switch (input_role) {
       case MatmulRole::INPUT_A: {
         // Linear output is same as input for all but the last dimension
@@ -242,14 +241,17 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
         break;
       }
       case MatmulRole::INPUT_B: {
-        if (inp_size == 1) {
-          // out_features is not present, no mapping required.
-          break;
+        if (inp_size > 1) {
+          // Weight is of shape {out_features, in_features}
+          mapping[out_size - 1] = input_domain[0];
         }
+        break;
       }
       case MatmulRole::INPUT_C: {
-        // The last dimension of LinearOp is out_features.
-        mapping[out_size - 1] = input_domain[0];
+        if (inp_size > 0){
+          // Bias is 1D tensor of shape {out_features}
+          mapping[out_size - 1] = input_domain[0];
+        }
         break;
       }
       default:
