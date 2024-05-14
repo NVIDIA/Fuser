@@ -441,7 +441,7 @@ void unshard(TensorView* tv) {
       id->parallelize(ParallelType::Serial);
     }
   }
-  tv->setDeviceMesh({});
+  tv->setDeviceMesh(DeviceMesh());
 }
 
 void unshard(Fusion* fusion) {

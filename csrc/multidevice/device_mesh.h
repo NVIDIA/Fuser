@@ -7,6 +7,9 @@
 // clang-format on
 
 #pragma once
+
+#include <vector>
+
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
 #include <visibility.h>
@@ -18,14 +21,12 @@ namespace nvfuser {
 // will add support for n-dimensional meshes.
 class DeviceMesh final {
  public:
-  DeviceMesh(std::vector<DeviceIdxType> devices = {}) {
-    setDevices(devices);
-  }
-
-  DeviceMesh& operator=(const std::vector<DeviceIdxType>& devices) {
-    setDevices(devices);
-    return *this;
-  }
+  explicit DeviceMesh(std::vector<DeviceIdxType> devices = {});
+  DeviceMesh(std::initializer_list<DeviceIdxType> devices);
+  DeviceMesh(const DeviceMesh&) = default;
+  DeviceMesh(DeviceMesh&&) = default;
+  DeviceMesh& operator=(const DeviceMesh&) = default;
+  DeviceMesh& operator=(DeviceMesh&&) = default;
 
   // Creates a device mesh of [0 .. num_devices-1]. I didn't make it a
   // constructor because single-element initializer lists would be directed to
