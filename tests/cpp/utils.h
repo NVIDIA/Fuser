@@ -661,7 +661,7 @@ TensorView* canonicalizeInputToBMNK(
 // Utility to check if for given kernel the expected scheduler has
 // been used
 bool isSchedulerInUse(
-    nvfuser::FusionKernelRuntime* kernel_rt,
+    const nvfuser::FusionKernelRuntime* kernel_rt,
     const ScheduleHeuristic& scheduler);
 
 // Disable magic zero

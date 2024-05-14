@@ -163,13 +163,13 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
   std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.size();
   }
   if (is_stage1_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh1.size();
     if (do_reduction) {
-      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+      ASSERT_EQ(mesh0.size(), mesh1.size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.size();
     }
   }
 
