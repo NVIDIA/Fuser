@@ -53,15 +53,15 @@ PostOnStream::PostOnStream(
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
   NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
-  if (auto hu = host_op->as<HostUnit>(); hu != nullptr) {
-    NVF_ERROR(this->inputs().size() == hu->fusion_to_execute()->inputs().size());
+  if (host_op->isA<HostUnit>()) {
+    NVF_ERROR(this->inputs().size() == host_op->as<HostUnit>()->fusion_to_execute()->inputs().size());
     NVF_ERROR(
-        this->outputs().size() == hu->fusion_to_execute()->outputs().size());
-  } else if (host_op->isAs<Communication>()) {
+        this->outputs().size() == host_op->as<HostUnit>()->fusion_to_execute()->outputs().size());
+  } else if (host_op->isA<Communication>()) {
       NVF_ERROR(
-        post->inputs().size() == 1, "Communication must have exactly one input");
+        this->inputs().size() == 1, "Communication must have exactly one input");
       NVF_ERROR(
-        post->outputs().size() == 1,
+        this->outputs().size() == 1,
         "Communication must have exactly one output");
   }
   // TODO: harden the assert checks with smth like

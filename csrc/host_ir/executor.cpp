@@ -74,7 +74,7 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
         std::make_unique<Fusion>(*hu->fusion_to_execute()),
         0,
         !params_.skip_auto_scheduling);
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues); //TODO: USE OUTPUT INSTEAD
+    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
     auto& fe = it->second;
@@ -82,7 +82,7 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
       fe.compileFusion(
           hu->fusion_to_execute(), input_IValues);
     }
-    outputs = fe.runFusion(input_IValues); //TODO: USE OUTPUT INSTEAD
+    outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
       fe_.erase(hu);
     }
@@ -95,7 +95,17 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
 }
 
 void HostIrExecutor::postCommunication(PostOnStream* post) {
-  auto input_val = post->inputs().at(0); // TODO: add checks
+  NVF_ERROR(communicator_ != nullptr && communicator_->is_available(), "A valid communicator must be provided");
+  NVF_ERROR(post->hostOpToPost()->isA<Communication>(), "op must be a Communication: ", post->hostOpToPost());
+  auto communication= post->hostOpToPost()->as<Communication>();
+  NVF_ERROR(
+      std::find(communication->params().team.begin(), communication->params().team.end(), communicator_->deviceId()) !=
+          communication->params().team.end(),
+      "current device index ",
+      communicator_->deviceId(),
+      " must be present in the communication's team");
+
+  auto input_val = post->inputs().at(0);
   auto output_val = post->outputs().at(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
@@ -106,10 +116,6 @@ void HostIrExecutor::postCommunication(PostOnStream* post) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  NVF_ERROR(post->hostOpToPost()->isA<Communication>(), "op must be a Communication: ", post->hostOpToPost());
-  auto communication= post->hostOpToPost()->as<Communication>();
-
-  NVF_ERROR(communicator_ != nullptr && communicator_->is_available(), "A valid communicator must be provided");
   c10::intrusive_ptr<c10d::Backend> backend =
       communicator_->getBackendForTeam(communication->params().team, std::nullopt);
   c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
@@ -118,7 +124,6 @@ void HostIrExecutor::postCommunication(PostOnStream* post) {
     work->wait();
   }
 }
-
 
 } // namespace hir
 

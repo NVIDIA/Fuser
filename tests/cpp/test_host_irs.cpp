@@ -382,9 +382,9 @@ INSTANTIATE_TEST_SUITE_P(
     HostIrTest,
     testing::Combine(testing::Bool()),
     [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
-      return (
-          std::get<0>(info.param) ? "use_fusion_executor_cache"
-                                  : "use_fusion_executor");
+      return
+          std::get<0>(info.param) ? "useFusionExecutorCache"
+                                  : "useFusionExecutor";
     });
 
 } // namespace hir
