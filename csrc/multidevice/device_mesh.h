@@ -47,6 +47,15 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
+  // Returns the index of device in the mesh, or -1 if device is not present.
+  int64_t idxOf(const DeviceIdxType device) const {
+    auto it = std::find(vector_.begin(), vector_.end(), device);
+    if (it != vector_.end()) {
+      return std::distance(vector_.begin(), it);
+    }
+    return -1;
+  }
+
   // Returns the device at a particular index in the mesh
   DeviceIdxType at(int64_t index) const {
     return vector_.at(index);
@@ -63,6 +72,6 @@ class DeviceMesh final {
   std::vector<DeviceIdxType> vector_;
 };
 
-NVF_API std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
+std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser
