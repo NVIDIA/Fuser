@@ -34,6 +34,11 @@ class DeviceMesh final {
 
   std::string toString() const;
 
+  // returns the number of devices in the mesh
+  int64_t size() const {
+    return static_cast<int64_t>(vector_.size());
+  }
+
   // returns a vector containing the device indices of the mesh
   const auto& vector() const {
     return vector_;
@@ -42,6 +47,21 @@ class DeviceMesh final {
   // returns whether a device is present in the mesh
   bool has(const DeviceIdxType device) const {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
+  }
+
+  // returns the index of device in the mesh.
+  // returns -1 if device is not present.
+  int64_t idxOf(const DeviceIdxType device) const {
+    auto it = std::find(vector_.begin(), vector_.end(), device);
+    if (it != vector_.end()) {
+      return std::distance(vector_.begin(), it);
+    }
+    return -1;
+  }
+
+  // Returns the device at a particular index in the mesh
+  DeviceIdxType at(int64_t index) const {
+    return vector_.at(index);
   }
 
   bool operator==(const DeviceMesh& other) const {

@@ -97,12 +97,9 @@ void MultiDeviceTest::SetUp() {
     return tensor;
   }
   auto sharded_dim = getShardedAxis(tv);
-  int i = 0;
-  const auto& devices = tv->getDeviceMesh().vector();
-  auto it = std::find(devices.begin(), devices.end(), deviceId);
-  if (it != devices.end()) {
-    i = std::distance(devices.begin(), it);
-  }
+  auto i = tv->getDeviceMesh().idxOf(deviceId);
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
 }
 
