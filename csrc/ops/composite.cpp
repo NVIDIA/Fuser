@@ -70,8 +70,6 @@ static TensorView* newForLinear(
   // same shape as the first input. The last dimension is out_features (if present).
   auto ndims_out = (orig_domain_a.size() - 1) + (orig_domain_b.size() - 1);
 
-  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-
   const std::vector<IterDomain*>& mapping_a = ops::mapLinearOpIterDomains(
       orig_domain_a, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
@@ -82,7 +80,7 @@ static TensorView* newForLinear(
     mapping_bias = ops::mapLinearOpIterDomains(bias_domain, MatmulRole::INPUT_C, ndims_out);
   }
 
-  out_domain = ops::newOutputDomain({mapping_a, mapping_b, mapping_bias});
+  std::vector<IterDomain*> out_domain = ops::newOutputDomain({mapping_a, mapping_b, mapping_bias});
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -300,8 +298,6 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
     // the output. For example: [iM, iK] x [iK] -> [iM, rK]
     ndims_out = std::max(ndims_a, ndims_b);
   }
-
-  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
   const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
       orig_domain_a, MatmulRole::INPUT_A, ndims_out);
