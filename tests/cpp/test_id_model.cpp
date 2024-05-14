@@ -2137,18 +2137,20 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
-  auto welford_out_tvs = Welford(tv0, {1});
+  auto welford_out_tvs = Welford(tv0, {2});
   auto avg = welford_out_tvs.avg;
   fusion.addOutput(avg);
 
+  // Random scheduling
   avg->split(-1, 4);
+  avg->merge(0);
+  avg->split(0, 8);
   TransformPropagatorWithCheck propagator(avg);
   MaxRootDomainInfoSpanningTree(avg).traverse(&propagator);
 
   IdModel id_model(&fusion);
-
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   for (auto welford_out : {welford_out_tvs.var_sum, welford_out_tvs.n}) {
