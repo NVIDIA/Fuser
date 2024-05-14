@@ -1447,4 +1447,3 @@ const DisjointSets<const IterDomain*>& ExactRootDomainMap::getMappedSets()
 }
 
 } // namespace nvfuser
-      
