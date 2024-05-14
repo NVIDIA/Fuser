@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
@@ -409,6 +410,41 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+// Check that ID exact mapping works as expected
+void checkMatmulOpIdMapping(
+    Fusion* fusion,
+    TensorView* A,
+    TensorView* B,
+    TensorView* output) {
+  IdModel id_model(fusion);
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  vg.validateConsistency();
+
+  const auto checkMapped = [&vg](IterDomain* x, IterDomain* y) -> bool {
+    if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+      return false;
+    }
+    const ValGroup& gx = vg.toGroup(x);
+    const ValGroup& gy = vg.toGroup(y);
+    return gx.get() == gy.get();
+  };
+
+  if (A->nDims() == 2 && B->nDims() == 2) {
+    // [M, K] @ [K, N] = [M, N]
+    ASSERT_EQ(output->nDims(), 2);
+    EXPECT_TRUE(checkMapped(A->axis(0), output->axis(0))); // M
+    EXPECT_TRUE(checkMapped(B->axis(1), output->axis(1))); // N
+    // EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
+  } else if (A->nDims() == 1 && B->nDims() == 1) {
+    // [M, K] @ [K, N] = [M, N]
+    EXPECT_EQ(output->nDims(), 0);
+    // EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
+  } else {
+    std::cout << "Unhandled set of input dimensions" << std::endl;
+    // EXPECT_TRUE(false);
+  }
+}
+
 TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -422,6 +458,8 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
+
+  checkMatmulOpIdMapping(fusion.get(), tv0, tv1, tv2);
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
@@ -446,6 +484,8 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
+
+  checkMatmulOpIdMapping(fusion.get(), tv0, tv1, tv2);
 
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
