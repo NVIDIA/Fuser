@@ -2293,7 +2293,7 @@ class LinearOp : public Expr {
  public:
   using Expr::Expr;
 
-  LinearOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b);
+  LinearOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* bias);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2317,7 +2317,7 @@ class LinearOp : public Expr {
   }
 
   Val* bias() const {
-    if (has_bias_) {
+    if (has_bias()) {
       return input(2);
     } else {
       return nullptr;
@@ -2327,8 +2327,13 @@ class LinearOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-};
+
 private:
-  bool has_bias_ = false;
+  bool has_bias() const {
+    return inputs().size() == 3;
+  }
+
+};
+
 
 } // namespace nvfuser

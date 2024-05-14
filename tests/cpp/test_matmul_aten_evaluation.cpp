@@ -47,6 +47,19 @@ class ATenNodesParametrizedTest
       optimization_guard_;
 };
 
+using LinearNodeParamType = std::tuple<Sizes, Sizes, std::optional<Sizes>>;
+class LinearNodeParametrizedTest
+    : public NVFuserFixtureParamTest<LinearNodeParamType> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  LinearNodeParametrizedTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+};
+
 // fd.ops.matmul (a, b) where a = [M,K], b = [K,N]
 TEST_F(MatmulATenEvaluationTest, MmaOpAndCast) {
   auto fusion = std::make_unique<Fusion>();
@@ -552,6 +565,101 @@ TEST_P(ATenNodesParametrizedTest, MatmulNodeSymbolic) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto& [a_shape, b_shape, bias_shape] = GetParam();
+
+  auto tv0 = makeConcreteTensor(a_shape, DataType::Half);
+  auto tv1 = makeConcreteTensor(b_shape, DataType::Half);
+  TensorView* bias = nullptr;
+  if (bias_shape.has_value()){
+    bias = makeConcreteTensor(*bias_shape, DataType::Half);
+  }
+  auto tv2 = linear(tv0, tv1, bias);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  if (bias_shape.has_value()){
+    fusion->addInput(bias);
+  }
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  std::optional<at::Tensor> bias_opt = std::nullopt;
+  if (bias_shape.has_value()) {
+    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
+  }
+  at::Tensor out_ref = at::linear(t0, t1, bias_opt);
+
+  FusionExecutor fe;
+  fusion->aliasOutputToInput(
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+
+  std::vector<at::Tensor> out = {};
+  if (bias_shape.has_value()){
+    fe.compileFusion(fusion.get(), {t0, t1, bias_opt});
+    out = fe.runFusion({t0, t1, bias_opt});
+  } else {
+    fe.compileFusion(fusion.get(), {t0, t1});
+    out = fe.runFusion({t0, t1});
+  }
+
+  // Verify that fusion compilation was skipped.
+  EXPECT_FALSE(fe.hasCompiledKernel());
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto& [a_shape, b_shape, bias_shape] = GetParam();
+  
+  auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
+  auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);
+
+  TensorView* bias = nullptr;
+  if (bias_shape.has_value()){
+    bias = makeSymbolicTensor(*bias_shape, DataType::Half);
+  }
+
+  auto tv2 = linear(tv0, tv1, bias);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  if (bias_shape.has_value()){
+    fusion->addInput(bias);
+  }
+  fusion->addOutput(tv2);
+
+  at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
+  at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
+  std::optional<at::Tensor> bias_opt = std::nullopt;
+  if (bias_shape.has_value()) {
+    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
+  }
+  at::Tensor out_ref = at::linear(t0, t1, bias_opt);
+
+  FusionExecutor fe;
+  fusion->aliasOutputToInput(
+      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+
+  std::vector<at::Tensor> out = {};
+  if (bias_shape.has_value()){
+    fe.compileFusion(fusion.get(), {t0, t1, bias_opt});
+    out = fe.runFusion({t0, t1, bias_opt});
+  } else {
+    fe.compileFusion(fusion.get(), {t0, t1});
+    out = fe.runFusion({t0, t1});
+  }
+
+  // Verify that fusion compilation was skipped.
+  EXPECT_FALSE(fe.hasCompiledKernel());
+  EXPECT_TRUE(at::allclose(out[0], out_ref));
+}
+
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 
 // Parametrize a_shape and b_shape
@@ -587,5 +695,23 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({1, n}),
             Sizes({1, 1}),
             Sizes({b, 1, n}))));
+
+INSTANTIATE_TEST_SUITE_P(
+    LinearWithoutBias,
+    LinearNodeParametrizedTest,
+    testing::Combine(
+      testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})),
+      testing::Values(Sizes({k}), Sizes({n, k})),
+      testing::Values(std::nullopt)
+    ));
+
+INSTANTIATE_TEST_SUITE_P(
+    LinearWithBias,
+    LinearNodeParametrizedTest,
+    testing::Combine(
+      testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k})), 
+      testing::Values(Sizes({n, k})), 
+      testing::Values(Sizes({n}))
+    ));
 
 } // namespace nvfuser

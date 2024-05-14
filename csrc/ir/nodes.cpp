@@ -4508,7 +4508,6 @@ LinearOp::LinearOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b, Val
   addInput(in_b);
 
   if (bias != nullptr){
-    this->has_bias_ = true;
     addInput(bias);
   }
 }
@@ -4519,9 +4518,9 @@ std::string LinearOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "       " << inB()->toString();
-  if (this->has_bias_){
-    indent(ss, indent_size + 1) << ",\n      " << bias()->toString(); 
+  indent(ss, indent_size + 1) << "          " << inB()->toString();
+  if (has_bias()){
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString(); 
   }
   indent(ss, indent_size + 1) << ")\n";
   return ss.str();
@@ -4537,7 +4536,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
 
-  if (this->has_bias_) {
+  if (has_bias()) {
     const auto bias = inputs.at(2).as<at::Tensor>();
     return {at::linear(a, b, bias)};
   }
