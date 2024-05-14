@@ -198,8 +198,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     return dom_map;
   }
 
-  // For LinearOp, all but the last dimension are the same shape as the input.
-  // The last dimension is out_features (if present).
   if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
     auto out_size = consumer_root.size();
 
@@ -213,8 +211,15 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       input_role = MatmulRole::INPUT_C;
     }
 
+    // LinearOp:
+    // inputs (INPUT_A) = {*, in_features}
+    // weight (INPUT_B) = {out_features, in_features} / {in_features}
+    // bias (INPUT_C) = {out_features} / {}
+    // output = {*, out_features} / {*}
+
     switch (input_role) {
       case MatmulRole::INPUT_A: {
+        // Linear output is same as input for all but the last dimension
         for (auto inx : c10::irange(producer_root.size() - 1)) {
           updatePairwiseRootDomainMap(
               producer_root.at(inx), consumer_root.at(inx));
@@ -228,6 +233,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
         }
       }
       case MatmulRole::INPUT_C: {
+        // The last dimension of LinearOp is out_features.
         updatePairwiseRootDomainMap(
             producer_root.at(0), consumer_root.at(out_size - 1));
         break;
@@ -1441,3 +1447,4 @@ const DisjointSets<const IterDomain*>& ExactRootDomainMap::getMappedSets()
 }
 
 } // namespace nvfuser
+      

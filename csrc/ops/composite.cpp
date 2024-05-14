@@ -78,28 +78,33 @@ static TensorView* newForLinear(
 
   if (weight_domain.size() == 2) {
     // Add out_features to output domain.
+    std::vector<IterDomain*> out_features_ids = {weight_domain.at(0)};
     if (bias != nullptr) {
       auto bias_domain =
           TensorDomain::noReductions(bias->getMaybeRFactorDomain());
-      out_domain[ndims_out - 1] =
-          ops::newOutputIterDomain({weight_domain.at(0), bias_domain.at(0)});
-    } else {
-      out_domain[ndims_out - 1] =
-          ops::newOutputIterDomain({weight_domain.at(0)});
+      out_features_ids.emplace_back(bias_domain.at(0));
     }
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(out_features_ids);
   }
+}
 
-  TensorDomain* td = IrBuilder::create<TensorDomain>(
-      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+TensorDomain* td = IrBuilder::create<TensorDomain>(
+    out_domain,
+    TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, input->dtype());
+return IrBuilder::create<TensorView>(td, input->dtype());
 }
 
 } // namespace
 
 TensorView* linear(TensorView* tv_a, TensorView* tv_b, TensorView* bias) {
-  NVF_CHECK(tv_a->nDims() >= 1);
-  NVF_CHECK(tv_b->nDims() == 1 || tv_b->nDims() == 2);
+  NVF_CHECK(tv_a->nDims() >= 1, "Input A must be atleast 1D.");
+  NVF_CHECK(
+      tv_b->nDims() == 1 || tv_b->nDims() == 2,
+      "Input B must be a 1D / 2D tensor.");
+  NVF_CHECK(
+      tv_b->nDims() == 1 && bias != nullptr,
+      "Input B must be a 2D tensor if bias is present, got 1D.")
 
   // For all other cases, create a new LinearOp
   TensorView* out = newForLinear(tv_a, tv_b, bias);
