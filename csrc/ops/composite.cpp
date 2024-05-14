@@ -312,9 +312,6 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 
 } // namespace
 
-// TODO (Priya): This will be renamed to matmul once we are ready to modify the
-// python API backend. Keeping separate for now, to avoid breaking tests in
-// Thunder.
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   NVF_CHECK(
       tv_a->nDims() > 0 && tv_b->nDims() > 0,

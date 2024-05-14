@@ -30,7 +30,7 @@ class ExprEvalScheduler : public SchedulerEntry {
   static bool canScheduleCompileTime(Fusion* fusion);
 
 
-  static bool ExprEvalScheduler::canScheduleRunTime(
+  static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache) {

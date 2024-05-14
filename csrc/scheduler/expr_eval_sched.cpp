@@ -13,14 +13,6 @@
 
 namespace nvfuser {
 
-ExprEvalScheduler::ExprEvalScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
-  params_ = std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
-}
-
 // Check if the fusion has a single MatmulOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
@@ -31,7 +23,6 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
           heuristicType(), "Fusion must contain a single expression of type MatmulOp");
   return false;
 }
-
 
 void ExprEvalScheduler::schedule(Fusion* fusion) {
   fusion->aliasOutputToInput(
