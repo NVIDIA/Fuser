@@ -181,6 +181,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
