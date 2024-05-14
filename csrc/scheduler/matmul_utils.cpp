@@ -15,11 +15,13 @@
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
 #include <executor_utils.h>
+#include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <val_graph.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -38,9 +40,8 @@
 namespace nvfuser {
 namespace {
 
-//! Access to the structure should be done with labels defined in
-//!  MmaOptions::MmaDomains.
-using ProblemShape = std::array<int64_t, 3>;
+//! Access to the structure should be done with labels defined in MatmulDomain.
+using ProblemShape = std::array<int64_t, 4>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaMacro> getMmaOp(
@@ -158,34 +159,26 @@ inline bool initCoreHeuristics(
 }
 
 //! A helper for getting problem shape from fusion and runtime info.
+//!
+//! For a given domain, try to find the size by evaluating the extent of an
+//! IterDomain in each group of that domain type. For example, if there are
+//! multiple Batch dimensions, we find all ValGroups that are mapped as
+//! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
+//! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
-    const mma_utils::MatmulPattern& pattern,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
     SchedulerRuntimeInfo& runtime_info) {
-  const auto mma_output_domains = mma_utils::getProblemIterDomains(pattern);
-  if (!mma_output_domains.isValid()) {
-    NVF_ERROR(false, mma_output_domains.getErrorMsg());
-  }
-
-  const auto [m, n, k] = mma_output_domains.getData();
-
-  auto m_extend = runtime_info.expressionEvaluator().evaluate(m->extent());
-  auto n_extend = runtime_info.expressionEvaluator().evaluate(n->extent());
-  auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
-
-  if (!(m_extend && n_extend && k_extend)) {
+  ProblemShape shape{1, 1, 1, 1};
+  for (const auto& [g, dom] : group_to_domain) {
+    NVF_ERROR(!g->empty());
+    IterDomain* id = g->front()->as<IterDomain>();
+    const PolymorphicValue extent =
+        runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(
-        false,
-        "Failed to acquire one of problem dimensions, M(",
-        m_extend.hasValue(),
-        "), N(",
-        n_extend.hasValue(),
-        " K(",
-        k_extend.hasValue(),
-        ")");
+        extent.hasValue(), "Could not evaluate extent of ", id->toString());
+    shape[(size_t)dom] *= extent.as<int64_t>();
   }
-
-  return ProblemShape{
-      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
+  return shape;
 }
 
 std::string isMatmulFusionDefinitionSupported(
@@ -471,7 +464,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #2
   {
     const auto input_layout_opt =
-        mma_utils::getMmaLayout(fusion, patterns.front());
+        mma_utils::getProblemLayout(fusion, patterns.front());
     if (!input_layout_opt.isValid()) {
       return input_layout_opt.getErrorMsg();
     }
@@ -531,7 +524,13 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       "Only a single matmul pattern can currently be fused");
   mma_utils::MatmulPattern& pattern = patterns.front();
 
-  const auto problem_shape = getProblemShape(pattern, runtime_info);
+  // IdModel is used to analyze problem shape & layout
+  IdModel id_model(fusion);
+
+  const std::unordered_map<ValGroup, MatmulDomain> id_roles =
+      pattern.getDimRoles(id_model);
+
+  const auto problem_shape = getProblemShape(id_roles, runtime_info);
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
@@ -540,7 +539,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
   params->mma_macro = mma_op.value();
 
-  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion, pattern);
+  const auto& roles_map_opt =
+      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 
@@ -549,17 +549,17 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
-        mma_utils::getMmaLayout(fusion, pattern);
+        mma_utils::getProblemLayout(id_model, id_roles, roles_map);
     NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
     const MmaLayout layout = layout_opt.getData();
 
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
         *params,
-        /*M=*/problem_shape[0],
-        /*N=*/problem_shape[1],
-        /*K=*/problem_shape[2],
-        /*batch_size=*/1, // TODO: extract actual batch size
+        problem_shape[(size_t)MatmulDomain::M],
+        problem_shape[(size_t)MatmulDomain::N],
+        problem_shape[(size_t)MatmulDomain::K],
+        problem_shape[(size_t)MatmulDomain::Batch],
         layout,
         roles_map);
   } else {

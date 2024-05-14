@@ -264,53 +264,74 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 }
 
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
-  // Keep multiples of 8 to keep vectorizable.
-  int M = 504, N = 136, K = 248;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  const auto run = [&](bool expect_aten_eval) {
+    int M = 504, N = 136, K = 248;
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
 
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = matmul(tv0, tv1);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    auto tv2 = matmul(tv0, tv1);
 
-  fusion->addOutput(tv2);
+    fusion->addOutput(tv2);
 
-  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({K, N}, options);
-  auto tref = at::matmul(t0, t1);
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    auto t0 = at::randn({M, K}, options);
+    auto t1 = at::randn({K, N}, options);
+    auto tref = at::matmul(t0, t1);
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
-
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    // Ensure there's a mma op.
-    // If there's no mma op present, then stop the test.
-    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(
-                     executor_cache.getMostRecentKernelRuntime()
-                         ->executors()
-                         .at(0)
-                         .kernel())
-                     .empty());
-    // Ensure that the matmul scheduler ran.
-    EXPECT_TRUE(
-        dynamic_cast<MatmulScheduler*>(
-            executor_cache.getMostRecentKernelRuntime()
-                ->schedulerHeuristics()
-                ->heuristicsList()
-                .at(0)
-                .get()) != nullptr);
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
     EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  }
 
-  testValidate(
-      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+    if (expect_aten_eval) {
+      // Ensure that the matmul scheduler ran.
+      EXPECT_EQ(
+          executor_cache.getMostRecentKernelRuntime()
+              ->schedulerHeuristics()
+              ->heuristicsList()
+              .front()
+              ->heuristic(),
+          ScheduleHeuristic::ExprEval);
+    } else {
+      // Ensure that the matmul scheduler ran.
+      EXPECT_EQ(
+          executor_cache.getMostRecentKernelRuntime()
+              ->schedulerHeuristics()
+              ->heuristicsList()
+              .front()
+              ->heuristic(),
+          ScheduleHeuristic::Matmul);
+      // Ensure there's a mma op.
+      // If there's no mma op present, then stop the test.
+      ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(
+                       executor_cache.getMostRecentKernelRuntime()
+                           ->executors()
+                           .at(0)
+                           .kernel())
+                       .empty());
+    }
+
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+  };
+  // Run the test with and without matmul_expr_eval
+  {
+    DisableOptionsGuard dog;
+    DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+    run(/*expect_aten_eval=*/true);
+  }
+  {
+    DisableOptionsGuard dog;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+    run(/*expect_aten_eval=*/false);
+  }
 }
 
 } // namespace nvfuser

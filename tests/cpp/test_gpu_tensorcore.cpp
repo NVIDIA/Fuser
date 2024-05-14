@@ -3160,7 +3160,7 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
 
           fusion->addOutput(tv2);
 
-          const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+          const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
           NVF_CHECK(
               fusion_layout.isValid(),
               "failed to get decide matmul layout through fusion definition");

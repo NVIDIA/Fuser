@@ -9,8 +9,10 @@
 
 #include <exceptions.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
+#include <val_graph.h>
 #include <visibility.h>
 #include <array>
 #include <variant>
@@ -262,7 +264,14 @@ struct MatmulPattern {
   //! there is a MatmulOp instead, this function modifies the fusion to insert
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
   //! updated to reflect the replacement tensor.
-  void translateToMmaOp();
+  MmaOp* translateToMmaOp();
+
+  //! Given an IdModel, map groups of IterDomains to dimension roles
+  //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
+  //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
+  //! object can safely outlive id_model.
+  std::unordered_map<ValGroup, MatmulDomain> getDimRoles(
+      IdModel& id_model) const;
 };
 
 //! Traverse the fusion to find supported matmul patterns
@@ -289,11 +298,18 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
 NVF_API MatmulProblemLayoutOpt
-getMmaLayout(Fusion* fusion, const MatmulPattern& pattern);
+getProblemLayout(Fusion* fusion, const MatmulPattern& pattern);
 
 //! This overloaded version is just a wrapper on the above function, where
 //! the MatmulPattern is extracted from the fusion.
-NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
+NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+
+//! Determine the problem layout based on allocation domain of inputs. This is
+//! called by the above overloads.
+NVF_API MatmulProblemLayoutOpt getProblemLayout(
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const RolesMap& roles_map);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -309,6 +325,10 @@ ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern);
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 RolesMapOpt getTensorsRoles(Fusion* fusion, const MatmulPattern& pattern);
+RolesMapOpt getTensorsRoles(
+    Fusion* fusion,
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain);
 RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 //! Return pair of whether use shared memory epilogue or not and whether to

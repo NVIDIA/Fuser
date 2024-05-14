@@ -9,11 +9,13 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
+#include <val_graph.h>
 #include <variant>
 #include "mma_type.h"
 namespace nvfuser {
@@ -1100,99 +1102,87 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
        static_cast<TensorView*>(mma_exprs.front()->out())});
 }
 
-MatmulProblemLayoutOpt getMmaLayout(
-    Fusion* fusion,
-    const MatmulPattern& pattern) {
-  ComputeAtMap ca_map(fusion);
-  const auto mma_input_candidates =
-      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
-  if (mma_input_candidates.empty()) {
-    return {"Failed to find any TV that is fusion input"};
-  }
-
-  const auto mma_output_domains = getProblemIterDomains(pattern);
-  if (!mma_output_domains.isValid()) {
-    return mma_output_domains.getErrorMsg();
-  }
-
-  const auto domains_data = mma_output_domains.getData();
-  const auto m = domains_data[(size_t)MatmulDomain::M];
-  const auto n = domains_data[(size_t)MatmulDomain::N];
-  const auto k = domains_data[(size_t)MatmulDomain::K];
-
-  DependenciesMap deps_map;
-  resolveTvToMatmulDomainsMapping(
-      deps_map, mma_input_candidates, m, n, k, ca_map);
-
-  bool mk_found = false;
-  bool km_found = false;
-  bool nk_found = false;
-  bool kn_found = false;
-  const static DomainsDesc mk_desc = {MatmulDomain::M, MatmulDomain::K};
-  const static DomainsDesc km_desc = {MatmulDomain::K, MatmulDomain::M};
-  const static DomainsDesc nk_desc = {MatmulDomain::N, MatmulDomain::K};
-  const static DomainsDesc kn_desc = {MatmulDomain::K, MatmulDomain::N};
-
-  for (const auto& item : deps_map) {
-    if (item.second == mk_desc) {
-      if (mk_found) {
-        return {
-            "Failed to find MMA input, more than one fusion input has [..., M, ..., K, ...] iter domains"};
-      }
-      mk_found = true;
-    }
-    if (item.second == km_desc) {
-      if (km_found) {
-        return {
-            "Failed to find MMA input, more than one fusion input has [..., K, ..., M, ...] iter domains"};
-      }
-      km_found = true;
-    }
-    if (item.second == nk_desc) {
-      if (nk_found) {
-        return {
-            "Failed to find MMA input, more than one fusion input has [..., N, ..., K, ...] iter domains"};
-      }
-      nk_found = true;
-    }
-    if (item.second == kn_desc) {
-      if (kn_found) {
-        return {
-            "Failed to find MMA input, more than one fusion input has [..., K, ..., N, ...] iter domains"};
-      }
-      kn_found = true;
-    }
-  }
-
-  if ((mk_found && kn_found) && !(km_found || nk_found)) {
-    return MmaLayout::TT;
-  }
-  if ((km_found && kn_found) && !(mk_found || nk_found)) {
-    return MmaLayout::NT;
-  }
-  if ((mk_found && nk_found) && !(km_found || kn_found)) {
-    return MmaLayout::TN;
-  }
-  if ((km_found && nk_found) && !(mk_found || kn_found)) {
-    return MmaLayout::NN;
-  }
-
-  return {"Failed to decide fusion inputs' data layout."};
-}
-
-MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (mma_exprs.size() != 1) {
+MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
+  const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
+  if (patterns.size() != 1) {
     std::stringstream ss;
     ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << mma_exprs.size();
+       << patterns.size();
     return ss.str();
   }
-  return getMmaLayout(
-      fusion,
-      {static_cast<TensorView*>(mma_exprs.front()->inA()),
-       static_cast<TensorView*>(mma_exprs.front()->inB()),
-       static_cast<TensorView*>(mma_exprs.front()->out())});
+  return getProblemLayout(fusion, patterns.front());
+}
+
+MatmulProblemLayoutOpt getProblemLayout(
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const RolesMap& roles_map) {
+  // Assumes the exact graph has already been built, since we've been provided
+  // group_to_domain
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  using MatmulDomainOpt = DataWrapperOpt<MatmulDomain>;
+  const auto innerDomain = [&roles_map, &group_to_domain, &exact_graph](
+                               MatmulRole role) -> MatmulDomainOpt {
+    const auto role_it = roles_map.find(role);
+    if (role_it == roles_map.end()) {
+      return {"Could not find role in roles_map"};
+    }
+    std::optional<MatmulDomain> group_inner_dom = std::nullopt;
+    for (TensorView* tv : role_it->second) {
+      IterDomain* inner_id =
+          TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
+      const ValGroup& g = exact_graph.toGroup(inner_id);
+      auto g_it = group_to_domain.find(g);
+      if (g_it == group_to_domain.end()) {
+        return {"Inner domain of tensor was not mapped to a MatmulDomain"};
+      }
+      if (!group_inner_dom.has_value()) {
+        group_inner_dom = g_it->second;
+      } else if (group_inner_dom.value() != g_it->second) {
+        return {"Group contains multiple inner dimension domains"};
+      }
+    }
+    if (!group_inner_dom.has_value()) {
+      return {"No tensor found in role"};
+    }
+    MatmulDomain dom = group_inner_dom.value();
+    return MatmulDomainOpt(std::move(dom));
+  };
+  MatmulDomainOpt a_inner_dom = innerDomain(MatmulRole::INPUT_A);
+  if (!a_inner_dom.isValid()) {
+    return a_inner_dom.getErrorMsg();
+  }
+  MatmulDomainOpt b_inner_dom = innerDomain(MatmulRole::INPUT_B);
+  if (!b_inner_dom.isValid()) {
+    return b_inner_dom.getErrorMsg();
+  }
+
+  bool kinner_a = a_inner_dom.getData() == MatmulDomain::K;
+  bool kinner_b = b_inner_dom.getData() == MatmulDomain::K;
+
+  if (kinner_a && kinner_b) {
+    return MmaLayout::TN;
+  } else if (kinner_a && !kinner_b) {
+    return MmaLayout::TT;
+  } else if (!kinner_a && !kinner_b) {
+    return MmaLayout::NT;
+  } else if (!kinner_a && kinner_b) {
+    return MmaLayout::NN;
+  }
+  NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
+}
+
+MatmulProblemLayoutOpt getProblemLayout(
+    Fusion* fusion,
+    const MatmulPattern& pattern) {
+  IdModel id_model(fusion);
+  const auto id_roles = pattern.getDimRoles(id_model);
+  const auto roles_map_opt = getTensorsRoles(fusion, id_model, id_roles);
+  if (!roles_map_opt.isValid()) {
+    return {roles_map_opt.getErrorMsg()};
+  }
+  return getProblemLayout(id_model, id_roles, roles_map_opt.getData());
 }
 
 RolesMapOpt getTensorsRoles(Fusion* fusion, const MatmulPattern& pattern) {
@@ -1315,6 +1305,127 @@ RolesMapOpt getTensorsRoles(Fusion* fusion, const MatmulPattern& pattern) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
   findOutputRolesByDomains(deps_map, roles_map);
+
+  return roles_map;
+}
+
+RolesMapOpt getTensorsRoles(
+    Fusion* fusion,
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain) {
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+  const auto mma_output_candidates =
+      ir_utils::filterByType<TensorView>(fusion->outputs()).vector();
+  if (mma_output_candidates.empty()) {
+    return {"Failed to find any TV that is fusion output"};
+  }
+
+  RolesMap roles_map;
+
+  // Assumes the exact graph has already been built, since we've been provided
+  // group_to_domain
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  for (TensorView* tv : mma_input_candidates) {
+    bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
+    for (IterDomain* id :
+         TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      const ValGroup& g = exact_graph.toGroup(id);
+      auto it = group_to_domain.find(g);
+      if (it == group_to_domain.end()) {
+        // tv has an unmapped dimension
+        has_unmapped = true;
+        continue;
+      }
+      has_m |= it->second == MatmulDomain::M;
+      has_n |= it->second == MatmulDomain::N;
+      has_k |= it->second == MatmulDomain::K;
+    }
+    if (has_unmapped) {
+      // Don't map TVs to roles if they have unmapped dims
+      continue;
+    }
+    if (has_m && has_k && !has_n) {
+      roles_map[MatmulRole::INPUT_A].push_back(tv);
+      continue;
+    }
+    if (has_n && has_k && !has_m) {
+      roles_map[MatmulRole::INPUT_B].push_back(tv);
+      continue;
+    }
+    // Bias vectors are assigned to INPUT_C role
+    if (!has_k) {
+      roles_map[MatmulRole::INPUT_C].push_back(tv);
+      continue;
+    }
+  }
+
+  std::vector<TensorView*> storage;
+  for (TensorView* tv : mma_input_candidates) {
+    bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
+    for (IterDomain* id :
+         TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      const ValGroup& g = exact_graph.toGroup(id);
+      auto it = group_to_domain.find(g);
+      if (it == group_to_domain.end()) {
+        // tv has an unmapped dimension
+        has_unmapped = true;
+        continue;
+      }
+      has_m |= it->second == MatmulDomain::M;
+      has_n |= it->second == MatmulDomain::N;
+      has_k |= it->second == MatmulDomain::K;
+    }
+    // NOTE: depending on fusion definition k domain may appear in the output:
+    //  - for mma_output == fusion output k domain is present
+    //  - for mma_output != fusion output (fusion with epilogue) k domain
+    //    is not present
+    if (has_k || has_unmapped) {
+      // Don't map TVs to output roles if they have unmapped dims, or if they
+      // have K dimension
+      continue;
+    }
+
+    // NOTE: the core fusion output tensors are the ones with m and n
+    //  domains
+    if (has_m && has_n) {
+      storage.push_back(tv);
+    }
+  }
+
+  // NOTE: sort output roles in descending order by uses() size, and
+  //  if equal then by name() to ensure the stable ordering of tensor
+  //  views in collections assigned to the supported roles
+  std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
+    return (a->uses().size() == b->uses().size())
+        ? (a->name() < b->name())
+        : (a->uses().size() > b->uses().size());
+  });
+
+  if (!storage.empty()) {
+    // NOTE: currently, we pick as a reference tensor one with `m` and `n`
+    //       IterDomains and the most uses
+    auto pos = storage.begin();
+    roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+    for (++pos; pos != storage.end(); ++pos) {
+      roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+    }
+  }
+
+  for (auto& [role, tvs] : roles_map) {
+    // NOTE: sort input roles in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
+    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+  }
 
   return roles_map;
 }
@@ -1535,10 +1646,10 @@ std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion) {
   return MatmulPatternMatcher::run(fusion);
 }
 
-void MatmulPattern::translateToMmaOp() {
-  if (dynamic_cast<MmaOp*>(output->definition())) {
+MmaOp* MatmulPattern::translateToMmaOp() {
+  if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
-    return;
+    return mma_op;
   } else if (auto mop = dynamic_cast<MatmulOp*>(output->definition())) {
     // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
     // must transpose B then broadcast both operands before creating the final
@@ -1551,6 +1662,7 @@ void MatmulPattern::translateToMmaOp() {
     TensorView* Abcast = unsqueeze(A, -2);
     TensorView* Bbcast = unsqueeze(Btrans, -3);
     TensorView* fms = fusedMultiplySum(Abcast, Bbcast, {-1});
+    auto mma_op = fms->definition()->as<MmaOp>();
     // Update operands to keep the pattern minimal
     A = Abcast;
     B = Bbcast;
@@ -1563,11 +1675,80 @@ void MatmulPattern::translateToMmaOp() {
       // No cast needed, for example the inputs might be Float
       ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
     }
+    return mma_op;
   } else if (auto rop = dynamic_cast<ReductionOp*>(output->definition())) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    IrBuilder::create<MmaOp>(output, A, B, init);
+    return IrBuilder::create<MmaOp>(output, A, B, init);
   }
+  NVF_ERROR(
+      false,
+      "Could not translate matmul pattern with output ",
+      output->toString(),
+      " to MmaOp");
+}
+
+std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
+    IdModel& id_model) const {
+  id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
+  // Batch. These are enumerated in the MatmulDomain enum class. They are
+  // defined by their membership as follows:
+  //   M: present in A and output, but not B
+  //   N: present in B and output, but not A
+  //   K: present in A and B, but not output
+  //   Batch: present in all A, B, and Batch
+  // If there are other membership patterns, for example a ValGroup present in
+  // only A, then we should raise an exception here.
+
+  // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
+  // (bit 2)
+  using ValGroupPresence = std::bitset<3>;
+
+  std::unordered_map<ValGroup, ValGroupPresence> present_flags;
+  const auto recordPresence = [&exact_graph, &present_flags](
+                                  TensorView* tv, size_t tensor_num) {
+    std::cout << "recordPresence " << tv->toString() << std::endl;
+    for (IterDomain* id : tv->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        // ignore reductions and broadcasts since they don't exact map to
+        // problem dims
+        continue;
+      }
+      std::cout << "  id=" << id->toString() << std::endl;
+      const ValGroup& g = exact_graph.toGroup(id);
+      std::cout << "    updating bitset " << present_flags[g] << "  to  ";
+      present_flags[g].set(tensor_num);
+      std::cout << present_flags[g] << std::endl;
+    }
+  };
+  A->fusion()->printMath();
+  std::cout << id_model.toString() << std::endl;
+  recordPresence(A, 0);
+  recordPresence(B, 1);
+  recordPresence(output, 2);
+
+  std::unordered_map<ValGroup, MatmulDomain> dim_to_domain;
+  for (const auto& [g, flags] : present_flags) {
+    if (flags.all()) {
+      dim_to_domain[g] = MatmulDomain::Batch;
+    } else if (flags.test(0) && flags.test(1)) {
+      dim_to_domain[g] = MatmulDomain::K;
+    } else if (flags.test(0) && flags.test(2)) {
+      dim_to_domain[g] = MatmulDomain::M;
+    } else if (flags.test(1) && flags.test(2)) {
+      dim_to_domain[g] = MatmulDomain::N;
+    } else {
+      NVF_ERROR(
+          false,
+          "IterDomain ValGroup should be present in at least two of A, B, and output. flags: ",
+          flags);
+    }
+  }
+
+  return dim_to_domain;
 }
 
 } // namespace mma_utils
