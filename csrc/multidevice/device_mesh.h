@@ -32,31 +32,19 @@ class DeviceMesh final {
   // use that instead of the constructor for vectors.
   static DeviceMesh createForNumDevices(int64_t num_devices);
 
-  std::string toString() const;
-
-  // returns the number of devices in the mesh
+  // Returns the number of devices in the mesh
   int64_t size() const {
     return static_cast<int64_t>(vector_.size());
   }
 
-  // returns a vector containing the device indices of the mesh
-  const auto& vector() const {
+  // Returns a vector containing the device indices of the mesh
+  const std::vector<DeviceIdxType>& vector() const {
     return vector_;
   }
 
-  // returns whether a device is present in the mesh
+  // Returns whether a device is present in the mesh
   bool has(const DeviceIdxType device) const {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
-  }
-
-  // returns the index of device in the mesh.
-  // returns -1 if device is not present.
-  int64_t idxOf(const DeviceIdxType device) const {
-    auto it = std::find(vector_.begin(), vector_.end(), device);
-    if (it != vector_.end()) {
-      return std::distance(vector_.begin(), it);
-    }
-    return -1;
   }
 
   // Returns the device at a particular index in the mesh
@@ -69,12 +57,7 @@ class DeviceMesh final {
   }
 
  private:
-  void setDevices(std::vector<DeviceIdxType> devices) {
-    vector_ = devices;
-    NVF_ERROR(
-        std::unique(vector_.begin(), vector_.end()) == vector_.end(),
-        "device mesh has duplicates");
-  }
+  void setDevices(std::vector<DeviceIdxType> devices);
 
   // stores the list of device indices
   std::vector<DeviceIdxType> vector_;
