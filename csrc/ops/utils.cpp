@@ -359,8 +359,9 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<std::vector<IterDomai
     std::vector<IterDomain*> ids_i;
     ids_i.reserve(input_ids.size());
     for (auto ids : input_ids) {
-      if (ids[dim_i] != nullptr)
+      if (ids[dim_i] != nullptr){
         ids_i.emplace_back(ids[dim_i]);
+      }
     }
     out_domain[dim_i] = newOutputIterDomain(ids_i);
   }

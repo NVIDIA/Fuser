@@ -1530,7 +1530,7 @@ def linear_input_generator(
     K = 32
 
     # Cases without bias
-    shapes_input = ((K), (M, K), (B, M, K))
+    shapes_input = ((K), (M, K), (B, M, K), (B, 1, M, K))
     shapes_weight = ((K), (N, K))
     for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
         yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
