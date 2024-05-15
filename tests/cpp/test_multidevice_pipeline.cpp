@@ -217,8 +217,9 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
+DeviceMesh mesh5({1, 0});
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4, mesh5);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4, mesh5);
 
 } // namespace
 
