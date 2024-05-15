@@ -202,13 +202,15 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     auto out_size = consumer_root.size();
 
     // Check if the producer is A, B or bias.
-    MatmulRole input_role;
+    std::optional<MatmulRole> input_role = std::nullopt;
     if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
       input_role = MatmulRole::INPUT_A;
     } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
       input_role = MatmulRole::INPUT_B;
-    } else {
+    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())){
       input_role = MatmulRole::INPUT_C;
+    } else {
+      NVF_ERROR(false, "Producer did not match any LinearOp input.")
     }
 
     // LinearOp:
@@ -218,7 +220,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // output = {*, out_features} / {*}
 
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapLinearOpIterDomains(producer_root, input_role, out_size);
+        ops::mapLinearOpIterDomains(producer_root, input_role.value(), out_size);
 
     for (auto inx : c10::irange(out_size)) {
       IterDomain* producer_id = aligned_producer_ids.at(inx);
