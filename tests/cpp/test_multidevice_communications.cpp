@@ -336,7 +336,6 @@ TEST_P(CommunicationTest, Allreduce) {
 TEST_P(CommunicationTest, ReduceScatter) {
   params.type = CommunicationType::ReduceScatter;
   params.redOp = red_op;
-  params.root = root;
   params.mesh = full_mesh;
   params.team = all_ranks;
   params.scattered_axis = 1;
