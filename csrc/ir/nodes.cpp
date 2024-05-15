@@ -2480,11 +2480,8 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
 
 bool LoadStoreOp::hasInnerTranspose() const {
   if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    auto use_root_or_alloc = out_tv->hasAllocation()
-        ? out_tv->getAllocationDomain()
-        : out_tv->getRootDomain();
     return out_tv->hasRFactor() &&
-        use_root_or_alloc.back() != out_tv->getRFactorDomain().back();
+        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
   }
   return false;
 }
