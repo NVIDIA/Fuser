@@ -2884,6 +2884,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
     MatmulParams params;
     params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.supported_vec_size = {8, 8, 4};
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
