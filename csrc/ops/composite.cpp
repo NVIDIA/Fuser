@@ -276,13 +276,13 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_b = orig_domain_b.size();
 
   // Matmul output size is same as the higher dimensional input size if both A/B
-  // > 1D.
-  auto ndims_out = std::max(ndims_a, ndims_b);
+  // > 1D, but with 1 additional IterType::Reduction axis rK.
+  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
   if (std::min(ndims_a, ndims_b) == 1) {
-    // If one of the inputs is 1D, the output size is 1 less than the higher
-    // dimensional input size, since either M/N axis will be missing in the
-    // output. For eg: [M, K] x [K] -> [M]
-    ndims_out = std::max(ndims_a, ndims_b) - 1;
+    // If one of the inputs is 1D, the output size is the same as the higher
+    // dimensional input size, since we will include a Reduction axis for K in
+    // the output. For example: [iM, iK] x [iK] -> [iM, rK]
+    ndims_out = std::max(ndims_a, ndims_b);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -292,7 +292,7 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
       orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out)) {
+  for (auto idx : c10::irange(ndims_out - 1)) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(2);
     if (mapping_a[idx] != nullptr) {
@@ -303,6 +303,10 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
     }
     out_domain[idx] = ops::newOutputIterDomain(input_ids);
   }
+
+  out_domain[ndims_out - 1] = IterDomainBuilder(mapping_a.back())
+                                  .iter_type(IterType::Reduction)
+                                  .build();
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -331,10 +335,42 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->dtype());
 
+  // Check for K=1 i.e. reduction of broadcast. In these cases we don't need a
+  // matmul so we translate it to a multiplication+cast
+  auto b_k_axis = tv_b->nDims() == 1 ? -1 : -2;
+  NVF_CHECK(
+      tv_a->axis(-1)->isBroadcast() == tv_b->axis(b_k_axis)->isBroadcast(),
+      "K dimension must be broadcast in both operands or none");
+  if (tv_a->axis(-1)->isBroadcast()) {
+    TensorView* float_result = nullptr;
+    if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
+      // [1] @ [1] = []
+      float_result =
+          mul(squeeze(tv_a, std::vector<int64_t>{0}),
+              squeeze(tv_b, std::vector<int64_t>{0}));
+    } else if (tv_a->nDims() == 1) {
+      // [1] @ [..., 1, N] = [..., N]
+      float_result = mul(tv_a, squeeze(tv_b, std::vector<int64_t>{-2}));
+    } else if (tv_b->nDims() == 1) {
+      // [..., M, 1] @ [1] = [..., M]
+      float_result = mul(squeeze(tv_a, std::vector<int64_t>{-1}), tv_b);
+    } else {
+      float_result = mul(tv_a, tv_b);
+    }
+    return maybeCastOp(tv_a->dtype(), float_result);
+  }
+
   if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
     // Return the dot product instead of creating the MatmulOp.
     // Cast back the output if needed since torch.matmul maintains input dtype.
     return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
+  }
+
+  if (tv_b->nDims() > 1 && tv_b->axis(-2)->isBroadcast()) {
+    NVF_ERROR(
+        tv_a->axis(-1)->isBroadcast(),
+        "Mismatched Broadcast in K dimension of operands");
+    // K dimension is broadcast so this is an outer product
   }
 
   // For all other cases, create a new MatmulOp
