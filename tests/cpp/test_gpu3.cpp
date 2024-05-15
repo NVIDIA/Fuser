@@ -8145,9 +8145,11 @@ TEST_F(NVFuserTest, BcastSqueeze) {
   fusion->addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = broadcast(tv1, {false, false, true});
-  auto tv3 = squeeze(tv2, std::vector<bool>{false, false, true});
-  auto tv4 = set(tv3);
-  fusion->addOutput(tv4);
+  auto tv3 = exp(tv2);
+  auto tv4 = mul(tv3, tv2);
+  auto tv5 = squeeze(tv4, std::vector<bool>{false, false, true});
+  auto tv6 = set(tv5);
+  fusion->addOutput(tv6);
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
@@ -8159,6 +8161,38 @@ TEST_F(NVFuserTest, BcastSqueeze) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 }
 
+TEST_F(NVFuserTest, BcastSqueezeNotRedundant) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 8192;
+  const int hidden_size = 1024;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = broadcast(tv2, {false, false, true});
+  auto tv5 = broadcast(tv3, {false, false, true});
+  auto tv6 = mul(tv4, tv5);
+  auto tv7 = squeeze(tv5, std::vector<bool>{false, false, true});
+  auto tv8 = set(tv7);
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv8);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> aten_inputs{t0, t1};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+}
 
 // squeeze + bcast
 TEST_F(NVFuserTest, SqueezeBcast) {
