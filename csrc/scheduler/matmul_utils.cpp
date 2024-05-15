@@ -542,10 +542,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
 
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    return params;
-  }
-
   // Check initial conditions
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);

@@ -324,12 +324,10 @@ ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern);
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-RolesMapOpt getTensorsRoles(Fusion* fusion, const MatmulPattern& pattern);
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain);
-RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block
