@@ -21,6 +21,16 @@ namespace nvfuser {
 // will add support for n-dimensional meshes.
 class DeviceMesh final {
  public:
+  // https://google.github.io/styleguide/cppguide.html#Implicit_Conversions
+  //
+  // Not using `explicit` for the constructor that takes a vector would lead
+  // to contention between operator<<(std::vector) defined in c10/util/Logging.h
+  // and operator<<(DeviceMesh) defined later in this file, which would be
+  // resolved arbitrarily by the compiler.
+  //
+  // There are no such contention for std::initializer_list so I chose to
+  // allow implicit conversion for that. This allows users to write `DeviceMesh
+  // mesh = {1, 2};`, which is more concise.
   explicit DeviceMesh(std::vector<DeviceIdxType> devices = {});
   DeviceMesh(std::initializer_list<DeviceIdxType> devices);
   DeviceMesh(const DeviceMesh&) = default;
