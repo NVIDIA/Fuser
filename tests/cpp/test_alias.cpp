@@ -1220,4 +1220,22 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   }
 }
 
+TEST_F(AliasTest, Reduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  TensorView* out = sum(in, {1});
+  fusion.addOutput(out);
+
+  FusionExecutor fe;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
+}
+
 } // namespace nvfuser
