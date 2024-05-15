@@ -2852,6 +2852,7 @@ class AllocationDomainTest
 // [M, K] and [K, N], and all possible combinations of allocation domains.
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   bool a_has_allocation = std::get<0>(GetParam());
   bool b_has_allocation = std::get<0>(GetParam());
 
