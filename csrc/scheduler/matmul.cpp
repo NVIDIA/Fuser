@@ -734,6 +734,10 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
+// A LoadMatrixTranspose is needed is there's a rfactor which doesn't
+// match the alloc/root domain. If there's no rfactor, then we
+// need a transpose if the alloc domain and root don't match. When we say
+// match, we refer to the innermost iter domain.
 bool needsTranposedLoad(TensorView* out_tv) {
   if (out_tv->hasRFactor()) {
     auto use_root_or_alloc = out_tv->hasAllocation()
@@ -801,7 +805,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto mma_layout_opt = mma->layout();
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  // const auto mma_layout = mma_layout_opt.value();
   const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
@@ -908,7 +911,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       *tv_r = ldst->out()->as<TensorView>();
       ldst->setOpType(
           needsTranposedLoad(*tv_r) ? LoadStoreOpType::LdMatrixTranspose
-                                   : LoadStoreOpType::LdMatrix);
+                                    : LoadStoreOpType::LdMatrix);
     } else {
       *tv_r = tv_smem->cacheAfter(
           needsTranposedLoad(tv_smem) ? LoadStoreOpType::LdMatrixTranspose
