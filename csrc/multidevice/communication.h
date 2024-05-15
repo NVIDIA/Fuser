@@ -38,10 +38,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
 struct CommParams {
   CommunicationType type;
   DeviceIdxType root = -1;
-  bool is_root_in_mesh = true;
-  Team team; // should not have duplicates and should contain both the root and
-             // the mesh
+  DeviceMesh mesh; // Might not contain `root`.
   c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
+  // reduced_axis is always outermost.
   int64_t scattered_axis = -1;
 };
 
@@ -145,9 +144,16 @@ class Communication : public Expr {
     return params_;
   }
 
+  bool isRootInMesh() const {
+    return params_.mesh.has(params_.root);
+  }
+
+  const Team& team();
+
  private:
-  // store the arguments of the communication
+  // Stores the arguments used to construct the communication.
   CommParams params_;
+  Team team_;
 };
 
 // Triggers the execution of the communication. This is a non-blocking call.
