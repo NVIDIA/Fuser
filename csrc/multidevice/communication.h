@@ -35,18 +35,7 @@ enum class CommunicationType {
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
 
-// This struct gathers all the parameters needed to construct a Communication.
-struct CommParams {
-  CommunicationType type;
-  DeviceIdxType root = -1;
-  DeviceMesh mesh; // Might not contain `root`.
-  Team team; // All devices involved in this communication. It must include
-             // `root`. It can be a subset of `root`+`mesh` in case of 2D
-             // sharding.
-  c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
-  // reduced_axis is always outermost.
-  int64_t scattered_axis = -1;
-};
+using RedOpType = c10d::ReduceOp::RedOpType;
 
 // The class "Communication" represents a MPI-style communication
 // communication operation to be executed on the network. The base class
@@ -56,8 +45,22 @@ struct CommParams {
 class Communication : public Expr {
  public:
   using Expr::Expr;
-  Communication(IrBuilderPasskey passkey, CommParams params);
-  Communication(const Communication* src, IrCloner* ir_cloner);
+  // Only specify `root` for types that have root.
+  // Only specify `red_op` for reduction types.
+  // Only specify `scattered_axis` for ReduceScatter.
+  //
+  // TODO: pass in input/output TV and compute root, mesh and scatteredAxis from
+  // them.
+  Communication(
+      IrBuilderPasskey passkey,
+      CommunicationType type,
+      DeviceMesh mesh, // Might not contain `root`.
+      Team team, // All devices involved in this communication. It must include
+                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
+                 // sharding.
+      DeviceIdxType root = -1,
+      RedOpType red_op = RedOpType::UNUSED,
+      int64_t scattered_axis = -1);
 
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;
@@ -72,27 +75,38 @@ class Communication : public Expr {
     return "Communication";
   }
 
-  // TDOO: add params_ (or flattened parameters) as data attributes so this and
-  // the constructor that takes IrCloner aren't needed.
-  bool sameAs(const Statement* other) const override;
+  CommunicationType type() const {
+    return attribute<CommunicationType>(0);
+  }
 
-  const CommParams& params() const {
-    return params_;
+  const DeviceMesh& mesh() const {
+    return attribute<DeviceMesh>(1);
+  }
+
+  const Team& team() const {
+    return attribute<Team>(2);
+  }
+
+  DeviceIdxType root() const {
+    return attribute<DeviceIdxType>(3);
+  }
+
+  RedOpType reduceOp() const {
+    return attribute<RedOpType>(4);
+  }
+
+  int64_t scatteredAxis() const {
+    return attribute<int64_t>(5);
   }
 
   bool isRootInMesh() const {
-    return params_.mesh.has(params_.root);
+    return mesh().has(root());
   }
 
-  const Team& team();
-
- private:
-  // Stores the arguments used to construct the communication.
-  CommParams params_;
-  // This can be computed from params_, but given how frequently this is used
-  // in the hot path, I'm currently storing it as a field that'll be computed by
-  // Communication::team().
-  Team team_;
+  // PyTorch's process group expects the root to be specified
+  // as an integer between 0 and world_size-1. We choose it to be
+  // the device's relative index within the team
+  int64_t getRootRelativeIndex();
 };
 
 // The method "post" triggers the execution of the communication. This call is
