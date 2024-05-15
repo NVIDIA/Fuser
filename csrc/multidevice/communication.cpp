@@ -48,9 +48,7 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
 
 namespace {
 
-inline void assertBufferCount(
-    const std::vector<at::Tensor>& bufs,
-    size_t count) {
+void assertBufferCount(const std::vector<at::Tensor>& bufs, size_t count) {
   NVF_ERROR(
       bufs.size() == count,
       "there must be ",
@@ -60,7 +58,7 @@ inline void assertBufferCount(
       " were given");
 }
 
-inline void assertBuffersHaveSameSize(
+void assertBuffersHaveSameSize(
     const std::vector<at::Tensor>& bufs1,
     const std::vector<at::Tensor>& bufs2) {
   if (bufs1.empty() && bufs2.empty()) {
@@ -76,7 +74,7 @@ inline void assertBuffersHaveSameSize(
   }
 }
 
-inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
+void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
   dst.view_as(src).copy_(src, /*non_blocking=*/true);
 }
 
