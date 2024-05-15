@@ -1518,7 +1518,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     gpuname.reserve(100);
     NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
         &clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
-    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute0(
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
         &width,
         CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
         args.getDeviceIndex()));
