@@ -1173,10 +1173,14 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
+  const ScheduleHeuristic persistent_heuristic =
+      getPersistentHeuristicFor(reduction_type);
+  if (persistent_heuristic != schedule_heuristic) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
-        "schedule_heuristic doesn't match with reduction type.");
+        "schedule_heuristic doesn't match with reduction type `",
+        persistent_heuristic,
+        "`.");
     return false;
   }
 
