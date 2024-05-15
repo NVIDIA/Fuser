@@ -161,8 +161,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
 
     if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-      std::cout << "MAP " << map_key_id->toString() << " -> "
-                << map_value_id->toString() << std::endl;
       dom_map.insert(std::make_pair(map_key_id, map_value_id));
     }
   };

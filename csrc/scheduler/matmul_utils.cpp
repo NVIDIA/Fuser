@@ -183,7 +183,9 @@ ProblemShape getProblemShape(
 
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
-    const mma_utils::MatmulPattern& pattern) {
+    const mma_utils::MatmulPattern& pattern,
+    const mma_utils::RolesMap& roles_map,
+    const std::unordered_map<ValGroup, MatmulDomain>& id_roles) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -195,18 +197,20 @@ std::string isMatmulFusionDefinitionSupported(
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
   constexpr size_t minimal_number_of_inputs = 2;
-  MmaOpUtils::MmaOpDetails mma_details =
-      MmaOpUtils::getMmaOpDetails(pattern.output, pattern.A, pattern.B);
 
   // Quick checks - MmaOp
   {
     // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
     //  or bgemm (requires M/N/K/B == 1)
+    std::array<int64_t, 4> num_axes{};
+    for (const auto& [g, dom] : id_roles) {
+      num_axes[(size_t)dom]++;
+    }
     constexpr size_t expected_axes_numbers = 1;
-    if (mma_details.m_axes.size() != expected_axes_numbers ||
-        mma_details.n_axes.size() != expected_axes_numbers ||
-        mma_details.k_axes.size() != expected_axes_numbers ||
-        mma_details.batch_axes.size() > expected_axes_numbers) {
+    if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -225,12 +229,6 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion, pattern);
-    if (!roles_map_opt.isValid()) {
-      return roles_map_opt.getErrorMsg();
-    }
-
-    const auto& roles_map = roles_map_opt.getData();
     auto entry = roles_map.find(MatmulRole::INPUT_A);
     std::set<TensorView*> tvs_with_roles;
 
@@ -461,19 +459,27 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     return "Only a single matmul pattern can currently be fused";
   }
 
+  // Prepare an IdModel which will be reused to check remaining conditions
+  IdModel id_model(fusion);
+  const auto id_roles = patterns.front().getDimRoles(id_model);
+  const mma_utils::RolesMapOpt roles_map_opt =
+      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+  if (!roles_map_opt.isValid()) {
+    return {roles_map_opt.getErrorMsg()};
+  }
+  mma_utils::RolesMap roles_map = roles_map_opt.getData();
+
   // #2
-  {
-    const auto input_layout_opt =
-        mma_utils::getProblemLayout(fusion, patterns.front());
-    if (!input_layout_opt.isValid()) {
-      return input_layout_opt.getErrorMsg();
-    }
+  const auto input_layout_opt =
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+  if (!input_layout_opt.isValid()) {
+    return input_layout_opt.getErrorMsg();
   }
 
   // #3
   {
-    auto support_status =
-        isMatmulFusionDefinitionSupported(fusion, patterns.front());
+    auto support_status = isMatmulFusionDefinitionSupported(
+        fusion, patterns.front(), roles_map, id_roles);
     if (!support_status.empty()) {
       return support_status;
     }

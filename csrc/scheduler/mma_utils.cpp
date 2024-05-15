@@ -1365,7 +1365,7 @@ RolesMapOpt getTensorsRoles(
   }
 
   std::vector<TensorView*> storage;
-  for (TensorView* tv : mma_input_candidates) {
+  for (TensorView* tv : mma_output_candidates) {
     bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
     for (IterDomain* id :
          TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
@@ -1710,22 +1710,16 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   std::unordered_map<ValGroup, ValGroupPresence> present_flags;
   const auto recordPresence = [&exact_graph, &present_flags](
                                   TensorView* tv, size_t tensor_num) {
-    std::cout << "recordPresence " << tv->toString() << std::endl;
     for (IterDomain* id : tv->getMaybeRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         // ignore reductions and broadcasts since they don't exact map to
         // problem dims
         continue;
       }
-      std::cout << "  id=" << id->toString() << std::endl;
       const ValGroup& g = exact_graph.toGroup(id);
-      std::cout << "    updating bitset " << present_flags[g] << "  to  ";
       present_flags[g].set(tensor_num);
-      std::cout << present_flags[g] << std::endl;
     }
   };
-  A->fusion()->printMath();
-  std::cout << id_model.toString() << std::endl;
   recordPresence(A, 0);
   recordPresence(B, 1);
   recordPresence(output, 2);
